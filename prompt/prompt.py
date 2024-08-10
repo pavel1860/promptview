@@ -308,9 +308,10 @@ class ChatPrompt(BaseModel):
                     tools=actions,
                     response_model=response_model,
                     tool_choice=tool_choice or self.tool_choice,
-                    tracer_run=prompt_run, 
+                    tracer_run=prompt_run,
+                    output_parser=self._output_parser if self._output_parser_method is not None else None,
                 )
-                response_message = await self._output_parser(response_message, **kwargs)
+                # response_message = await self._output_parser(response_message, **kwargs)
                 prompt_run.end(outputs={'output': response_message})
                 
                 return response_message
