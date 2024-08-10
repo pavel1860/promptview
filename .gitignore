@@ -1,0 +1,14 @@
+research
+**/*.pyc
+data
+.env
+.ipynb_checkpoints
+.DS_Store
+.vscode
+*.env
+out
+dist
+build
+*.egg-info
+__pycache__
+msgs_*.pkl
