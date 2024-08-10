@@ -1,12 +1,9 @@
 import os
 from typing import Any, List
 
-# from langchain.schema.embeddings import Embeddings
-import langchain.schema.embeddings as lang_embeddings
-from langchain.pydantic_v1 import BaseModel
-from openai import AsyncOpenAI
-from pinecone_text.dense import OpenAIEncoder
-from pinecone_text.sparse import BM25Encoder
+from pydantic import BaseModel
+
+
 
 from promptview.llms.utils.openai_clients import build_async_openai_embeddings_client
 
@@ -33,45 +30,6 @@ class Embeddings(BaseModel):
         )
     
 
-
-    
-
-
-class HybridAdaMB25Embeddings(BaseModel, lang_embeddings.Embeddings):
-
-    sparse_embeddings: Any
-    dense_embeddings: Any
-
-    def __init__(self):
-        super().__init__()
-        # self.sparse_embeddings = BM25Encoder.default()
-        self.sparse_embeddings = None
-        # self.dense_embeddings = OpenAIEmbeddings(model=openai_model)
-        self.dense_embeddings = OpenAIEncoder()
-
-
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        if type(texts) == str:
-            texts = [texts]
-        sparse_embeddings = self.sparse_embeddings.encode_documents(texts) if self.sparse_embeddings else None
-        dense_embeddings = self.dense_embeddings.encode_documents(texts)
-        return Embeddings(
-            dense=dense_embeddings,
-            sparse=sparse_embeddings
-        )
-        # return {
-        #     'sparse_embeddings': sparse_embeddings, 
-        #     'dense_embeddings': dense_embeddings
-        # }
-
-    def embed_query(self, text: str) -> List[float]:
-        """Embed query text."""
-        sparse_embeddings = self.sparse_embeddings.encode_queries(text)
-        dense_embeddings = self.dense_embeddings.encode_queries(text)
-        return Embeddings(
-            dense=dense_embeddings,
-            sparse=sparse_embeddings
-        )
 
 
 
