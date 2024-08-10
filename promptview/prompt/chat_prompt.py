@@ -1,18 +1,17 @@
 import inspect
 import json
-from typing import (Any, Awaitable, Callable, Dict, Generator, List, Literal,
-                    Optional, Tuple, Type, Union, get_args)
+from functools import wraps
+from typing import (Any, Awaitable, Callable, Dict, Generator, Generic, List,
+                    Literal, Optional, Tuple, Type, TypeVar, Union, get_args)
 
-from promptview.llms.context import Context
-from promptview.llms.messages import (AIMessage, BaseMessage,
-                                              HumanMessage, SystemMessage,
-                                              validate_msgs)
-from promptview.utils.function_utils import call_function
 from promptview.llms import LLM, OpenAiLLM
-from promptview.prompt.mvc import (ViewNode, create_view_node, render_view)
+from promptview.llms.context import Context
+from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
+                                      SystemMessage, validate_msgs)
 from promptview.llms.tracer import Tracer
+from promptview.prompt.mvc import ViewNode, create_view_node, render_view
+from promptview.utils.function_utils import call_function
 from pydantic import BaseModel, Field
-
 
 
 def render_base_model_schema(base_model: BaseModel) -> str:
@@ -68,9 +67,9 @@ async def render_view_arg(arg: Any, title: str, **kwargs) -> str:
     else:
         raise ValueError("Invalid view arg")
 
+T = TypeVar('T')
 
-
-class ChatPrompt(BaseModel):
+class ChatPrompt(BaseModel, Generic[T]):
     name: str | None = None
     model: str= "gpt-3.5-turbo-0125"
     llm: LLM = Field(default_factory=OpenAiLLM)
@@ -141,34 +140,6 @@ class ChatPrompt(BaseModel):
                 context=context, 
                 **kwargs
             )
-        # if self.rules is not None:
-        #     if inspect.isfunction(self.rules):  
-        #         rules = await call_function(self.rules, context=context, **kwargs)
-        #     else:
-        #         rules = self.rules
-        #     system_prompt += "\nRules:\n"                                      
-        #     if isinstance(rules, list):
-        #         system_prompt += "\n".join(rules) + "\n"
-        #     elif isinstance(rules, str):
-        #         system_prompt += rules + "\n"    
-                
-        # if self.examples:
-        #     if inspect.isfunction(self.examples):
-        #         examples = await call_function(self.examples, context=context, **kwargs)
-        #     else:
-        #         examples = self.examples
-        #     if examples:
-        #         system_prompt += "\nExamples:\n"
-        #         if isinstance(examples, list):
-        #             system_prompt += "\n".join(examples) + "\n"
-        #         elif isinstance(examples, str):
-        #             system_prompt += examples + "\n"
-        #         elif isinstance(examples, ViewNode):
-        #             prompt, _, _ = render_view(examples, **kwargs)
-        #             system_prompt += prompt
-        #         else:
-        #             raise ValueError("Invalid examples format")
-            
             
     
         return SystemMessage(content=system_prompt)
@@ -208,7 +179,7 @@ class ChatPrompt(BaseModel):
         return views
     
     
-    async def _output_parser(self, response_message: AIMessage | None, **kwargs: Any) -> Dict[str, Any]:
+    async def _output_parser(self, response_message: AIMessage | None, **kwargs: Any) -> T:
         return await call_function(
             self.output_parser if self._output_parser_method is None else self._output_parser_method, 
             response_message,
@@ -267,7 +238,7 @@ class ChatPrompt(BaseModel):
             tracer_run: Tracer | None=None,
             output_messages: bool = False,
             **kwargs: Any
-        ) -> AIMessage | List[BaseMessage] | str:
+        ) -> T:
         
         with Tracer(
                 is_traceable=self.is_traceable,
@@ -304,8 +275,8 @@ class ChatPrompt(BaseModel):
                     **kwargs
                 )
                 
-                if output_messages:
-                    return messages
+                # if output_messages:
+                    # return messages
                 
                 response_message = await self.llm.complete(
                     msgs=messages,
@@ -313,11 +284,12 @@ class ChatPrompt(BaseModel):
                     response_model=response_model,
                     tool_choice=tool_choice or self.tool_choice,
                     tracer_run=prompt_run, 
+                    output_parser=self._output_parser if self._output_parser_method is not None else None,
                 )
-                response_message = await self._output_parser(response_message, **kwargs)
+                # response_message = await self._output_parser(response_message, **kwargs)
                 prompt_run.end(outputs={'output': response_message})
                 
-                return response_message
+                return response_message #type: ignore
             except Exception as e:
                 prompt_run.end(errors=str(e))
                 raise e

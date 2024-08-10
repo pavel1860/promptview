@@ -1,5 +1,6 @@
 
 from typing import Optional
+
 from promptview.llms.clients.azure_client import AzureOpenAiLlmClient
 from promptview.llms.clients.base import BaseLlmClient
 from promptview.llms.llm import LLM
@@ -23,10 +24,6 @@ class AzureOpenAiLLM(LLM):
             azure_deployment=azure_deployment,            
         )
         super().__init__(
-            client= client,
-            api_key=api_key,
-            api_version=api_version,
-            azure_endpoint=azure_endpoint,
-            azure_deployment=azure_deployment,
+            client= client,            
             **kwargs
         )
