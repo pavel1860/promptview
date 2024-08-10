@@ -1,8 +1,5 @@
-
-import asyncio
 import inspect
 import json
-from functools import wraps
 from typing import (Any, Awaitable, Callable, Dict, Generator, List, Literal,
                     Optional, Tuple, Type, Union, get_args)
 
@@ -11,10 +8,11 @@ from promptview.llms.messages import (AIMessage, BaseMessage,
                                               HumanMessage, SystemMessage,
                                               validate_msgs)
 from promptview.utils.function_utils import call_function
-from promptview.llms.llm import AzureOpenAiLLM, OpenAiLLM
+from promptview.llms import LLM, OpenAiLLM
 from promptview.prompt.mvc import (ViewNode, create_view_node, render_view)
 from promptview.llms.tracer import Tracer
 from pydantic import BaseModel, Field
+
 
 
 def render_base_model_schema(base_model: BaseModel) -> str:
@@ -75,7 +73,7 @@ async def render_view_arg(arg: Any, title: str, **kwargs) -> str:
 class ChatPrompt(BaseModel):
     name: str | None = None
     model: str= "gpt-3.5-turbo-0125"
-    llm: Union[OpenAiLLM, AzureOpenAiLLM] = Field(default_factory=OpenAiLLM)
+    llm: LLM = Field(default_factory=OpenAiLLM)
     
     system_prompt: Optional[str] = None
     background: Optional[str] = None

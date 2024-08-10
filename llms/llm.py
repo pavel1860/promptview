@@ -10,6 +10,10 @@ from typing import (Any, Coroutine, Dict, Generic, Iterable, List, Literal,
 import aiohttp
 import openai
 import tiktoken
+from promptview.llms.clients.azure_client import AzureOpenAiLlmClient
+from promptview.llms.clients.openai_client import OpenAiLlmClient
+from promptview.llms.clients.phi_llm_client import PhiLlmClient
+from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.utils.completion_parsing2 import OutputParser
 from pydantic import BaseModel, Field, ValidationError, validator
 
@@ -20,8 +24,7 @@ from .tracer import Tracer
 
 
 
-rate_limit_event = asyncio.Event()
-rate_limit_event.set()
+
 
 ToolChoice = Literal['auto', 'required', 'none']
 
@@ -55,10 +58,6 @@ chat_models = [
 
 
 
-class LlmError(Exception):
-    pass
-
-
 
 def encode_logits(string: str, bias_value: int, encoding_model: str) -> int:
     """Returns the number of tokens in a text string."""
@@ -81,153 +80,13 @@ class LlmChunk(BaseModel):
     content: str
     finish: Optional[bool] = False
     
-    
-    
-class BaseLlmClient(BaseModel):
-    client: Any
-    async def complete(self, msgs, **kwargs):
-        pass
-
-
-class PhiLlmClient(BaseLlmClient):
-    # url: str = "http://localhost:3000/complete"
-    # url: str = "http://skynet/text/complete"
-    # url: str = "http://skynet/text/complete_chat"
-    # url: str = "http://skynet1/text/complete_chat"
-    url: str = "http://skynet1:31001/complete_chat"
-    
-    # url: str = "http://localhost:3000/complete_chat"
-    # url: str = "http://localhost:8001/complete"
-    # url: str = "http://localhost:8001/complete_chat"
-    # url: str = "http://skynet1/text/complete"
-
-    async def fetch(self, session, url, data=None):
-        headers = {'Content-Type': 'application/json'}  # Ensure headers specify JSON
-        async with session.post(url, data=json.dumps(data), headers=headers) as response:
-            return await response.text(), response.status
-
-    def preprocess_complete(self, msgs):
-        prompt = ""
-        for msg in msgs:
-            if msg.role == "system":
-                prompt += f"""
-    Instruct: {msg.content}
-    Output: Ok got it!
-    """
-            elif msg.role == "user":
-                prompt += f"Instruct: {msg.content}\n"
-            elif msg.role == "assistant":
-                prompt += f"Output: {msg.content}\n"
-        prompt += "Output:"
-        return prompt
-
-    def preprocess(self, msgs):
-        return [m.dict() for m in msgs]
-
-
-    async def complete(self, msgs, **kwargs):
-        msgs = self.preprocess(msgs)
-        async with aiohttp.ClientSession() as session:        
-            content, status = await self.fetch(session, self.url, data={
-                # "prompt": prompt,
-                "messages": msgs,
-                "max_new_tokens": kwargs.get("max_tokens", 200),
-                "stop_sequences": kwargs.get("stop", [])        
-            })
-            if status != 200:
-                raise LlmError(content)
-            res_msg = json.loads(content)            
-            return AIMessage(content=res_msg['content'])
-
-
-class OpenAiLlmClient(BaseLlmClient):
-
-
-    def __init__(self, api_key=None):
-        # self.client = build_async_openai_client()
-        super().__init__(
-            client = openai.AsyncClient(
-                api_key=api_key or os.getenv("OPENAI_API_KEY")
-            )
-        )
-
-    def preprocess(self, msgs):
-        return [msg.to_openai() for msg in msgs if msg.is_valid()]
-
-    async def complete(self, msgs, tools=None, run_id: str=None, **kwargs):
-        msgs = self.preprocess(msgs)
-        openai_completion = await self.client.chat.completions.create(
-            messages=msgs,
-            tools=tools,
-            **kwargs
-        )
-        return openai_completion
 
 
 
-
-def azure_arg_filters(key, value):
-    if key == "parallel_tool_calls":
-        return False
-    elif key == "tool_choice" and value == "required":
-        return False
-    return True
-
-
-async def check_event_status(event, name):
-    if event.is_set():
-        print(f'{name} found the event is SET. openai api is free for requests')
-    else:
-        print(f'{name} found the event is NOT SET. RATE LIMIT HIT. waiting for event to be set.')
-    
-class AzureOpenAiLlmClient(BaseLlmClient):
-
-
-    def __init__(self, api_key: str, api_version: str, azure_endpoint:str, azure_deployment: str):
-        super().__init__(
-            client=openai.AsyncAzureOpenAI(
-                    api_key=api_key,
-                    api_version=api_version,
-                    azure_endpoint=azure_endpoint,
-                    azure_deployment=azure_deployment,
-                ) 
-        )
-
-    def preprocess(self, msgs):
-        return [msg.to_openai() for msg in msgs if msg.is_valid()]
-
-    async def complete(self, msgs, tools=None, retries=10, run_id: str| None=None, **kwargs):
-        kwargs = {k: v for k, v in kwargs.items() if azure_arg_filters(k, v)}            
-        msgs = self.preprocess(msgs)
-        await rate_limit_event.wait()
-        for i in range(retries):
-            try:
-                openai_completion = await self.client.chat.completions.create(
-                    messages=msgs,
-                    tools=tools,
-                    **kwargs
-                )
-                return openai_completion
-            except openai.RateLimitError as e:
-                print("hit rate limit")
-                rate_limit_event.clear()
-                await asyncio.sleep(60)
-                rate_limit_event.set()
-                continue
-            except Exception as e:
-                print("other exception", e)
-                raise e
-        
-
-
-class LLMToolNotFound(Exception):
-    pass
 
 
 class LLM(BaseModel):
 
-    # model="gpt-3.5-turbo-0125"
-    # name="OpenAiLLM"
     model: str
     name: str
     temperature: Optional[float] = None
@@ -241,7 +100,7 @@ class LLM(BaseModel):
     frequency_penalty: Optional[float] = None
     is_traceable: Optional[bool] = True
     seed: Optional[int] = None
-    client: Union[OpenAiLlmClient, PhiLlmClient]    
+    client: Union[OpenAiLlmClient, PhiLlmClient, AzureOpenAiLlmClient]    
     parallel_tool_calls: Optional[bool] = True
 
     class Config:
@@ -457,51 +316,8 @@ class LLM(BaseModel):
     
 
 
-class OpenAiLLM(LLM):
-    name: str = "OpenAiLLM"    
-    client: Union[OpenAiLlmClient, PhiLlmClient] = Field(default_factory=OpenAiLlmClient)
-    model: str = "gpt-3.5-turbo-0125"
-    api_key: Optional[str] = None
-
-    # def __init__(self, **data):    
-    #     client = OpenAiLlmClient()
-    #     OpenAiLlmClient(api_key=self.api_key)
-    #     super().__init__(**data)
 
 
-class PhiLLM(LLM):
-    name: str = "PhiLLM"
-    stop_sequences: List[str]=["Instruct"]
-    client: Union[OpenAiLlmClient, PhiLlmClient] = Field(default_factory=PhiLlmClient)
-    model: str = "microsoft/phi-2"
-
-
-class AzureOpenAiLLM(LLM):
-    name: str = "AzureOpenAiLLM"
-    # client: Union[OpenAiLlmClient, PhiLlmClient] = Field(default_factory=OpenAiLlmClient)
-    client: BaseLlmClient
-    model: str = "gpt-3.5-turbo-0125"
-    api_key: Optional[str] = None
-    api_version: Optional[str] = "2023-12-01-preview"
-    azure_endpoint: Optional[str] = None
-    azure_deployment: Optional[str] = None
-    
-
-    def __init__(self, api_key, api_version, azure_endpoint, azure_deployment, **kwargs):
-        client = AzureOpenAiLlmClient(
-            api_key=api_key,
-            api_version=api_version,
-            azure_endpoint=azure_endpoint,
-            azure_deployment=azure_deployment,            
-        )
-        super().__init__(
-            client= client,
-            api_key=api_key,
-            api_version=api_version,
-            azure_endpoint=azure_endpoint,
-            azure_deployment=azure_deployment,
-            **kwargs
-        )
 
 class CustomMessage(BaseModel):
     content: str

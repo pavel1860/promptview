@@ -1,15 +1,10 @@
-
-import asyncio
-import inspect
-import json
 from functools import wraps
-from typing import (Any, Awaitable, Callable, Dict, Generator, List, Literal,
-                    Optional, Tuple, Type, Union, get_args)
+from typing import (Awaitable, Callable, List, Literal,
+                    Optional, Tuple, Type)
 
-from promptview.llms.context import Context
+from promptview.llms.llm import LLM
 from promptview.llms.messages import (AIMessage, )
-from promptview.utils.function_utils import call_function
-from promptview.llms.llm import AzureOpenAiLLM, OpenAiLLM
+from promptview.llms import OpenAiLLM
 from promptview.prompt.chat_prompt import ChatPrompt
 from pydantic import BaseModel, Field
 
@@ -18,7 +13,7 @@ from pydantic import BaseModel, Field
 
 def prompt(
     model: str = "gpt-3.5-turbo-0125",
-    llm: Union[OpenAiLLM, AzureOpenAiLLM, None] = None,
+    llm: LLM | None = None,
     system_prompt: Optional[str] = None,
     background: Optional[str] = None,
     task: Optional[str] = None,
