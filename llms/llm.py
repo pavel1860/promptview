@@ -13,11 +13,10 @@ import tiktoken
 from promptview.llms.utils.completion_parsing2 import OutputParser
 from pydantic import BaseModel, Field, ValidationError, validator
 
+from promptview.utils.model_utils import schema_to_function
+
 from .messages import (AIMessage, HumanMessage, SystemMessage)
 from .tracer import Tracer
-
-# from pydantic.v1.error_wrappers import ValidationError
-
 
 
 
@@ -27,30 +26,6 @@ rate_limit_event.set()
 ToolChoice = Literal['auto', 'required', 'none']
 
 
-def remove_a_key(d, remove_key):
-    if isinstance(d, dict):
-        for key in list(d.keys()):
-            if key == remove_key:
-                del d[key]
-            else:
-                remove_a_key(d[key], remove_key)
-
-def schema_to_function(schema: Any):
-    assert schema.__doc__, f"{schema.__name__} is missing a docstring."
-    assert (
-        "title" not in schema.__fields__.keys()
-    ), "`title` is a reserved keyword and cannot be used as a field name."
-    schema_dict = schema.model_json_schema()
-    remove_a_key(schema_dict, "title")
-
-    return {
-        "type": "function",
-        "function": {
-            "name": schema.__name__,
-            "description": schema.__doc__,
-            "parameters": schema_dict,
-        }
-    }
 
 
 

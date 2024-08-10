@@ -4,12 +4,38 @@ from typing import Any, Optional
 
 from promptview.llms.utils.completion_parsing import (is_list_model,
                                                     unpack_list_model)
-from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, create_model
 
 
 class Config:
     arbitrary_types_allowed = True
+
+
+
+def remove_a_key(d, remove_key):
+    if isinstance(d, dict):
+        for key in list(d.keys()):
+            if key == remove_key:
+                del d[key]
+            else:
+                remove_a_key(d[key], remove_key)
+
+def schema_to_function(schema: Any):
+    assert schema.__doc__, f"{schema.__name__} is missing a docstring."
+    assert (
+        "title" not in schema.__fields__.keys()
+    ), "`title` is a reserved keyword and cannot be used as a field name."
+    schema_dict = schema.model_json_schema()
+    remove_a_key(schema_dict, "title")
+
+    return {
+        "type": "function",
+        "function": {
+            "name": schema.__name__,
+            "description": schema.__doc__,
+            "parameters": schema_dict,
+        }
+    }
 
 
 def make_optional(model: BaseModel) -> BaseModel:
@@ -78,7 +104,7 @@ def serialize_class(cls_: Any):
         schema = output_class.model_json_schema()
         version = 'v2'
     else:
-        schema = convert_to_openai_tool(output_class)
+        schema = schema_to_function(output_class)
         version = 'v1'
     return {
         "type": output_type,

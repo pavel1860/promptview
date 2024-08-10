@@ -3,9 +3,8 @@ from typing import Type, get_args
 
 from promptview.llms.utils.completion_parsing import (is_list_model,
                                                     unpack_list_model)
-from promptview.utils.model_utils import iterate_class_fields, serialize_class
+from promptview.utils.model_utils import iterate_class_fields, schema_to_function, serialize_class
 from promptview.vectors.rag_documents import RagDocuments
-from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel
 
 
@@ -16,7 +15,7 @@ def get_prompt_output_class(prompt_cls):
 def extract_json_schema(cls_):
     if hasattr(cls_, 'model_json_schema'):
         return cls_.model_json_schema()
-    return convert_to_openai_tool(cls_)
+    return schema_to_function(cls_)
 
 
 
@@ -26,9 +25,9 @@ def serialize_asset(asset_cls):
     return {
         # "input_class": convert_to_openai_tool(asset.input_class).get('function', None),
         # "output_class": convert_to_openai_tool(asset.output_class).get('function', None),
-        "input_class": convert_to_openai_tool(asset.input_class) if asset.input_class is not None else None,
-        "output_class": convert_to_openai_tool(asset.output_class),
-        "metadata_class": convert_to_openai_tool(asset.metadata_class),
+        "input_class": schema_to_function(asset.input_class) if asset.input_class is not None else None,
+        "output_class": schema_to_function(asset.output_class),
+        "metadata_class": schema_to_function(asset.metadata_class),
     }
     
 
