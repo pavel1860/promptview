@@ -2,10 +2,7 @@ import inspect
 import re
 from enum import Enum
 from typing import Optional, Union, get_args, get_origin, get_type_hints
-
 import yaml
-from langchain_core.output_parsers.openai_tools import PydanticToolsParser
-from langchain_openai import ChatOpenAI
 
 
 def sanitize_text(text: str):
@@ -25,33 +22,6 @@ def parse_bool(text):
         raise PromptParsingException(f"Value {text} is not a valid boolean")
 
 
-
-
-# class CompletionParser:
-
-#     def __init__(self, pydantic_model=None) -> None:
-#         llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0)
-#         llm_with_tools = llm.bind_tools([pydantic_model])                
-#         self.tool_chain = llm_with_tools | PydanticToolsParser(tools=[pydantic_model])
-
-#     async def parse(self, competion):
-#         output = await self.tool_chain.ainvoke(competion)        
-#         if len(output) == 0:
-#             raise PromptParsingException("No output was generated")
-#         return output[0]
-
-class CompletionParser:
-
-    def __init__(self, pydantic_model=None) -> None:
-        llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0)
-        llm_with_tools = llm.bind_tools([pydantic_model])                
-        self.tool_chain = llm_with_tools | PydanticToolsParser(tools=[pydantic_model])
-
-    async def parse(self, competion):
-        output = await self.tool_chain.ainvoke(competion)        
-        if len(output) == 0:
-            raise PromptParsingException("No output was generated")
-        return output[0]
 
 
 

@@ -1,8 +1,6 @@
 import json
-from typing import Optional
-from pydantic import BaseModel, create_model
-from langchain_core.utils.function_calling import convert_to_openai_tool
-import inspect
+from pydantic import BaseModel
+
 
 
 
@@ -96,5 +94,5 @@ class ModelSchemaPromptParser:
                 prompt += param_promp
         return prompt
 
-    def get_schema(self, model_instance):
-        return convert_to_openai_tool(model_instance)
+    def get_schema(self, model_instance: BaseModel):
+        return model_instance.model_json_schema()
