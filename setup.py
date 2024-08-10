@@ -10,8 +10,6 @@ setup(
     packages=find_packages(),
     install_requires=[
         "numpy==1.26.4",
-        "langchain==0.1.9",
-        "langchain-openai==0.0.5",
         "pydantic>=2.8.2, <3",
         "tiktoken==0.5.2",
         "pinecone-text==0.9.0",
