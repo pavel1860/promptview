@@ -5,9 +5,9 @@ from enum import Enum
 from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 from uuid import uuid4
 
-from chatboard.text.vectors.fussion.rsf_fussion import rsf_fussion
-from chatboard.text.vectors.stores.base import OrderBy, VectorStoreBase
-from chatboard.text.vectors.vectorizers.base import (VectorizerBase,
+from promptview.vectors.fussion.rsf_fussion import rsf_fussion
+from promptview.vectors.stores.base import OrderBy, VectorStoreBase
+from promptview.vectors.vectorizers.base import (VectorizerBase,
                                                      VectorizerDenseBase,
                                                      VectorizerSparseBase,
                                                      VectorMetrics)

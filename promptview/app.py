@@ -2,13 +2,13 @@ import asyncio
 import os
 from typing import Any, List, Literal, Optional
 
-from chatboard.text.app_manager import app_manager
-from chatboard.text.llms.utils.completion_parsing import (is_list_model,
+from promptview.app_manager import app_manager
+from promptview.llms.utils.completion_parsing import (is_list_model,
                                                     unpack_list_model)
-from chatboard.text.llms.prompt_tracer import PromptTracer
-from chatboard.text.llms.tracer_api import get_run_messages
-from chatboard.text.vectors.rag_documents2 import RagDocuments
-from chatboard.text.vectors.stores.base import OrderBy
+from promptview.llms.prompt_tracer import PromptTracer
+from promptview.llms.tracer_api import get_run_messages
+from promptview.vectors.rag_documents import RagDocuments
+from promptview.vectors.stores.base import OrderBy
 from fastapi import FastAPI
 from fastapi.concurrency import asynccontextmanager
 from pydantic import BaseModel
@@ -36,7 +36,7 @@ class DeleteRagParams(BaseModel):
 
 
 
-def add_chatboard(app, rag_namespaces=None, assets=None, profiles=None, prompts=None):
+def add_promptboard(app, rag_namespaces=None, assets=None, profiles=None, prompts=None):
 
     if rag_namespaces:
         for space in rag_namespaces:            
@@ -57,32 +57,32 @@ def add_chatboard(app, rag_namespaces=None, assets=None, profiles=None, prompts=
 
 
     @asynccontextmanager
-    async def init_chatboard(app: FastAPI):
-        print("Initializing chatboard...")
+    async def init_promptboard(app: FastAPI):
+        print("Initializing promptboard...")
         await app_manager.verify_rag_spaces()
         yield
 
 
-    # app.router.lifespan_context = init_chatboard
+    # app.router.lifespan_context = init_promptboard
 
     
-    @app.get('/chatboard/metadata')
-    def get_chatboard_metadata():
+    @app.get('/promptboard/metadata')
+    def get_promptboard_metadata():
         app_metadata = app_manager.get_metadata()
         # return {"metadata": app_metadata}
         return app_metadata
     
-    print("Chatboard added to app.")
+    print("promptboard added to app.")
 
 
-    @app.get("/chatboard/get_asset_documents")
+    @app.get("/promptboard/get_asset_documents")
     async def get_asset_documents(asset: str):
         asset_cls = app_manager.assets[asset]
         asset_instance = asset_cls()
         res = await asset_instance.get_assets()
         return [r.to_dict() for r in res]
     
-    @app.get("/chatboard/rag_documents/{namespace}")
+    @app.get("/promptboard/rag_documents/{namespace}")
     # async def get_rag_documents(namespace: str, offset: int = 0, limit: int = 10):
     async def get_rag_documents(namespace: str, page: int = 0, pageSize: int = 10, sortField: str | None=None, sortOrder: Literal["asc", "desc"] | None=None):
         rag_cls = app_manager.rag_spaces[namespace]["metadata_class"]
@@ -99,7 +99,7 @@ def add_chatboard(app, rag_namespaces=None, assets=None, profiles=None, prompts=
         return [r.to_dict() for r in res]
     
 
-    @app.post("/chatboard/get_rag_document")
+    @app.post("/promptboard/get_rag_document")
     async def get_rag_document(body: GetRagParams):
         print(body.namespace)
         rag_cls = app_manager.rag_spaces[body.namespace]["metadata_class"]
@@ -109,7 +109,7 @@ def add_chatboard(app, rag_namespaces=None, assets=None, profiles=None, prompts=
         return res
 
 
-    @app.post("/chatboard/rag_documents/upsert_rag_document")
+    @app.post("/promptboard/rag_documents/upsert_rag_document")
     async def upsert_rag_document(body: UpsertRagParams):
         rag_cls = app_manager.rag_spaces[body.namespace]["metadata_class"]
         ns = app_manager.rag_spaces[body.namespace]["namespace"]
@@ -134,7 +134,7 @@ def add_chatboard(app, rag_namespaces=None, assets=None, profiles=None, prompts=
         res = await rag_space.add_documents([key], [value], doc_id) #type: ignore
         return [r.to_dict() for r in res]
     
-    @app.get('/chatboard/get_asset_partition')
+    @app.get('/promptboard/get_asset_partition')
     async def get_asset_partition(asset: str, field: str, partition: str):
         asset_cls = app_manager.assets[asset]
         asset_instance = asset_cls()
@@ -142,19 +142,19 @@ def add_chatboard(app, rag_namespaces=None, assets=None, profiles=None, prompts=
         return [a.to_json() for a in assets]
 
 
-    @app.get('/chatboard/get_profile_partition')
+    @app.get('/promptboard/get_profile_partition')
     async def get_profile_partition(profile: str, partition: str):
         profile_cls = app_manager.profiles[profile]
         profile_list = await profile_cls.get_many()        
         return [p.to_dict() for p in profile_list]
     
 
-    @app.post("/chatboard/edit_document")
+    @app.post("/promptboard/edit_document")
     def edit_rag_document():
         return {}
     
 
-    @app.get("/chatboard/get_runs")
+    @app.get("/promptboard/get_runs")
     async def get_runs(limit: int = 10, offset: int = 0, runNames: Optional[List[str]] = None):
         LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "default")
         tracer = PromptTracer()
@@ -162,7 +162,7 @@ def add_chatboard(app, rag_namespaces=None, assets=None, profiles=None, prompts=
         return [r.run for r in runs]
     
 
-    @app.get("/chatboard/get_run_tree")
+    @app.get("/promptboard/get_run_tree")
     async def get_run_tree(run_id: str):
         tracer = PromptTracer()
         run = await tracer.aget_run(run_id)
@@ -170,7 +170,7 @@ def add_chatboard(app, rag_namespaces=None, assets=None, profiles=None, prompts=
     
 
 
-    @app.get("/chatboard/get_trace")
+    @app.get("/promptboard/get_trace")
     async def get_trace(run_id: str):
         tracer = PromptTracer()
         run = await tracer.aget_run(run_id)

@@ -193,6 +193,12 @@ class ChatPrompt(BaseModel):
                 context=context, 
                 **kwargs
             )
+        if isinstance(views, str) or isinstance(views, BaseModel):
+            return ViewNode(
+                name=self.name or self.__class__.__name__,
+                views=views,
+                role='user',
+            ) 
         if isinstance(views, list):
             return views
         elif isinstance(views, tuple):

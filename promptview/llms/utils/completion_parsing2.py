@@ -1,9 +1,8 @@
-from chatboard.text.llms.utils.completion_parsing import parse_bool, sanitize_content, split_rows, to_dict
+from promptview.llms.utils.completion_parsing import parse_bool, sanitize_content, split_rows, to_dict
 from enum import Enum
-from chatboard.text.llms.utils.completion_parsing import search_field, split_field
+from promptview.llms.utils.completion_parsing import search_field, split_field
 from typing import Optional, Union, get_type_hints, get_origin, get_args, Type
-from legacy2.text.llms.views import BaseModel
-# from pydantic import BaseModel
+from pydantic import BaseModel
 import inspect
 
 class SplitAction(str, Enum):

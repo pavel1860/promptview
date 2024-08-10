@@ -1,11 +1,10 @@
 import asyncio
 from typing import Type, get_args
 
-from chatboard.text.llms.utils.completion_parsing import (is_list_model,
+from promptview.llms.utils.completion_parsing import (is_list_model,
                                                     unpack_list_model)
-from chatboard.text.llms.model_utils import iterate_class_fields, serialize_class
-from legacy2.text.llms.prompt import Prompt
-from chatboard.text.vectors.rag_documents2 import RagDocuments
+from promptview.utils.model_utils import iterate_class_fields, serialize_class
+from promptview.vectors.rag_documents import RagDocuments
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel
 
@@ -76,7 +75,7 @@ class AppManager(metaclass=SingletonMeta):
         self.profiles = {}
 
 
-    def register_rag_space(self, namespace: str, metadata_class: Type[BaseModel] | Type[str], prompt: Prompt | None = None):
+    def register_rag_space(self, namespace: str, metadata_class: Type[BaseModel] | Type[str], prompt = None):
         if namespace in self.rag_spaces:
             return
         self.rag_spaces[namespace] = {
