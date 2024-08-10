@@ -7,7 +7,6 @@ import uuid
 
 
 from promptview.app_manager import app_manager
-# from chatboard.text.llms.history import History
 from promptview.llms.history import History
 from pydantic import BaseModel, Field
 from promptview.llms.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage

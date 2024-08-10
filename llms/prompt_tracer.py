@@ -1,7 +1,4 @@
 import asyncio
-# from components.etl.rag_manager import RagVector
-# from config import LANGCHAIN_PROJECT, OPENAI_API_KEY, PINECONE_ENV, PINECONE_KEY
-# from chatboard.text.llms.prompt_manager import RagVector
 import json
 import os
 from typing import Any, Dict, List, Union

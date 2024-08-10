@@ -13,8 +13,7 @@ import tiktoken
 from promptview.llms.utils.completion_parsing2 import OutputParser
 from pydantic import BaseModel, Field, ValidationError, validator
 
-from .messages import (AIMessage, HumanMessage, SystemMessage,
-                           from_langchain_message)
+from .messages import (AIMessage, HumanMessage, SystemMessage)
 from .tracer import Tracer
 
 # from pydantic.v1.error_wrappers import ValidationError
@@ -180,7 +179,7 @@ class OpenAiLlmClient(BaseLlmClient):
     def preprocess(self, msgs):
         return [msg.to_openai() for msg in msgs if msg.is_valid()]
 
-    async def complete(self, msgs, tools=None, **kwargs):
+    async def complete(self, msgs, tools=None, run_id: str=None, **kwargs):
         msgs = self.preprocess(msgs)
         openai_completion = await self.client.chat.completions.create(
             messages=msgs,
@@ -228,7 +227,6 @@ class AzureOpenAiLlmClient(BaseLlmClient):
         await rate_limit_event.wait()
         for i in range(retries):
             try:
-                print(f"SENDING-{run_id}")
                 openai_completion = await self.client.chat.completions.create(
                     messages=msgs,
                     tools=tools,

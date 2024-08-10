@@ -1,7 +1,7 @@
 from typing import Any, List
 
-from chatboard.text.vectors.embeddings.text_embeddings import DenseEmbeddings
-from chatboard.text.vectors.vectorizers.base import (VectorizerBase,
+from promptview.vectors.embeddings.text_embeddings import DenseEmbeddings
+from promptview.vectors.vectorizers.base import (VectorizerBase,
                                                      VectorizerDenseBase,
                                                      VectorMetrics)
 from pydantic import BaseModel, Field
