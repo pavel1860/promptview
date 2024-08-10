@@ -4,11 +4,11 @@ import json
 import os
 import re
 from time import time
-from typing import (Any, Coroutine, Dict, Generic, Iterable, List, Literal,
+from typing import (Any, Callable, Coroutine, Dict, Generic, Iterable, List, Literal,
                     Optional, Tuple, Type, TypeVar, Union)
 
-import aiohttp
-import openai
+from promptview.llms.utils.completion_parsing import PromptParsingException
+from promptview.utils.function_utils import call_function
 import tiktoken
 from promptview.llms.clients.azure_client import AzureOpenAiLlmClient
 from promptview.llms.clients.openai_client import OpenAiLlmClient
@@ -174,6 +174,7 @@ class LLM(BaseModel):
             completion=None,
             retries=3, 
             smart_retry=True,
+            output_parser: Callable | None=None,
             # logprobs: bool=False,
             **kwargs):
 
@@ -213,9 +214,15 @@ class LLM(BaseModel):
                         run_id=str(llm_run.id),
                         # logprobs=logprobs,
                         **llm_kwargs)                    
-                
                     ai_message = self.parse_output(completion, tools, tool_choice, response_model)
-                    ai_message.run_id = str(llm_run.id)                    
+                    ai_message.run_id = str(llm_run.id)
+                    if output_parser:                        
+                        ai_message = await call_function(
+                            ai_message,
+                            output_parser,
+                            llm_response=completion, 
+                        )                    
+                    
                     llm_run.end(outputs=completion)
                     return ai_message
                 except LLMToolNotFound as e:
@@ -225,6 +232,13 @@ class LLM(BaseModel):
                         raise e
                     if smart_retry:
                         msgs.append(HumanMessage(content=f"there is no such tool:\n{str(e)}"))
+                except PromptParsingException as e:
+                    print("prompt parsing exception")
+                    if try_num == retries - 1:
+                        llm_run.end(errors=str(e))
+                        raise e
+                    if smart_retry:
+                        msgs.append(HumanMessage(content=f"could not parse output:\n{str(e)}"))
                 except ValidationError as e:
                     print(f"try {try_num} validation error")
                     if try_num == retries - 1:
