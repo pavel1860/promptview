@@ -4,27 +4,22 @@ import json
 import os
 import re
 from time import time
-from typing import (Any, Callable, Coroutine, Dict, Generic, Iterable, List, Literal,
-                    Optional, Tuple, Type, TypeVar, Union)
+from typing import (Any, Callable, Coroutine, Dict, Generic, Iterable, List,
+                    Literal, Optional, Tuple, Type, TypeVar, Union)
 
-from promptview.llms.utils.completion_parsing import PromptParsingException
-from promptview.utils.function_utils import call_function
 import tiktoken
 from promptview.llms.clients.azure_client import AzureOpenAiLlmClient
 from promptview.llms.clients.openai_client import OpenAiLlmClient
 from promptview.llms.clients.phi_llm_client import PhiLlmClient
 from promptview.llms.exceptions import LLMToolNotFound
+from promptview.llms.utils.completion_parsing import PromptParsingException
 from promptview.llms.utils.completion_parsing2 import OutputParser
+from promptview.utils.function_utils import call_function
+from promptview.utils.model_utils import schema_to_function
 from pydantic import BaseModel, Field, ValidationError, validator
 
-from promptview.utils.model_utils import schema_to_function
-
-from .messages import (AIMessage, HumanMessage, SystemMessage)
+from .messages import AIMessage, HumanMessage, SystemMessage
 from .tracer import Tracer
-
-
-
-
 
 ToolChoice = Literal['auto', 'required', 'none']
 
@@ -183,8 +178,8 @@ class LLM(BaseModel):
         extra = metadata.copy()
         extra.update(llm_kwargs)  
 
-        if completion:
-            return custom_completion(completion)
+        # if completion:
+            # return custom_completion(completion)
 
 
         with Tracer(

@@ -1,17 +1,16 @@
 from functools import wraps
-from typing import (Awaitable, Callable, List, Literal,
-                    Optional, Tuple, Type)
+from typing import (Any, Awaitable, Callable, List, Literal, Optional, Tuple,
+                    Type, TypeVar)
 
-from promptview.llms.llm import LLM
-from promptview.llms.messages import (AIMessage, )
 from promptview.llms import OpenAiLLM
+from promptview.llms.llm import LLM
+from promptview.llms.messages import AIMessage
 from promptview.prompt.chat_prompt import ChatPrompt
 from pydantic import BaseModel, Field
 
+T = TypeVar('T')
 
-
-
-def prompt(
+def prompt(    
     model: str = "gpt-3.5-turbo-0125",
     llm: LLM | None = None,
     system_prompt: Optional[str] = None,
@@ -23,19 +22,19 @@ def prompt(
     response_model: Optional[Type[BaseModel]] = None,
     parallel_actions: bool = True,
     is_traceable: bool = True,
-    output_parser: Optional[Callable] = None,
-    tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,    
+    output_parser: Callable[[AIMessage], T] | None = None,
+    tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,
 ):
     if llm is None:
         llm = OpenAiLLM(
             model=model, 
             parallel_tool_calls=parallel_actions
         )
-    def decorator(func) -> Callable[..., Awaitable[AIMessage]]:
+    def decorator(func) -> Callable[..., Awaitable[T]]:
         
         @wraps(func)
-        async def wrapper(**kwargs) -> AIMessage:
-            prompt = ChatPrompt(
+        async def wrapper(**kwargs) -> T:
+            prompt = ChatPrompt[T](
                 name=func.__name__,
                 model=model,
                 llm=llm,
