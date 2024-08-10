@@ -5,7 +5,7 @@ from typing import (Any, Awaitable, Callable, Dict, Generator, Generic, List,
                     Literal, Optional, Tuple, Type, TypeVar, Union, get_args)
 
 from promptview.llms import LLM, OpenAiLLM
-from promptview.llms.context import Context
+from promptview.state.context import Context
 from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
                                       SystemMessage, validate_msgs)
 from promptview.llms.tracer import Tracer

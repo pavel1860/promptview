@@ -1,3 +1,4 @@
+from enum import Enum
 import inspect
 import json
 from typing import Any, Optional
@@ -111,3 +112,10 @@ def serialize_class(cls_: Any):
         "schema": schema,
         "pydantic_version": version
     }
+
+
+
+
+
+def describe_enum(enum_cls: Enum):
+    return ", ".join([v.value for v in enum_cls])
