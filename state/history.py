@@ -42,5 +42,5 @@ class History:
     async def load(self, context):
         return self.history
     
-    async def save(self, context, message: BaseMessage, run_id: str):
+    async def save(self, context, message: BaseMessage, run_id: str, prompt: str):
         return 

@@ -1,12 +1,12 @@
 import copy
 from abc import abstractmethod
 from typing import Any, Dict, List, Literal, TypedDict
-
+from datetime import datetime
 
 class OrderBy(TypedDict):
     key: str
     direction: Literal["asc", "desc"]
-    start_from: int
+    start_from: int | float | datetime
 
 
 class VectorStoreBase:
