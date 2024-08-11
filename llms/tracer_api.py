@@ -1,10 +1,9 @@
 from datetime import datetime
 from typing import Dict, List, Union
 
-from promptview.llms.messages import (AIMessage, HumanMessage,
-                                              SystemMessage)
 from openai.types.chat.chat_completion_message_tool_call import \
     ChatCompletionMessageToolCall
+from promptview.llms.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
 
 
@@ -75,7 +74,7 @@ class LsRun(LsRunBase):
     @property
     def messages(self):
         if self.children and self.children[0].run_type == "llm":
-            return self.children[0].messages
+            return self.children[0].messages # type: ignore
         return None
     
     @property
@@ -96,7 +95,7 @@ class LsRun(LsRunBase):
     def show(self, idx=None, tabs=0 ):
         idx_str = f"{idx}. " if idx is not None else ""
         tabs_str = '\t' * tabs
-        return f"{tabs_str}{idx_str}{self.name} - {self.run_type}\n" + "\n".join([f"{c.show(i, tabs+1)}" for i, c in enumerate(self.children)])
+        return f"{tabs_str}{idx_str}{self.name} - {self.run_type}\n" + "\n".join([f"{c.show(i, tabs+1)}" for i, c in enumerate(self.children)]) # type: ignore
     
     def __iter__(self):
         return iter(self.children)

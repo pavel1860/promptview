@@ -1,18 +1,15 @@
 
 
 
+import uuid
 from datetime import datetime
 from typing import Any, List, Union
-import uuid
-
 
 from promptview.app_manager import app_manager
 from promptview.llms.history import History
+from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
+                                      SystemMessage)
 from pydantic import BaseModel, Field
-from promptview.llms.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
-
-
-
 
 
 class Context(BaseModel):
@@ -22,9 +19,9 @@ class Context(BaseModel):
     curr_prompt: str | None = None
     curr_prompt_cls: Any = None
     curr_prompt_gen: Any = None
-    curr_description: str = None
+    curr_description: str | None = None
 
-    message: str = None
+    message: str | None = None
     history: History = Field(default_factory=History)
     created_at: datetime = Field(default_factory=datetime.now)
 
@@ -47,7 +44,7 @@ class Context(BaseModel):
     def get_prompt(self):
         raise NotImplementedError
 
-    def set_prompt(self, prompt_name: str):
+    def set_prompt(self, prompt_name: str | None):
         raise NotImplementedError
         
     def get_history(self):

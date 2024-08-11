@@ -2,6 +2,7 @@ import inspect
 import re
 from enum import Enum
 from typing import Optional, Union, get_args, get_origin, get_type_hints
+
 import yaml
 
 
@@ -192,7 +193,7 @@ def auto_split_row_completion(curr_content, chunk, output, curr_field, pydantic_
     curr_content += chunk
     for field_name, field_info in pydantic_model.__fields__.items():
         if search_field(field_name, curr_content):
-            prev_content, curr_content = split_field(field_name, curr_content)
+            prev_content, curr_content = split_field(field_name, curr_content) #type: ignore
             if curr_field:
                 # another field had been found, so we assign the content to the previous field                
                 output[curr_field] = sanitize_content(prev_content)
@@ -218,7 +219,7 @@ def auto_split_completion(curr_content, chunk, output, curr_field, pydantic_mode
     curr_content += chunk
     for field_name, field_info in pydantic_model.__fields__.items():
         if search_field(field_name, curr_content):
-            prev_content, curr_content = split_field(field_name, curr_content)
+            prev_content, curr_content = split_field(field_name, curr_content) #type: ignore
             if prev_content and curr_field:
                 """another field had been found, so we assign the content to the previous field"""
                 output[curr_field] = sanitize_content(prev_content)
@@ -231,17 +232,17 @@ def auto_split_list_completion(pydantic_model, curr_content, chunk, output_list=
     is_new_output = False
     if not output_list:
         output = to_dict(pydantic_model)
-        output_list.append(output)
+        output_list.append(output)#type: ignore
     else:
         output = output_list[-1]
     curr_content += chunk
     for field_name, field_info in pydantic_model.__fields__.items():
         if search_field(field_name, curr_content):
-            prev_content, curr_content = split_field(field_name, curr_content)
+            prev_content, curr_content = split_field(field_name, curr_content)#type: ignore
             if prev_content and curr_field:
                 if output.get(curr_field) is not None:
                     output = to_dict(pydantic_model)
-                    output_list.append(output)
+                    output_list.append(output)#type: ignore
                     is_new_output = True
                 output[curr_field] = sanitize_content(prev_content)
             curr_field = field_name

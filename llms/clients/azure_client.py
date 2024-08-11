@@ -2,11 +2,11 @@
 
 
 import asyncio
+import random
+import re
+
 import openai
 from promptview.llms.clients.base import BaseLlmClient
-
-
-
 
 rate_limit_event = asyncio.Event()
 rate_limit_event.set()
@@ -26,6 +26,16 @@ def azure_arg_filters(key, value):
     elif key == "tool_choice" and value == "required":
         return False
     return True
+
+
+def get_delay_from_exception(e: Exception) -> int:
+    if "retry after" in str(e):
+        match = re.search(r"retry after (\d+) seconds", str(e))
+        if match:
+            random_buffer = random.randrange(1, 10)
+            delay = int(match.group(1)) + random_buffer
+            return delay
+    return 60
 
 class AzureOpenAiLlmClient(BaseLlmClient):
 
@@ -57,8 +67,9 @@ class AzureOpenAiLlmClient(BaseLlmClient):
                 return openai_completion
             except openai.RateLimitError as e:
                 print("hit rate limit")
+                sleep_time = get_delay_from_exception(e)
                 rate_limit_event.clear()
-                await asyncio.sleep(60)
+                await asyncio.sleep(sleep_time)
                 rate_limit_event.set()
                 continue
             except Exception as e:

@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Literal, Optional, Union
+
 from pydantic import BaseModel, Field, validator
-
-
 
 
 class BaseMessage(BaseModel):
@@ -50,7 +49,7 @@ class AIMessage(BaseMessage):
         if self.tool_calls:            
             oai_msg = {
                 "role": self.role,
-                "content": self.content + "\n".join([f"{t.function.name}\n{t.function.arguments}" for t in self.tool_calls])
+                "content": (self.content or '') + "\n".join([f"{t.function.name}\n{t.function.arguments}" for t in self.tool_calls])
             }
         else:
             oai_msg = {
@@ -122,10 +121,10 @@ class ActionMessage(BaseMessage):
     
     def to_openai(self):
         return {
-          "tool_call_id": self.tool_call.id,
-          "role": "tool",
-          "name": self.name,
-          "content": self.content
+            "tool_call_id": self.tool_call.id,
+            "role": "tool",
+            "name": self.name,
+            "content": self.content
         }
         
 
