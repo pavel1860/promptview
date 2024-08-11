@@ -1,14 +1,15 @@
 
-from functools import wraps
-from typing import Dict, List, Optional, Type, Union
-from pydantic import BaseModel
-from promptview.state.context import Context
-from promptview.llms.messages import ActionMessage, HumanMessage
-from promptview.utils.function_utils import call_function, filter_func_args
-from promptview.prompt.chat_prompt import ChatPrompt
-from promptview.llms.tracer import Tracer
 import inspect
+from functools import wraps
+from typing import Callable, Dict, List, Optional, Type, Union
+
+from promptview.llms.messages import ActionMessage, HumanMessage
+from promptview.llms.tracer import Tracer
+from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.decorator import prompt
+from promptview.state.context import Context
+from promptview.utils.function_utils import call_function, filter_func_args
+from pydantic import BaseModel
 
 
 class AgentRouter(BaseModel):
@@ -18,9 +19,9 @@ class AgentRouter(BaseModel):
     router_prompt: Type[ChatPrompt] | None = None
     add_input_history: bool = False    
 
-    _action_handlers: Dict[str, callable] = {}
+    _action_handlers: Dict[str, Callable] = {}
 
-    def handle(self, action: BaseModel, handler: callable):
+    def handle(self, action: BaseModel, handler: Callable):
         self._action_handlers[action.__name__] =  handler
 
     
@@ -40,7 +41,16 @@ class AgentRouter(BaseModel):
             action_output = None
             for i in range(iterations):
                 # response = await self.router_prompt(context=context, message=message, tracer_run=tracer_run, **kwargs)                
-                response = await call_function(self.router_prompt.__call__, context=context, message=message, tracer_run=tracer_run, action_output=action_output, **kwargs)
+                if self.router_prompt is not None:
+                    response = await call_function(
+                        self.router_prompt.__call__, 
+                        context=context, 
+                        message=message, 
+                        tracer_run=tracer_run, 
+                        action_output=action_output, 
+                        **kwargs)
+                else:
+                    raise ValueError("Router prompt not set")
                 context.history.add(context, response, str(tracer_run.id), self.name)
                 if response.content:
                     yield response
@@ -78,7 +88,7 @@ class AgentRouter(BaseModel):
                     
                 if not has_action_response:
                     break
-                message = None                  
+                message = None #type: ignore           
             tracer_run.end(outputs={"status": "success"})
 
 
@@ -132,4 +142,4 @@ class AgentRouter(BaseModel):
     
     
     
-AgentRouter.prompt = prompt
+AgentRouter.prompt = prompt # type: ignore

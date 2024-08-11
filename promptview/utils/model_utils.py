@@ -1,10 +1,10 @@
-from enum import Enum
 import inspect
 import json
-from typing import Any, Optional
+from enum import Enum
+from typing import Any, Optional, Type
 
 from promptview.llms.utils.completion_parsing import (is_list_model,
-                                                    unpack_list_model)
+                                                      unpack_list_model)
 from pydantic import BaseModel, create_model
 
 
@@ -117,5 +117,5 @@ def serialize_class(cls_: Any):
 
 
 
-def describe_enum(enum_cls: Enum):
+def describe_enum(enum_cls: Type[Enum]):
     return ", ".join([v.value for v in enum_cls])
