@@ -3,10 +3,8 @@ import json
 import os
 from typing import Any, Dict, List, Union
 
-
 from langsmith import Client
 from langsmith.schemas import Feedback, Run
-
 from promptview.llms.messages import AIMessage, HumanMessage, SystemMessage
 
 LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "default")
@@ -18,11 +16,11 @@ class PromptRun:
 
     def __init__(self, run: Run, is_prompt=False):
         self.run = run
-        self.children = []
-        self.llm_run = None
-        self.prompt_run = None
-        self.sequence_run = None
-        self.is_prompt = is_prompt
+        self.children: Any = []
+        self.llm_run: Any = None
+        self.prompt_run: Any = None
+        self.sequence_run: Any = None
+        self.is_prompt: Any = is_prompt
 
 
     def __getitem__(self, index):
@@ -174,6 +172,8 @@ class PromptRun:
     
     @property
     def duration(self):
+        if self.run.end_time is None:
+            return None
         return self.run.end_time - self.run.start_time
     
     @property
@@ -184,12 +184,13 @@ class PromptRun:
         return self.run.feedback_stats
     
     def get_parent_Ids(self):
-        return [str(p) for p in self.run.parent_run_ids]
+        return [str(p) for p in self.run.parent_run_ids]#type: ignore
     
     @property
     def metadata(self):
-        if 'metadata' in self.run.extra:
-            return self.run.extra['metadata']
+        
+        if 'metadata' in self.run.extra:#type: ignore
+            return self.run.extra['metadata']#type: ignore
         return {}
     
     @property
@@ -211,7 +212,7 @@ class PromptRun:
     
     @property
     def output(self):        
-        return self.run.outputs['output']['content']
+        return self.run.outputs['output']['content'] #type: ignore
     
     @property
     def prompt_name(self):
@@ -288,7 +289,7 @@ class PromptTracer:
 
     def get_run_list(
             self, 
-            name: Union[str, List[str]]=None,             
+            name: List[str] | str | None = None,             
             execution_order=None, 
             filter=None, 
             project_name=LANGCHAIN_PROJECT, 
@@ -299,9 +300,9 @@ class PromptTracer:
         active_filter = None
         if name is not None:
             if type(name) != list:
-                name = [name]
+                name = [name] #type: ignore
             name_filters = []
-            for n in name:
+            for n in name: #type: ignore
                 name_filters.append(f'eq(name, "{n}")')
             active_filter = ",".join(name_filters)
             if len(name_filters) > 1:
@@ -327,7 +328,7 @@ class PromptTracer:
     
     async def aget_runs(
             self, 
-            name: Union[str, List[str]]=None, 
+            name: List[str] | str | None = None, 
             execution_order=1, 
             filter=None, 
             project_name=LANGCHAIN_PROJECT, 
@@ -400,7 +401,7 @@ class PromptTracer:
     
     async def aget_run_states(self, run_id: str):
         return await asyncio.get_running_loop().run_in_executor(
-            None, self.get_run_states, run_id
+            None, self.get_run_states, run_id#type: ignore
         )
     
     def delete_run(self, run_id: str):
@@ -411,16 +412,16 @@ class PromptTracer:
             None, self.delete_run, run_id
         )
 
-    def list_feedback(self, run_ids: Union[str,  List[str]]=None) -> List[Feedback]:
+    def list_feedback(self, run_ids: List[str] | str | None=None) -> List[Feedback]:
         if type(run_ids) != list:
-            run_ids = [run_ids]
+            run_ids = [run_ids]#type: ignore
         
         feedback_list = []
         for f in  self.client.list_feedback(run_ids=run_ids):
             feedback_list.append(f)
         return feedback_list
     
-    async def alist_feedback(self, run_ids: Union[str,  List[str]]=None) -> List[Feedback]:
+    async def alist_feedback(self, run_ids: List[str] | str | None=None) -> List[Feedback]:
         return await asyncio.get_running_loop().run_in_executor(
             None, self.list_feedback, run_ids
         )
@@ -459,7 +460,7 @@ class PromptTracer:
             key=key,
             score=score,
             value= value,
-            correction= correction,
+            correction=correction,#type: ignore
             comment= comment,
             source_info= source_info,
             # feedback_source_type= feedback_source_type,
@@ -488,35 +489,44 @@ class PromptTracer:
         key: str, 
         score: Union[float , int , bool , None] = None, 
         value: Union[float , int , bool , str , dict , None] = None,
-        correction: Union[str, dict, None] = None,
+        correction: dict[Any, Any] | None = None,
         comment: Union[str, None] = None,
         source_info: Union[Dict[str, Any] , None] = None,
         feedback_source_type: str = "API",
     ):       
         return self.client.update_feedback(
             feedback_id=feedback_id,
-            key=key,
+            # key=key,
             score=score,
             value= value,
             correction= correction,
             comment= comment,
-            source_info= source_info,
-            feedback_source_type= feedback_source_type,
+            # source_info= source_info,
+            # feedback_source_type= feedback_source_type,
         )
     
     async def aupdate_feedback(
         self, 
         feedback_id: str, 
-        key: str, 
+        # key: str, 
         score: Union[float , int , bool , None] = None, 
         value: Union[float , int , bool , str , dict , None] = None,
         correction: Union[str, dict, None] = None,
         comment: Union[str, None] = None,
-        source_info: Union[Dict[str, Any] , None] = None,
-        feedback_source_type: str = "API",
+        # source_info: Union[Dict[str, Any] , None] = None,
+        # feedback_source_type: str = "API",
     ):       
         return await asyncio.get_running_loop().run_in_executor(
-            None, self.update_feedback, feedback_id, key, score, value, correction, comment, source_info, feedback_source_type
+            # None, 
+            self.update_feedback, 
+            feedback_id, #type: ignore
+            # key, 
+            score, 
+            value, 
+            correction, 
+            comment, 
+            # source_info, 
+            # feedback_source_type
         )
     
     def delete_feedback(
@@ -531,7 +541,7 @@ class PromptTracer:
     def delete_all_feedback(self, run_id: str):
         feedback_list = self.list_feedback(run_id)
         for f in feedback_list:
-            self.delete_feedback(f.id)
+            self.delete_feedback(f.id)#type: ignore
 
     def tag(self, run_id: str, tags: List[str] | str):
         if type(tags) == str:
@@ -547,25 +557,7 @@ class PromptTracer:
 
 
     def get_run_step(self, run_id: str, step_idx: int, pydantic_model):
-        run = self.get_run(run_id)
-        # prompt_runs = [r for r in run.run.child_runs if r.run_type == "prompt"]
-        step_run = run.run.child_runs[step_idx]
+        run = self.get_run(run_id)        
+        step_run = run.run.child_runs[step_idx] #type: ignore
         return {}
-        # return RagVector[pydantic_model](
-        #     id= str(step_run.id),
-        #     metadata=pydantic_model(**{            
-        #         "state": step_run.inputs['state'],
-        #         "action": step_run.outputs['state']['_actions'][-1],
-        #         "message": step_run.outputs['state']['_conversation']['messages'][-1],
-        #     })
-        # )
-        # return RagVector[pydantic_model](
-        #     id= str(step_run.id),
-        #     metadata=pydantic_model(**{            
-        #         "state": step_run.inputs['state'],
-        #         "message": step_run.outputs['message'],
-        #         "actions": [run.outputs['tool_calls'][0] for run in prompt_runs[:step_idx + 1]]
-        #     })
-        # )
         
-         

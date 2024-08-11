@@ -1,8 +1,8 @@
+import time
+
+import iso639
 from langdetect import detect
 from langdetect.lang_detect_exception import LangDetectException
-import iso639
-
-import time
 
 
 def get_language(text, return_code=False):

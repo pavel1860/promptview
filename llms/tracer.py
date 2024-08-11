@@ -6,16 +6,18 @@
 
 import os
 import traceback
-from typing import Dict, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from langsmith import RunTree
-
 
 # class RunTree(ls_schemas.RunBase):
 # outputs: Optional[Dict] = None
 # error: Optional[str] = None,
 # end_time: Optional[datetime] = None,
 # events: Optional[Sequence[ls_schemas.RunEvent]] = None,
+
+RunTypes = Literal["tool", "chain", "llm", "retriever", "embedding", "prompt", "parser"]
+
 class Tracer:
     """
     Tracer class to trace the execution of the code.
@@ -29,7 +31,16 @@ class Tracer:
         is_traceable (bool): If the tracer is traceable or not
     """
 
-    def __init__(self, name, inputs, run_type="chain", extra={}, tracer_run=None, is_traceable=True, tags=None):
+    def __init__(
+        self, 
+        name: str, 
+        inputs: Any, 
+        run_type: RunTypes="chain", 
+        extra: Dict[str, Any]={}, 
+        tracer_run=None, 
+        is_traceable: bool | None=True, 
+        tags: List[str] | str | None=None
+    ):
         self.is_traceable = is_traceable
         self.tracer_run = None
         if not self.is_traceable:
@@ -63,38 +74,36 @@ class Tracer:
 
     @property
     def id(self):
-        if not self.is_traceable:
-            return
-        return self.tracer_run.id
+        if self.is_traceable and self.tracer_run is not None:            
+            return self.tracer_run.id
 
     def __enter__(self):
         return self
 
-    def end(self, outputs: Optional[Dict]=None, errors: Optional[str]=None):
-        if not self.is_traceable:
-            return
-        self.tracer_run.end(outputs=outputs, error=errors)
+    def end(self, outputs: Any | None = None, errors: Optional[str]=None):
+        if self.is_traceable and self.tracer_run is not None:
+            self.tracer_run.end(outputs=outputs, error=errors)
 
 
     def end_documents(self, documents, errors: Optional[str]=None):
-        if not self.is_traceable:
-            return
-        self.tracer_run.end(outputs={"documents": documents}, error=errors)
+        if self.is_traceable and self.tracer_run is not None:
+            self.tracer_run.end(outputs={"documents": documents}, error=errors)
 
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
-        if not self.is_traceable:
+        if self.is_traceable and self.tracer_run is not None:
+            if exc_type is not None:
+                traceback_lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
+                traceback_string = "".join(traceback_lines)
+                self.tracer_run.end(
+                    error= f"Error: {str(exc_value)}\n   Traceback:\n{traceback_string}",
+                )
+            self.tracer_run.post()
             return False
-        if exc_type is not None:
-            traceback_lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
-            traceback_string = "".join(traceback_lines)
-            self.tracer_run.end(
-                error= f"Error: {str(exc_value)}\n   Traceback:\n{traceback_string}",
-            )
-        self.tracer_run.post()
-        return False
+        else:
+            return False
     
-    def create_child(self, name, inputs, run_type="chain", extra={}):
+    def create_child(self, name, inputs: Any, run_type: RunTypes="chain", extra: Dict[str, Any]={}):
         if not self.is_traceable:
             return None
         return Tracer(
