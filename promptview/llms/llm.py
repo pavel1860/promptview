@@ -213,8 +213,8 @@ class LLM(BaseModel):
                     ai_message.run_id = str(llm_run.id)
                     if output_parser:                        
                         ai_message = await call_function(
-                            ai_message,
                             output_parser,
+                            ai_message,                            
                             llm_response=completion, 
                         )                    
                     
