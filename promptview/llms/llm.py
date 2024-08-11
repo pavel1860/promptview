@@ -54,7 +54,7 @@ chat_models = [
 
 
 
-def encode_logits(string: str, bias_value: int, encoding_model: str) -> int:
+def encode_logits(string: str, bias_value: int, encoding_model: tiktoken.Encoding) -> dict:
     """Returns the number of tokens in a text string."""
     
     return {en: bias_value for en in encoding_model.encode(string)}
@@ -163,7 +163,7 @@ class LLM(BaseModel):
             msgs: List[SystemMessage | HumanMessage | AIMessage], 
             tools: List[Type[BaseModel]] | None=None, 
             tool_choice: ToolChoice | BaseModel | None = None,
-            response_model: BaseModel | None=None,
+            response_model: type[BaseModel] | None=None,
             tracer_run=None, 
             metadata={}, 
             completion=None,
@@ -258,7 +258,7 @@ class LLM(BaseModel):
             parser = OutputParser(response_model)
             try:
                 parsing_output = parser.parse(output.content)
-                return AIMessage(content=output.content, output=parsing_output)
+                return AIMessage(content=output.content, actions=[parsing_output])
             except Exception as e:
                 print("########## ERROR PARSING OUTPUT ##########") 
         actions = None

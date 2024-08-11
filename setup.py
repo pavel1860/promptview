@@ -18,7 +18,8 @@ setup(
         "openai==1.37.1",
         "langdetect==1.0.9",
         "qdrant-client==1.10.1",
-        "docstring_parser==0.16"
+        "docstring_parser==0.16",
+        "iso-639==0.4.5",
     ],    
     classifiers=[
         # Classifiers help users find your project by categorizing it.

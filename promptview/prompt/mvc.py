@@ -123,32 +123,6 @@ def view(
             sub_views = []
             if isinstance(outputs, list) or isinstance(outputs, tuple):
                 sub_views = transform_list_to_view_node(outputs, func.__name__, role, numerate, base_model)
-                # for i, o in enumerate(outputs):
-                #     if isinstance(o, str):
-                #         sub_views.append(
-                #             ViewNode(
-                #                 name=f"{func.__name__}_str_{i}",
-                #                 views=o,
-                #                 numerate=numerate,
-                #                 index=i,
-                #                 role=role
-                #             )   
-                #         )
-                #     elif isinstance(o, ViewNode):
-                #         sub_views.append(o)
-                #     elif isinstance(o, BaseModel):
-                #         sub_views.append(
-                #             ViewNode(
-                #                 name=f"{func.__name__}_model_{i}",
-                #                 views=o,
-                #                 numerate=numerate,
-                #                 base_model=base_model,
-                #                 index=i,
-                #                 role=role
-                #             )
-                #         )
-                #     else:
-                #         raise ValueError(f"view type not supported: {type(o)}")
             else:
                 sub_views = outputs
             view_instance = ViewNode(
@@ -195,7 +169,7 @@ def add_tabs(content: str, tabs: int):
 def render_model(node: ViewNode):
     model = node.views
     prompt = ""
-    if node.numerate:
+    if node.numerate and node.index:
         prompt += f"{node.index + 1}. "
         
     if node.base_model == 'json':
@@ -209,7 +183,7 @@ def render_model(node: ViewNode):
 def render_string(node: ViewNode):
     prompt = ''
     depth = node.depth + 1 if node.has_wrap() else node.depth
-    if node.numerate:
+    if node.numerate and node.index:
         prompt += f"{node.index + 1}. "
     prompt += node.views
     return add_tabs(prompt, depth)
@@ -233,8 +207,7 @@ def add_wrapper(content: str, node: ViewNode):
     return add_tabs((
         f"{title}:"
         f"\t{content}"
-        , node.depth)
-    )
+        ), node.depth)
 
 
     

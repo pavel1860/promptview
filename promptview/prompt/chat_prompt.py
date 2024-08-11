@@ -2,7 +2,8 @@ import inspect
 import json
 from functools import wraps
 from typing import (Any, Awaitable, Callable, Dict, Generator, Generic, List,
-                    Literal, Optional, Tuple, Type, TypeVar, Union, get_args)
+                    Literal, Optional, Sequence, Tuple, Type, TypeVar, Union,
+                    get_args)
 
 from promptview.llms import LLM, OpenAiLLM
 from promptview.state.context import Context
@@ -14,7 +15,7 @@ from promptview.utils.function_utils import call_function
 from pydantic import BaseModel, Field
 
 
-def render_base_model_schema(base_model: BaseModel) -> str:
+def render_base_model_schema(base_model: BaseModel | Type[BaseModel]) -> str:
     return json.dumps(base_model.model_json_schema(), indent=4) + "\n"
 
 
@@ -24,7 +25,7 @@ def render_output_model(output_model: Type[BaseModel]) -> str:
         prompt += "\t"
         args = get_args(info.annotation)
         if not args:
-            prompt += f"{field}: ({info.annotation.__name__}) {info.description}"
+            prompt += f"{field}: ({info.annotation.__name__}) {info.description}" # type: ignore
         else:
             prompt += f"{field}: (str) {info.description}"
             prompt += ' can be one of the following: '
@@ -153,7 +154,7 @@ class ChatPrompt(BaseModel, Generic[T]):
     async def render(self, **kwargs: Any) -> List[ViewNode] | ViewNode:
         raise NotImplementedError("render method is not set")
     
-    async def output_parser(self, response_message: AIMessage, **kwargs: Any) -> Dict[str, Any]:
+    async def output_parser(self, response_message: AIMessage, **kwargs: Any) -> Any:
         return response_message
     
     async def _render(self, context=None, **kwargs: Any) -> List[ViewNode] | ViewNode:
@@ -193,13 +194,15 @@ class ChatPrompt(BaseModel, Generic[T]):
             response_model: Type[BaseModel] | None = None, 
             actions: List[Type[BaseModel]] | None= None,             
             **kwargs
-        ) -> List[Union[SystemMessage, AIMessage, HumanMessage]]:        
+        # ) -> List[Union[SystemMessage, AIMessage, HumanMessage]]:        
+        ) -> List[SystemMessage | AIMessage | HumanMessage]:        
+        # ) -> Sequence[SystemMessage | AIMessage | HumanMessage]:
         if not isinstance(views, list):
             views = [views]
 
         total_base_models = {}
 
-        messages = []
+        messages: List = []
 
         for view in views:
             if isinstance(view, BaseMessage):

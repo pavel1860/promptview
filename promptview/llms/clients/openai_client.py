@@ -1,7 +1,9 @@
 
-from promptview.llms.clients.base import BaseLlmClient
-import openai
 import os
+
+import openai
+from promptview.llms.clients.base import BaseLlmClient
+
 
 class OpenAiLlmClient(BaseLlmClient):
 
@@ -16,7 +18,7 @@ class OpenAiLlmClient(BaseLlmClient):
     def preprocess(self, msgs):
         return [msg.to_openai() for msg in msgs if msg.is_valid()]
 
-    async def complete(self, msgs, tools=None, run_id: str=None, **kwargs):
+    async def complete(self, msgs, tools=None, run_id: str | None=None, **kwargs):
         msgs = self.preprocess(msgs)
         openai_completion = await self.client.chat.completions.create(
             messages=msgs,
