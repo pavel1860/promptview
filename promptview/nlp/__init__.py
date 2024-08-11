@@ -1,7 +1,7 @@
-from promptview.nlp.language_detection import detect_language
+from promptview.nlp.language_detection import get_language
 
 
 
 __all__ = [
-    "detect_language"
+    "get_language"
 ]

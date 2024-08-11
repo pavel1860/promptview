@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 T = TypeVar('T')
 
-def prompt(    
+def prompt( 
+    self=None,   
     model: str = "gpt-3.5-turbo-0125",
     llm: LLM | None = None,
     system_prompt: Optional[str] = None,
@@ -31,10 +32,7 @@ def prompt(
             parallel_tool_calls=parallel_actions
         )
     def decorator(func) -> Callable[..., Awaitable[T]]:
-        
-        @wraps(func)
-        async def wrapper(**kwargs) -> T:
-            prompt = ChatPrompt[T](
+        prompt = ChatPrompt[T](
                 name=func.__name__,
                 model=model,
                 llm=llm,
@@ -47,7 +45,11 @@ def prompt(
                 response_model=response_model,
                 tool_choice=tool_choice,
             )
-            prompt.set_methods(func, output_parser)
+        prompt.set_methods(func, output_parser)
+        if self:
+            self.router_prompt = prompt
+        @wraps(func)
+        async def wrapper(**kwargs) -> T:            
             return await prompt(**kwargs)
 
         return wrapper
