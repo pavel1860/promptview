@@ -20,6 +20,8 @@ setup(
         "qdrant-client==1.10.1",
         "docstring_parser==0.16",
         "iso-639==0.4.5",
+        "aiohttp==3.10.0",
+        "langsmith==0.1.95",
     ],    
     classifiers=[
         # Classifiers help users find your project by categorizing it.
