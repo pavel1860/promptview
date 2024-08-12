@@ -110,11 +110,11 @@ class ChatPrompt(BaseModel, Generic[T]):
         if self.background:
             system_prompt += f"{self.background}\n"
         if self.task:
-            system_prompt+= "Task:\n"
+            system_prompt+= "Task:"
             system_prompt += f"{self.task}\n"        
                         
         for _, model in base_models.items():
-            system_prompt += render_base_model_schema(model)            
+            system_prompt += render_base_model_schema(model)
             
         if actions:
             system_prompt += "\nyou should use one of the following actions:\n"
@@ -278,8 +278,8 @@ class ChatPrompt(BaseModel, Generic[T]):
                     **kwargs
                 )
                 
-                # if output_messages:
-                    # return messages
+                if output_messages:
+                    return messages
                 
                 response_message = await self.llm.complete(
                     msgs=messages,

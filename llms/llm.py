@@ -213,8 +213,8 @@ class LLM(BaseModel):
                     ai_message.run_id = str(llm_run.id)
                     if output_parser:                        
                         ai_message = await call_function(
-                            ai_message,
                             output_parser,
+                            ai_message,                            
                             llm_response=completion, 
                         )                    
                     
@@ -234,6 +234,12 @@ class LLM(BaseModel):
                         raise e
                     if smart_retry:
                         msgs.append(HumanMessage(content=f"could not parse output:\n{str(e)}"))
+                except json.JSONDecodeError as e:
+                    if try_num == retries - 1:
+                        llm_run.end(errors=str(e))
+                        raise e
+                    if smart_retry:
+                        msgs.append(HumanMessage(content=f"bad json output:\n{str(e)}"))
                 except ValidationError as e:
                     print(f"try {try_num} validation error")
                     if try_num == retries - 1:
