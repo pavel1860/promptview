@@ -56,6 +56,8 @@ class AIMessage(BaseMessage):
                 "role": self.role,
                 "content": self.content,
             }
+        if self._tool_responses:
+            oai_msg['tool_calls'] = [r.tool_call for r in self._tool_responses.values()]
         if self.name:
             oai_msg["name"] = self.name
         return oai_msg

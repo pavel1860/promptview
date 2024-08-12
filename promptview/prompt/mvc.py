@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 ViewWrapperType = Literal["xml", "markdown", None]
 BaseModelRenderType =  Literal['model_dump', 'json']
-
+ListModelRender = Literal['list', 'view_node']
 
 class ViewNode(BaseModel):
     vn_id: str = Field(default_factory=lambda: str(uuid4()), description="id of the view node")
@@ -23,6 +23,8 @@ class ViewNode(BaseModel):
     index: int | None = None
     actions: List[BaseModel] | BaseModel | None = None
     depth: int = 0
+    indent: int | None = None
+    list_model: ListModelRender = 'view_node'
     
     def get_type(self):
         return type(self.views)
@@ -45,7 +47,8 @@ def transform_list_to_view_node(
         role: Literal["assistant", "user", "system"] | None = None,
         numerate: bool = False,
         base_model: BaseModelRenderType = 'json',
-                
+        indent: int | None = None,
+        list_model: ListModelRender = 'view_node'                
     ):
     sub_views = []
     for i, o in enumerate(items):
@@ -56,8 +59,21 @@ def transform_list_to_view_node(
                     views=o,
                     numerate=numerate,
                     index=i,
-                    role=role
+                    role=role,
+                    indent=indent
                 )   
+            )
+        elif isinstance(o, dict):
+            sub_views.append(
+                ViewNode(
+                    name=f"{name}_model_{i}",
+                    views=o,
+                    numerate=numerate,
+                    base_model=base_model,
+                    index=i,
+                    role=role,
+                    indent=indent
+                )
             )
         elif isinstance(o, ViewNode):
             sub_views.append(o)
@@ -69,7 +85,8 @@ def transform_list_to_view_node(
                     numerate=numerate,
                     base_model=base_model,
                     index=i,
-                    role=role
+                    role=role,
+                    indent=indent
                 )
             )
         else:
@@ -110,7 +127,8 @@ def view(
     role=None,
     numerate=False,
     base_model: BaseModelRenderType = 'json',
-    wrap: ViewWrapperType = None
+    wrap: ViewWrapperType = None,
+    indent: int | None = None,
     ):
 
     def decorator(func):
@@ -122,7 +140,14 @@ def view(
                 
             sub_views = []
             if isinstance(outputs, list) or isinstance(outputs, tuple):
-                sub_views = transform_list_to_view_node(outputs, func.__name__, role, numerate, base_model)
+                sub_views = transform_list_to_view_node(
+                    outputs, 
+                    name=func.__name__, 
+                    role=role, 
+                    numerate=numerate, 
+                    base_model=base_model,
+                    indent=indent
+                )
             else:
                 sub_views = outputs
             view_instance = ViewNode(
@@ -134,6 +159,7 @@ def view(
                 numerate=numerate,
                 wrap=wrap,
                 role=role,
+                indent=indent,
             )
             return view_instance            
             # outputs = func(*args, **kwargs)
@@ -159,7 +185,7 @@ def list_view(rules: list[str], numbered: bool = True):
 
 
 def render_tabs(num: int):
-    return "ֿ\t" * num
+    return "\t" * num
 
 def add_tabs(content: str, tabs: int):
     return "\n".join([render_tabs(tabs) + c for c in content.split("\n")])
@@ -173,7 +199,7 @@ def render_model(node: ViewNode):
         prompt += f"{node.index + 1}. "
         
     if node.base_model == 'json':
-        return add_tabs(prompt + json.dumps(model.model_dump(), indent=2), node.depth)
+        return add_tabs(prompt + json.dumps(model.model_dump(), indent=node.indent), node.depth)
     elif node.base_model == 'model_dump':
         return add_tabs(prompt + str(model.model_dump()) + "\n", node.depth)
     else:
@@ -188,7 +214,13 @@ def render_string(node: ViewNode):
     prompt += node.views
     return add_tabs(prompt, depth)
 
-
+def render_dict(node: ViewNode):
+    prompt = ''
+    depth = node.depth + 1 if node.has_wrap() else node.depth
+    if node.numerate and node.index:
+        prompt += f"{node.index + 1}. "
+    prompt += json.dumps(node.views, indent=node.indent)
+    return add_tabs(prompt, depth)
 
 def add_wrapper(content: str, node: ViewNode):
     title = node.title if node.title is not None else ''
@@ -248,6 +280,8 @@ def render_view(node: ViewNode, **kwargs):
                 result.append(render_wrapper_starting(peek_node))
             if peek_node.get_type() == str:
                 result.append(render_string(peek_node))
+            elif peek_node.get_type() == dict:
+                result.append(render_dict(peek_node))
             elif peek_node.get_type() == list or peek_node.get_type() == tuple:
                 for view in reversed(peek_node.views):
                     # if peek_node.has_wrap():
@@ -266,11 +300,15 @@ def render_view(node: ViewNode, **kwargs):
                         view.depth = peek_node.depth
                     
                     stack.append(view)
+            elif issubclass(peek_node.get_type(), ViewNode):
+                if peek_node.has_wrap():
+                    peek_node.views.depth = peek_node.depth + 1
+                stack.append(peek_node.views)
             elif issubclass(peek_node.get_type(), BaseModel):
                 base_models[peek_node.views.__class__.__name__] = peek_node.views
                 result.append(render_model(peek_node))
             else:
-                raise ValueError(f"view type not supported: {type(view)}")
+                raise ValueError(f"view type not supported: {type(peek_node)}")
         else:
             if peek_node.has_wrap():
                 result.append(render_wrapper_ending(peek_node))
