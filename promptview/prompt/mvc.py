@@ -107,6 +107,7 @@ def create_view_node(
     
     if type(views) == list:
         views = transform_list_to_view_node(views, name, role, numerate, base_model)
+        
     
     return ViewNode(
         name=name,
@@ -264,7 +265,7 @@ def render_wrapper_ending(node: ViewNode):
 def render_view(node: ViewNode, **kwargs):
 
     if type(node) == tuple:
-        stack = [*node]    
+        stack = [*reversed(node)]    
     else:
         stack = [node]
 
