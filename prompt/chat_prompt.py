@@ -60,13 +60,13 @@ async def render_view_arg(arg: Any, title: str, **kwargs) -> str:
     # elif isinstance(arg, ViewNode):
     #     render_prompt, _, _ = render_view(arg, **kwargs)
     #     return prompt + render_prompt
-    if isinstance(arg, ViewNode):
+    if isinstance(arg, ViewNode) or isinstance(arg, tuple):
         render_prompt, _, _ = render_view(arg, **kwargs)
         return render_prompt
     elif isinstance(arg, BaseModel):
         return prompt + json.dumps(arg.model_dump(), indent=2)
     else:
-        raise ValueError("Invalid view arg")
+        raise ValueError(f"Invalid view arg {type(arg)}")
 
 T = TypeVar('T')
 
@@ -252,11 +252,8 @@ class ChatPrompt(BaseModel, Generic[T]):
                     "input": kwargs,
                 },
             ) as prompt_run:
-            
-            
-            
-            try:
-            
+
+            try:            
                 response_model = response_model or self.response_model
                 actions = actions or self.actions
                 
