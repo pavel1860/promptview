@@ -46,8 +46,7 @@ async def render_view_arg(arg: Any, title: str, **kwargs) -> str:
         if not arg:
             return ''
     if isinstance(arg, str) or isinstance(arg, list):
-        arg = create_view_node(arg, title, title=title)
-        
+        arg = create_view_node(arg, title, title=title)    
     
     # if isinstance(arg, str):
     #     return prompt + arg
@@ -209,7 +208,9 @@ class ChatPrompt(BaseModel, Generic[T]):
                 messages.append(view)
                 # if view.is_valid():
                 #     messages.append(view)
-                continue
+                continue                            
+            if isinstance(view, tuple):
+                view = create_view_node(view, name=self.name or self.__class__.__name__,)
             prompt, rendered_outputs, base_models = render_view(view, **kwargs)
             if isinstance(view, ViewNode):
                 messages.append(AIMessage(content=prompt) if view.role == 'assistant' else HumanMessage(content=prompt))
