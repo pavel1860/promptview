@@ -48,7 +48,7 @@ def transform_list_to_view_node(
         numerate: bool = False,
         base_model: BaseModelRenderType = 'json',
         indent: int | None = None,
-        list_model: ListModelRender = 'view_node'                
+        list_model: ListModelRender = 'view_node'
     ):
     sub_views = []
     for i, o in enumerate(items):
@@ -105,8 +105,9 @@ def create_view_node(
     base_model: BaseModelRenderType = 'json',
 ):
     
-    if type(views) == list:
+    if type(views) == list or type(views) == tuple:
         views = transform_list_to_view_node(views, name, role, numerate, base_model)
+    
         
     
     return ViewNode(
@@ -260,6 +261,11 @@ def render_wrapper_ending(node: ViewNode):
 
 
 
+def validate_node(node: any):
+    if type(node) == str:
+        return ViewNode(views=node)    
+    return node
+
 #? in render view we are using 2 stacks so that we can render the views in the correct order
 # ?is a view is between 2 strings, we want to render the view between the strings
 def render_view(node: ViewNode, **kwargs):
@@ -273,6 +279,7 @@ def render_view(node: ViewNode, **kwargs):
     visited = set()
     result = []
     while stack:
+        # peek_node = validate_node(stack[-1])
         peek_node = stack[-1]
                             
         if peek_node not in visited:
