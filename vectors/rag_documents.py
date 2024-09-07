@@ -1,5 +1,7 @@
 import asyncio
 import inspect
+import grpc
+
 from typing import (Any, Dict, Generic, List, Literal, Optional, Type,
                     TypedDict, TypeVar, Union)
 from uuid import uuid4
@@ -17,6 +19,7 @@ from promptview.vectors.vectorizers.base import (VectorizerBase,
 from promptview.vectors.vectorizers.text_vectorizer import TextVectorizer
 from pydantic import BaseModel
 from qdrant_client.http.exceptions import UnexpectedResponse
+
 
 K = TypeVar('K', bound=BaseModel)
 V = TypeVar('V', bound=BaseModel)
@@ -277,7 +280,7 @@ class RagDocuments:
     async def verify_namespace(self):
         try:
             await self.vector_store.info()
-        except UnexpectedResponse as e:
+        except (UnexpectedResponse, grpc.aio._call.AioRpcError) as e:            
             await self.create_namespace()
     
 
