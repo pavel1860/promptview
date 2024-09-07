@@ -76,6 +76,7 @@ class QdrantVectorStore(VectorStoreBase):
         self.client = AsyncQdrantClient(
             url=self.url,
             api_key=self.api_key,
+            prefer_grpc=True,
             # host=os.environ['QDRANT_HOST'], 
             # port=os.environ['QDRANT_PORT']
         )

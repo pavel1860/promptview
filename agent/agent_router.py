@@ -72,7 +72,9 @@ class AgentRouter(BaseModel):
                                     tool_call=response.tool_calls[i]
                                 )
                             response.add_tool_response(tool_response)
-                            context.history.add(context, tool_response, str(tracer_run.id), self.name) 
+                            context.history.add(context, tool_response, str(tracer_run.id), self.name)
+                        else:
+                            return
                 else:
                     break
                     
