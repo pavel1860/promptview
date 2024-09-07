@@ -269,7 +269,7 @@ class RagDocuments:
         return self._pack_results(res)
     
 
-    async def create_namespace(self, namespace: str | None = None):
+    async def create_namespace(self, namespace: str | None = None):        
         namespace = namespace or self.namespace
         if isinstance(self.metadata_class, BaseModel) or issubclass(self.metadata_class, BaseModel):
             indexs_to_create=get_model_indexs(self.metadata_class)
@@ -277,12 +277,13 @@ class RagDocuments:
             indexs_to_create = []        
         return await self.vector_store.create_collection(self.vectorizers, namespace, indexs=indexs_to_create)
     
+    
     async def verify_namespace(self):
         try:
             await self.vector_store.info()
         except (UnexpectedResponse, grpc.aio._call.AioRpcError) as e:            
             await self.create_namespace()
-    
+            
 
     async def delete_namespace(self, namespace: str | None = None):
         namespace = namespace or self.namespace

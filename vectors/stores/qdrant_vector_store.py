@@ -266,6 +266,11 @@ class QdrantVectorStore(VectorStoreBase):
 
 
     async def create_collection(self, vectorizers, collection_name: str | None = None, indexs=None):
+        http_client = AsyncQdrantClient(
+            url=self.url,
+            api_key=self.api_key,
+            prefer_grpc=False,
+        )
         collection_name=collection_name or self.collection_name
         vector_config = {}
         sparse_vector_config = {}
@@ -276,18 +281,21 @@ class QdrantVectorStore(VectorStoreBase):
                 sparse_vector_config[vectorizer.name] = SparseVectorParams(
                     index=models.models.SparseIndexParams()
                 )
-        await self.client.recreate_collection(
+        await http_client.recreate_collection(
             collection_name=collection_name,
             vectors_config=vector_config,
             sparse_vectors_config=sparse_vector_config           
         )
         if indexs:
             for index in indexs:
-                await self.client.create_payload_index(
-                    collection_name=collection_name,
-                    field_name=index['field'],
-                    field_schema=index['schema']
-                )
+                try:
+                    await http_client.create_payload_index(
+                        collection_name=collection_name,
+                        field_name=index['field'],
+                        field_schema=index['schema']
+                    )
+                except Exception as e:
+                    raise e
 
 
     async def delete_collection(self, collection_name: str | None =None):
