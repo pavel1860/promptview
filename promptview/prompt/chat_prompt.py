@@ -13,7 +13,28 @@ from promptview.llms.tracer import Tracer
 from promptview.prompt.mvc import ViewNode, create_view_node, render_view
 from promptview.utils.function_utils import call_function
 from pydantic import BaseModel, Field
+import string
 
+
+# class ContextDict(dict):
+#     def __missing__(self, key):
+#         return '{' + key + '}'
+
+# def replace_placeholders(template: str, **kwargs) -> str:
+#     return template.format_map(ContextDict(kwargs))
+class SafeFormatter(string.Formatter):
+    def get_value(self, key, args, kwargs):
+        if isinstance(key, str):
+            if key not in kwargs:
+                raise KeyError(f"Missing value for key: '{key}'")
+            return kwargs[key]
+        else:
+            return super().get_value(key, args, kwargs)
+        
+def replace_placeholders(template: str, **kwargs) -> str:
+    formatter = SafeFormatter()
+    formatted_string = formatter.format(template, **kwargs)
+    return formatted_string
 
 def render_base_model_schema(base_model: BaseModel | Type[BaseModel]) -> str:
     return json.dumps(base_model.model_json_schema(), indent=4) + "\n"
@@ -35,18 +56,42 @@ def render_output_model(output_model: Type[BaseModel]) -> str:
     return prompt
 
 
-    
+def build_view_node_message(prompt: str, view_node: ViewNode) -> str:
+    if view_node.role == 'assistant':
+        return AIMessage(
+            content=prompt,
+            name=view_node.role_name
+        )
+    elif view_node.role == 'user' or view_node.role is None:
+        return HumanMessage(
+            content=prompt,
+            name=view_node.role_name
+        )
+    elif view_node.role == 'system':
+        return SystemMessage(
+            content=prompt,
+            name=view_node.role_name
+        )
+    else:
+        raise ValueError(f"Invalid role {view_node.role}")
 
 
-async def render_view_arg(arg: Any, title: str, **kwargs) -> str:
+async def render_view_arg(arg: Any, name: str, title: str | None = None, **kwargs) -> str:
     # prompt = title + ":\n" if title else ''
     prompt = ''
     if inspect.isfunction(arg):
         arg = await call_function(arg, **kwargs)
         if not arg:
             return ''
-    if isinstance(arg, str) or isinstance(arg, list):
-        arg = create_view_node(arg, title, title=title)    
+    
+    if isinstance(arg, str):
+        arg = replace_placeholders(arg, **kwargs)  
+        arg = create_view_node(arg, name, title=title)
+    if isinstance(arg, list):
+        arg = [replace_placeholders(item, **kwargs) for item in arg]
+        arg = create_view_node(arg, name, title=title)
+    # if isinstance(arg, str) or isinstance(arg, list):        
+    #     arg = create_view_node(arg, title, title=title)    
     
     # if isinstance(arg, str):
     #     return prompt + arg
@@ -75,8 +120,8 @@ class ChatPrompt(BaseModel, Generic[T]):
     llm: LLM = Field(default_factory=OpenAiLLM)
     
     system_prompt: Optional[str] = None
-    background: Optional[str] = None
-    task: Optional[str] = None
+    background: Optional[str | List[str] | Callable] = None
+    task: Optional[str | List[str] | Callable] = None
     rules: Optional[str | List[str] | Callable] = None 
     examples: Optional[str | List[str] | Callable] = None 
     actions: Optional[List[Type[BaseModel]]] = []
@@ -107,10 +152,25 @@ class ChatPrompt(BaseModel, Generic[T]):
         system_prompt = ""
         
         if self.background:
-            system_prompt += f"{self.background}\n"
+            # system_prompt += f"{self.background}\n"
+            system_prompt += await render_view_arg(
+                self.background,
+                name="background",
+                context=context,
+                **kwargs
+            )
+                
         if self.task:
-            system_prompt+= "Task:"
-            system_prompt += f"{self.task}\n"        
+            # system_prompt+= "Task:"
+            # system_prompt += f"{self.task}\n"
+            system_prompt += await render_view_arg(
+                self.task,
+                name="task",
+                title="Task",
+                context=context,
+                **kwargs
+            )
+            
                         
         for _, model in base_models.items():
             system_prompt += render_base_model_schema(model)
@@ -128,6 +188,7 @@ class ChatPrompt(BaseModel, Generic[T]):
         if self.rules is not None:            
             system_prompt += await render_view_arg(
                 self.rules,
+                name="rules",
                 title="Rules",
                 context=context, 
                 **kwargs
@@ -136,6 +197,7 @@ class ChatPrompt(BaseModel, Generic[T]):
             system_prompt += await render_view_arg(
                 # create_view_node(self.rules, "examples", title="Examples"),
                 self.examples,
+                name="examples",
                 title="Examples",
                 context=context, 
                 **kwargs
@@ -213,7 +275,10 @@ class ChatPrompt(BaseModel, Generic[T]):
                 view = create_view_node(view, name=self.name or self.__class__.__name__,)
             prompt, rendered_outputs, base_models = render_view(view, **kwargs)
             if isinstance(view, ViewNode):
-                messages.append(AIMessage(content=prompt) if view.role == 'assistant' else HumanMessage(content=prompt))
+                # messages.append(AIMessage(content=prompt) if view.role == 'assistant' else HumanMessage(content=prompt))
+                messages.append(
+                    build_view_node_message(prompt, view)
+                )
             else:
                 messages.append(HumanMessage(content=prompt))     
             
@@ -241,6 +306,7 @@ class ChatPrompt(BaseModel, Generic[T]):
             tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,
             tracer_run: Tracer | None=None,
             output_messages: bool = False,
+            session_id: str | None = None,
             **kwargs: Any
         ) -> T:
         
@@ -249,6 +315,7 @@ class ChatPrompt(BaseModel, Generic[T]):
                 tracer_run=tracer_run,
                 name=self.name or self.__class__.__name__,
                 run_type="prompt",
+                session_id=session_id,
                 inputs={
                     "input": kwargs,
                 },

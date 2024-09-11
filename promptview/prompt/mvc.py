@@ -18,6 +18,7 @@ class ViewNode(BaseModel):
     base_model: BaseModelRenderType = 'json'
     wrap: ViewWrapperType = None
     role: Literal["assistant", "user", "system"] | None = None
+    role_name: str | None = None
     # views: List[Union["ViewNode", BaseModel, str]] | Tuple[Union["ViewNode", BaseModel, str]] | "ViewNode" | BaseModel | str 
     views: Any
     index: int | None = None
@@ -127,6 +128,7 @@ def view(
     title=None, 
     actions=None, 
     role=None,
+    name=None,
     numerate=False,
     base_model: BaseModelRenderType = 'json',
     wrap: ViewWrapperType = None,
@@ -161,6 +163,7 @@ def view(
                 numerate=numerate,
                 wrap=wrap,
                 role=role,
+                role_name=name,
                 indent=indent,
             )
             return view_instance            

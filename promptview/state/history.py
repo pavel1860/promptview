@@ -35,6 +35,9 @@ class History:
             return self.history[-from_idx: -to_idx]
         return self.history[-from_idx:]
     
+    def clear(self):
+        self.history = []
+    
     def last(self):
         return self.history[-1]
     
