@@ -306,7 +306,6 @@ class ChatPrompt(BaseModel, Generic[T]):
             tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,
             tracer_run: Tracer | None=None,
             output_messages: bool = False,
-            session_id: str | None = None,
             **kwargs: Any
         ) -> T:
         
@@ -315,7 +314,6 @@ class ChatPrompt(BaseModel, Generic[T]):
                 tracer_run=tracer_run,
                 name=self.name or self.__class__.__name__,
                 run_type="prompt",
-                session_id=session_id,
                 inputs={
                     "input": kwargs,
                 },

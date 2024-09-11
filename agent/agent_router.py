@@ -29,7 +29,7 @@ class AgentRouter(BaseModel):
         self._action_handlers[action.__name__] =  handler
 
     
-    async def __call__(self, context: Context, message: HumanMessage | str, iterations: int | None = None, tracer_run=None, session_id: str=None, **kwargs):
+    async def __call__(self, context: Context, message: HumanMessage | str, iterations: int | None = None, tracer_run=None, **kwargs):
         iterations = iterations or self.iterations
         message = HumanMessage(content=message) if isinstance(message, str) else message
         # context.history.add(HumanMessage(content=message))
@@ -38,7 +38,7 @@ class AgentRouter(BaseModel):
             name=self.name,
             is_traceable=self.is_traceable,
             inputs={"message": message.content} | kwargs,
-            session_id=session_id,
+            session_id=context.session.id,
             tracer_run=tracer_run
         ) as tracer_run:
             
