@@ -72,7 +72,7 @@ class AgentRouter(BaseModel):
                                 yield output
                         elif inspect.isfunction(action_handler):
                             action_output = await call_function(action_handler, context=context, action=action, message=message.content, tracer_run=tracer_run, **kwargs)                                                                       
-                            tracer_run.add_outputs(action_output)
+                            tracer_run.add_outputs({"tool_output": action_output})
                         else:
                             raise ValueError(f"Invalid action handler: {action_handler}")
                         if action_output:
