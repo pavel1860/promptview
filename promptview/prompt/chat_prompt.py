@@ -80,7 +80,8 @@ async def render_propertie_value(view: Any, name: str, title: str | None = None,
     if inspect.isfunction(view):
         view = await call_function(view, **kwargs)
         if not view:
-            raise ValueError("view function returned empty value")
+            return ''
+            # raise ValueError("view function returned empty value")
     if not isinstance(view, ViewNode):
         view = create_view_node(view, name, title=title)
     render_prompt, _, _ = render_view(view, **kwargs)
@@ -258,8 +259,10 @@ class ChatPrompt(BaseModel, Generic[T]):
         messages: List = []
 
         for view in views:
-            if isinstance(view, BaseMessage):
-                messages.append(view)
+            # if isinstance(view, BaseMessage):
+            #     messages.append(view)
+            if issubclass(view.get_type(), BaseMessage):
+                messages.append(view.views)
                 # if view.is_valid():
                 #     messages.append(view)
                 continue                            
