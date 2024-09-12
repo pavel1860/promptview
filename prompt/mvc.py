@@ -2,6 +2,7 @@
 import json
 from functools import wraps
 import string
+import textwrap
 from typing import Any, List, Literal, Tuple, Union
 from uuid import uuid4
 
@@ -231,8 +232,9 @@ def render_string(node: ViewNode, **kwargs):
     prompt = ''
     depth = node.depth + 1 if node.has_wrap() else node.depth
     if node.numerate and node.index:
-        prompt += f"{node.index + 1}. "
-    prompt += node.views
+        prompt += f"{node.index + 1}. "    
+    # prompt += node.views
+    prompt += textwrap.dedent(node.views).strip()
     prompt = add_tabs(prompt, depth)
     return replace_placeholders(prompt, **kwargs)
 
