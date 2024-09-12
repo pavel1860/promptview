@@ -1,6 +1,7 @@
 
 import json
 from functools import wraps
+import string
 from typing import Any, List, Literal, Tuple, Union
 from uuid import uuid4
 
@@ -189,6 +190,21 @@ def list_view(rules: list[str], numbered: bool = True):
 
 
 
+class SafeFormatter(string.Formatter):
+    def get_value(self, key, args, kwargs):
+        if isinstance(key, str):
+            if key not in kwargs:
+                raise KeyError(f"Missing value for key: '{key}'")
+            return kwargs[key]
+        else:
+            return super().get_value(key, args, kwargs)
+        
+def replace_placeholders(template: str, **kwargs) -> str:
+    formatter = SafeFormatter()
+    formatted_string = formatter.format(template, **kwargs)
+    return formatted_string
+
+
 def render_tabs(num: int):
     return "\t" * num
 
@@ -211,13 +227,14 @@ def render_model(node: ViewNode):
         raise ValueError(f"base_model type not supported: {node.base_model}")
 
 
-def render_string(node: ViewNode):
+def render_string(node: ViewNode, **kwargs):
     prompt = ''
     depth = node.depth + 1 if node.has_wrap() else node.depth
     if node.numerate and node.index:
         prompt += f"{node.index + 1}. "
     prompt += node.views
-    return add_tabs(prompt, depth)
+    prompt = add_tabs(prompt, depth)
+    return replace_placeholders(prompt, **kwargs)
 
 def render_dict(node: ViewNode):
     prompt = ''
@@ -269,6 +286,9 @@ def validate_node(node: any):
         return ViewNode(views=node)    
     return node
 
+
+
+
 #? in render view we are using 2 stacks so that we can render the views in the correct order
 # ?is a view is between 2 strings, we want to render the view between the strings
 def render_view(node: ViewNode, **kwargs):
@@ -290,7 +310,7 @@ def render_view(node: ViewNode, **kwargs):
             if peek_node.has_wrap():
                 result.append(render_wrapper_starting(peek_node))
             if peek_node.get_type() == str:
-                result.append(render_string(peek_node))
+                result.append(render_string(peek_node, **kwargs))
             elif peek_node.get_type() == dict:
                 result.append(render_dict(peek_node))
             elif peek_node.get_type() == list or peek_node.get_type() == tuple:

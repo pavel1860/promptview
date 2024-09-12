@@ -10,7 +10,7 @@ from promptview.state.context import Context
 from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
                                       SystemMessage, validate_msgs)
 from promptview.llms.tracer import Tracer
-from promptview.prompt.mvc import ViewNode, create_view_node, render_view
+from promptview.prompt.mvc import ViewNode, create_view_node, render_view, replace_placeholders
 from promptview.utils.function_utils import call_function
 from pydantic import BaseModel, Field
 import string
@@ -22,19 +22,19 @@ import string
 
 # def replace_placeholders(template: str, **kwargs) -> str:
 #     return template.format_map(ContextDict(kwargs))
-class SafeFormatter(string.Formatter):
-    def get_value(self, key, args, kwargs):
-        if isinstance(key, str):
-            if key not in kwargs:
-                raise KeyError(f"Missing value for key: '{key}'")
-            return kwargs[key]
-        else:
-            return super().get_value(key, args, kwargs)
+# class SafeFormatter(string.Formatter):
+#     def get_value(self, key, args, kwargs):
+#         if isinstance(key, str):
+#             if key not in kwargs:
+#                 raise KeyError(f"Missing value for key: '{key}'")
+#             return kwargs[key]
+#         else:
+#             return super().get_value(key, args, kwargs)
         
-def replace_placeholders(template: str, **kwargs) -> str:
-    formatter = SafeFormatter()
-    formatted_string = formatter.format(template, **kwargs)
-    return formatted_string
+# def replace_placeholders(template: str, **kwargs) -> str:
+#     formatter = SafeFormatter()
+#     formatted_string = formatter.format(template, **kwargs)
+#     return formatted_string
 
 def render_base_model_schema(base_model: BaseModel | Type[BaseModel]) -> str:
     return json.dumps(base_model.model_json_schema(), indent=4) + "\n"
@@ -76,41 +76,34 @@ def build_view_node_message(prompt: str, view_node: ViewNode) -> str:
         raise ValueError(f"Invalid role {view_node.role}")
 
 
-async def render_view_arg(arg: Any, name: str, title: str | None = None, **kwargs) -> str:
-    # prompt = title + ":\n" if title else ''
-    prompt = ''
-    if inspect.isfunction(arg):
-        arg = await call_function(arg, **kwargs)
-        if not arg:
-            return ''
-    
-    if isinstance(arg, str):
-        arg = replace_placeholders(arg, **kwargs)  
-        arg = create_view_node(arg, name, title=title)
-    if isinstance(arg, list):
-        arg = [replace_placeholders(item, **kwargs) for item in arg]
-        arg = create_view_node(arg, name, title=title)
-    # if isinstance(arg, str) or isinstance(arg, list):        
-    #     arg = create_view_node(arg, title, title=title)    
+async def render_propertie_value(view: Any, name: str, title: str | None = None, **kwargs) -> str:
+    if inspect.isfunction(view):
+        view = await call_function(view, **kwargs)
+        if not view:
+            raise ValueError("view function returned empty value")
+    if not isinstance(view, ViewNode):
+        view = create_view_node(view, name, title=title)
+    render_prompt, _, _ = render_view(view, **kwargs)
+    return render_prompt
+    # prompt = ''
+    # if inspect.isfunction(arg):
+    #     arg = await call_function(arg, **kwargs)
+    #     if not arg:
+    #         return ''
     
     # if isinstance(arg, str):
-    #     return prompt + arg
-    # elif isinstance(arg, list):
+    #     arg = replace_placeholders(arg, **kwargs)  
+    #     arg = create_view_node(arg, name, title=title)
+    # if isinstance(arg, list):
+    #     arg = [replace_placeholders(item, **kwargs) for item in arg]
+    #     arg = create_view_node(arg, name, title=title)
+    # if isinstance(arg, ViewNode) or isinstance(arg, tuple):
     #     render_prompt, _, _ = render_view(arg, **kwargs)
-    #     return prompt + render_prompt
-    # elif isinstance(arg, tuple):
-    #     render_prompt, _, _ = render_view(arg, **kwargs)
-    #     return prompt + render_prompt
-    # elif isinstance(arg, ViewNode):
-    #     render_prompt, _, _ = render_view(arg, **kwargs)
-    #     return prompt + render_prompt
-    if isinstance(arg, ViewNode) or isinstance(arg, tuple):
-        render_prompt, _, _ = render_view(arg, **kwargs)
-        return render_prompt
-    elif isinstance(arg, BaseModel):
-        return prompt + json.dumps(arg.model_dump(), indent=2)
-    else:
-        raise ValueError(f"Invalid view arg {type(arg)}")
+    #     return render_prompt
+    # elif isinstance(arg, BaseModel):
+    #     return prompt + json.dumps(arg.model_dump(), indent=2)
+    # else:
+    #     raise ValueError(f"Invalid view arg {type(arg)}")
 
 T = TypeVar('T')
 
@@ -153,7 +146,7 @@ class ChatPrompt(BaseModel, Generic[T]):
         
         if self.background:
             # system_prompt += f"{self.background}\n"
-            system_prompt += await render_view_arg(
+            system_prompt += await render_propertie_value(
                 self.background,
                 name="background",
                 context=context,
@@ -163,7 +156,7 @@ class ChatPrompt(BaseModel, Generic[T]):
         if self.task:
             # system_prompt+= "Task:"
             # system_prompt += f"{self.task}\n"
-            system_prompt += await render_view_arg(
+            system_prompt += await render_propertie_value(
                 self.task,
                 name="task",
                 title="Task",
@@ -186,7 +179,7 @@ class ChatPrompt(BaseModel, Generic[T]):
         
         
         if self.rules is not None:            
-            system_prompt += await render_view_arg(
+            system_prompt += await render_propertie_value(
                 self.rules,
                 name="rules",
                 title="Rules",
@@ -194,7 +187,7 @@ class ChatPrompt(BaseModel, Generic[T]):
                 **kwargs
             )
         if self.examples is not None:
-            system_prompt += await render_view_arg(
+            system_prompt += await render_propertie_value(
                 # create_view_node(self.rules, "examples", title="Examples"),
                 self.examples,
                 name="examples",
@@ -310,7 +303,7 @@ class ChatPrompt(BaseModel, Generic[T]):
         ) -> T:
         
         with Tracer(
-                is_traceable=self.is_traceable,
+                is_traceable=self.is_traceable if not output_messages else False,
                 tracer_run=tracer_run,
                 name=self.name or self.__class__.__name__,
                 run_type="prompt",
