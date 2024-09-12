@@ -51,21 +51,45 @@ async def test_basic_prompt():
     messages = await example_prompt(output_messages=True)
     print(messages[0].content)
     assert messages[0].content == "this is a test"
+
+user_message_list = "this is a test 1\nthis is a test 2\nthis is a test 3"
+    
+@pytest.mark.asyncio
+async def test_basic_prompt_tuple():
+    @prompt()
+    def example_tuple_prompt():
+        return (
+            "this is a test 1",
+            "this is a test 2",
+            "this is a test 3"
+        )
+        
+    messages = await example_tuple_prompt(output_messages=True)
+    assert messages[0].content == user_message_list
+
     
     
 @pytest.mark.asyncio
-async def test_basic_prompt_list():
+async def test_mixed_prompt_list():
+    @view()
+    def test_view(num: int):
+        return "this is a test " + str(num)
+
     @prompt()
-    def example_prompt():
+    def example_list_prompt():
         return [
-            "this is a test 1",
+            test_view(1),
             "this is a test 2",
-            "this is a test 3",
+            test_view(3),
+            "this is a test 4"
         ]
 
-    messages = await example_prompt(output_messages=True)
-    print(messages[0].content)
-    assert messages[0].content == "this is a test 1\nthis is a test 2\nthis is a test 3"
+    messages = await example_list_prompt(output_messages=True)
+    assert len(messages) == 4
+    assert messages[0].content == "this is a test 1"
+    assert messages[1].content == "this is a test 2"
+    assert messages[2].content == "this is a test 3"
+    assert messages[3].content == "this is a test 4"
     
 
 @pytest.mark.asyncio

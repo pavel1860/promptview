@@ -218,19 +218,18 @@ class ChatPrompt(BaseModel, Generic[T]):
                 **kwargs
             )
         if isinstance(views, str) or isinstance(views, BaseModel):
-            return ViewNode(
-                name=self.name or self.__class__.__name__,
-                views=views,
-                role='user',
-            ) 
-        if isinstance(views, list):
-            return views
+            return create_view_node(views, name=self.name or self.__class__.__name__, role='user')            
+        elif isinstance(views, list):
+            valid_views = []
+            for view in views:
+                if not isinstance(view, ViewNode):
+                    valid_views.append(create_view_node(view, name=self.name or self.__class__.__name__, role='user'))
+                else:
+                    valid_views.append(view)
+            return valid_views
+            
         elif isinstance(views, tuple):
-            return ViewNode(
-                name=self.name or self.__class__.__name__,
-                views=views,
-                role='user',
-            ) 
+            return create_view_node(views, name=self.name or self.__class__.__name__, role='user')            
         return views
     
     
@@ -319,11 +318,6 @@ class ChatPrompt(BaseModel, Generic[T]):
                 if response_model and actions:
                     raise ValueError("response_model and actions cannot be used together")
                 
-                # views = await call_function(
-                #     self._render if self._render_method is None else self._render_method, 
-                #     context=context, 
-                #     **kwargs
-                # )
                 views = views or await self._render(context=context, **kwargs)
                 
                 messages = await self._build_conversation(
