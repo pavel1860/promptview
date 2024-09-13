@@ -1,7 +1,7 @@
 import pytest
 import pytest_asyncio
 from promptview import view, prompt
-from promptview.prompt.mvc import render_view
+from promptview.prompt.mvc import render_block
 
 
 
@@ -23,7 +23,7 @@ async def test_basic_view():
     def example_view():
         return "this is an example view"
 
-    out, _,_ = render_view(example_view())
+    out, _,_ = render_block(example_view())
     assert out == "this is an example view"
     
     
@@ -38,7 +38,7 @@ async def test_basic_list_view():
             "this is an example view 3",
         ]
 
-    out, _,_ = render_view(example_list_view())
+    out, _,_ = render_block(example_list_view())
     assert out == "this is an example view 1\nthis is an example view 2\nthis is an example view 3"
     
 

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, validator
 
 class BaseMessage(BaseModel):
     content: str | None
+    content_blocks: List[Dict[str, Any]] | None = None
     name: str | None = None
     is_example: Optional[bool] = False
     is_history: Optional[bool] = False
@@ -22,6 +23,12 @@ class BaseMessage(BaseModel):
         if self.name:
             oai_msg["name"] = self.name
         return oai_msg
+    
+    def to_antropic(self):
+        return {
+            "role": self.role,
+            "content": self.content_blocks or self.content,
+        }
 
 
 class SystemMessage(BaseMessage):
