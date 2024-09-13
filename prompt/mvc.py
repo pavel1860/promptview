@@ -12,17 +12,17 @@ ViewWrapperType = Literal["xml", "markdown", None]
 BaseModelRenderType =  Literal['model_dump', 'json']
 ListModelRender = Literal['list', 'view_node']
 
-class ViewNode(BaseModel):
+class ContentBlock(BaseModel):
     vn_id: str = Field(default_factory=lambda: str(uuid4()), description="id of the view node")
     name: str = Field(None, description="name of the view function")
     title: str | None = None
     numerate: bool = False
     base_model: BaseModelRenderType = 'json'
     wrap: ViewWrapperType = None
-    role: Literal["assistant", "user", "system"] | None = None
+    role: Literal["assistant", "user", "system"] | None = "user"
     role_name: str | None = None
     # views: List[Union["ViewNode", BaseModel, str]] | Tuple[Union["ViewNode", BaseModel, str]] | "ViewNode" | BaseModel | str 
-    views: Any
+    content_blocks: Any
     index: int | None = None
     actions: List[BaseModel] | BaseModel | None = None
     depth: int = 0
@@ -30,7 +30,7 @@ class ViewNode(BaseModel):
     list_model: ListModelRender = 'view_node'
     
     def get_type(self):
-        return type(self.views)
+        return type(self.content_blocks)
     
     def has_wrap(self):
         return self.wrap is not None or self.title is not None
@@ -44,8 +44,8 @@ class ViewNode(BaseModel):
     
 
 
-def transform_list_to_view_node(        
-        items: List[Union["ViewNode", BaseModel, str]],
+def transform_list_to_content_blocks(        
+        items: List[Union["ContentBlock", BaseModel, str]],
         name: str,
         role: Literal["assistant", "user", "system"] | None = None,
         numerate: bool = False,
@@ -57,9 +57,9 @@ def transform_list_to_view_node(
     for i, o in enumerate(items):
         if isinstance(o, str):
             sub_views.append(
-                ViewNode(
+                ContentBlock(
                     name=f"{name}_str_{i}",
-                    views=o,
+                    content_blocks=o,
                     numerate=numerate,
                     index=i,
                     role=role,
@@ -68,9 +68,9 @@ def transform_list_to_view_node(
             )
         elif isinstance(o, dict):
             sub_views.append(
-                ViewNode(
+                ContentBlock(
                     name=f"{name}_model_{i}",
-                    views=o,
+                    content_blocks=o,
                     numerate=numerate,
                     base_model=base_model,
                     index=i,
@@ -78,13 +78,13 @@ def transform_list_to_view_node(
                     indent=indent
                 )
             )
-        elif isinstance(o, ViewNode):
+        elif isinstance(o, ContentBlock):
             sub_views.append(o)
         elif isinstance(o, BaseModel):
             sub_views.append(
-                ViewNode(
+                ContentBlock(
                     name=f"{name}_model_{i}",
-                    views=o,
+                    content_blocks=o,
                     numerate=numerate,
                     base_model=base_model,
                     index=i,
@@ -97,7 +97,7 @@ def transform_list_to_view_node(
     return sub_views
 
 
-def create_view_node(
+def create_content_block(
     views,
     name: str,
     title: str | None = None,
@@ -109,14 +109,14 @@ def create_view_node(
 ):
     
     if type(views) == list or type(views) == tuple:
-        views = transform_list_to_view_node(views, name, role, numerate, base_model)
+        views = transform_list_to_content_blocks(views, name, role, numerate, base_model)
     
         
     
-    return ViewNode(
+    return ContentBlock(
         name=name,
         title=title,
-        views=views,
+        content_blocks=views,
         actions=actions,
         base_model=base_model,
         numerate=numerate,
@@ -129,7 +129,7 @@ def view(
     container=None, 
     title=None, 
     actions=None, 
-    role=None,
+    role="user",
     name=None,
     numerate=False,
     base_model: BaseModelRenderType = 'json',
@@ -144,9 +144,9 @@ def view(
             if container is not None:
                 outputs = container(*outputs if isinstance(outputs, tuple) else (outputs,))
                 
-            sub_views = []
+            sub_blocks = []
             if isinstance(outputs, list) or isinstance(outputs, tuple):
-                sub_views = transform_list_to_view_node(
+                sub_blocks = transform_list_to_content_blocks(
                     outputs, 
                     name=func.__name__, 
                     role=role, 
@@ -155,11 +155,11 @@ def view(
                     indent=indent
                 )
             else:
-                sub_views = outputs
-            view_instance = ViewNode(
+                sub_blocks = outputs
+            block_instance = ContentBlock(
                 name=func.__name__,
                 title=title,
-                views=sub_views,
+                content_blocks=sub_blocks,
                 actions=actions,
                 base_model=base_model,
                 numerate=numerate,
@@ -168,17 +168,7 @@ def view(
                 role_name=name,
                 indent=indent,
             )
-            return view_instance            
-            # outputs = func(*args, **kwargs)
-            # view_instance = ViewNode(
-            #     name=func.__name__,
-            #     title=title,
-            #     views=outputs,
-            #     actions=actions
-            # )
-            # if container is not None:
-            #     view_instance = container(view_instance)
-            # return view_instance
+            return block_instance            
         return wrapper
     
     return decorator
@@ -214,137 +204,126 @@ def add_tabs(content: str, tabs: int):
     # return content.replace("\n", f"\n{render_tabs(tabs)}")
 
 
-def render_model(node: ViewNode):
-    model = node.views
+def render_model(block: ContentBlock):
+    model = block.content_blocks
     prompt = ""
-    if node.numerate and node.index:
-        prompt += f"{node.index + 1}. "
+    if block.numerate and block.index:
+        prompt += f"{block.index + 1}. "
         
-    if node.base_model == 'json':
-        return add_tabs(prompt + json.dumps(model.model_dump(), indent=node.indent), node.depth)
-    elif node.base_model == 'model_dump':
-        return add_tabs(prompt + str(model.model_dump()) + "\n", node.depth)
+    if block.base_model == 'json':
+        return add_tabs(prompt + json.dumps(model.model_dump(), indent=block.indent), block.depth)
+    elif block.base_model == 'model_dump':
+        return add_tabs(prompt + str(model.model_dump()) + "\n", block.depth)
     else:
-        raise ValueError(f"base_model type not supported: {node.base_model}")
+        raise ValueError(f"base_model type not supported: {block.base_model}")
 
 
-def render_string(node: ViewNode, **kwargs):
+def render_string(block: ContentBlock, **kwargs):
     prompt = ''
-    depth = node.depth + 1 if node.has_wrap() else node.depth
-    if node.numerate and node.index:
-        prompt += f"{node.index + 1}. "    
-    # prompt += node.views
-    prompt += textwrap.dedent(node.views).strip()
+    depth = block.depth + 1 if block.has_wrap() else block.depth
+    if block.numerate and block.index:
+        prompt += f"{block.index + 1}. "    
+    prompt += textwrap.dedent(block.content_blocks).strip()
     prompt = add_tabs(prompt, depth)
     return replace_placeholders(prompt, **kwargs)
 
-def render_dict(node: ViewNode):
+def render_dict(block: ContentBlock):
     prompt = ''
-    depth = node.depth + 1 if node.has_wrap() else node.depth
-    if node.numerate and node.index:
-        prompt += f"{node.index + 1}. "
-    prompt += json.dumps(node.views, indent=node.indent)
+    depth = block.depth + 1 if block.has_wrap() else block.depth
+    if block.numerate and block.index:
+        prompt += f"{block.index + 1}. "
+    prompt += json.dumps(block.content_blocks, indent=block.indent)
     return add_tabs(prompt, depth)
 
-def add_wrapper(content: str, node: ViewNode):
-    title = node.title if node.title is not None else ''
-    if node.wrap == "xml":
+def add_wrapper(content: str, block: ContentBlock):
+    title = block.title if block.title is not None else ''
+    if block.wrap == "xml":
         return add_tabs((
             f"<{title}>\n"
             f"\n{content}"
             f"</{title}>\n"   
-        ), node.depth)
+        ), block.depth)
     
-    if node.wrap == "markdown":
+    if block.wrap == "markdown":
         return add_tabs((
             f"## {title}\n"
             f"\t{content}\n"
-        ), node.depth)
+        ), block.depth)
     return add_tabs((
         f"{title}:"
         f"\t{content}"
-        ), node.depth)
+        ), block.depth)
 
 
     
-def render_wrapper_starting(node: ViewNode):
-    title = node.title if node.title is not None else ''
-    if node.wrap == "xml":
-        return add_tabs(f"<{title}>", node.depth)
-    elif node.wrap == "markdown":
-        return add_tabs(f"## {title}", node.depth)
-    return add_tabs(f'{title}:', node.depth)
+def render_wrapper_starting(block: ContentBlock):
+    title = block.title if block.title is not None else ''
+    if block.wrap == "xml":
+        return add_tabs(f"<{title}>", block.depth)
+    elif block.wrap == "markdown":
+        return add_tabs(f"## {title}", block.depth)
+    return add_tabs(f'{title}:', block.depth)
 
-def render_wrapper_ending(node: ViewNode):
-    title = node.title if node.title is not None else ''
-    if node.wrap == "xml":
-        return add_tabs(f"</{title}>", node.depth)
+def render_wrapper_ending(block: ContentBlock):
+    title = block.title if block.title is not None else ''
+    if block.wrap == "xml":
+        return add_tabs(f"</{title}>", block.depth)
     return ''
 
 
 
-def validate_node(node: any):
-    if type(node) == str:
-        return ViewNode(views=node)    
-    return node
+def validate_node(block: any):
+    if type(block) == str:
+        return ContentBlock(content_blocks=block)    
+    return block
 
 
 
 
 #? in render view we are using 2 stacks so that we can render the views in the correct order
 # ?is a view is between 2 strings, we want to render the view between the strings
-def render_view(node: ViewNode, **kwargs):
+def render_block(block: ContentBlock | tuple, **kwargs):
 
-    if type(node) == tuple:
-        stack = [*reversed(node)]    
+    if type(block) == tuple:
+        stack = [*reversed(block)]    
     else:
-        stack = [node]
+        stack = [block]
 
     base_models = {}
     visited = set()
     result = []
     while stack:
         # peek_node = validate_node(stack[-1])
-        peek_node = stack[-1]
+        peek_block = stack[-1]
                             
-        if peek_node not in visited:
-            visited.add(peek_node)
-            if peek_node.has_wrap():
-                result.append(render_wrapper_starting(peek_node))
-            if peek_node.get_type() == str:
-                result.append(render_string(peek_node, **kwargs))
-            elif peek_node.get_type() == dict:
-                result.append(render_dict(peek_node))
-            elif peek_node.get_type() == list or peek_node.get_type() == tuple:
-                for view in reversed(peek_node.views):
-                    # if peek_node.has_wrap():
-                    #     view.depth = peek_node.depth + 1
-                    # if view.is_leaf():
-                    #     if peek_node.has_wrap():
-                    #         view.depth = peek_node.depth + 2
-                    #     else:
-                    #         view.depth = peek_node.depth + 1
-                    # else:
-                    #     if peek_node.has_wrap():
-                    #         view.depth = peek_node.depth + 1
-                    if peek_node.has_wrap():
-                        view.depth = peek_node.depth + 1
+        if peek_block not in visited:
+            visited.add(peek_block)
+            if peek_block.has_wrap():
+                result.append(render_wrapper_starting(peek_block))
+            if peek_block.get_type() == str:
+                result.append(render_string(peek_block, **kwargs))
+            elif peek_block.get_type() == dict:
+                result.append(render_dict(peek_block))
+            elif peek_block.get_type() == list or peek_block.get_type() == tuple:
+                for block in reversed(peek_block.content_blocks):
+                    if peek_block.has_wrap():
+                        block.depth = peek_block.depth + 1
                     else:
-                        view.depth = peek_node.depth
+                        block.depth = peek_block.depth
                     
-                    stack.append(view)
-            elif issubclass(peek_node.get_type(), ViewNode):
-                if peek_node.has_wrap():
-                    peek_node.views.depth = peek_node.depth + 1
-                stack.append(peek_node.views)
-            elif issubclass(peek_node.get_type(), BaseModel):
-                base_models[peek_node.views.__class__.__name__] = peek_node.views
-                result.append(render_model(peek_node))
+                    stack.append(block)
+            elif issubclass(peek_block.get_type(), ContentBlock):
+                if peek_block.has_wrap():
+                    peek_block.content_blocks.depth = peek_block.depth + 1
+                stack.append(peek_block.content_blocks)
+            elif issubclass(peek_block.get_type(), BaseModel):
+                base_models[peek_block.content_blocks.__class__.__name__] = peek_block.content_blocks
+                result.append(render_model(peek_block))
             else:
-                raise ValueError(f"view type not supported: {type(peek_node)}")
+                raise ValueError(f"block type not supported: {type(peek_block)}")
         else:
-            if peek_node.has_wrap():
-                result.append(render_wrapper_ending(peek_node))
+            if peek_block.has_wrap():
+                result.append(render_wrapper_ending(peek_block))
             stack.pop(-1)
     prompt = "\n".join(result)
     return prompt, result, base_models
