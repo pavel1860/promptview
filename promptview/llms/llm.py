@@ -165,7 +165,7 @@ class LLM(BaseModel):
             tool_choice: ToolChoice | BaseModel | None = None,
             response_model: type[BaseModel] | None=None,
             tracer_run=None, 
-            metadata={}, 
+            metadata={},
             completion=None,
             retries=3, 
             smart_retry=True,

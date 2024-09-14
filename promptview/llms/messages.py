@@ -44,7 +44,7 @@ class HumanMessage(BaseMessage):
 
 
 class AIMessage(BaseMessage):
-    
+    model: str | None = None
     did_finish: Optional[bool] = True
     role: Literal["assistant"] = "assistant"
     run_id: Optional[str] = None
@@ -53,6 +53,7 @@ class AIMessage(BaseMessage):
     _iterator = -1
     _tool_responses = {}
     _tools = {}
+    raw: Any = None
 
 
     def to_openai(self):
@@ -96,10 +97,10 @@ class AIMessage(BaseMessage):
     def _add_tool_response(self, response: "ActionMessage"):
         self._tool_responses[response.id] = response
     
-    def add_action_output(self, tool_id, output):
+    def add_action_output(self, tool_id: str, output: BaseModel | str | dict):
         self._tool_responses[tool_id] = output
         
-    def add_action(self, tool_id, action):
+    def add_action(self, tool_id: str, action: BaseModel):
         self._tools[tool_id] = action
 
     # def to_openai(self):
