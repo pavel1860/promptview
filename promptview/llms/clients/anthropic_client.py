@@ -84,6 +84,7 @@ class AnthropicLlmClient(BaseLlmClient):
             system_message = messages[0].content
             messages = messages[1:]
         antropic_messages = [m.to_antropic() for m in messages]
+        tool_choice = anthropic.NOT_GIVEN if not actions else to_antropic_tool_choice(tool_choice)
         anthropic_completion = await self.client.messages.create(
             model="claude-3-5-sonnet-20240620",
             max_tokens=1000,
@@ -91,7 +92,7 @@ class AnthropicLlmClient(BaseLlmClient):
             system=system_message,
             messages=antropic_messages,
             tools=tools,
-            tool_choice=to_antropic_tool_choice(tool_choice),
+            tool_choice=tool_choice,
         )
         return self.parse_output(anthropic_completion, actions)
     

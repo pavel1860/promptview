@@ -44,7 +44,7 @@ ListModelRender = Literal['list', 'view_node']
 
 class ContentBlock(BaseModel):
     uuid: str = Field(default_factory=lambda: str(uuid4()), description="id of the view node")
-    name: str | None = Field(None, description="name of the view function")
+    name: str | None = Field(None, description="name of the person who created the view")
     view_name: str
     title: str | None = None
     content: str | BaseModel | dict | None = None
@@ -52,6 +52,8 @@ class ContentBlock(BaseModel):
     role: Literal["assistant", "user", "system"] | None = None
     actions: List[Type[BaseModel]] | Type[BaseModel] | None = None
     
+    tag: str | None = None
+    class_: str | None = None
     parent_role: Literal["assistant", "user", "system"] | None = None
     numerate: bool = False
     base_model: BaseModelRenderType = 'json'
@@ -62,6 +64,8 @@ class ContentBlock(BaseModel):
     depth: int = 0
     indent: int | None = None
     list_model: ListModelRender = 'view_node'
+    
+    visited: bool = False
     
     def get_type(self):
         return type(self.content)
@@ -86,7 +90,6 @@ def transform_list_to_content_blocks(
         numerate: bool = False,
         base_model: BaseModelRenderType = 'json',
         indent: int | None = None,
-        list_model: ListModelRender = 'view_node'
     ):
     """
     ensure that all items in the list are converted to ContentBlock
@@ -101,7 +104,9 @@ def transform_list_to_content_blocks(
                     numerate=numerate,
                     index=i,
                     role=role,
-                    indent=indent
+                    indent=indent,
+                    tag=o.tag if hasattr(o, "tag") else None,
+                    class_=o.class_ if hasattr(o, "class_") else None
                 )   
             )
         elif isinstance(o, dict):
@@ -148,11 +153,19 @@ def create_content_block(
     numerate: bool = False,
     base_model: BaseModelRenderType = 'json',
     indent: int | None = None,
+    tag: str | None = None,
+    class_: str | None = None,
 ):
     content = None
     content_blocks = []
     if type(views) == list or type(views) == tuple:
-        content_blocks = transform_list_to_content_blocks(views, name, role, numerate, base_model)
+        content_blocks = transform_list_to_content_blocks(
+            views, 
+            name, 
+            role, 
+            numerate, 
+            base_model,
+        )
     elif isinstance(views, str):
         content = views
     elif isinstance(views, dict):
@@ -162,7 +175,6 @@ def create_content_block(
     elif isinstance(views, BaseModel):
         content = views
       
-    print(">>>>", role)
     return ContentBlock(
         view_name=view_name,
         name=name,
@@ -175,6 +187,8 @@ def create_content_block(
         wrap=wrap,
         role=role,
         indent=indent,
+        tag=tag,
+        class_=class_
     )
 
     
@@ -188,6 +202,8 @@ def view(
     base_model: BaseModelRenderType = 'json',
     wrap: ViewWrapperType = None,
     indent: int | None = None,
+    class_: str | None = None,
+    tag: str | None = None,
     ):
 
     def decorator(func):
@@ -196,7 +212,6 @@ def view(
             outputs = func(*args, **kwargs)
             if container is not None:
                 outputs = container(*outputs if isinstance(outputs, tuple) else (outputs,))
-            print(outputs)
             block_instance = create_content_block(
                 views=outputs,
                 view_name=func.__name__, 
@@ -208,6 +223,8 @@ def view(
                 numerate=numerate, 
                 base_model=base_model,
                 indent=indent, 
+                tag=tag,
+                class_=class_
             )   
             # sub_blocks = []
             # if isinstance(outputs, list) or isinstance(outputs, tuple):

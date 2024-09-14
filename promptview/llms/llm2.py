@@ -1,10 +1,11 @@
-from typing import Dict, List
+from typing import Dict, List, Type
 from pydantic import BaseModel
 from promptview.llms.clients.base import BaseLlmClient
 from promptview.llms.interpreter import LlmInterpreter
 from promptview.llms.llm import ToolChoice
 from promptview.llms.messages import BaseMessage
 from promptview.llms.tracer import Tracer
+from promptview.prompt.mvc import ContentBlock
 
 
 
@@ -113,7 +114,8 @@ class LLM(BaseModel, LlmInterpreter):
         
     async def __call__(
         self, 
-        views,
+        views: List[ContentBlock] | ContentBlock | None = None,
+        actions: List[Type[BaseModel]] | None = None,
         tool_choice: ToolChoice | BaseModel | None = None,
         metadata: Dict[str, str] | None = None,
         retries: int = 3,
