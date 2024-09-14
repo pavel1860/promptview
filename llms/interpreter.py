@@ -10,18 +10,83 @@ from promptview.utils.function_utils import flatten_list
 
 
 
-class Conversation(BaseModel):
+class Conversation:
     content_blocks: list[ContentBlock]
     index: int | None = None
     actions: List[Type[BaseModel]] = []
     hints: List[ContentBlock] = []
-
-    def pre_order_traversal(self, enumerated=False) -> Generator["ContentBlock", None, None]:
+    
+    
+    def __init__(self, content_blocks: list[ContentBlock]):
+        self.content_blocks=content_blocks
+        current_role = None
+        for (depth, index), block in self.pre_order_traversal(enumerated=True):
+            # print("-----------------------")
+            if depth == 1:
+                current_role = block.role
+            block.depth = depth - 1
+            block.parent_role = current_role
+            if issubclass(block.get_type(), BaseModel):
+                self.hints.append(block)
+            if block.actions:
+                self.actions.extend(block.actions)
+        
+    def find(
+        self,
+        tag: str=None, 
+        role: str=None, 
+        view_name: str=None, 
+        class_: str=None, 
+        min_depth: int=0, 
+        max_depth: int=100,
+        replace: bool=True,
+        node=None,
+        
+    ):
+        for block in self.pre_order_traversal(node):
+            # print(block.class_)
+            # print(block.tag)
+            if tag and block.tag != tag:
+                continue
+            if role and block.role != role:
+                continue
+            if class_ and block.class_ != class_:
+                continue
+            if view_name and block.view_name != view_name:
+                continue
+            if block.depth < min_depth or block.depth > max_depth:
+                continue
+            
+            if not replace:
+                block.visited = True            
+            yield block
+            
+    def first(
+        self,        
+        tag: str=None, 
+        role: str=None, 
+        view_name: str=None, 
+        class_: str=None, 
+        min_depth: int=0, 
+        max_depth: int=100,
+        node=None,
+        skip: int=0
+    ):
+        
+        for block in self.find(tag, role, view_name, class_, min_depth, max_depth, node=node):
+            if skip == 0:
+                return block
+            skip -= 1
+    
+    
+        
+    def pre_order_traversal(self, node=None, enumerated=False) -> Generator["ContentBlock", None, None]:
         """
         Perform pre-order traversal of the tree without recursion.
         This yields each ContentBlock and its children in pre-order.
         """
-        stack = [(self, 0, 0)]  # Initialize stack with the root node (self)
+        node = node or self
+        stack = [(node, 0, 0)]  # Initialize stack with the root node (self)
         
         while stack:
             current_block, depth, child_index = stack.pop()
@@ -34,6 +99,28 @@ class Conversation(BaseModel):
             # Add children to the stack in reverse order so they are processed in the correct order
             for i, child in enumerate(reversed(current_block.content_blocks)):
                 stack.append((child, depth + 1, len(current_block.content_blocks) - 1 - i))
+                
+    def count(
+        self, 
+        tag: str=None, 
+        role: str=None, 
+        view_name: str=None, 
+        class_: str=None, 
+        min_depth: int=0, 
+        max_depth: int=100,
+        node=None):
+        count = 0
+        for block in self.find(
+            tag=tag,
+            role=role,
+            view_name=view_name,
+            class_=class_,
+            min_depth=min_depth,
+            max_depth=max_depth,
+            node=node
+        ):
+            count += 1
+        return count
 
                 
     def post_order_traversal(self) -> Generator["ContentBlock", None, None]:
@@ -59,7 +146,9 @@ class Conversation(BaseModel):
             if item is not self:
                 yield item
 
-
+    def replace_all(self):
+        for block in self.post_order_traversal():
+            block.visited = False
 
 class LlmInterpreter:
     
