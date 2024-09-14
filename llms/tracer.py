@@ -41,7 +41,8 @@ class Tracer:
         inputs: Any = {}, 
         run_type: RunTypes="chain",
         session_id: str=None,
-        extra: Dict[str, Any]={}, 
+        extra: Dict[str, Any]={},
+        metadata: Dict[str, Any]=None, 
         tracer_run=None, 
         is_traceable: bool | None=True, 
         tags: List[str] | str | None=None
@@ -58,6 +59,8 @@ class Tracer:
         if type(tracer_run) == Tracer:
             tracer_run = tracer_run.tracer_run
         
+        if metadata is not None:
+            extra["metadata"] = metadata
         # if session_id is not None:
         #     extra["session_id"] = session_id
 

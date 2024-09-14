@@ -7,10 +7,12 @@ import anthropic
 
 from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.messages import BaseMessage, SystemMessage, AIMessage
-from promptview.prompt.mvc import find_action
+from promptview.llms.types import ToolChoice
+from promptview.prompt.mvc import find_action, get_action_name
 from promptview.utils.model_utils import schema_to_function
 from promptview.llms.interpreter import LlmInterpreter
-from typing import List
+from typing import List, get_args
+
 
 def convert_camel_to_snake(name):
     import re
@@ -37,8 +39,29 @@ def actions_to_tools(actions: list[BaseModel]):
     return tools
 
 
-
-
+def to_antropic_tool_choice(tool_choice: ToolChoice):
+    if tool_choice is None:
+        return {"type": "auto"}
+    elif isinstance(tool_choice, BaseModel):
+        return {
+            "type": "tool",
+            "name": get_action_name(tool_choice)    
+        }        
+    elif isinstance(tool_choice, str):
+        if not tool_choice in get_args(ToolChoice):
+            raise ValueError(f"Invalid tool_choice string: {tool_choice}. should be one of {get_args(ToolChoice)}")
+        if tool_choice == "auto":
+            return {"type": "auto"}
+        elif tool_choice == "none":
+            raise ValueError("none tool_choice is not supported by anthropic")
+        elif tool_choice == "required":
+            return {"type": "any"}
+    else:
+        raise ValueError(f"Invalid tool_choice type: {type(tool_choice)}")
+    
+    
+    
+    
 class AnthropicLlmClient(BaseLlmClient):
 
     def __init__(self, api_key=None):
@@ -47,7 +70,14 @@ class AnthropicLlmClient(BaseLlmClient):
             client = anthropic.AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY")),
         )
 
-    async def complete(self, messages, actions=None, run_id: str | None=None, **kwargs):
+    async def complete(
+        self, 
+        messages, 
+        actions=None, 
+        tool_choice: ToolChoice | BaseModel | None = None,
+        run_id: str | None=None, 
+        **kwargs
+    ):
         tools = actions_to_tools(actions) if actions else []
         system_message = None
         if isinstance(messages[0], SystemMessage):
@@ -61,6 +91,7 @@ class AnthropicLlmClient(BaseLlmClient):
             system=system_message,
             messages=antropic_messages,
             tools=tools,
+            tool_choice=to_antropic_tool_choice(tool_choice),
         )
         return self.parse_output(anthropic_completion, actions)
     
@@ -74,8 +105,14 @@ class AnthropicLlmClient(BaseLlmClient):
                 action = find_action(content_block.name, actions)
                 if not action:
                     raise LLMToolNotFound(content_block.name)
-                tool_calls.append({"id": content_block.id, "action": action})
-        ai_message = AIMessage(id=response.id, content=content, tool_calls=tool_calls)
+                action_instance = action(**content_block.input)
+                tool_calls.append({"id": content_block.id, "action": action_instance})
+        ai_message = AIMessage(
+            id=response.id,
+            model=response.model,
+            content=content, 
+            raw=response,
+        )
         for tc in tool_calls:
             ai_message.add_action(tc["id"], tc["action"])
         return ai_message
