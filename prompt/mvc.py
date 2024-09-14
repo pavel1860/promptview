@@ -3,33 +3,68 @@ import json
 from functools import wraps
 import string
 import textwrap
-from typing import Any, List, Literal, Tuple, Union
+from typing import Any, List, Literal, Tuple, Type, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
-
+from promptview.utils.string_utils import convert_camel_to_snake
 ViewWrapperType = Literal["xml", "markdown", None]
 BaseModelRenderType =  Literal['model_dump', 'json']
 ListModelRender = Literal['list', 'view_node']
 
+# class ContentBlock(BaseModel):
+#     vn_id: str = Field(default_factory=lambda: str(uuid4()), description="id of the view node")
+#     name: str = Field(None, description="name of the view function")
+#     title: str | None = None
+#     numerate: bool = False
+#     base_model: BaseModelRenderType = 'json'
+#     wrap: ViewWrapperType = None
+#     role: Literal["assistant", "user", "system"] | None = "user"
+#     role_name: str | None = None
+#     # views: List[Union["ViewNode", BaseModel, str]] | Tuple[Union["ViewNode", BaseModel, str]] | "ViewNode" | BaseModel | str 
+#     content_blocks: Any
+#     index: int | None = None
+#     actions: List[BaseModel] | BaseModel | None = None
+#     depth: int = 0
+#     indent: int | None = None
+#     list_model: ListModelRender = 'view_node'
+    
+#     def get_type(self):
+#         return type(self.content_blocks)
+    
+#     def has_wrap(self):
+#         return self.wrap is not None or self.title is not None
+    
+#     def is_leaf(self):
+#         return self.get_type() == str or issubclass(self.get_type(), BaseModel)
+    
+#     def __hash__(self):
+#         return self.vn_id.__hash__()
+
+
 class ContentBlock(BaseModel):
-    vn_id: str = Field(default_factory=lambda: str(uuid4()), description="id of the view node")
-    name: str = Field(None, description="name of the view function")
+    uuid: str = Field(default_factory=lambda: str(uuid4()), description="id of the view node")
+    name: str | None = Field(None, description="name of the view function")
+    view_name: str
     title: str | None = None
+    content: str | BaseModel | dict | None = None
+    content_blocks: List["ContentBlock"] = []
+    role: Literal["assistant", "user", "system"] | None = None
+    actions: List[Type[BaseModel]] | Type[BaseModel] | None = None
+    
+    parent_role: Literal["assistant", "user", "system"] | None = None
     numerate: bool = False
     base_model: BaseModelRenderType = 'json'
-    wrap: ViewWrapperType = None
-    role: Literal["assistant", "user", "system"] | None = "user"
-    role_name: str | None = None
-    # views: List[Union["ViewNode", BaseModel, str]] | Tuple[Union["ViewNode", BaseModel, str]] | "ViewNode" | BaseModel | str 
-    content_blocks: Any
+    wrap: ViewWrapperType = None    
+    role_name: str | None = None    
     index: int | None = None
-    actions: List[BaseModel] | BaseModel | None = None
+    
     depth: int = 0
     indent: int | None = None
     list_model: ListModelRender = 'view_node'
     
     def get_type(self):
+        return type(self.content)
         return type(self.content_blocks)
     
     def has_wrap(self):
@@ -39,27 +74,30 @@ class ContentBlock(BaseModel):
         return self.get_type() == str or issubclass(self.get_type(), BaseModel)
     
     def __hash__(self):
-        return self.vn_id.__hash__()
+        return self.uuid.__hash__()
     
     
 
 
 def transform_list_to_content_blocks(        
         items: List[Union["ContentBlock", BaseModel, str]],
-        name: str,
+        view_name: str,
         role: Literal["assistant", "user", "system"] | None = None,
         numerate: bool = False,
         base_model: BaseModelRenderType = 'json',
         indent: int | None = None,
         list_model: ListModelRender = 'view_node'
     ):
+    """
+    ensure that all items in the list are converted to ContentBlock
+    """
     sub_views = []
     for i, o in enumerate(items):
         if isinstance(o, str):
             sub_views.append(
                 ContentBlock(
-                    name=f"{name}_str_{i}",
-                    content_blocks=o,
+                    view_name=f"{view_name}_str_{i}",
+                    content=o,
                     numerate=numerate,
                     index=i,
                     role=role,
@@ -67,9 +105,10 @@ def transform_list_to_content_blocks(
                 )   
             )
         elif isinstance(o, dict):
+            raise ValueError("dict type not supported")
             sub_views.append(
                 ContentBlock(
-                    name=f"{name}_model_{i}",
+                    view_name=f"{view_name}_model_{i}",
                     content_blocks=o,
                     numerate=numerate,
                     base_model=base_model,
@@ -81,9 +120,10 @@ def transform_list_to_content_blocks(
         elif isinstance(o, ContentBlock):
             sub_views.append(o)
         elif isinstance(o, BaseModel):
+            raise ValueError("dict type not supported")
             sub_views.append(
                 ContentBlock(
-                    name=f"{name}_model_{i}",
+                    view_name=f"{view_name}_model_{i}",
                     content_blocks=o,
                     numerate=numerate,
                     base_model=base_model,
@@ -99,29 +139,42 @@ def transform_list_to_content_blocks(
 
 def create_content_block(
     views,
-    name: str,
+    view_name: str,
+    name: str | None=None,
     title: str | None = None,
     wrap: ViewWrapperType = None,
     actions: List[BaseModel] | BaseModel | None = None,
     role: Literal["assistant", "user", "system"] | None = None,
     numerate: bool = False,
     base_model: BaseModelRenderType = 'json',
+    indent: int | None = None,
 ):
-    
+    content = None
+    content_blocks = []
     if type(views) == list or type(views) == tuple:
-        views = transform_list_to_content_blocks(views, name, role, numerate, base_model)
-    
-        
-    
+        content_blocks = transform_list_to_content_blocks(views, name, role, numerate, base_model)
+    elif isinstance(views, str):
+        content = views
+    elif isinstance(views, dict):
+        content = views
+    elif isinstance(views, ContentBlock):
+        raise ValueError("ContentBlock type not supported")
+    elif isinstance(views, BaseModel):
+        content = views
+      
+    print(">>>>", role)
     return ContentBlock(
+        view_name=view_name,
         name=name,
         title=title,
-        content_blocks=views,
+        content_blocks=content_blocks,
+        content=content,
         actions=actions,
         base_model=base_model,
         numerate=numerate,
         wrap=wrap,
         role=role,
+        indent=indent,
     )
 
     
@@ -143,34 +196,45 @@ def view(
             outputs = func(*args, **kwargs)
             if container is not None:
                 outputs = container(*outputs if isinstance(outputs, tuple) else (outputs,))
-                
-            sub_blocks = []
-            if isinstance(outputs, list) or isinstance(outputs, tuple):
-                sub_blocks = transform_list_to_content_blocks(
-                    outputs, 
-                    name=func.__name__, 
-                    role=role, 
-                    numerate=numerate, 
-                    base_model=base_model,
-                    indent=indent
-                )
-            else:
-                sub_blocks = outputs
-            block_instance = ContentBlock(
-                name=func.__name__,
-                title=title,
-                content_blocks=sub_blocks,
-                actions=actions,
+            print(outputs)
+            block_instance = create_content_block(
+                views=outputs,
+                view_name=func.__name__, 
+                name=name, 
+                title=title, 
+                wrap=wrap, 
+                actions=actions, 
+                role=role, 
+                numerate=numerate, 
                 base_model=base_model,
-                numerate=numerate,
-                wrap=wrap,
-                role=role,
-                role_name=name,
-                indent=indent,
-            )
+                indent=indent, 
+            )   
+            # sub_blocks = []
+            # if isinstance(outputs, list) or isinstance(outputs, tuple):
+            #     sub_blocks = transform_list_to_content_blocks(
+            #         outputs, 
+            #         name=func.__name__, 
+            #         role=role, 
+            #         numerate=numerate, 
+            #         base_model=base_model,
+            #         indent=indent
+            #     )
+            # else:
+            #     sub_blocks = outputs
+            # block_instance = ContentBlock(
+            #     name=func.__name__,
+            #     title=title,
+            #     content_blocks=sub_blocks,
+            #     actions=actions,
+            #     base_model=base_model,
+            #     numerate=numerate,
+            #     wrap=wrap,
+            #     role=role,
+            #     role_name=name,
+            #     indent=indent,
+            # )
             return block_instance            
-        return wrapper
-    
+        return wrapper    
     return decorator
 
 def list_view(rules: list[str], numbered: bool = True):
@@ -276,6 +340,21 @@ def validate_node(block: any):
     if type(block) == str:
         return ContentBlock(content_blocks=block)    
     return block
+
+
+
+def get_action_name(action_class: Type[BaseModel]):
+    if hasattr(action_class, "_title"):
+        return action_class._title.default
+    return convert_camel_to_snake(action_class.__name__)
+
+
+def find_action(action_name, actions):
+    for action in actions:
+        if get_action_name(action) == action_name:
+            return action
+    return None
+
 
 
 
