@@ -259,18 +259,13 @@ class ChatPrompt(BaseModel, Generic[T]):
         messages: List = []
 
         for view in views:
-            # if isinstance(view, BaseMessage):
-            #     messages.append(view)
             if issubclass(view.get_type(), BaseMessage):
-                messages.append(view.content_blocks)
-                # if view.is_valid():
-                #     messages.append(view)
+                messages.append(view.content_blocks)                
                 continue                            
             if isinstance(view, tuple):
                 view = create_content_block(view, name=self.name or self.__class__.__name__,)
             prompt, rendered_outputs, base_models = render_block(view, **kwargs)
             if isinstance(view, ContentBlock):
-                # messages.append(AIMessage(content=prompt) if view.role == 'assistant' else HumanMessage(content=prompt))
                 messages.append(
                     build_view_node_message(prompt, view)
                 )
@@ -278,8 +273,6 @@ class ChatPrompt(BaseModel, Generic[T]):
                 messages.append(HumanMessage(content=prompt))     
             
             total_base_models.update(base_models)
-        
-        # messages = validate_msgs(messages)
             
         system_message = await self.render_system_message(
             total_base_models, 

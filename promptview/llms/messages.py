@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, validator
 
 
 class BaseMessage(BaseModel):
+    id: Optional[str] = None
     content: str | None
     content_blocks: List[Dict[str, Any]] | None = None
     name: str | None = None
@@ -43,13 +44,15 @@ class HumanMessage(BaseMessage):
 
 
 class AIMessage(BaseMessage):
+    
     did_finish: Optional[bool] = True
     role: Literal["assistant"] = "assistant"
     run_id: Optional[str] = None
     tool_calls: Optional[List[Any]] = None
-    actions: Optional[List[BaseModel]] = []
+    # actions: Optional[List[BaseModel]] = []
     _iterator = -1
     _tool_responses = {}
+    _tools = {}
 
 
     def to_openai(self):
@@ -69,8 +72,9 @@ class AIMessage(BaseMessage):
             oai_msg["name"] = self.name
         return oai_msg
     
-
-    
+    @property
+    def actions(self):
+        return list(self._tools.values())
     
     @property
     def output(self):
@@ -89,8 +93,14 @@ class AIMessage(BaseMessage):
             return True
         return False
     
-    def add_tool_response(self, response: "ActionMessage"):
+    def _add_tool_response(self, response: "ActionMessage"):
         self._tool_responses[response.id] = response
+    
+    def add_action_output(self, tool_id, output):
+        self._tool_responses[tool_id] = output
+        
+    def add_action(self, tool_id, action):
+        self._tools[tool_id] = action
 
     # def to_openai(self):
     #     oai_msg = {"role": self.role}                
