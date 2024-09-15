@@ -6,7 +6,7 @@ from promptview.llms.llm import ToolChoice
 from promptview.llms.messages import BaseMessage
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import ContentBlock
+from promptview.prompt.mvc import ViewBlock
 
 
 
@@ -115,7 +115,7 @@ class LLM(BaseModel, LlmInterpreter):
         
     async def __call__(
         self, 
-        views: List[ContentBlock] | ContentBlock | None = None,
+        views: List[ViewBlock] | ViewBlock | None = None,
         actions: List[Type[BaseModel]] | None = None,
         tool_choice: ToolChoice | BaseModel | None = None,
         metadata: Dict[str, str] | None = None,
