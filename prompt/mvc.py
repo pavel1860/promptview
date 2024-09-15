@@ -340,10 +340,12 @@ def create_view_block(
     elif isinstance(views, dict):
         content = views
     elif isinstance(views, ViewBlock):
-        raise ValueError("ContentBlock type not supported")
+        if view_name != "root":
+            raise ValueError("ContentBlock type not supported. pass a list of ContentBlock or a 'root' view_name")
+        view_blocks = [views]
     elif isinstance(views, BaseModel):
         content = views
-    print(bullet)
+
     return ViewBlock(
         view_name=view_name,
         name=name,

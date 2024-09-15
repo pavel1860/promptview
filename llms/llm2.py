@@ -93,7 +93,7 @@ class LLM(BaseModel, LlmInterpreter):
     ):
         
         llm_kwargs = self.get_llm_args(tools=actions, **kwargs)
-        
+        metadata["model"] = llm_kwargs.get("model", self.model)
         with Tracer(
             is_traceable=self.is_traceable,
             tracer_run=tracer_run,
