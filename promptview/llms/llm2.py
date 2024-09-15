@@ -5,6 +5,7 @@ from promptview.llms.interpreter import LlmInterpreter
 from promptview.llms.llm import ToolChoice
 from promptview.llms.messages import BaseMessage
 from promptview.llms.tracer import Tracer
+from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import ContentBlock
 
 
@@ -82,7 +83,7 @@ class LLM(BaseModel, LlmInterpreter):
     async def complete(
         self, 
         messages: List[BaseMessage], 
-        actions=None,
+        actions: Actions=None,
         tool_choice: ToolChoice | BaseModel | None = None,
         tracer_run=None,
         metadata={},
@@ -132,7 +133,7 @@ class LLM(BaseModel, LlmInterpreter):
         frequency_penalty: float | None = None,
         is_traceable: bool | None = True,
     ):
-        messages, actions = self.run_transform(views)
+        messages, actions = self.transform(views)
         return await self.complete(
             messages, 
             actions,

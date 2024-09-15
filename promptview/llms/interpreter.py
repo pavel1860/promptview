@@ -1,6 +1,7 @@
-from typing import Generator, List, Type
+from typing import Generator, List, Tuple, Type, Union
 from pydantic import BaseModel
-from promptview.llms.messages import HumanMessage, AIMessage, SystemMessage
+from promptview.llms.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import ContentBlock, add_tabs, replace_placeholders
 import json 
 import textwrap
@@ -13,7 +14,7 @@ from promptview.utils.function_utils import flatten_list
 class Conversation:
     content_blocks: list[ContentBlock]
     index: int | None = None
-    actions: List[Type[BaseModel]] = []
+    actions: Actions = []
     hints: List[ContentBlock] = []
     
     
@@ -30,6 +31,15 @@ class Conversation:
                 self.hints.append(block)
             if block.actions:
                 self.actions.extend(block.actions)
+                
+    
+    def find_actions(self) -> Actions:
+        actions = Actions()
+        for block in self.pre_order_traversal():            
+            if block.actions:
+                actions.extend(block.actions)
+        return actions
+        
         
     def find(
         self,
@@ -42,7 +52,7 @@ class Conversation:
         replace: bool=True,
         node=None,
         
-    ):
+    ) -> Generator[ContentBlock, None, None]:
         for block in self.pre_order_traversal(node):
             # print(block.class_)
             # print(block.tag)
@@ -71,7 +81,7 @@ class Conversation:
         max_depth: int=100,
         node=None,
         skip: int=0
-    ):
+    ) -> ContentBlock:
         
         for block in self.find(tag, role, view_name, class_, min_depth, max_depth, node=node):
             if skip == 0:
@@ -80,7 +90,7 @@ class Conversation:
     
     
         
-    def pre_order_traversal(self, node=None, enumerated=False) -> Generator["ContentBlock", None, None]:
+    def pre_order_traversal(self, node=None, enumerated=False) -> Generator[ContentBlock, None, None]:
         """
         Perform pre-order traversal of the tree without recursion.
         This yields each ContentBlock and its children in pre-order.
@@ -123,7 +133,7 @@ class Conversation:
         return count
 
                 
-    def post_order_traversal(self) -> Generator["ContentBlock", None, None]:
+    def post_order_traversal(self) -> Generator[ContentBlock, None, None]:
         """
         Perform post-order traversal of the tree without recursion.
         This yields each ContentBlock and its children in post-order.
@@ -261,7 +271,7 @@ class LlmInterpreter:
         return messages, conversation.actions
 
 
-    def transform(self, conversation: Conversation):
+    def transform(self, conversation: Conversation) -> Tuple[List[BaseMessage], Actions]:
         messages = []
         for block in conversation.content_blocks: 
             results = self.render_block(block)
@@ -274,4 +284,5 @@ class LlmInterpreter:
                 messages.append(SystemMessage(content=content))
             else:
                 raise ValueError(f"Unsupported role: {block.rule}")
-        return messages       
+        actions = conversation.find_actions()
+        return messages, actions

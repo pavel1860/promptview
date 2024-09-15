@@ -94,12 +94,12 @@ class Prompt(BaseModel, Generic[T]):
         ) -> T:
         actions = actions or self.actions
         views = views or await self._render(context=context, **kwargs)
-        conversation = await self.transform(views, context=context, **kwargs)
-        messages = self.llm.transform(conversation)
+        conversation = await self.transform(views, context=context, **kwargs)        
+        messages, actions_ = self.llm.transform(conversation)
+        if actions is None:
+            actions = actions_
         if output_messages:
             return messages
         
-        if conversation.actions:            
-            actions = actions + conversation.actions if actions else conversation.actions
         response = await self.llm.complete(messages, actions=actions, tool_choice=tool_choice, tracer_run=tracer_run, **kwargs)        
         return response

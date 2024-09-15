@@ -5,7 +5,7 @@
 from typing import Optional
 from pydantic import Field
 from promptview.llms.clients.openai_client import OpenAiLlmClient
-from promptview.llms.llm import LLM
+from promptview.llms.llm2 import LLM
 
 
 class OpenAiLLM(LLM):
