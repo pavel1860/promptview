@@ -10,7 +10,7 @@ from promptview.state.context import Context
 from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
                                       SystemMessage, validate_msgs)
 from promptview.llms.tracer import Tracer
-from promptview.prompt.mvc import ContentBlock, create_content_block, render_block, replace_placeholders
+from promptview.prompt.mvc import ViewBlock, create_view_block, render_block, replace_placeholders
 from promptview.utils.function_utils import call_function
 from pydantic import BaseModel, Field
 import string
@@ -56,7 +56,7 @@ def render_output_model(output_model: Type[BaseModel]) -> str:
     return prompt
 
 
-def build_view_node_message(prompt: str, view_node: ContentBlock) -> str:
+def build_view_node_message(prompt: str, view_node: ViewBlock) -> str:
     if view_node.role == 'assistant':
         return AIMessage(
             content=prompt,
@@ -82,8 +82,8 @@ async def render_propertie_value(view: Any, name: str, title: str | None = None,
         if not view:
             return ''
             # raise ValueError("view function returned empty value")
-    if not isinstance(view, ContentBlock):
-        view = create_content_block(view, name, title=title)
+    if not isinstance(view, ViewBlock):
+        view = create_view_block(view, name, title=title)
     render_prompt, _, _ = render_block(view, **kwargs)
     return render_prompt
     # prompt = ''
@@ -206,31 +206,31 @@ class ChatPrompt(BaseModel, Generic[T]):
         self._output_parser_method = output_parser
         
     
-    async def render(self, **kwargs: Any) -> List[ContentBlock] | ContentBlock:
+    async def render(self, **kwargs: Any) -> List[ViewBlock] | ViewBlock:
         raise NotImplementedError("render method is not set")
     
     async def output_parser(self, response_message: AIMessage, **kwargs: Any) -> Any:
         return response_message
     
-    async def _render(self, context=None, **kwargs: Any) -> List[ContentBlock] | ContentBlock:
+    async def _render(self, context=None, **kwargs: Any) -> List[ViewBlock] | ViewBlock:
         views = await call_function(
                 self.render if self._render_method is None else self._render_method, 
                 context=context, 
                 **kwargs
             )
         if isinstance(views, str) or isinstance(views, BaseModel):
-            return create_content_block(views, name=self.name or self.__class__.__name__, role='user')            
+            return create_view_block(views, name=self.name or self.__class__.__name__, role='user')            
         elif isinstance(views, list):
             valid_views = []
             for view in views:
-                if not isinstance(view, ContentBlock):
-                    valid_views.append(create_content_block(view, name=self.name or self.__class__.__name__, role='user'))
+                if not isinstance(view, ViewBlock):
+                    valid_views.append(create_view_block(view, name=self.name or self.__class__.__name__, role='user'))
                 else:
                     valid_views.append(view)
             return valid_views
             
         elif isinstance(views, tuple):
-            return create_content_block(views, name=self.name or self.__class__.__name__, role='user')            
+            return create_view_block(views, name=self.name or self.__class__.__name__, role='user')            
         return views
     
     
@@ -243,7 +243,7 @@ class ChatPrompt(BaseModel, Generic[T]):
     
     async def _build_conversation(
             self, 
-            views: List[ContentBlock] | ContentBlock, 
+            views: List[ViewBlock] | ViewBlock, 
             context: Context | None = None,
             response_model: Type[BaseModel] | None = None, 
             actions: List[Type[BaseModel]] | None= None,             
@@ -260,12 +260,12 @@ class ChatPrompt(BaseModel, Generic[T]):
 
         for view in views:
             if issubclass(view.get_type(), BaseMessage):
-                messages.append(view.content_blocks)                
+                messages.append(view.view_blocks)                
                 continue                            
             if isinstance(view, tuple):
-                view = create_content_block(view, name=self.name or self.__class__.__name__,)
+                view = create_view_block(view, name=self.name or self.__class__.__name__,)
             prompt, rendered_outputs, base_models = render_block(view, **kwargs)
-            if isinstance(view, ContentBlock):
+            if isinstance(view, ViewBlock):
                 messages.append(
                     build_view_node_message(prompt, view)
                 )
@@ -287,7 +287,7 @@ class ChatPrompt(BaseModel, Generic[T]):
     
     async def __call__(
             self,
-            views: List[ContentBlock] | ContentBlock | None = None, 
+            views: List[ViewBlock] | ViewBlock | None = None, 
             context: Context | None=None, 
             response_model = None,
             actions: List[Type[BaseModel]] | None = None,

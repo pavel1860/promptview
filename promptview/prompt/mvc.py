@@ -1,12 +1,13 @@
-
+from __future__ import annotations
 import json
 from functools import wraps
 import string
 import textwrap
-from typing import Any, List, Literal, Tuple, Type, Union
+from typing import Any, Callable, Generator, List, Literal, Tuple, Type, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+from promptview.llms.utils.action_manager import Actions
 from promptview.utils.string_utils import convert_camel_to_snake
 ViewWrapperType = Literal["xml", "markdown", None]
 BaseModelRenderType =  Literal['model_dump', 'json']
@@ -21,7 +22,7 @@ ListModelRender = Literal['list', 'view_node']
 #     wrap: ViewWrapperType = None
 #     role: Literal["assistant", "user", "system"] | None = "user"
 #     role_name: str | None = None
-#     # views: List[Union["ViewNode", BaseModel, str]] | Tuple[Union["ViewNode", BaseModel, str]] | "ViewNode" | BaseModel | str 
+#     # views: List[Union[ViewNode, BaseModel, str]] | Tuple[Union[ViewNode, BaseModel, str]] | ViewNode | BaseModel | str 
 #     content_blocks: Any
 #     index: int | None = None
 #     actions: List[BaseModel] | BaseModel | None = None
@@ -40,21 +41,63 @@ ListModelRender = Literal['list', 'view_node']
     
 #     def __hash__(self):
 #         return self.vn_id.__hash__()
+RoleType = Literal["assistant", "user", "system"]
+
+def filter_by_tag(block: ViewBlock, tag: str | None) -> bool:
+    return tag is None or block.tag == tag
+
+def filter_by_role(block: ViewBlock, role: str | None) -> bool:
+    return role is None or block.role == role
+
+def filter_by_view_name(block: ViewBlock, view_name: str | None) -> bool:
+    return view_name is None or block.view_name == view_name
+
+def filter_by_class(block: ViewBlock, class_: str | None) -> bool:
+    return class_ is None or block.class_ == class_
+
+def filter_by_depth(depth: int, min_depth: int, max_depth: int) -> Callable[[ViewBlock, int], bool]:
+    def inner(block: ViewBlock, current_depth: int) -> bool:
+        if depth is not None:
+            return current_depth == depth
+        return min_depth <= current_depth <= max_depth
+    return inner
 
 
-class ContentBlock(BaseModel):
+def combine_filters(
+    tag: str | None = None, 
+    role: str | None = None,
+    view_name: str | None = None,
+    class_: str | None = None,
+    depth: int | None = None,
+    min_depth: int = 0,
+    max_depth: int = 100,
+) -> Callable[[ViewBlock, int], bool]:
+    
+    def combined(block: ViewBlock, current_depth: int) -> bool:
+        return (
+            filter_by_tag(block, tag) and
+            filter_by_role(block, role) and
+            filter_by_view_name(block, view_name) and
+            filter_by_class(block, class_) and
+            filter_by_depth(depth, min_depth, max_depth)(block, current_depth)
+        )
+    
+    return combined
+
+
+class ViewBlock(BaseModel):
     uuid: str = Field(default_factory=lambda: str(uuid4()), description="id of the view node")
     name: str | None = Field(None, description="name of the person who created the view")
     view_name: str
     title: str | None = None
     content: str | BaseModel | dict | None = None
-    content_blocks: List["ContentBlock"] = []
-    role: Literal["assistant", "user", "system"] | None = None
-    actions: List[Type[BaseModel]] | Type[BaseModel] | None = None
+    view_blocks: list[ViewBlock] = Field(default_factory=list, description="list of view blocks that are children of this view block")
+    role: RoleType | None = None
+    actions: list[Type[BaseModel]] | Type[BaseModel] | None = None
     
     tag: str | None = None
     class_: str | None = None
-    parent_role: Literal["assistant", "user", "system"] | None = None
+    parent_role: RoleType | None = None
     numerate: bool = False
     base_model: BaseModelRenderType = 'json'
     wrap: ViewWrapperType = None    
@@ -69,7 +112,7 @@ class ContentBlock(BaseModel):
     
     def get_type(self):
         return type(self.content)
-        return type(self.content_blocks)
+        return type(self.view_blocks)
     
     def has_wrap(self):
         return self.wrap is not None or self.title is not None
@@ -80,11 +123,134 @@ class ContentBlock(BaseModel):
     def __hash__(self):
         return self.uuid.__hash__()
     
+    def find_actions(self) -> Actions:
+        actions = Actions()
+        for block in self.pre_order_traversal():            
+            if block.actions:
+                actions.extend(block.actions)
+        return actions
+        
+        
+    def find(
+        self,
+        tag: str=None, 
+        role: str=None, 
+        view_name: str=None, 
+        class_: str=None, 
+        depth: int | None = None,
+        min_depth: int=0, 
+        max_depth: int=100,
+        replace: bool=True,
+        enumerated: bool=False
+        
+    ) -> Generator[ViewBlock, None, None]:
+                
+        filter_func = combine_filters(tag, role, view_name, class_, depth, min_depth, max_depth)
+        for (current_depth, index), block in self.pre_order_traversal(enumerated=True):
+            if filter_func(block, current_depth):
+                if not replace:
+                    block.visited = True
+                if enumerated:
+                    yield (current_depth, index), block
+                else:
+                    yield block
+
+            
+    def first(
+        self,        
+        tag: str=None, 
+        role: str=None, 
+        view_name: str=None, 
+        class_: str=None,
+        depth: int | None = None,
+        min_depth: int=0, 
+        max_depth: int=100,
+        skip: int=0,
+        enumerated: bool=False
+    ) -> ViewBlock:
+        """return the first block that matches the filter"""
+        for (depth, index), block in self.find(tag, role, view_name, class_, depth, min_depth, max_depth, enumerated=True):
+            if skip == 0:
+                if enumerated:
+                    return (depth, index), block
+                return block
+            skip -= 1
     
+    def count(
+        self, 
+        tag: str=None, 
+        role: str=None, 
+        view_name: str=None, 
+        class_: str=None,
+        depth: int | None = None,
+        min_depth: int=0, 
+        max_depth: int=100,
+    ):
+        """counting the number of blocks that match the filter under the current block"""
+        count = 0
+        for block in self.find(
+            tag=tag,
+            role=role,
+            view_name=view_name,
+            class_=class_,
+            depth=depth,
+            min_depth=min_depth,
+            max_depth=max_depth,
+        ):
+            count += 1
+        return count
+    
+        
+    def pre_order_traversal(self, enumerated=False) -> Generator[ViewBlock, None, None]:
+        """
+        Perform pre-order traversal of the tree without recursion.
+        This yields each ContentBlock and its children in pre-order.
+        """
+        stack = [(self, 0, 0)]  # Initialize stack with the root node (self)
+        
+        while stack:
+            current_block, depth, child_index = stack.pop()
+            if current_block is not self:
+                if enumerated:
+                    yield (depth, child_index), current_block
+                else:
+                    yield current_block
+            
+            # Add children to the stack in reverse order so they are processed in the correct order
+            for i, child in enumerate(reversed(current_block.view_blocks)):
+                stack.append((child, depth + 1, len(current_block.view_blocks) - 1 - i))
+
+                
+    def post_order_traversal(self) -> Generator[ViewBlock, None, None]:
+        """
+        Perform post-order traversal of the tree without recursion.
+        This yields each ContentBlock and its children in post-order.
+        """
+        stack1 = [self]  # Stack to store the nodes for traversal
+        stack2 = []  # Stack to reverse the order of processing
+        
+        # First step: Visit nodes and push them onto stack2 in reverse order
+        while stack1:
+            current_block = stack1.pop()
+            stack2.append(current_block)
+            
+            # Add children to stack1 (normal order, they'll be reversed in stack2)
+            if current_block.view_blocks:
+                stack1.extend(current_block.view_blocks)
+        
+        # Second step: Pop from stack2 and yield, which ensures post-order traversal
+        while stack2:
+            item = stack2.pop()
+            # if item is not self:
+            yield item
+
+    def replace_all(self):
+        for block in self.post_order_traversal():
+            block.visited = False
 
 
-def transform_list_to_content_blocks(        
-        items: List[Union["ContentBlock", BaseModel, str]],
+def transform_list_to_view_blocks(        
+        items: List[Union[ViewBlock, BaseModel, str]],
         view_name: str,
         role: Literal["assistant", "user", "system"] | None = None,
         numerate: bool = False,
@@ -98,7 +264,7 @@ def transform_list_to_content_blocks(
     for i, o in enumerate(items):
         if isinstance(o, str):
             sub_views.append(
-                ContentBlock(
+                ViewBlock(
                     view_name=f"{view_name}_str_{i}",
                     content=o,
                     numerate=numerate,
@@ -112,9 +278,9 @@ def transform_list_to_content_blocks(
         elif isinstance(o, dict):
             raise ValueError("dict type not supported")
             sub_views.append(
-                ContentBlock(
+                ViewBlock(
                     view_name=f"{view_name}_model_{i}",
-                    content_blocks=o,
+                    view_blocks=o,
                     numerate=numerate,
                     base_model=base_model,
                     index=i,
@@ -122,14 +288,14 @@ def transform_list_to_content_blocks(
                     indent=indent
                 )
             )
-        elif isinstance(o, ContentBlock):
+        elif isinstance(o, ViewBlock):
             sub_views.append(o)
         elif isinstance(o, BaseModel):
             raise ValueError("dict type not supported")
             sub_views.append(
-                ContentBlock(
+                ViewBlock(
                     view_name=f"{view_name}_model_{i}",
-                    content_blocks=o,
+                    view_blocks=o,
                     numerate=numerate,
                     base_model=base_model,
                     index=i,
@@ -142,7 +308,7 @@ def transform_list_to_content_blocks(
     return sub_views
 
 
-def create_content_block(
+def create_view_block(
     views,
     view_name: str,
     name: str | None=None,
@@ -157,9 +323,9 @@ def create_content_block(
     class_: str | None = None,
 ):
     content = None
-    content_blocks = []
+    view_blocks = []
     if type(views) == list or type(views) == tuple:
-        content_blocks = transform_list_to_content_blocks(
+        view_blocks = transform_list_to_view_blocks(
             views, 
             name, 
             role, 
@@ -170,16 +336,16 @@ def create_content_block(
         content = views
     elif isinstance(views, dict):
         content = views
-    elif isinstance(views, ContentBlock):
+    elif isinstance(views, ViewBlock):
         raise ValueError("ContentBlock type not supported")
     elif isinstance(views, BaseModel):
         content = views
       
-    return ContentBlock(
+    return ViewBlock(
         view_name=view_name,
         name=name,
         title=title,
-        content_blocks=content_blocks,
+        view_blocks=view_blocks,
         content=content,
         actions=actions,
         base_model=base_model,
@@ -212,7 +378,7 @@ def view(
             outputs = func(*args, **kwargs)
             if container is not None:
                 outputs = container(*outputs if isinstance(outputs, tuple) else (outputs,))
-            block_instance = create_content_block(
+            block_instance = create_view_block(
                 views=outputs,
                 view_name=func.__name__, 
                 name=name, 
@@ -285,8 +451,8 @@ def add_tabs(content: str, tabs: int):
     # return content.replace("\n", f"\n{render_tabs(tabs)}")
 
 
-def render_model(block: ContentBlock):
-    model = block.content_blocks
+def render_model(block: ViewBlock):
+    model = block.view_blocks
     prompt = ""
     if block.numerate and block.index:
         prompt += f"{block.index + 1}. "
@@ -299,24 +465,24 @@ def render_model(block: ContentBlock):
         raise ValueError(f"base_model type not supported: {block.base_model}")
 
 
-def render_string(block: ContentBlock, **kwargs):
+def render_string(block: ViewBlock, **kwargs):
     prompt = ''
     depth = block.depth + 1 if block.has_wrap() else block.depth
     if block.numerate and block.index:
         prompt += f"{block.index + 1}. "    
-    prompt += textwrap.dedent(block.content_blocks).strip()
+    prompt += textwrap.dedent(block.view_blocks).strip()
     prompt = add_tabs(prompt, depth)
     return replace_placeholders(prompt, **kwargs)
 
-def render_dict(block: ContentBlock):
+def render_dict(block: ViewBlock):
     prompt = ''
     depth = block.depth + 1 if block.has_wrap() else block.depth
     if block.numerate and block.index:
         prompt += f"{block.index + 1}. "
-    prompt += json.dumps(block.content_blocks, indent=block.indent)
+    prompt += json.dumps(block.view_blocks, indent=block.indent)
     return add_tabs(prompt, depth)
 
-def add_wrapper(content: str, block: ContentBlock):
+def add_wrapper(content: str, block: ViewBlock):
     title = block.title if block.title is not None else ''
     if block.wrap == "xml":
         return add_tabs((
@@ -337,7 +503,7 @@ def add_wrapper(content: str, block: ContentBlock):
 
 
     
-def render_wrapper_starting(block: ContentBlock):
+def render_wrapper_starting(block: ViewBlock):
     title = block.title if block.title is not None else ''
     if block.wrap == "xml":
         return add_tabs(f"<{title}>", block.depth)
@@ -345,7 +511,7 @@ def render_wrapper_starting(block: ContentBlock):
         return add_tabs(f"## {title}", block.depth)
     return add_tabs(f'{title}:', block.depth)
 
-def render_wrapper_ending(block: ContentBlock):
+def render_wrapper_ending(block: ViewBlock):
     title = block.title if block.title is not None else ''
     if block.wrap == "xml":
         return add_tabs(f"</{title}>", block.depth)
@@ -355,7 +521,7 @@ def render_wrapper_ending(block: ContentBlock):
 
 def validate_node(block: any):
     if type(block) == str:
-        return ContentBlock(content_blocks=block)    
+        return ViewBlock(view_blocks=block)    
     return block
 
 
@@ -378,7 +544,7 @@ def find_action(action_name, actions):
 
 #? in render view we are using 2 stacks so that we can render the views in the correct order
 # ?is a view is between 2 strings, we want to render the view between the strings
-def render_block(block: ContentBlock | tuple, **kwargs):
+def render_block(block: ViewBlock | tuple, **kwargs):
 
     if type(block) == tuple:
         stack = [*reversed(block)]    
@@ -401,19 +567,19 @@ def render_block(block: ContentBlock | tuple, **kwargs):
             elif peek_block.get_type() == dict:
                 result.append(render_dict(peek_block))
             elif peek_block.get_type() == list or peek_block.get_type() == tuple:
-                for block in reversed(peek_block.content_blocks):
+                for block in reversed(peek_block.view_blocks):
                     if peek_block.has_wrap():
                         block.depth = peek_block.depth + 1
                     else:
                         block.depth = peek_block.depth
                     
                     stack.append(block)
-            elif issubclass(peek_block.get_type(), ContentBlock):
+            elif issubclass(peek_block.get_type(), ViewBlock):
                 if peek_block.has_wrap():
-                    peek_block.content_blocks.depth = peek_block.depth + 1
-                stack.append(peek_block.content_blocks)
+                    peek_block.view_blocks.depth = peek_block.depth + 1
+                stack.append(peek_block.view_blocks)
             elif issubclass(peek_block.get_type(), BaseModel):
-                base_models[peek_block.content_blocks.__class__.__name__] = peek_block.content_blocks
+                base_models[peek_block.view_blocks.__class__.__name__] = peek_block.view_blocks
                 result.append(render_model(peek_block))
             else:
                 raise ValueError(f"block type not supported: {type(peek_block)}")

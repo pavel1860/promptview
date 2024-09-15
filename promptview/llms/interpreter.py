@@ -2,7 +2,7 @@ from typing import Generator, List, Tuple, Type, Union
 from pydantic import BaseModel
 from promptview.llms.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import ContentBlock, add_tabs, replace_placeholders
+from promptview.prompt.mvc import ViewBlock, add_tabs, replace_placeholders
 import json 
 import textwrap
 
@@ -12,13 +12,13 @@ from promptview.utils.function_utils import flatten_list
 
 
 class Conversation:
-    content_blocks: list[ContentBlock]
+    content_blocks: list[ViewBlock]
     index: int | None = None
     actions: Actions = []
-    hints: List[ContentBlock] = []
+    hints: List[ViewBlock] = []
     
     
-    def __init__(self, content_blocks: list[ContentBlock]):
+    def __init__(self, content_blocks: list[ViewBlock]):
         self.content_blocks=content_blocks
         current_role = None
         for (depth, index), block in self.pre_order_traversal(enumerated=True):
@@ -52,7 +52,7 @@ class Conversation:
         replace: bool=True,
         node=None,
         
-    ) -> Generator[ContentBlock, None, None]:
+    ) -> Generator[ViewBlock, None, None]:
         for block in self.pre_order_traversal(node):
             # print(block.class_)
             # print(block.tag)
@@ -81,7 +81,7 @@ class Conversation:
         max_depth: int=100,
         node=None,
         skip: int=0
-    ) -> ContentBlock:
+    ) -> ViewBlock:
         
         for block in self.find(tag, role, view_name, class_, min_depth, max_depth, node=node):
             if skip == 0:
@@ -90,7 +90,7 @@ class Conversation:
     
     
         
-    def pre_order_traversal(self, node=None, enumerated=False) -> Generator[ContentBlock, None, None]:
+    def pre_order_traversal(self, node=None, enumerated=False) -> Generator[ViewBlock, None, None]:
         """
         Perform pre-order traversal of the tree without recursion.
         This yields each ContentBlock and its children in pre-order.
@@ -133,7 +133,7 @@ class Conversation:
         return count
 
                 
-    def post_order_traversal(self) -> Generator[ContentBlock, None, None]:
+    def post_order_traversal(self) -> Generator[ViewBlock, None, None]:
         """
         Perform post-order traversal of the tree without recursion.
         This yields each ContentBlock and its children in post-order.
@@ -163,9 +163,8 @@ class Conversation:
 class LlmInterpreter:
     
     
-    def render_model(self, block: ContentBlock, depth):
+    def render_model(self, block: ViewBlock, depth):
         model = block.content
-        # depth = block.depth
         prompt = ""
         if block.numerate and block.index:
             prompt += f"{block.index + 1}. "
@@ -177,24 +176,22 @@ class LlmInterpreter:
         else:
             raise ValueError(f"base_model type not supported: {block.base_model}")
 
-    def render_string(self, block: ContentBlock, depth, **kwargs):
+    def render_string(self, block: ViewBlock, depth, **kwargs):
         prompt = ''
-        # depth = block.depth + 1 if block.has_wrap() else block.depth
         if block.numerate and block.index:
             prompt += f"{block.index + 1}. "    
         prompt += textwrap.dedent(block.content).strip()
         prompt = add_tabs(prompt, depth)
         return replace_placeholders(prompt, **kwargs)
 
-    def render_dict(self, block: ContentBlock, depth):
+    def render_dict(self, block: ViewBlock, depth):
         prompt = ''
-        # depth = block.depth + 1 if block.has_wrap() else block.depth
         if block.numerate and block.index:
             prompt += f"{block.index + 1}. "
-        prompt += json.dumps(block.content_blocks, indent=block.indent)
+        prompt += json.dumps(block.view_blocks, indent=block.indent)
         return add_tabs(prompt, depth)
 
-    def add_wrapper(self, content: str, block: ContentBlock, depth):
+    def add_wrapper(self, content: str, block: ViewBlock, depth):
         title = block.title if block.title is not None else ''
         if block.wrap == "xml":
             return add_tabs((
@@ -214,7 +211,7 @@ class LlmInterpreter:
             ), depth)
 
 
-    def render_wrapper_starting(self, block: ContentBlock, depth):
+    def render_wrapper_starting(self, block: ViewBlock, depth):
         title = block.title if block.title is not None else ''
         if block.wrap == "xml":
             return add_tabs(f"<{title}>", depth)
@@ -223,22 +220,22 @@ class LlmInterpreter:
         return add_tabs(f'{title}:', depth)
 
     
-    def render_wrapper_ending(self, block: ContentBlock, depth):
+    def render_wrapper_ending(self, block: ViewBlock, depth):
         title = block.title if block.title is not None else ''
         if block.wrap == "xml":
             return add_tabs(f"</{title}>", depth)
         return ''
 
 
-    def render_block(self, block: ContentBlock, depth=0):
+    def render_block(self, block: ViewBlock, depth=0):
         results = []
         if block.has_wrap():
             depth+=1
-        if block.content_blocks:
+        if block.view_blocks:
             children_depth = depth
             if block.content is not None:
                 children_depth += 1            
-            results = flatten_list([self.render_block(sub_block, children_depth) for sub_block in block.content_blocks])
+            results = flatten_list([self.render_block(sub_block, children_depth) for sub_block in block.view_blocks])
         
         if block.get_type() != type(None):
             if issubclass(block.get_type(), str):
@@ -254,7 +251,7 @@ class LlmInterpreter:
         return results
     
     
-    def run_transform(self, content_blocks: list[ContentBlock]):
+    def run_transform(self, content_blocks: list[ViewBlock]):
         conversation = Conversation(content_blocks=content_blocks)
         current_role = None
         for (depth, index), block in conversation.pre_order_traversal(enumerated=True):
@@ -271,9 +268,9 @@ class LlmInterpreter:
         return messages, conversation.actions
 
 
-    def transform(self, conversation: Conversation) -> Tuple[List[BaseMessage], Actions]:
+    def transform(self, root_block: ViewBlock) -> Tuple[List[BaseMessage], Actions]:
         messages = []
-        for block in conversation.content_blocks: 
+        for block in root_block.find(depth=1): 
             results = self.render_block(block)
             content = "\n".join(results) 
             if block.role == 'user':
@@ -284,5 +281,5 @@ class LlmInterpreter:
                 messages.append(SystemMessage(content=content))
             else:
                 raise ValueError(f"Unsupported role: {block.rule}")
-        actions = conversation.find_actions()
+        actions = root_block.find_actions()
         return messages, actions
