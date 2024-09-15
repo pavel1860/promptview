@@ -1,8 +1,10 @@
+from functools import wraps
 import inspect
-from typing import Any, Callable, Generic, List, Literal, Type, TypeVar
+from typing import Any, Awaitable, Callable, Generic, List, Literal, Type, TypeVar, TypedDict
 
 from pydantic import BaseModel, Field
 from promptview.llms.anthropic_llm import AnthropicLLM
+from promptview.llms.messages import AIMessage
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.interpreter import Conversation
 from promptview.llms.llm2 import LLM
@@ -18,9 +20,12 @@ T = TypeVar('T')
 class Prompt(BaseModel, Generic[T]):    
     is_traceable: bool = True
     llm: LLM = Field(default_factory=OpenAiLLM)
+    tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None
     actions: List[Type[BaseModel]] | None = []
     
     _render_method: Callable | None = None
+    _output_parser_method: Callable | None = None
+    
     _name: str | None = None
     
     def render(self):
@@ -66,7 +71,7 @@ class Prompt(BaseModel, Generic[T]):
     async def transform(self, views: List[ViewBlock] | ViewBlock | None = None, **kwargs: Any) -> T:
         template_views = []
         for field_name, field in self.model_fields.items():
-            if field_name in ["llm", "model", "actions", "is_traceable"]:
+            if field_name in ["llm", "model", "actions", "is_traceable", "tool_choice"]:
                 continue
             # print(field_name, field)
             view = await self.property_to_view(field_name, **kwargs)
@@ -119,4 +124,69 @@ class Prompt(BaseModel, Generic[T]):
             except Exception as e:
                 prompt_run.end(errors=str(e))
                 raise e
+            
+    def set_methods(self, render_func: Callable | None = None, output_parser: Callable | None = None) -> None:
+        self._render_method = render_func
+        self._output_parser_method = output_parser
         
+    @classmethod
+    def decorator_factory(cls) -> Callable[..., Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]]:
+        # Define the decorator with kwargs
+        def prompt_decorator(**kwargs: cls):
+            # Define the actual decorator
+            def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+                # Create a prompt instance with the given kwargs
+                prompt = cls[T](**kwargs)
+                prompt.set_methods(func)
+                
+                @wraps(func)
+                async def wrapper(*args, **inner_kwargs) -> T:
+                    # Call the prompt instance with necessary arguments
+                    return await prompt(*args, **inner_kwargs)
+                
+                return wrapper
+            
+            return decorator
+
+        return prompt_decorator
+
+    @classmethod
+    def decorator_factory(cls):
+        def prompt_decorator( 
+            self=None,   
+            model: str = "gpt-4o",
+            llm: LLM | None = None,            
+            parallel_actions: bool = True,
+            is_traceable: bool = True,
+            output_parser: Callable[[AIMessage], T] | None = None,
+            tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,
+            actions: List[Type[BaseModel]] | None = None,
+            **kwargs: Any
+        ):
+            if llm is None:
+                llm = OpenAiLLM(
+                    model=model, 
+                    parallel_tool_calls=parallel_actions
+                )
+            def decorator(func) -> Callable[..., Awaitable[T]]:
+                prompt = cls[T](
+                        model=model,
+                        llm=llm,                        
+                        tool_choice=tool_choice,
+                        actions=actions,
+                        is_traceable=is_traceable,
+                        **kwargs
+                    )
+                prompt._name=func.__name__
+                prompt.set_methods(func, output_parser)
+                # if self:
+                    # self.router_prompt = prompt
+                @wraps(func)
+                async def wrapper(**kwargs) -> T:            
+                    return await prompt(**kwargs)
+                
+                # wrapper.__signature__ = sig
+                return wrapper
+            
+            return decorator
+        return prompt_decorator
