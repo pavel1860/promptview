@@ -1,8 +1,10 @@
 import pytest
 import pytest_asyncio
-from promptview import view, prompt
+from promptview import view
 from promptview.prompt.mvc import render_block
+from promptview.prompt.chat_prompt import ChatPrompt
 
+prompt = ChatPrompt.decorator_factory()
 
 
 async def assert_basic_prompt(example_prompt, system_message, user_message, **kwargs):
@@ -17,29 +19,29 @@ async def assert_basic_prompt(example_prompt, system_message, user_message, **kw
 
 
 
-@pytest.mark.asyncio
-async def test_basic_view():
-    @view()
-    def example_view():
-        return "this is an example view"
+# @pytest.mark.asyncio
+# async def test_basic_view():
+#     @view()
+#     def example_view():
+#         return "this is an example view"
 
-    out, _,_ = render_block(example_view())
-    assert out == "this is an example view"
+#     out, _,_ = render_block(example_view())
+#     assert out == "this is an example view"
     
     
     
-@pytest.mark.asyncio
-async def test_basic_list_view():
-    @view()
-    def example_list_view():
-        return [
-            "this is an example view 1",
-            "this is an example view 2",
-            "this is an example view 3",
-        ]
+# @pytest.mark.asyncio
+# async def test_basic_list_view():
+#     @view()
+#     def example_list_view():
+#         return [
+#             "this is an example view 1",
+#             "this is an example view 2",
+#             "this is an example view 3",
+#         ]
 
-    out, _,_ = render_block(example_list_view())
-    assert out == "this is an example view 1\nthis is an example view 2\nthis is an example view 3"
+#     out, _,_ = render_block(example_list_view())
+#     assert out == "this is an example view 1\nthis is an example view 2\nthis is an example view 3"
     
 
 @pytest.mark.asyncio

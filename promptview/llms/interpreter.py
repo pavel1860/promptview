@@ -189,7 +189,10 @@ class LlmInterpreter:
         elif bullet == "astrix":
             prompt = "* "
         else:
-            prompt = ""
+            if type(bullet) == str:
+                prompt = f"{bullet} "
+            else:
+                prompt = ""
             
         prompt += textwrap.dedent(block.content).strip()
         prompt = add_tabs(prompt, depth)
@@ -239,7 +242,7 @@ class LlmInterpreter:
         return ''
 
 
-    def render_block(self, block: ViewBlock, depth=0, index: int | None=None, bullet: BulletType=False):
+    def render_block(self, block: ViewBlock, depth=0, index: int | None=None, bullet: BulletType=None, **kwargs):
         results = []
         if block.has_wrap():
             depth+=1
@@ -247,11 +250,11 @@ class LlmInterpreter:
             children_depth = depth
             if block.content is not None:
                 children_depth += 1            
-            results = flatten_list([self.render_block(sub_block, children_depth, i, block.bullet) for i, sub_block in enumerate(block.view_blocks)])
+            results = flatten_list([self.render_block(sub_block, children_depth, i, block.bullet, **kwargs) for i, sub_block in enumerate(block.view_blocks)])
         
         if block.get_type() != type(None):
             if issubclass(block.get_type(), str):
-                results.insert(0, self.render_string(block, depth, index, bullet))
+                results.insert(0, self.render_string(block, depth, index, bullet, **kwargs))
             elif issubclass(block.get_type(), BaseModel):
                 results.insert(0, self.render_model(block, depth))    
             else:
@@ -280,10 +283,10 @@ class LlmInterpreter:
         return messages, conversation.actions
 
 
-    def transform(self, root_block: ViewBlock) -> Tuple[List[BaseMessage], Actions]:
+    def transform(self, root_block: ViewBlock, **kwargs) -> Tuple[List[BaseMessage], Actions]:
         messages = []
         for block in root_block.find(depth=1): 
-            results = self.render_block(block)
+            results = self.render_block(block, **kwargs)
             content = "\n".join(results) 
             if block.role == 'user':
                 messages.append(HumanMessage(content=content))
