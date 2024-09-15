@@ -3,8 +3,9 @@ from pydantic import Field
 import pytest
 import pytest_asyncio
 from promptview import view, prompt
+from promptview.llms.interpreter import LlmInterpreter
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import render_block
+from promptview.prompt.mvc import create_view_block, render_block
 
 class TestAction(BaseModel):
         """use this if the user asks"""
@@ -70,3 +71,63 @@ def test_tool_lookup():
     action = tools.get("test_title_action")
     
     
+    
+    
+    
+    
+    
+def test_bullet_rendering():
+    
+    interpreter = LlmInterpreter()
+
+    @view(
+            title="Test Bullets",
+            bullet="number"
+        )
+    def test_bullet_view():
+        return [
+            "This is a test",
+            "This is another test",
+            "This is a third test"
+        ]
+
+
+    messages, actions = interpreter.transform(create_view_block(test_bullet_view(), "root"))
+    content = messages[0].content
+    print(content)
+    assert content.count("1.") == 1
+    assert content.count("2.") == 1
+    assert content.count("3.") == 1
+
+    @view(
+            title="Test Bullets",
+            bullet="astrix"
+        )
+    def test_bullet_view():
+        return [
+            "This is a test",
+            "This is another test",
+            "This is a third test"
+        ]
+
+    messages, actions = interpreter.transform(create_view_block(test_bullet_view(), "root"))
+    content = messages[0].content
+    print(content)
+    assert content.count("*") == 3
+
+
+    @view(
+            title="Test Bullets",
+            bullet="dash"
+        )
+    def test_bullet_view():
+        return [
+            "This is a test",
+            "This is another test",
+            "This is a third test"
+        ]
+
+    messages, actions = interpreter.transform(create_view_block(test_bullet_view(), "root"))
+    content = messages[0].content
+    print(content)
+    assert content.count("-") == 3
