@@ -8,6 +8,7 @@ import anthropic
 from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.messages import BaseMessage, SystemMessage, AIMessage
 from promptview.llms.types import ToolChoice
+from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import find_action, get_action_name
 from promptview.utils.model_utils import schema_to_function
 from promptview.llms.interpreter import LlmInterpreter
@@ -72,14 +73,17 @@ class AnthropicLlmClient(BaseLlmClient):
 
     async def complete(
         self, 
-        messages, 
-        actions=None, 
+        messages: List[BaseMessage], 
+        actions: Actions | List[BaseModel]=[], 
         tool_choice: ToolChoice | BaseModel | None = None,
         run_id: str | None=None, 
         **kwargs
     ):
-        tools = actions_to_tools(actions) if actions else []
-        system_message = None
+        # tools = actions_to_tools(actions) if actions else []
+        if not isinstance(actions, Actions):
+            actions = Actions(actions=actions)            
+        tools = actions.to_anthropic()
+        system_message = anthropic.NOT_GIVEN
         if isinstance(messages[0], SystemMessage):
             system_message = messages[0].content
             messages = messages[1:]
@@ -96,17 +100,14 @@ class AnthropicLlmClient(BaseLlmClient):
         )
         return self.parse_output(anthropic_completion, actions)
     
-    def parse_output(self, response: anthropic.types.message.Message, actions: List[BaseModel])-> AIMessage:
+    def parse_output(self, response: anthropic.types.message.Message, actions: Actions)-> AIMessage:
         content = ''
         tool_calls = []
         for content_block in response.content:
             if content_block.type == 'text':
                 content = content_block.text
-            elif content_block.type == 'tool_use':
-                action = find_action(content_block.name, actions)
-                if not action:
-                    raise LLMToolNotFound(content_block.name)
-                action_instance = action(**content_block.input)
+            elif content_block.type == 'tool_use':                
+                action_instance = actions.from_anthropic(content_block)
                 tool_calls.append({"id": content_block.id, "action": action_instance})
         ai_message = AIMessage(
             id=response.id,
