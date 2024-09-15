@@ -42,7 +42,7 @@ ListModelRender = Literal['list', 'view_node']
 #     def __hash__(self):
 #         return self.vn_id.__hash__()
 RoleType = Literal["assistant", "user", "system"]
-BulletType = Literal["number" , "astrix" , "dash" , "none", None]
+BulletType = Literal["number" , "astrix" , "dash" , "none", None] | str
 
 def filter_by_tag(block: ViewBlock, tag: str | None) -> bool:
     return tag is None or block.tag == tag
@@ -369,7 +369,7 @@ def view(
     actions=None, 
     role="user",
     name=None,
-    bullet=False,
+    bullet: BulletType=None,
     base_model: BaseModelRenderType = 'json',
     wrap: ViewWrapperType = None,
     indent: int | None = None,

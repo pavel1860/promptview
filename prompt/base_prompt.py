@@ -44,17 +44,17 @@ class Prompt(BaseModel, Generic[T]):
             valid_views = []
             for view in views:
                 if not isinstance(view, ViewBlock):
-                    valid_views.append(create_view_block(view, view_name=self.name or self.__class__.__name__, role='user'))
+                    valid_views.append(create_view_block(view, view_name="render_" + self._name or self.__class__.__name__, role='user'))
                 else:
                     valid_views.append(view)
             return valid_views
             
         elif isinstance(views, tuple):
-            return create_view_block(views, view_name=self.name or self.__class__.__name__, role='user')            
+            return create_view_block(views, view_name="render_" + self._name or self.__class__.__name__, role='user')            
         return views
     
     
-    async def property_to_view(self, property_name: str, **kwargs: Any) -> ViewBlock | None:
+    async def property_to_view(self, property_name: str, field_info, **kwargs: Any) -> ViewBlock | None:
         view = getattr(self, property_name)
         title = property_name.title()
         if not view:
@@ -64,29 +64,36 @@ class Prompt(BaseModel, Generic[T]):
             if not view:
                 return None
         if not isinstance(view, ViewBlock):
+            extra = field_info.json_schema_extra
+            if "title" in extra:
+                title = extra["title"]
             view = create_view_block(view, property_name, title=title, role='system', tag=property_name)
         return view
     
     
     async def transform(self, views: List[ViewBlock] | ViewBlock | None = None, **kwargs: Any) -> T:
         template_views = []
-        for field_name, field in self.model_fields.items():
+        for field_name, field_info in self.model_fields.items():
             if field_name in ["llm", "model", "actions", "is_traceable", "tool_choice"]:
                 continue
             # print(field_name, field)
-            view = await self.property_to_view(field_name, **kwargs)
+            view = await self.property_to_view(field_name, field_info, **kwargs)
             if view is not None:
                 template_views.append(view)
-        system_view = create_view_block(
-                template_views,
-                view_name=self.__class__.__name__.lower()+"_template",
-                role='system',                
-            )
-        if views is not None:
-            if not isinstance(views, list):
-                views = [views]
-            return create_view_block([system_view] + views, "root")
-        return create_view_block([system_view], "root")
+        if not views:
+            views = []
+        elif not isinstance(views, list):
+            views = [views]
+        if template_views:
+            system_view = create_view_block(
+                    template_views,
+                    view_name=self.__class__.__name__.lower()+"_template",
+                    role='system',                
+                )
+            views = [system_view] + views
+        if not views:
+            raise ValueError("No views to transform")
+        return create_view_block(views, "root")
                 
     
     async def __call__(
@@ -111,8 +118,8 @@ class Prompt(BaseModel, Generic[T]):
             try:
                 actions = actions or self.actions
                 views = views or await self._render(context=context, **kwargs)
-                conversation = await self.transform(views, context=context, **kwargs)        
-                messages, actions_ = self.llm.transform(conversation)
+                view_block = await self.transform(views, context=context, **kwargs)        
+                messages, actions_ = self.llm.transform(view_block, **kwargs)
                 if actions is None:
                     actions = actions_
                 if output_messages:
@@ -129,26 +136,26 @@ class Prompt(BaseModel, Generic[T]):
         self._render_method = render_func
         self._output_parser_method = output_parser
         
-    @classmethod
-    def decorator_factory(cls) -> Callable[..., Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]]:
-        # Define the decorator with kwargs
-        def prompt_decorator(**kwargs: cls):
-            # Define the actual decorator
-            def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
-                # Create a prompt instance with the given kwargs
-                prompt = cls[T](**kwargs)
-                prompt.set_methods(func)
+    # @classmethod
+    # def decorator_factory(cls) -> Callable[..., Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]]:
+    #     # Define the decorator with kwargs
+    #     def prompt_decorator(**kwargs: cls):
+    #         # Define the actual decorator
+    #         def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+    #             # Create a prompt instance with the given kwargs
+    #             prompt = cls[T](**kwargs)
+    #             prompt.set_methods(func)
                 
-                @wraps(func)
-                async def wrapper(*args, **inner_kwargs) -> T:
-                    # Call the prompt instance with necessary arguments
-                    return await prompt(*args, **inner_kwargs)
+    #             @wraps(func)
+    #             async def wrapper(*args, **inner_kwargs) -> T:
+    #                 # Call the prompt instance with necessary arguments
+    #                 return await prompt(*args, **inner_kwargs)
                 
-                return wrapper
+    #             return wrapper
             
-            return decorator
+    #         return decorator
 
-        return prompt_decorator
+    #     return prompt_decorator
 
     @classmethod
     def decorator_factory(cls):
