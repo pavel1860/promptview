@@ -42,6 +42,7 @@ ListModelRender = Literal['list', 'view_node']
 #     def __hash__(self):
 #         return self.vn_id.__hash__()
 RoleType = Literal["assistant", "user", "system"]
+BulletType = Literal["number" , "astrix" , "dash" , "none", None]
 
 def filter_by_tag(block: ViewBlock, tag: str | None) -> bool:
     return tag is None or block.tag == tag
@@ -85,6 +86,7 @@ def combine_filters(
     return combined
 
 
+
 class ViewBlock(BaseModel):
     uuid: str = Field(default_factory=lambda: str(uuid4()), description="id of the view node")
     name: str | None = Field(None, description="name of the person who created the view")
@@ -98,7 +100,8 @@ class ViewBlock(BaseModel):
     tag: str | None = None
     class_: str | None = None
     parent_role: RoleType | None = None
-    numerate: bool = False
+    
+    bullet: BulletType = "none"
     base_model: BaseModelRenderType = 'json'
     wrap: ViewWrapperType = None    
     role_name: str | None = None    
@@ -253,7 +256,7 @@ def transform_list_to_view_blocks(
         items: List[Union[ViewBlock, BaseModel, str]],
         view_name: str,
         role: Literal["assistant", "user", "system"] | None = None,
-        numerate: bool = False,
+        bullet: BulletType = None,
         base_model: BaseModelRenderType = 'json',
         indent: int | None = None,
     ):
@@ -267,7 +270,7 @@ def transform_list_to_view_blocks(
                 ViewBlock(
                     view_name=f"{view_name}_str_{i}",
                     content=o,
-                    numerate=numerate,
+                    bullet=bullet,
                     index=i,
                     role=role,
                     indent=indent,
@@ -281,7 +284,7 @@ def transform_list_to_view_blocks(
                 ViewBlock(
                     view_name=f"{view_name}_model_{i}",
                     view_blocks=o,
-                    numerate=numerate,
+                    bullet=numerate,
                     base_model=base_model,
                     index=i,
                     role=role,
@@ -296,7 +299,7 @@ def transform_list_to_view_blocks(
                 ViewBlock(
                     view_name=f"{view_name}_model_{i}",
                     view_blocks=o,
-                    numerate=numerate,
+                    bullet=numerate,
                     base_model=base_model,
                     index=i,
                     role=role,
@@ -316,7 +319,7 @@ def create_view_block(
     wrap: ViewWrapperType = None,
     actions: List[BaseModel] | BaseModel | None = None,
     role: Literal["assistant", "user", "system"] | None = None,
-    numerate: bool = False,
+    bullet: BulletType = None,
     base_model: BaseModelRenderType = 'json',
     indent: int | None = None,
     tag: str | None = None,
@@ -329,7 +332,7 @@ def create_view_block(
             views, 
             name, 
             role, 
-            numerate, 
+            bullet, 
             base_model,
         )
     elif isinstance(views, str):
@@ -340,7 +343,7 @@ def create_view_block(
         raise ValueError("ContentBlock type not supported")
     elif isinstance(views, BaseModel):
         content = views
-      
+    print(bullet)
     return ViewBlock(
         view_name=view_name,
         name=name,
@@ -349,7 +352,7 @@ def create_view_block(
         content=content,
         actions=actions,
         base_model=base_model,
-        numerate=numerate,
+        bullet=bullet,
         wrap=wrap,
         role=role,
         indent=indent,
@@ -364,7 +367,7 @@ def view(
     actions=None, 
     role="user",
     name=None,
-    numerate=False,
+    bullet=False,
     base_model: BaseModelRenderType = 'json',
     wrap: ViewWrapperType = None,
     indent: int | None = None,
@@ -386,7 +389,7 @@ def view(
                 wrap=wrap, 
                 actions=actions, 
                 role=role, 
-                numerate=numerate, 
+                bullet=bullet, 
                 base_model=base_model,
                 indent=indent, 
                 tag=tag,
@@ -454,7 +457,7 @@ def add_tabs(content: str, tabs: int):
 def render_model(block: ViewBlock):
     model = block.view_blocks
     prompt = ""
-    if block.numerate and block.index:
+    if block.bullet and block.index:
         prompt += f"{block.index + 1}. "
         
     if block.base_model == 'json':
@@ -468,7 +471,7 @@ def render_model(block: ViewBlock):
 def render_string(block: ViewBlock, **kwargs):
     prompt = ''
     depth = block.depth + 1 if block.has_wrap() else block.depth
-    if block.numerate and block.index:
+    if block.bullet and block.index:
         prompt += f"{block.index + 1}. "    
     prompt += textwrap.dedent(block.view_blocks).strip()
     prompt = add_tabs(prompt, depth)
@@ -477,7 +480,7 @@ def render_string(block: ViewBlock, **kwargs):
 def render_dict(block: ViewBlock):
     prompt = ''
     depth = block.depth + 1 if block.has_wrap() else block.depth
-    if block.numerate and block.index:
+    if block.bullet and block.index:
         prompt += f"{block.index + 1}. "
     prompt += json.dumps(block.view_blocks, indent=block.indent)
     return add_tabs(prompt, depth)

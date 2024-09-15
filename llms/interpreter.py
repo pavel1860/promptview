@@ -2,7 +2,7 @@ from typing import Generator, List, Tuple, Type, Union
 from pydantic import BaseModel
 from promptview.llms.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import ViewBlock, add_tabs, replace_placeholders
+from promptview.prompt.mvc import BulletType, ViewBlock, add_tabs, replace_placeholders
 import json 
 import textwrap
 
@@ -166,7 +166,7 @@ class LlmInterpreter:
     def render_model(self, block: ViewBlock, depth):
         model = block.content
         prompt = ""
-        if block.numerate and block.index:
+        if block.bullet and block.index:
             prompt += f"{block.index + 1}. "
             
         if block.base_model == 'json':
@@ -176,17 +176,29 @@ class LlmInterpreter:
         else:
             raise ValueError(f"base_model type not supported: {block.base_model}")
 
-    def render_string(self, block: ViewBlock, depth, **kwargs):
-        prompt = ''
-        if block.numerate and block.index:
-            prompt += f"{block.index + 1}. "    
+    def render_string(self, block: ViewBlock, depth, index, bullet: BulletType, **kwargs):
+           
+        if bullet is None or bullet == "none":
+            prompt = ""
+        elif bullet == "number":
+            prompt = f"{index + 1}. "
+        elif bullet == "bullet":
+            prompt = "• "
+        elif bullet == "dash":
+            prompt = "- "
+        elif bullet == "astrix":
+            prompt = "* "
+        else:
+            prompt = ""
+            
         prompt += textwrap.dedent(block.content).strip()
         prompt = add_tabs(prompt, depth)
         return replace_placeholders(prompt, **kwargs)
+    
 
     def render_dict(self, block: ViewBlock, depth):
         prompt = ''
-        if block.numerate and block.index:
+        if block.bullet and block.index:
             prompt += f"{block.index + 1}. "
         prompt += json.dumps(block.view_blocks, indent=block.indent)
         return add_tabs(prompt, depth)
@@ -227,7 +239,7 @@ class LlmInterpreter:
         return ''
 
 
-    def render_block(self, block: ViewBlock, depth=0):
+    def render_block(self, block: ViewBlock, depth=0, index: int | None=None, bullet: BulletType=False):
         results = []
         if block.has_wrap():
             depth+=1
@@ -235,11 +247,11 @@ class LlmInterpreter:
             children_depth = depth
             if block.content is not None:
                 children_depth += 1            
-            results = flatten_list([self.render_block(sub_block, children_depth) for sub_block in block.view_blocks])
+            results = flatten_list([self.render_block(sub_block, children_depth, i, block.bullet) for i, sub_block in enumerate(block.view_blocks)])
         
         if block.get_type() != type(None):
             if issubclass(block.get_type(), str):
-                results.insert(0, self.render_string(block, depth))
+                results.insert(0, self.render_string(block, depth, index, bullet))
             elif issubclass(block.get_type(), BaseModel):
                 results.insert(0, self.render_model(block, depth))    
             else:
