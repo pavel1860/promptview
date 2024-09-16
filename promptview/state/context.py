@@ -28,7 +28,7 @@ class Context(BaseModel):
     message: str | None = None
     history: History = Field(default_factory=History)
     created_at: datetime = Field(default_factory=datetime.now)
-    session: Session
+    session: Session = Field(default_factory=Session)
     
 
 

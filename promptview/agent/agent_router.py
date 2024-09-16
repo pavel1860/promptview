@@ -1,7 +1,8 @@
 
 from functools import wraps
-from typing import Dict, List, Optional, Type, Union
+from typing import Dict, Generic, List, Optional, Type, TypeVar, Union
 from pydantic import BaseModel
+from promptview.prompt.base_prompt import Prompt
 from promptview.state.context import Context
 from promptview.llms.messages import ActionMessage, HumanMessage
 from promptview.utils.function_utils import call_function, filter_func_args
@@ -21,9 +22,10 @@ class AgentRouter(BaseModel):
     iterations: int = 1
     router_prompt: Type[ChatPrompt] | None = None
     add_input_history: bool = False 
-    is_traceable: bool = True   
+    is_traceable: bool = True 
 
-    _action_handlers: Dict[str, callable] = {}
+    _action_handlers: Dict[str, callable] = {}    
+        
 
     def handle(self, action: BaseModel, handler: callable):
         self._action_handlers[action.__name__] =  handler
@@ -45,8 +47,7 @@ class AgentRouter(BaseModel):
             if self.add_input_history:
                 context.history.add(context, message, str(tracer_run.id), "user")
             action_output = None
-            for i in range(iterations):
-                # response = await self.router_prompt(context=context, message=message, tracer_run=tracer_run, **kwargs)                
+            for i in range(iterations):                
                 response = await call_function(
                         self.router_prompt.__call__, 
                         context=context, 
@@ -83,12 +84,12 @@ class AgentRouter(BaseModel):
                             elif isinstance(action_output, BaseModel):
                                 action_output_str = action_output.model_dump_json()
                             else:
-                                raise ValueError(f"Invalid action output: {action_output}")
+                                raise ValueError(f"Invalid action output ({type(action_output)}): {action_output}")
                             tool_response = ActionMessage(
                                     content=action_output_str,
                                     tool_call=response.tool_calls[i]
                                 )
-                            response.add_tool_response(tool_response)
+                            response.add_action_output(tool_response)
                             context.history.add(context, tool_response, str(tracer_run.id), self.name)
                         else:
                             # tracer_run.end()

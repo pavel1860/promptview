@@ -3,8 +3,6 @@ from functools import wraps
 from typing import (Any, Awaitable, Callable, Generic, List, Literal, Type,
                     TypedDict, TypeVar)
 
-from promptview.llms.anthropic_llm import AnthropicLLM
-from promptview.llms.interpreter import Conversation
 from promptview.llms.llm2 import LLM
 from promptview.llms.messages import AIMessage
 from promptview.llms.openai_llm import OpenAiLLM
@@ -108,25 +106,29 @@ class Prompt(BaseModel, Generic[T]):
             **kwargs: Any
         ) -> T:
         with Tracer(
-                is_traceable=self.is_traceable if not output_messages else False,
-                tracer_run=tracer_run,
-                name=self._name or self.__class__.__name__,
-                run_type="prompt",
-                inputs={
-                    "input": kwargs,
-                },
-            ) as prompt_run:
+            is_traceable=self.is_traceable if not output_messages else False,
+            tracer_run=tracer_run,
+            name=self._name or self.__class__.__name__,
+            run_type="prompt",
+            inputs={
+                "input": kwargs,
+            },
+        ) as prompt_run:
             try:
                 actions = actions or self.actions
                 views = views or await self._render(context=context, **kwargs)
                 view_block = await self.transform(views, context=context, **kwargs)        
-                messages, actions_ = self.llm.transform(view_block, **kwargs)
-                if actions is None:
-                    actions = actions_
+                messages, actions = self.llm.transform(view_block, actions=actions, **kwargs)                
                 if output_messages:
                     return messages
                 
-                response = await self.llm.complete(messages, actions=actions, tool_choice=tool_choice, tracer_run=prompt_run, **kwargs)        
+                response = await self.llm.complete(
+                    messages, 
+                    actions=actions, 
+                    tool_choice=tool_choice or self.tool_choice, 
+                    tracer_run=prompt_run, 
+                    **kwargs
+                )
                 prompt_run.end(outputs={'output': response})
                 return response
             except Exception as e:
@@ -187,8 +189,8 @@ class Prompt(BaseModel, Generic[T]):
                     )
                 prompt._name=func.__name__
                 prompt.set_methods(func, output_parser)
-                # if self:
-                    # self.router_prompt = prompt
+                if self:
+                    self.router_prompt = prompt
                 @wraps(func)
                 async def wrapper(**kwargs) -> T:            
                     return await prompt(**kwargs)
