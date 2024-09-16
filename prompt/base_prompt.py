@@ -1,18 +1,18 @@
-from functools import wraps
 import inspect
-from typing import Any, Awaitable, Callable, Generic, List, Literal, Type, TypeVar, TypedDict
+from functools import wraps
+from typing import (Any, Awaitable, Callable, Generic, List, Literal, Type,
+                    TypedDict, TypeVar)
 
-from pydantic import BaseModel, Field
 from promptview.llms.anthropic_llm import AnthropicLLM
-from promptview.llms.messages import AIMessage
-from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.interpreter import Conversation
 from promptview.llms.llm2 import LLM
+from promptview.llms.messages import AIMessage
+from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
 from promptview.prompt.mvc import ViewBlock, create_view_block
 from promptview.state.context import Context
 from promptview.utils.function_utils import call_function
-
+from pydantic import BaseModel, Field
 
 T = TypeVar('T')
 
@@ -65,8 +65,9 @@ class Prompt(BaseModel, Generic[T]):
                 return None
         if not isinstance(view, ViewBlock):
             extra = field_info.json_schema_extra
-            if "title" in extra:
-                title = extra["title"]
+            if extra is not None:
+                if "title" in extra:
+                    title = extra["title"]
             view = create_view_block(view, property_name, title=title, role='system', tag=property_name)
         return view
     

@@ -1,14 +1,14 @@
-from typing import Generator, List, Tuple, Type, Union
-from pydantic import BaseModel
-from promptview.llms.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
-from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import BulletType, ViewBlock, add_tabs, replace_placeholders
-import json 
+import json
 import textwrap
+from typing import Generator, List, Tuple, Type, Union
 
+from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
+                                      SystemMessage)
+from promptview.llms.utils.action_manager import Actions
+from promptview.prompt.mvc import (BulletType, StripType, ViewBlock, add_tabs,
+                                   replace_placeholders)
 from promptview.utils.function_utils import flatten_list
-
-
+from pydantic import BaseModel
 
 
 class Conversation:
@@ -240,6 +240,17 @@ class LlmInterpreter:
         if block.wrap == "xml":
             return add_tabs(f"</{title}>", depth)
         return ''
+    
+    def strip_content(self, content: str, strip_type: StripType):
+        if strip_type == True:
+            return content.strip()
+        elif strip_type == "left": 
+            return content.lstrip()
+        elif strip_type == "right":
+            return content.rstrip()
+        return content
+        
+    
 
 
     def render_block(self, block: ViewBlock, depth=0, index: int | None=None, bullet: BulletType=None, **kwargs):
@@ -250,7 +261,8 @@ class LlmInterpreter:
             children_depth = depth
             if block.content is not None:
                 children_depth += 1            
-            results = flatten_list([self.render_block(sub_block, children_depth, i, block.bullet, **kwargs) for i, sub_block in enumerate(block.view_blocks)])
+            # results = flatten_list([self.render_block(sub_block, children_depth, i, block.bullet, **kwargs) for i, sub_block in enumerate(block.view_blocks)])
+            results = [self.render_block(sub_block, children_depth, i, block.bullet, **kwargs) for i, sub_block in enumerate(block.view_blocks)]
         
         if block.get_type() != type(None):
             if issubclass(block.get_type(), str):
@@ -263,31 +275,35 @@ class LlmInterpreter:
             depth -=1
             results.insert(0, self.render_wrapper_starting(block, depth))
             results.append(self.render_wrapper_ending(block, depth))
-        return results
+        
+        content = "\n".join(results)
+        if block.strip:
+            content = self.strip_content(content, block.strip)
+        return content
     
     
-    def run_transform(self, content_blocks: list[ViewBlock]):
-        conversation = Conversation(content_blocks=content_blocks)
-        current_role = None
-        for (depth, index), block in conversation.pre_order_traversal(enumerated=True):
-            # print("-----------------------")
-            if depth == 1:
-                current_role = block.role
-            block.depth = depth - 1
-            block.parent_role = current_role
-            if issubclass(block.get_type(), BaseModel):
-                conversation.hints.append(block)
-            if block.actions:
-                conversation.actions.extend(block.actions)
-        messages = self.transform(conversation)
-        return messages, conversation.actions
+    # def run_transform(self, content_blocks: list[ViewBlock]):
+    #     conversation = Conversation(content_blocks=content_blocks)
+    #     current_role = None
+    #     for (depth, index), block in conversation.pre_order_traversal(enumerated=True):
+    #         # print("-----------------------")
+    #         if depth == 1:
+    #             current_role = block.role
+    #         block.depth = depth - 1
+    #         block.parent_role = current_role
+    #         if issubclass(block.get_type(), BaseModel):
+    #             conversation.hints.append(block)
+    #         if block.actions:
+    #             conversation.actions.extend(block.actions)
+    #     messages = self.transform(conversation)
+    #     return messages, conversation.actions
 
 
     def transform(self, root_block: ViewBlock, **kwargs) -> Tuple[List[BaseMessage], Actions]:
         messages = []
         for block in root_block.find(depth=1): 
-            results = self.render_block(block, **kwargs)
-            content = "\n".join(results) 
+            content = self.render_block(block, **kwargs)
+            # content = "\n".join(results) 
             if block.role == 'user':
                 messages.append(HumanMessage(content=content))
             elif block.role == 'assistant':
@@ -295,6 +311,6 @@ class LlmInterpreter:
             elif block.role == 'system':
                 messages.append(SystemMessage(content=content))
             else:
-                raise ValueError(f"Unsupported role: {block.rule}")
+                raise ValueError(f"Unsupported role: {block.role}")
         actions = root_block.find_actions()
         return messages, actions
