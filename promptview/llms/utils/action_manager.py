@@ -1,18 +1,18 @@
 import json
 from typing import List, Type
+
 import anthropic
 import openai
-from pydantic import BaseModel, Field
-
 from promptview.llms.exceptions import LLMToolNotFound
 from promptview.utils.model_utils import schema_to_function
 from promptview.utils.string_utils import convert_camel_to_snake
+from pydantic import BaseModel, Field
 
 
 class Actions(BaseModel):
     """handling of tool serialization and deserialization"""
     actions: List[Type[BaseModel]] = Field([], title="Tools", description="The tools the user can use")        
-    snake_case: bool = Field(True, title="Snake Case", description="If the tools should be converted to snake case")
+    snake_case: bool = Field(default=True, title="Snake Case", description="If the tools should be converted to snake case")
     
     def __getitem__(self, index):
         return self.actions[index]

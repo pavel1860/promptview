@@ -1,9 +1,8 @@
 
 import json
 import os
-from typing import List
+from typing import List, Type
 
-from anthropic import BaseModel
 import openai
 from promptview.llms.clients.base import BaseLlmClient
 from promptview.llms.exceptions import LLMToolNotFound
@@ -12,6 +11,7 @@ from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import find_action
 from promptview.utils.model_utils import schema_to_function
+from pydantic import BaseModel
 
 
 class OpenAiLlmClient(BaseLlmClient):
@@ -28,7 +28,7 @@ class OpenAiLlmClient(BaseLlmClient):
     async def complete(
         self, 
         messages: List[BaseMessage], 
-        actions: Actions | List[BaseModel]=[], 
+        actions: Actions | List[Type[BaseModel]]=[], 
         model="gpt-4o",
         tool_choice: ToolChoice | BaseModel | None = None,
         run_id: str | None=None, 

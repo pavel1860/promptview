@@ -1,14 +1,16 @@
 from __future__ import annotations
+
 import json
-from functools import wraps
 import string
 import textwrap
+from functools import wraps
 from typing import Any, Callable, Generator, List, Literal, Tuple, Type, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
 from promptview.llms.utils.action_manager import Actions
 from promptview.utils.string_utils import convert_camel_to_snake
+from pydantic import BaseModel, Field
+
 ViewWrapperType = Literal["xml", "markdown", None]
 BaseModelRenderType =  Literal['model_dump', 'json']
 ListModelRender = Literal['list', 'view_node']
@@ -43,6 +45,7 @@ ListModelRender = Literal['list', 'view_node']
 #         return self.vn_id.__hash__()
 RoleType = Literal["assistant", "user", "system"]
 BulletType = Literal["number" , "astrix" , "dash" , "none", None] | str
+StripType = Literal["left", "right"] | bool | None
 
 def filter_by_tag(block: ViewBlock, tag: str | None) -> bool:
     return tag is None or block.tag == tag
@@ -102,6 +105,7 @@ class ViewBlock(BaseModel):
     parent_role: RoleType | None = None
     
     bullet: BulletType = "none"
+    strip: StripType = Field(default=None, description="if the content should be stripped")
     base_model: BaseModelRenderType = 'json'
     wrap: ViewWrapperType = None    
     role_name: str | None = None    
@@ -320,6 +324,7 @@ def create_view_block(
     actions: List[BaseModel] | BaseModel | None = None,
     role: Literal["assistant", "user", "system"] | None = None,
     bullet: BulletType = None,
+    strip: StripType = None,
     base_model: BaseModelRenderType = 'json',
     indent: int | None = None,
     tag: str | None = None,
@@ -340,8 +345,8 @@ def create_view_block(
     elif isinstance(views, dict):
         content = views
     elif isinstance(views, ViewBlock):
-        if view_name != "root":
-            raise ValueError("ContentBlock type not supported. pass a list of ContentBlock or a 'root' view_name")
+        # if view_name != "root":
+            # raise ValueError("ViewBlock type not supported. pass a list of ContentBlock or a 'root' view_name")
         view_blocks = [views]
     elif isinstance(views, BaseModel):
         content = views
@@ -355,6 +360,7 @@ def create_view_block(
         actions=actions,
         base_model=base_model,
         bullet=bullet,
+        strip=strip,
         wrap=wrap,
         role=role,
         indent=indent,
@@ -370,6 +376,7 @@ def view(
     role="user",
     name=None,
     bullet: BulletType=None,
+    strip: StripType = None,
     base_model: BaseModelRenderType = 'json',
     wrap: ViewWrapperType = None,
     indent: int | None = None,
@@ -391,7 +398,8 @@ def view(
                 wrap=wrap, 
                 actions=actions, 
                 role=role, 
-                bullet=bullet, 
+                bullet=bullet,
+                strip=strip, 
                 base_model=base_model,
                 indent=indent, 
                 tag=tag,
