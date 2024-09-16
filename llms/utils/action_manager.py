@@ -18,7 +18,9 @@ class Actions(BaseModel):
         return self.actions[index]
     
     def __iter__(self):
-        return iter(self.actions)
+        for action in self.actions:
+            yield self.get_action_name(action), action
+        # return iter(self.actions)
     
     def get_action_name(self, action_class: Type[BaseModel]) -> str:
         if hasattr(action_class, "_title"):
@@ -113,3 +115,4 @@ class Actions(BaseModel):
         tools = []
         tools = [self.to_anthropic_tool(a) for a in self.actions]            
         return tools
+    

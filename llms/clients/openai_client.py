@@ -30,7 +30,7 @@ class OpenAiLlmClient(BaseLlmClient):
         messages: List[BaseMessage], 
         actions: Actions | List[Type[BaseModel]]=[], 
         model="gpt-4o",
-        tool_choice: ToolChoice | BaseModel | None = None,
+        tool_choice: ToolChoice | BaseModel | None = openai.NOT_GIVEN,
         run_id: str | None=None, 
         **kwargs
     ):

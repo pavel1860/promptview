@@ -226,8 +226,9 @@ class LlmInterpreter:
             ), depth)
 
 
-    def render_wrapper_starting(self, block: ViewBlock, depth):
+    def render_wrapper_starting(self, block: ViewBlock, depth, **kwargs):
         title = block.title if block.title is not None else ''
+        title = replace_placeholders(title, **kwargs)
         if block.wrap == "xml":
             return add_tabs(f"<{title}>", depth)
         elif block.wrap == "markdown":
@@ -255,6 +256,7 @@ class LlmInterpreter:
 
     def render_block(self, block: ViewBlock, depth=0, index: int | None=None, bullet: BulletType=None, **kwargs):
         results = []
+        depth += block.indent
         if block.has_wrap():
             depth+=1
         if block.view_blocks:
@@ -299,8 +301,11 @@ class LlmInterpreter:
     #     return messages, conversation.actions
 
 
-    def transform(self, root_block: ViewBlock, **kwargs) -> Tuple[List[BaseMessage], Actions]:
+    def transform(self, root_block: ViewBlock, actions: Actions | List[BaseModel] | None = None, **kwargs) -> Tuple[List[BaseMessage], Actions]:
         messages = []
+        if not isinstance(actions, Actions):
+            actions = Actions(actions=actions)
+        actions.extend(root_block.find_actions())
         for block in root_block.find(depth=1): 
             content = self.render_block(block, **kwargs)
             # content = "\n".join(results) 
@@ -312,5 +317,5 @@ class LlmInterpreter:
                 messages.append(SystemMessage(content=content))
             else:
                 raise ValueError(f"Unsupported role: {block.role}")
-        actions = root_block.find_actions()
+        
         return messages, actions

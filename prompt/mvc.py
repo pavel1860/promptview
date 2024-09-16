@@ -107,12 +107,13 @@ class ViewBlock(BaseModel):
     bullet: BulletType = "none"
     strip: StripType = Field(default=None, description="if the content should be stripped")
     base_model: BaseModelRenderType = 'json'
+    base_model_indent: int = 2
     wrap: ViewWrapperType = None    
     role_name: str | None = None    
     index: int | None = None
     
     depth: int = 0
-    indent: int | None = None
+    indent: int = 0
     list_model: ListModelRender = 'view_node'
     
     visited: bool = False
@@ -136,6 +137,9 @@ class ViewBlock(BaseModel):
             if block.actions:
                 actions.extend(block.actions)
         return actions
+    
+    def push(self, block: ViewBlock):
+        self.view_blocks.append(block)
         
         
     def find(
@@ -260,9 +264,10 @@ def transform_list_to_view_blocks(
         items: List[Union[ViewBlock, BaseModel, str]],
         view_name: str,
         role: Literal["assistant", "user", "system"] | None = None,
-        bullet: BulletType = None,
+        bullet: Literal["number" , "astrix" , "dash" , "none", None] | str = None,
         base_model: BaseModelRenderType = 'json',
-        indent: int | None = None,
+        base_model_indent: int = 2,
+        indent: int = 0,
     ):
     """
     ensure that all items in the list are converted to ContentBlock
@@ -278,6 +283,7 @@ def transform_list_to_view_blocks(
                     index=i,
                     role=role,
                     indent=indent,
+                    base_model_indent=base_model_indent,
                     tag=o.tag if hasattr(o, "tag") else None,
                     class_=o.class_ if hasattr(o, "class_") else None
                 )   
@@ -323,10 +329,11 @@ def create_view_block(
     wrap: ViewWrapperType = None,
     actions: List[BaseModel] | BaseModel | None = None,
     role: Literal["assistant", "user", "system"] | None = None,
-    bullet: BulletType = None,
+    bullet: Literal["number" , "astrix" , "dash" , "none", None] | str = None,
     strip: StripType = None,
     base_model: BaseModelRenderType = 'json',
-    indent: int | None = None,
+    base_model_indent: int = 2,
+    indent: int = 0,
     tag: str | None = None,
     class_: str | None = None,
 ):
@@ -334,11 +341,13 @@ def create_view_block(
     view_blocks = []
     if type(views) == list or type(views) == tuple:
         view_blocks = transform_list_to_view_blocks(
-            views, 
-            name, 
-            role, 
-            bullet, 
-            base_model,
+            items=views,
+            view_name=view_name,
+            role=role,
+            bullet=bullet,
+            base_model=base_model ,
+            base_model_indent=base_model_indent,
+            # indent=indent,
         )
     elif isinstance(views, str):
         content = views
@@ -350,7 +359,6 @@ def create_view_block(
         view_blocks = [views]
     elif isinstance(views, BaseModel):
         content = views
-
     return ViewBlock(
         view_name=view_name,
         name=name,
@@ -359,11 +367,12 @@ def create_view_block(
         content=content,
         actions=actions,
         base_model=base_model,
+        base_model_indent=base_model_indent,
         bullet=bullet,
         strip=strip,
         wrap=wrap,
         role=role,
-        indent=indent,
+        indent=indent,        
         tag=tag,
         class_=class_
     )
@@ -371,15 +380,16 @@ def create_view_block(
     
 def view(
     container=None, 
-    title=None, 
+    title=None,
     actions=None, 
     role="user",
     name=None,
-    bullet: BulletType=None,
+    bullet: Literal["number" , "astrix" , "dash" , "none", None] | str=None,
     strip: StripType = None,
     base_model: BaseModelRenderType = 'json',
+    base_model_indent: int = 2,
     wrap: ViewWrapperType = None,
-    indent: int | None = None,
+    indent: int = 0,
     class_: str | None = None,
     tag: str | None = None,
     ):
@@ -401,6 +411,7 @@ def view(
                 bullet=bullet,
                 strip=strip, 
                 base_model=base_model,
+                base_model_indent=base_model_indent,
                 indent=indent, 
                 tag=tag,
                 class_=class_
@@ -457,7 +468,8 @@ def replace_placeholders(template: str, **kwargs) -> str:
 
 
 def render_tabs(num: int):
-    return "\t" * num
+    # return "\t" * num
+    return "  " * num
 
 def add_tabs(content: str, tabs: int):
     return "\n".join([render_tabs(tabs) + c for c in content.split("\n")])
@@ -471,7 +483,7 @@ def render_model(block: ViewBlock):
         prompt += f"{block.index + 1}. "
         
     if block.base_model == 'json':
-        return add_tabs(prompt + json.dumps(model.model_dump(), indent=block.indent), block.depth)
+        return add_tabs(prompt + json.dumps(model.model_dump(), indent=block.base_model_indent), block.depth)
     elif block.base_model == 'model_dump':
         return add_tabs(prompt + str(model.model_dump()) + "\n", block.depth)
     else:
@@ -492,7 +504,7 @@ def render_dict(block: ViewBlock):
     depth = block.depth + 1 if block.has_wrap() else block.depth
     if block.bullet and block.index:
         prompt += f"{block.index + 1}. "
-    prompt += json.dumps(block.view_blocks, indent=block.indent)
+    prompt += json.dumps(block.view_blocks, indent=block.base_model_indent)
     return add_tabs(prompt, depth)
 
 def add_wrapper(content: str, block: ViewBlock):
