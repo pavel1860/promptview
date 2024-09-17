@@ -1,10 +1,12 @@
+import json
 from typing import Any, Dict, List, Literal, Optional, Union
+from uuid import uuid4
 
 from pydantic import BaseModel, Field, validator
 
 
 class BaseMessage(BaseModel):
-    id: Optional[str] = None
+    id: str = Field(default_factory=lambda: str(uuid4()))
     content: str | None
     content_blocks: List[Dict[str, Any]] | None = None
     name: str | None = None
@@ -43,11 +45,17 @@ class HumanMessage(BaseMessage):
 
 
 
+class ActionCall(BaseModel):
+    id: str
+    name: str
+    action: BaseModel
+
 class AIMessage(BaseMessage):
     model: str | None = None
     did_finish: Optional[bool] = True
     role: Literal["assistant"] = "assistant"
     run_id: Optional[str] = None
+    action_calls: Optional[List[ActionCall]] = None
     tool_calls: Optional[List[Any]] = None
     # actions: Optional[List[BaseModel]] = []
     _iterator = -1
@@ -57,25 +65,48 @@ class AIMessage(BaseMessage):
 
 
     def to_openai(self):
-        if self.tool_calls:            
-            oai_msg = {
-                "role": self.role,
-                "content": (self.content or '') + "\n".join([f"{t.function.name}\n{t.function.arguments}" for t in self.tool_calls])
-            }
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_62136354",
+                    "type": "function",
+                    "function": {
+                        "arguments": "{'order_id': 'order_12345'}",
+                        "name": "get_delivery_date"
+                    }
+                }
+            ]
+        }
+        # if self.tool_calls:            
+        #     oai_msg = {
+        #         "role": self.role,
+        #         "content": (self.content or '') + "\n".join([f"{t.function.name}\n{t.function.arguments}" for t in self.tool_calls])
+        #     }
+        # else:
+        #     oai_msg = {
+        #         "role": self.role,
+        #         "content": self.content,
+        #     }
+        oai_msg = {"role": self.role}
+        if self.action_calls:
+            tool_calls = []
+            for action_call in self.action_calls:
+                tool_calls.append({
+                  "id": action_call.id,
+                    "type": "function",
+                    "function": {
+                        "arguments": json.dumps(action_call.action.model_dump()),
+                        "name": action_call.name
+                    }                      
+                })
+            oai_msg["tool_calls"] = tool_calls
         else:
-            oai_msg = {
-                "role": self.role,
-                "content": self.content,
-            }
-        if self._tool_responses:
-            oai_msg['tool_calls'] = [r.tool_call for r in self._tool_responses.values()]
+            oai_msg["content"] = self.content
         if self.name:
             oai_msg["name"] = self.name
         return oai_msg
     
-    def items(self):
-        for tool_id, action in self._tools.items():
-            yield tool_id, action
     
     @property
     def actions(self):
@@ -135,19 +166,21 @@ class AIMessage(BaseMessage):
     
   
 class ActionMessage(BaseMessage):
-    role: Literal["tool"] = "tool"  
+    role: Literal["tool"] = "tool"
     
     # @property
     # def id(self):
     #     return self.tool_call.id
     
     def to_openai(self):
-        return {
-            "tool_call_id": self.tool_call.id,
+        oai_msg = {
+            "tool_call_id": self.id,
             "role": "tool",
-            "name": self.name,
             "content": self.content
         }
+        if self.name:
+            oai_msg["name"] = self.name
+        return oai_msg
         
 
 

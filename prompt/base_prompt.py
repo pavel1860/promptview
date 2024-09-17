@@ -145,6 +145,31 @@ class Prompt(BaseModel, Generic[T]):
         self._render_method = render_func
         self._output_parser_method = output_parser
         
+        
+    async def to_views(
+        self,
+        message: str | BaseMessage | None = None,        
+        views: List[ViewBlock] | ViewBlock | None = None, 
+        actions: List[Type[BaseModel]] | None = None,
+        **kwargs: Any
+    ):
+        if message is not None:
+            message = HumanMessage(content=message) if isinstance(message, str) else message
+        actions = actions or self.actions
+        views = views or await self._render(message=message, **kwargs)
+        view_block = await self.transform(views, **kwargs)        
+        return view_block
+        
+    async def to_messages(
+        self,
+        actions: List[Type[BaseModel]] | None = None,
+        **kwargs: Any
+    ):
+        view_block = await self.to_views(actions=actions, **kwargs)
+        messages, actions = self.llm.transform(view_block, actions=actions, **kwargs)                
+        return messages
+        
+        
     # @classmethod
     # def decorator_factory(cls) -> Callable[..., Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]]:
     #     # Define the decorator with kwargs

@@ -31,13 +31,13 @@ class OpenAiLLM(LLM):
             content = self.render_block(block, **kwargs)
             # content = "\n".join(results) 
             if block.role == 'user':
-                messages.append(HumanMessage(content=content))
+                messages.append(HumanMessage(id=block.uuid, content=content))
             elif block.role == 'assistant':
-                messages.append(AIMessage(content=content))
+                messages.append(AIMessage(id=block.uuid, content=content, action_calls=block.action_calls))
             elif block.role == 'system':
-                messages.append(SystemMessage(content=content))
+                messages.append(SystemMessage(id=block.uuid, content=content))
             elif block.role == 'tool':
-                messages.append(ActionMessage(content=content))
+                messages.append(ActionMessage(id=block.uuid, content=content))
             else:
                 raise ValueError(f"Unsupported role: {block.role}")
         

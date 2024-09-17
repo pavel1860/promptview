@@ -14,6 +14,11 @@ class Actions(BaseModel):
     actions: List[Type[BaseModel]] = Field([], title="Tools", description="The tools the user can use")        
     snake_case: bool = Field(default=True, title="Snake Case", description="If the tools should be converted to snake case")
     
+    def __init__(self, actions: List[Type[BaseModel]] = [], snake_case: bool = True):
+        actions = actions or []
+        super().__init__(actions=actions, snake_case=snake_case)
+        self.actions = actions
+    
     def __getitem__(self, index):
         return self.actions[index]
     
