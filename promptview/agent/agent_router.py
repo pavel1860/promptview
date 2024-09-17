@@ -44,36 +44,38 @@ class AgentRouter(BaseModel):
             tracer_run=tracer_run
         ) as tracer_run:
             
-            if self.add_input_history:
-                context.history.add(context, message, str(tracer_run.id), "user")
+            # if self.add_input_history:
+            #     context.history.add(context, message, str(tracer_run.id), "user")
             action_output = None
             for i in range(iterations):                
                 response = await call_function(
                         self.router_prompt.__call__, 
                         context=context, 
-                        message=message.content if message else None, 
+                        message=message, 
                         tracer_run=tracer_run, 
                         action_output=action_output, 
                         **kwargs
                     )
+                context.history.add(context, message, str(tracer_run.id), "user")
                 context.history.add(context, response, str(tracer_run.id), self.name)
                 tracer_run.add_outputs(response)
                 if response.content:                    
                     yield response
                     # print(response.content)
                 if response.actions:
-                    for i, action in enumerate(response.actions):
+                    # for i, action in enumerate(response.actions):
+                    for aid, action in response.items():
                         action_handler = self._action_handlers[action.__class__.__name__]
                         if inspect.isasyncgenfunction(action_handler):
-                            gen_kwargs = filter_func_args(action_handler, {"context": context, "action": action, "message": message.content, "tracer_run": tracer_run} | kwargs)                            
+                            gen_kwargs = filter_func_args(action_handler, {"context": context, "action": action, "message": message.content, "tracer_run": tracer_run} | kwargs)
                             async for output in action_handler(**gen_kwargs):
                                 if output is None:
                                     break
                                 tracer_run.add_outputs(output)
                                 yield output
                         elif inspect.isfunction(action_handler):
-                            action_output = await call_function(action_handler, context=context, action=action, message=message.content, tracer_run=tracer_run, **kwargs)                                                                       
-                            tracer_run.add_outputs({"tool_output": action_output})
+                            action_output = await call_function(action_handler, context=context, action=action, message=message.content, tracer_run=tracer_run, **kwargs)
+                            # tracer_run.add_outputs({"tool_output": action_output})
                         else:
                             raise ValueError(f"Invalid action handler: {action_handler}")
                         if action_output:
@@ -85,12 +87,13 @@ class AgentRouter(BaseModel):
                                 action_output_str = action_output.model_dump_json()
                             else:
                                 raise ValueError(f"Invalid action output ({type(action_output)}): {action_output}")
-                            tool_response = ActionMessage(
+                            message = ActionMessage(
+                                    id=aid,
                                     content=action_output_str,
-                                    tool_call=response.tool_calls[i]
+                                    # tool_call=response.tool_calls[i]
                                 )
-                            response.add_action_output(tool_response)
-                            context.history.add(context, tool_response, str(tracer_run.id), self.name)
+                            # response.add_action_output(action_message)
+                            context.history.add(context, message, str(tracer_run.id), self.name)
                         else:
                             # tracer_run.end()
                             return
@@ -99,7 +102,7 @@ class AgentRouter(BaseModel):
                     
                 if not has_action_response:
                     break
-                message = None                  
+                # message = None                  
             # tracer_run.end()
 
 

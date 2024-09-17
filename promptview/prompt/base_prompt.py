@@ -4,7 +4,7 @@ from typing import (Any, Awaitable, Callable, Generic, List, Literal, Type,
                     TypedDict, TypeVar)
 
 from promptview.llms.llm2 import LLM
-from promptview.llms.messages import AIMessage
+from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
 from promptview.prompt.mvc import ViewBlock, create_view_block
@@ -41,6 +41,8 @@ class Prompt(BaseModel, Generic[T]):
         elif isinstance(views, list):
             valid_views = []
             for view in views:
+                if isinstance(view, list):
+                    raise ValueError("Nested lists are not supported")
                 if not isinstance(view, ViewBlock):
                     valid_views.append(create_view_block(view, view_name="render_" + self._name or self.__class__.__name__, role='user'))
                 else:
@@ -97,6 +99,7 @@ class Prompt(BaseModel, Generic[T]):
     
     async def __call__(
             self,
+            message: str | BaseMessage | None = None,
             views: List[ViewBlock] | ViewBlock | None = None, 
             context: Context | None = None, 
             actions: List[Type[BaseModel]] | None = None,
@@ -105,6 +108,9 @@ class Prompt(BaseModel, Generic[T]):
             output_messages: bool = False,
             **kwargs: Any
         ) -> T:
+        
+        if message is not None:
+            message = HumanMessage(content=message) if isinstance(message, str) else message
         with Tracer(
             is_traceable=self.is_traceable if not output_messages else False,
             tracer_run=tracer_run,
@@ -116,7 +122,7 @@ class Prompt(BaseModel, Generic[T]):
         ) as prompt_run:
             try:
                 actions = actions or self.actions
-                views = views or await self._render(context=context, **kwargs)
+                views = views or await self._render(context=context, message=message, **kwargs)
                 view_block = await self.transform(views, context=context, **kwargs)        
                 messages, actions = self.llm.transform(view_block, actions=actions, **kwargs)                
                 if output_messages:

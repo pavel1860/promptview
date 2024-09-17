@@ -6,7 +6,7 @@ from typing import List, Optional, Tuple
 from pydantic import BaseModel, Field
 from promptview.llms.clients.openai_client import OpenAiLlmClient
 from promptview.llms.llm2 import LLM
-from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from promptview.llms.messages import AIMessage, ActionMessage, BaseMessage, HumanMessage, SystemMessage
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import ViewBlock
 from promptview.templates.action_template import system_action_view
@@ -36,6 +36,8 @@ class OpenAiLLM(LLM):
                 messages.append(AIMessage(content=content))
             elif block.role == 'system':
                 messages.append(SystemMessage(content=content))
+            elif block.role == 'tool':
+                messages.append(ActionMessage(content=content))
             else:
                 raise ValueError(f"Unsupported role: {block.role}")
         

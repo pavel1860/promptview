@@ -2,13 +2,15 @@ import json
 import textwrap
 from typing import Generator, List, Tuple, Type, Union
 
-from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
+from promptview.llms.messages import (AIMessage, ActionMessage, BaseMessage, HumanMessage,
                                       SystemMessage)
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import (BulletType, StripType, ViewBlock, add_tabs,
                                    replace_placeholders)
 from promptview.utils.function_utils import flatten_list
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from promptview.utils.string_utils import SafeJinjaFormatter
 
 
 class Conversation:
@@ -163,6 +165,9 @@ class Conversation:
 class LlmInterpreter:
     
     
+    formatter: SafeJinjaFormatter = Field(default_factory=SafeJinjaFormatter)
+    
+    
     def render_model(self, block: ViewBlock, depth):
         model = block.content
         prompt = ""
@@ -196,7 +201,7 @@ class LlmInterpreter:
             
         prompt += textwrap.dedent(block.content).strip()
         prompt = add_tabs(prompt, depth)
-        return replace_placeholders(prompt, **kwargs)
+        return self.formatter(prompt, **kwargs)
     
 
     def render_dict(self, block: ViewBlock, depth):
@@ -228,7 +233,8 @@ class LlmInterpreter:
 
     def render_wrapper_starting(self, block: ViewBlock, depth, **kwargs):
         title = block.title if block.title is not None else ''
-        title = replace_placeholders(title, **kwargs)
+        # title = replace_placeholders(title, **kwargs)
+        title = self.formatter(title, **kwargs)
         if block.wrap == "xml":
             return add_tabs(f"<{title}>", depth)
         elif block.wrap == "markdown":
@@ -315,6 +321,8 @@ class LlmInterpreter:
                 messages.append(AIMessage(content=content))
             elif block.role == 'system':
                 messages.append(SystemMessage(content=content))
+            elif block.role == 'tool':
+                messages.append(ActionMessage(content=content))
             else:
                 raise ValueError(f"Unsupported role: {block.role}")
         

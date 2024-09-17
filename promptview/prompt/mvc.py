@@ -7,6 +7,7 @@ from functools import wraps
 from typing import Any, Callable, Generator, List, Literal, Tuple, Type, Union
 from uuid import uuid4
 
+from promptview.llms.messages import BaseMessage
 from promptview.llms.utils.action_manager import Actions
 from promptview.utils.string_utils import convert_camel_to_snake
 from pydantic import BaseModel, Field
@@ -43,7 +44,7 @@ ListModelRender = Literal['list', 'view_node']
     
 #     def __hash__(self):
 #         return self.vn_id.__hash__()
-RoleType = Literal["assistant", "user", "system"]
+RoleType = Literal["assistant", "user", "system", "tool"]
 BulletType = Literal["number" , "astrix" , "dash" , "none", None] | str
 StripType = Literal["left", "right"] | bool | None
 
@@ -289,12 +290,12 @@ def transform_list_to_view_blocks(
                 )   
             )
         elif isinstance(o, dict):
-            raise ValueError("dict type not supported")
+            # raise ValueError("dict type not supported")
             sub_views.append(
                 ViewBlock(
                     view_name=f"{view_name}_model_{i}",
-                    view_blocks=o,
-                    bullet=numerate,
+                    content=o,
+                    bullet=bullet,
                     base_model=base_model,
                     index=i,
                     role=role,
@@ -304,12 +305,12 @@ def transform_list_to_view_blocks(
         elif isinstance(o, ViewBlock):
             sub_views.append(o)
         elif isinstance(o, BaseModel):
-            raise ValueError("dict type not supported")
+            # raise ValueError("dict type not supported")
             sub_views.append(
                 ViewBlock(
                     view_name=f"{view_name}_model_{i}",
-                    view_blocks=o,
-                    bullet=numerate,
+                    content=o,
+                    bullet=bullet,
                     base_model=base_model,
                     index=i,
                     role=role,
@@ -337,6 +338,7 @@ def create_view_block(
     tag: str | None = None,
     class_: str | None = None,
 ):
+    view_id = str(uuid4())
     content = None
     view_blocks = []
     if type(views) == list or type(views) == tuple:
@@ -357,9 +359,14 @@ def create_view_block(
         # if view_name != "root":
             # raise ValueError("ViewBlock type not supported. pass a list of ContentBlock or a 'root' view_name")
         view_blocks = [views]
+    elif isinstance(views, BaseMessage):
+        content = views.content
+        role = views.role
+        view_id = views.id if hasattr(views, "id") else view_id
     elif isinstance(views, BaseModel):
         content = views
     return ViewBlock(
+        id=view_id,
         view_name=view_name,
         name=name,
         title=title,

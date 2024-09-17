@@ -73,6 +73,10 @@ class AIMessage(BaseMessage):
             oai_msg["name"] = self.name
         return oai_msg
     
+    def items(self):
+        for tool_id, action in self._tools.items():
+            yield tool_id, action
+    
     @property
     def actions(self):
         return list(self._tools.values())
@@ -131,13 +135,11 @@ class AIMessage(BaseMessage):
     
   
 class ActionMessage(BaseMessage):
-    content: str
     role: Literal["tool"] = "tool"  
-    tool_call: Any = None
     
-    @property
-    def id(self):
-        return self.tool_call.id
+    # @property
+    # def id(self):
+    #     return self.tool_call.id
     
     def to_openai(self):
         return {
