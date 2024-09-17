@@ -6,7 +6,7 @@ from typing import List, Type
 import openai
 from promptview.llms.clients.base import BaseLlmClient
 from promptview.llms.exceptions import LLMToolNotFound
-from promptview.llms.messages import AIMessage, BaseMessage, validate_msgs
+from promptview.llms.messages import AIMessage, ActionCall, BaseMessage, validate_msgs
 from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import find_action
@@ -23,6 +23,7 @@ class OpenAiLlmClient(BaseLlmClient):
                 api_key=api_key or os.getenv("OPENAI_API_KEY")
             )
         )
+        
 
 
     async def complete(
@@ -38,7 +39,7 @@ class OpenAiLlmClient(BaseLlmClient):
             actions = Actions(actions=actions)
         # tools = [schema_to_function(a) for a in actions] if actions else None
         tools = actions.to_openai()
-        messages = [msg.to_openai() for msg in validate_msgs(messages)]
+        messages = [msg.to_openai() for msg in messages]
         if isinstance(tool_choice, BaseModel):
                 tool_choice =  {"type": "function", "function": {"name": tool_choice.__class__.__name__}}            
         openai_completion = await self.client.chat.completions.create(
@@ -57,15 +58,22 @@ class OpenAiLlmClient(BaseLlmClient):
         if output.tool_calls:
             for tool_call in output.tool_calls:
                 action_instance = actions.from_openai(tool_call)
-                tool_calls.append({"id": tool_call.id, "action": action_instance})
+                # tool_calls.append({"id": tool_call.id, "action": action_instance})
+                tool_calls.append(
+                    ActionCall(
+                        id=tool_call.id,
+                        name=tool_call.function.name,
+                        action=action_instance
+                    ))
         ai_message = AIMessage(
             id=response.id,
             model=response.model,
-            content=output.content, 
+            content=output.content,
+            action_calls=tool_calls, 
             raw=response,
         )
-        for tc in tool_calls:
-            ai_message.add_action(tc["id"], tc["action"])                
+        # for tc in tool_calls:
+        #     ai_message.add_action(tc["id"], tc["action"])                
         return ai_message
 
 

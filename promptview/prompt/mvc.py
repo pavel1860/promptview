@@ -7,7 +7,7 @@ from functools import wraps
 from typing import Any, Callable, Generator, List, Literal, Tuple, Type, Union
 from uuid import uuid4
 
-from promptview.llms.messages import BaseMessage
+from promptview.llms.messages import AIMessage, ActionCall, ActionMessage, BaseMessage
 from promptview.llms.utils.action_manager import Actions
 from promptview.utils.string_utils import convert_camel_to_snake
 from pydantic import BaseModel, Field
@@ -67,6 +67,12 @@ def filter_by_depth(depth: int, min_depth: int, max_depth: int) -> Callable[[Vie
         return min_depth <= current_depth <= max_depth
     return inner
 
+def fitler_by_action_calls(block: ViewBlock, action_calls: bool | None) -> bool:
+    return action_calls is None or bool(block.action_calls) == action_calls
+
+
+def filter_by_ids(block: ViewBlock, uuids: list[str] | None) -> bool:
+    return uuids is None or block.uuid in uuids
 
 def combine_filters(
     tag: str | None = None, 
@@ -76,6 +82,8 @@ def combine_filters(
     depth: int | None = None,
     min_depth: int = 0,
     max_depth: int = 100,
+    action_calls: bool | None=None,
+    uuids: list[str] | None = None
 ) -> Callable[[ViewBlock, int], bool]:
     
     def combined(block: ViewBlock, current_depth: int) -> bool:
@@ -84,7 +92,9 @@ def combine_filters(
             filter_by_role(block, role) and
             filter_by_view_name(block, view_name) and
             filter_by_class(block, class_) and
-            filter_by_depth(depth, min_depth, max_depth)(block, current_depth)
+            filter_by_depth(depth, min_depth, max_depth)(block, current_depth) and 
+            fitler_by_action_calls(block, action_calls) and 
+            filter_by_ids(block, uuids)
         )
     
     return combined
@@ -116,6 +126,7 @@ class ViewBlock(BaseModel):
     depth: int = 0
     indent: int = 0
     list_model: ListModelRender = 'view_node'
+    action_calls: List[ActionCall] | None = None
     
     visited: bool = False
     
@@ -131,6 +142,10 @@ class ViewBlock(BaseModel):
     
     def __hash__(self):
         return self.uuid.__hash__()
+    
+    @property
+    def action_call_uuids(self):
+        return [a.id for a in self.action_calls]
     
     def find_actions(self) -> Actions:
         actions = Actions()
@@ -152,20 +167,23 @@ class ViewBlock(BaseModel):
         depth: int | None = None,
         min_depth: int=0, 
         max_depth: int=100,
+        action_calls: bool | None=None,
         replace: bool=True,
+        uuids: list[str] | None = None,
         enumerated: bool=False
         
     ) -> Generator[ViewBlock, None, None]:
                 
-        filter_func = combine_filters(tag, role, view_name, class_, depth, min_depth, max_depth)
+        filter_func = combine_filters(tag, role, view_name, class_, depth, min_depth, max_depth, action_calls, uuids)
         for (current_depth, index), block in self.pre_order_traversal(enumerated=True):
             if filter_func(block, current_depth):
-                if not replace:
-                    block.visited = True
-                if enumerated:
-                    yield (current_depth, index), block
-                else:
-                    yield block
+                if block.visited == False:
+                    if not replace:
+                        block.visited = True
+                    if enumerated:
+                        yield (current_depth, index), block
+                    else:
+                        yield block
 
             
     def first(
@@ -177,11 +195,24 @@ class ViewBlock(BaseModel):
         depth: int | None = None,
         min_depth: int=0, 
         max_depth: int=100,
+        action_calls: bool | None=None,
+        uuids: list[str] | None = None,
         skip: int=0,
         enumerated: bool=False
     ) -> ViewBlock:
         """return the first block that matches the filter"""
-        for (depth, index), block in self.find(tag, role, view_name, class_, depth, min_depth, max_depth, enumerated=True):
+        for (depth, index), block in self.find(
+            tag, 
+            role, 
+            view_name, 
+            class_, 
+            depth, 
+            min_depth, 
+            max_depth, 
+            action_calls=action_calls, 
+            uuids=uuids,
+            enumerated=True
+        ):
             if skip == 0:
                 if enumerated:
                     return (depth, index), block
@@ -197,6 +228,8 @@ class ViewBlock(BaseModel):
         depth: int | None = None,
         min_depth: int=0, 
         max_depth: int=100,
+        action_calls: bool | None=None,
+        uuids: list[str] | None = None
     ):
         """counting the number of blocks that match the filter under the current block"""
         count = 0
@@ -208,6 +241,8 @@ class ViewBlock(BaseModel):
             depth=depth,
             min_depth=min_depth,
             max_depth=max_depth,
+            action_calls=action_calls,
+            uuids=uuids
         ):
             count += 1
         return count
@@ -341,6 +376,7 @@ def create_view_block(
     view_id = str(uuid4())
     content = None
     view_blocks = []
+    action_calls = None
     if type(views) == list or type(views) == tuple:
         view_blocks = transform_list_to_view_blocks(
             items=views,
@@ -362,11 +398,15 @@ def create_view_block(
     elif isinstance(views, BaseMessage):
         content = views.content
         role = views.role
-        view_id = views.id if hasattr(views, "id") else view_id
+        view_id = views.id if views.id is not None else view_id
+        if isinstance(views, AIMessage):
+            action_calls = views.action_calls
+        if isinstance(views, ActionMessage):
+            print(views)
     elif isinstance(views, BaseModel):
         content = views
     return ViewBlock(
-        id=view_id,
+        uuid=view_id,
         view_name=view_name,
         name=name,
         title=title,
@@ -381,7 +421,8 @@ def create_view_block(
         role=role,
         indent=indent,        
         tag=tag,
-        class_=class_
+        class_=class_,
+        action_calls=action_calls
     )
 
     
