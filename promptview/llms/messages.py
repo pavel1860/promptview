@@ -27,9 +27,9 @@ class BaseMessage(BaseModel):
             oai_msg["name"] = self.name
         return oai_msg
     
-    def to_antropic(self):
+    def to_anthropic(self):            
         return {
-            "role": self.role,
+            "role": "user",
             "content": self.content_blocks or self.content,
         }
 
@@ -96,7 +96,8 @@ class AIMessage(BaseMessage):
                   "id": action_call.id,
                     "type": "function",
                     "function": {
-                        "arguments": json.dumps(action_call.action.model_dump()),
+                        # "arguments": json.dumps(action_call.action.model_dump()),
+                        "arguments": action_call.action.model_dump_json(),
                         "name": action_call.name
                     }                      
                 })
@@ -107,7 +108,31 @@ class AIMessage(BaseMessage):
             oai_msg["name"] = self.name
         return oai_msg
     
-    
+    def to_anthropic(self):
+        if self.action_calls:
+            content_blocks = []
+            if self.content:
+                content_blocks.append({
+                        "type": "text",
+                        "content": self.content
+                    })
+            for action_call in self.action_calls:
+                content_blocks.append({
+                    "type": "tool_use",
+                    "id": action_call.id,
+                    "name": action_call.name,
+                    "input": action_call.action.model_dump()
+                })
+            return {
+                "role": self.role,
+                "content": content_blocks
+            }
+        else:
+            return {
+                "role": self.role,
+                "content": self.content
+            }
+                                                       
     @property
     def actions(self):
         return list(self._tools.values())
@@ -182,6 +207,17 @@ class ActionMessage(BaseMessage):
             oai_msg["name"] = self.name
         return oai_msg
         
+    def to_anthropic(self):
+        return {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": self.id,
+                    "content": self.content
+                }
+            ]
+        }
 
 
 
@@ -194,12 +230,12 @@ def validate_msgs(msgs: List[BaseMessage]) -> List[BaseMessage]:
     validated_msgs = []
     for msg in msgs:
         if isinstance(msg, AIMessage):
-            if msg.tool_calls:
-                ai_messages[msg.tool_calls[0].id] = msg
+            if msg.action_calls:
+                ai_messages[msg.action_calls[0].id] = msg
             else:
                 validated_msgs.append(msg)
         elif isinstance(msg, ActionMessage):
-            ai_msg = ai_messages.get(msg.tool_call.id, None)
+            ai_msg = ai_messages.get(msg.id, None)
             if not ai_msg:
                 continue
             validated_msgs += [ai_msg, msg]
@@ -208,3 +244,61 @@ def validate_msgs(msgs: List[BaseMessage]) -> List[BaseMessage]:
             validated_msgs.append(msg)
     return validated_msgs
 
+
+
+def filter_action_calls(messages):
+    message_id_lookup = {msg.id: msg for msg in messages}
+    validate_msgs = []
+    validated_lookup = {}    
+    for msg in messages:
+        if isinstance(msg, AIMessage) and msg.action_calls:
+            action_call_lookup = {}
+            for action_call in msg.action_calls:
+                if action_call.id not in message_id_lookup:
+                    break
+                action_call_lookup[action_call.id] = msg.id
+            else:
+                validate_msgs.append(msg)
+                validated_lookup.update(action_call_lookup)
+        elif isinstance(msg, ActionMessage):
+            if msg.id in validated_lookup:
+                validate_msgs.append(msg)
+        else:
+            validate_msgs.append(msg)
+    return validate_msgs
+
+
+def remove_action_calls(messages):
+    validate_msgs = []
+    found_action_calls = set()
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and msg.action_calls:
+            msg.action_calls = [action_call for action_call in msg.action_calls if action_call.id in found_action_calls]
+            # validate_msgs.append(msg)
+            validate_msgs.insert(0, msg)
+        elif isinstance(msg, ActionMessage):
+            found_action_calls.add(msg.id)
+            # validate_msgs.append(msg)
+            validate_msgs.insert(0, msg)
+        else:
+            # validate_msgs.append(msg)
+            validate_msgs.insert(0, msg)
+    return validate_msgs
+    # return reversed(validate_msgs)
+
+
+def remove_actions(messages):
+    validate_msgs = []
+    found_action_calls = set()
+    for msg in messages:
+        if isinstance(msg, AIMessage) and msg.action_calls:
+            validate_msgs.append(msg)
+            for action_call in msg.action_calls:
+                found_action_calls.add(action_call.id)
+        elif isinstance(msg, ActionMessage):
+            if msg.id in found_action_calls:
+                validate_msgs.append(msg)
+        else:
+            validate_msgs.append(msg)
+    return validate_msgs
+    

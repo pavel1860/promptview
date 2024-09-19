@@ -6,7 +6,7 @@ import os
 import anthropic
 
 from promptview.llms.exceptions import LLMToolNotFound
-from promptview.llms.messages import BaseMessage, SystemMessage, AIMessage
+from promptview.llms.messages import ActionCall, BaseMessage, SystemMessage, AIMessage, filter_action_calls, remove_action_calls
 from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import find_action, get_action_name
@@ -88,7 +88,8 @@ class AnthropicLlmClient(BaseLlmClient):
         if isinstance(messages[0], SystemMessage):
             system_message = messages[0].content
             messages = messages[1:]
-        antropic_messages = [m.to_antropic() for m in messages]
+        antropic_messages = [m.to_anthropic() for m in remove_action_calls(messages)]
+        print(antropic_messages)
         tool_choice = anthropic.NOT_GIVEN if not actions else to_antropic_tool_choice(tool_choice)
         anthropic_completion = await self.client.messages.create(
             model=model,
@@ -103,19 +104,24 @@ class AnthropicLlmClient(BaseLlmClient):
     
     def parse_output(self, response: anthropic.types.message.Message, actions: Actions)-> AIMessage:
         content = ''
-        tool_calls = []
+        action_calls = []
         for content_block in response.content:
             if content_block.type == 'text':
                 content = content_block.text
-            elif content_block.type == 'tool_use':                
+            elif content_block.type == 'tool_use':
                 action_instance = actions.from_anthropic(content_block)
-                tool_calls.append({"id": content_block.id, "action": action_instance})
+                action_calls.append(
+                    ActionCall(
+                        id=content_block.id,
+                        name=content_block.name,
+                        action=action_instance
+                    ))
+                # tool_calls.append({"id": content_block.id, "action": action_instance})
         ai_message = AIMessage(
             id=response.id,
             model=response.model,
             content=content, 
+            action_calls=action_calls,
             raw=response,
         )
-        for tc in tool_calls:
-            ai_message.add_action(tc["id"], tc["action"])
         return ai_message

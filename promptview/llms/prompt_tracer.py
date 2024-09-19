@@ -299,7 +299,7 @@ class PromptTracer:
             project_name=LANGCHAIN_PROJECT, 
             session_id=None,
             limit=10,
-            error: bool=False,
+            error: bool=None,
             is_root=True
         ):
         runs = []        
@@ -347,7 +347,7 @@ class PromptTracer:
             filter=None, 
             project_name=LANGCHAIN_PROJECT, 
             limit=10,
-            error: bool=False,
+            error: bool=None,
             is_root=True
         ):
         return await asyncio.get_running_loop().run_in_executor(

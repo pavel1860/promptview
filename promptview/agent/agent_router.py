@@ -23,6 +23,7 @@ class AgentRouter(BaseModel):
     router_prompt: Type[ChatPrompt] | None = None
     add_input_history: bool = False 
     is_traceable: bool = True 
+    is_router: bool = False
 
     _action_handlers: Dict[str, callable] = {}    
         
@@ -56,8 +57,9 @@ class AgentRouter(BaseModel):
                         action_output=action_output, 
                         **kwargs
                     )
-                context.history.add(context, message, str(tracer_run.id), "user")
-                context.history.add(context, response, str(tracer_run.id), self.name)
+                if not self.is_router:
+                    context.history.add(context, message, str(tracer_run.id), "user")
+                    context.history.add(context, response, str(tracer_run.id), self.name)
                 tracer_run.add_outputs(response)
                 if response.content:                    
                     yield response

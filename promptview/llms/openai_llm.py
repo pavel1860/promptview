@@ -26,10 +26,10 @@ class OpenAiLLM(LLM):
             actions = Actions(actions=actions)
         actions.extend(root_block.find_actions())
         system_block = root_block.first(role="system", depth=1)
-        system_block.push(system_action_view(actions))
+        if system_block:
+            system_block.push(system_action_view(actions))
         for block in root_block.find(depth=1): 
             content = self.render_block(block, **kwargs)
-            # content = "\n".join(results) 
             if block.role == 'user':
                 messages.append(HumanMessage(id=block.uuid, content=content))
             elif block.role == 'assistant':
