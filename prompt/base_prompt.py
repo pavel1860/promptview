@@ -3,6 +3,7 @@ from functools import wraps
 from typing import (Any, Awaitable, Callable, Generic, List, Literal, Type,
                     TypedDict, TypeVar)
 
+from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.llm2 import LLM
 from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
@@ -44,7 +45,7 @@ class Prompt(BaseModel, Generic[T]):
                 if isinstance(view, list):
                     raise ValueError("Nested lists are not supported")
                 if not isinstance(view, ViewBlock):
-                    valid_views.append(create_view_block(view, view_name="render_" + self._name or self.__class__.__name__, role='user'))
+                    valid_views.append(create_view_block(view, view_name="render_" + (self._name or self.__class__.__name__), role='user'))
                 else:
                     valid_views.append(view)
             return valid_views
@@ -124,7 +125,7 @@ class Prompt(BaseModel, Generic[T]):
                 actions = actions or self.actions
                 views = views or await self._render(context=context, message=message, **kwargs)
                 view_block = await self.transform(views, context=context, **kwargs)        
-                messages, actions = self.llm.transform(view_block, actions=actions, **kwargs)                
+                messages, actions = self.llm.transform(view_block, actions=actions, context=context, **kwargs)                
                 if output_messages:
                     return messages
                 
@@ -205,10 +206,16 @@ class Prompt(BaseModel, Generic[T]):
             **kwargs: Any
         ):
             if llm is None:
-                llm = OpenAiLLM(
-                    model=model, 
-                    parallel_tool_calls=parallel_actions
-                )
+                if model.startswith("gpt"):
+                    llm = OpenAiLLM(
+                        model=model, 
+                        parallel_tool_calls=parallel_actions
+                    )
+                elif model.startswith("claude"):
+                    llm = AnthropicLLM(
+                        model=model, 
+                        parallel_tool_calls=parallel_actions
+                    )
             def decorator(func) -> Callable[..., Awaitable[T]]:
                 prompt = cls[T](
                         model=model,

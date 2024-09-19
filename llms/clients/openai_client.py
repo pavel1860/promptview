@@ -5,8 +5,8 @@ from typing import List, Type
 
 import openai
 from promptview.llms.clients.base import BaseLlmClient
-from promptview.llms.exceptions import LLMToolNotFound
-from promptview.llms.messages import AIMessage, ActionCall, BaseMessage, validate_msgs
+from promptview.llms.exceptions import LLMToolNotFound, BadClientLlmRequest
+from promptview.llms.messages import AIMessage, ActionCall, BaseMessage, filter_action_calls, validate_msgs
 from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import find_action
@@ -39,42 +39,46 @@ class OpenAiLlmClient(BaseLlmClient):
             actions = Actions(actions=actions)
         # tools = [schema_to_function(a) for a in actions] if actions else None
         tools = actions.to_openai()
-        messages = [msg.to_openai() for msg in messages]
+        oai_messages = [msg.to_openai() for msg in filter_action_calls(messages)]
         if isinstance(tool_choice, BaseModel):
                 tool_choice =  {"type": "function", "function": {"name": tool_choice.__class__.__name__}}            
-        openai_completion = await self.client.chat.completions.create(
-            messages=messages,
-            tools=tools,
-            model=model,
-            tool_choice=tool_choice,
-            **kwargs
-        )
+        try:
+            openai_completion = await self.client.chat.completions.create(
+                messages=oai_messages,
+                tools=tools,
+                model=model,
+                tool_choice=tool_choice,
+                **kwargs
+            )
+        except Exception as e:
+            raise BadClientLlmRequest(str(e))
         return self.parse_output(openai_completion, actions)
 
     
     def parse_output(self, response, actions: Actions):
-        output = response.choices[0].message
-        tool_calls = []
-        if output.tool_calls:
-            for tool_call in output.tool_calls:
-                action_instance = actions.from_openai(tool_call)
-                # tool_calls.append({"id": tool_call.id, "action": action_instance})
-                tool_calls.append(
-                    ActionCall(
-                        id=tool_call.id,
-                        name=tool_call.function.name,
-                        action=action_instance
-                    ))
-        ai_message = AIMessage(
-            id=response.id,
-            model=response.model,
-            content=output.content,
-            action_calls=tool_calls, 
-            raw=response,
-        )
-        # for tc in tool_calls:
-        #     ai_message.add_action(tc["id"], tc["action"])                
-        return ai_message
+        try:
+            output = response.choices[0].message
+            tool_calls = []
+            if output.tool_calls:
+                for tool_call in output.tool_calls:
+                    action_instance = actions.from_openai(tool_call)
+                    # tool_calls.append({"id": tool_call.id, "action": action_instance})
+                    tool_calls.append(
+                        ActionCall(
+                            id=tool_call.id,
+                            name=tool_call.function.name,
+                            action=action_instance
+                        ))
+            ai_message = AIMessage(
+                id=response.id,
+                model=response.model,
+                content=output.content,
+                action_calls=tool_calls, 
+                raw=response,
+            )
+            return ai_message
+        except Exception as e:
+            raise e
 
 
 

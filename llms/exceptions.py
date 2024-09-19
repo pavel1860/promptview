@@ -14,3 +14,5 @@ class LLMToolNotFound(Exception):
         super().__init__(f"Action {tool_name} is not found")
 
 
+class BadClientLlmRequest(Exception):
+    pass
