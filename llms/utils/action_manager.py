@@ -26,6 +26,12 @@ class Actions(BaseModel):
         for action in self.actions:
             yield self.get_action_name(action), action
         # return iter(self.actions)
+        
+    def __len__(self):
+        return len(self.actions)
+    
+    def __bool__(self):
+        return bool(self.actions)
     
     def get_action_name(self, action_class: Type[BaseModel]) -> str:
         if hasattr(action_class, "_title"):

@@ -5,11 +5,14 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, validator
 
 
+    
+
 class BaseMessage(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     content: str | None
     content_blocks: List[Dict[str, Any]] | None = None
     name: str | None = None
+    
     is_example: Optional[bool] = False
     is_history: Optional[bool] = False
     is_output: Optional[bool] = False
@@ -48,7 +51,14 @@ class HumanMessage(BaseMessage):
 class ActionCall(BaseModel):
     id: str
     name: str
-    action: BaseModel
+    action: dict | BaseModel
+    
+    
+    
+class LlmUsage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
 
 class AIMessage(BaseMessage):
     model: str | None = None
@@ -56,6 +66,8 @@ class AIMessage(BaseMessage):
     role: Literal["assistant"] = "assistant"
     run_id: Optional[str] = None
     action_calls: Optional[List[ActionCall]] = None
+    usage: Optional[LlmUsage] = None
+    
     tool_calls: Optional[List[Any]] = None
     # actions: Optional[List[BaseModel]] = []
     _iterator = -1
@@ -97,7 +109,7 @@ class AIMessage(BaseMessage):
                     "type": "function",
                     "function": {
                         # "arguments": json.dumps(action_call.action.model_dump()),
-                        "arguments": action_call.action.model_dump_json(),
+                        "arguments": action_call.action.model_dump_json() if isinstance(action_call.action, BaseModel) else json.dumps(action_call.action),
                         "name": action_call.name
                     }                      
                 })
@@ -114,14 +126,15 @@ class AIMessage(BaseMessage):
             if self.content:
                 content_blocks.append({
                         "type": "text",
-                        "content": self.content
+                        "text": self.content
                     })
             for action_call in self.action_calls:
                 content_blocks.append({
                     "type": "tool_use",
                     "id": action_call.id,
                     "name": action_call.name,
-                    "input": action_call.action.model_dump()
+                    "input": json.loads(action_call.action.model_dump_json()) if isinstance(action_call.action, BaseModel) else action_call.action
+                    # "input": action_call.action.model_dump()
                 })
             return {
                 "role": self.role,
@@ -132,6 +145,31 @@ class AIMessage(BaseMessage):
                 "role": self.role,
                 "content": self.content
             }
+            
+    def to_langsmith(self):
+        msg = {
+            "choices": [
+                {
+                    "message": {
+                        "role": self.role,
+                        "content": self.content,
+                        "tool_calls": [{
+                            "function": {
+                                "name": tool_call.name,
+                                "arguments": tool_call.action.model_dump_json()
+                            }
+                        } for tool_call in self.action_calls]
+                    }
+                }
+            ],            
+        }
+        if self.usage:
+            msg["usage"] = {
+                "input_tokens": self.usage.prompt_tokens,
+                "output_tokens": self.usage.completion_tokens,
+                "total_tokens": self.usage.total_tokens
+            }
+        return msg
                                                        
     @property
     def actions(self):
@@ -139,9 +177,9 @@ class AIMessage(BaseMessage):
     
     @property
     def output(self):
-        if not self.actions:
+        if not self.action_calls:
             return None
-        return self.actions[0]
+        return self.action_calls[0].action
     
     @output.setter
     def output(self, value):
@@ -246,27 +284,6 @@ def validate_msgs(msgs: List[BaseMessage]) -> List[BaseMessage]:
 
 
 
-def filter_action_calls(messages):
-    message_id_lookup = {msg.id: msg for msg in messages}
-    validate_msgs = []
-    validated_lookup = {}    
-    for msg in messages:
-        if isinstance(msg, AIMessage) and msg.action_calls:
-            action_call_lookup = {}
-            for action_call in msg.action_calls:
-                if action_call.id not in message_id_lookup:
-                    break
-                action_call_lookup[action_call.id] = msg.id
-            else:
-                validate_msgs.append(msg)
-                validated_lookup.update(action_call_lookup)
-        elif isinstance(msg, ActionMessage):
-            if msg.id in validated_lookup:
-                validate_msgs.append(msg)
-        else:
-            validate_msgs.append(msg)
-    return validate_msgs
-
 
 def remove_action_calls(messages):
     validate_msgs = []
@@ -302,3 +319,41 @@ def remove_actions(messages):
             validate_msgs.append(msg)
     return validate_msgs
     
+    
+
+def validate_first_message(messages: List[BaseMessage]) -> List[BaseMessage]:
+    for i in range(len(messages)):
+        if messages[i].role == "user":
+            if i != 0:
+                print("first message must be a user message. fixing...")
+            return messages[i:]
+    else:
+        raise ValueError("No user message found in messages. first message must be a user message")
+
+    
+def filter_action_calls(messages: List[BaseMessage], user_first: bool=False) -> List[BaseMessage]:
+    messages = [m.model_copy() for m in messages]
+    messages = remove_actions(remove_action_calls(messages))
+    if user_first:
+        return validate_first_message(messages)
+    return messages
+    # message_id_lookup = {msg.id: msg for msg in messages}
+    # validate_msgs = []
+    # validated_lookup = {}    
+    # for msg in messages:
+    #     if isinstance(msg, AIMessage) and msg.action_calls:
+    #         action_call_lookup = {}
+    #         for action_call in msg.action_calls:
+    #             if action_call.id not in message_id_lookup:
+    #                 break
+    #             action_call_lookup[action_call.id] = msg.id
+    #         else:
+    #             validate_msgs.append(msg)
+    #             validated_lookup.update(action_call_lookup)
+    #     elif isinstance(msg, ActionMessage):
+    #         if msg.id in validated_lookup:
+    #             validate_msgs.append(msg)
+    #     else:
+    #         validate_msgs.append(msg)
+    # return validate_msgs
+

@@ -8,12 +8,65 @@ from promptview.llms.llm2 import LLM
 from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
+from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import ViewBlock, create_view_block
 from promptview.state.context import Context
 from promptview.utils.function_utils import call_function
 from pydantic import BaseModel, Field
 
 T = TypeVar('T')
+
+
+class PromptInputs(BaseModel):
+    message: BaseMessage | None = None
+    view_blocks: List[ViewBlock] | ViewBlock | None = None
+    context: Context | None = None
+    actions: List[Type[BaseModel]] | None = None
+    tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None
+    tracer_run: Tracer | None = None
+    kwargs: dict[str, Any] | None = None
+    
+    class Config:
+        arbitrary_types_allowed = True
+    
+
+class PromptExecutionContext(BaseModel):    
+    inputs: PromptInputs
+    messages: List[BaseMessage] | None = None
+    actions: Actions | None = None
+    root_block: List[ViewBlock] | None = None    
+    prompt_run: Tracer | None = None
+    output: AIMessage | None = None
+    
+    class Config:
+        arbitrary_types_allowed = True
+        
+
+    # def to_new_execution(self):
+    #     ctx = PromptExecutionContext(
+    #         inputs=self.inputs,
+    #         root_block=self.root_block.model_copy(),
+    #     )
+    #     return ctx
+    
+    def copy_ctx(self, with_views=False, with_messages=False, with_tracer=False):
+        ctx = PromptExecutionContext(
+            inputs=self.inputs.model_copy(),
+        )
+        if with_views:
+            ctx.root_block = self.root_block.model_copy()
+        if with_messages:
+            ctx.messages = [m.model_copy() for m in self.messages]
+        if with_tracer:
+            ctx.prompt_run = self.prompt_run
+        return ctx
+        
+    
+    def extend_views(self, views: List[ViewBlock]):
+        self.root_block.extend(views)
+        return self.root_block
+        
+        
 
 
 class Prompt(BaseModel, Generic[T]):    
@@ -27,16 +80,12 @@ class Prompt(BaseModel, Generic[T]):
     
     _name: str | None = None
     
+    
     def render(self):
         raise NotImplementedError("render method is not set")
     
     
-    async def _render(self, context=None, **kwargs: Any) -> List[ViewBlock] | ViewBlock:
-        views = await call_function(
-                self.render if self._render_method is None else self._render_method, 
-                context=context, 
-                **kwargs
-            )
+    async def process_render_output(self, views: Any, **kwargs: Any) -> T:
         if isinstance(views, str) or isinstance(views, BaseModel):
             return create_view_block(views, view_name=self.__class__.__name__.lower(), role='user')            
         elif isinstance(views, list):
@@ -53,6 +102,35 @@ class Prompt(BaseModel, Generic[T]):
         elif isinstance(views, tuple):
             return create_view_block(views, view_name="render_" + self._name or self.__class__.__name__, role='user')            
         return views
+        
+    
+    async def handle_render(self, views: List[ViewBlock] | ViewBlock | None= None, context=None, **kwargs: Any) -> List[ViewBlock] | ViewBlock:
+        if not views:
+            views = await call_function(
+                    self.render if self._render_method is None else self._render_method, 
+                    context=context, 
+                    **kwargs
+                )
+        views = await self.process_render_output(views, context=context, **kwargs)
+        view_block = await self.transform(views, context=context, **kwargs)
+        return view_block
+    
+        # if isinstance(views, str) or isinstance(views, BaseModel):
+        #     return create_view_block(views, view_name=self.__class__.__name__.lower(), role='user')            
+        # elif isinstance(views, list):
+        #     valid_views = []
+        #     for view in views:
+        #         if isinstance(view, list):
+        #             raise ValueError("Nested lists are not supported")
+        #         if not isinstance(view, ViewBlock):
+        #             valid_views.append(create_view_block(view, view_name="render_" + (self._name or self.__class__.__name__), role='user'))
+        #         else:
+        #             valid_views.append(view)
+        #     return valid_views
+            
+        # elif isinstance(views, tuple):
+        #     return create_view_block(views, view_name="render_" + self._name or self.__class__.__name__, role='user')            
+        # return views
     
     
     async def property_to_view(self, property_name: str, field_info, **kwargs: Any) -> ViewBlock | None:
@@ -78,7 +156,6 @@ class Prompt(BaseModel, Generic[T]):
         for field_name, field_info in self.model_fields.items():
             if field_name in ["llm", "model", "actions", "is_traceable", "tool_choice"]:
                 continue
-            # print(field_name, field)
             view = await self.property_to_view(field_name, field_info, **kwargs)
             if view is not None:
                 template_views.append(view)
@@ -98,7 +175,7 @@ class Prompt(BaseModel, Generic[T]):
         return create_view_block(views, "root")
                 
     
-    async def __call__(
+    async def complete(
             self,
             message: str | BaseMessage | None = None,
             views: List[ViewBlock] | ViewBlock | None = None, 
@@ -111,7 +188,7 @@ class Prompt(BaseModel, Generic[T]):
         ) -> T:
         
         if message is not None:
-            message = HumanMessage(content=message) if isinstance(message, str) else message
+            message = HumanMessage(content=message) if isinstance(message, str) else message        
         with Tracer(
             is_traceable=self.is_traceable if not output_messages else False,
             tracer_run=tracer_run,
@@ -123,9 +200,8 @@ class Prompt(BaseModel, Generic[T]):
         ) as prompt_run:
             try:
                 actions = actions or self.actions
-                views = views or await self._render(context=context, message=message, **kwargs)
-                view_block = await self.transform(views, context=context, **kwargs)        
-                messages, actions = self.llm.transform(view_block, actions=actions, context=context, **kwargs)                
+                view_block = await self.handle_render(views=views, context=context, message=message, **kwargs)
+                messages, actions = self.llm.transform(view_block, actions=actions, context=context, **kwargs)
                 if output_messages:
                     return messages
                 
@@ -135,40 +211,157 @@ class Prompt(BaseModel, Generic[T]):
                     tool_choice=tool_choice or self.tool_choice, 
                     tracer_run=prompt_run, 
                     **kwargs
-                )
+                )                
                 prompt_run.end(outputs={'output': response})
                 return response
             except Exception as e:
                 prompt_run.end(errors=str(e))
                 raise e
             
+            
+    # async def __call__(self, *args, **kwargs):
+    #     execution_context = self.complete(*args, **kwargs)
+    #     return execution_context.response
+    
+    
+    async def __call__(self, *args, **kwargs):        
+        ex_ctx = self.build_execution_context(*args, **kwargs)        
+        ex_ctx = await self.run_steps(ex_ctx)
+        return ex_ctx.output
+        # with self.build_tracer(ex_ctx) as prompt_run:
+        #     ex_ctx.prompt_run = prompt_run
+        #     ex_ctx = await self.view_step(ex_ctx)
+        #     ex_ctx = self.messages_step(ex_ctx)
+        #     ex_ctx = await self.complete_step(ex_ctx)
+        #     prompt_run.end(outputs={'output': ex_ctx.outputs})
+        #     return ex_ctx.outputs
+        
+        
+    async def run_steps(self, ex_ctx: PromptExecutionContext)-> PromptExecutionContext:
+        with self.build_tracer(ex_ctx) as prompt_run:
+            try:
+                ex_ctx.prompt_run = prompt_run
+                if not ex_ctx.root_block:
+                    ex_ctx = await self.view_step(ex_ctx)
+                if not ex_ctx.messages:
+                    ex_ctx = self.messages_step(ex_ctx)
+                ex_ctx = await self.complete_step(ex_ctx)
+                prompt_run.end(outputs={'output': ex_ctx.output.raw})
+                # prompt_run.end(outputs={'output': ex_ctx.output.to_langsmith()})
+                return ex_ctx
+            except Exception as e:
+                prompt_run.end(errors=str(e))
+                raise e
+        
+        
+    async def to_ex_ctx(
+        self,
+        *args: Any,
+        **kwargs: Any
+    ):
+        ex_ctx = self.build_execution_context(*args, **kwargs)
+        ex_ctx = await self.view_step(ex_ctx)
+        ex_ctx = self.messages_step(ex_ctx)
+        return ex_ctx
+        
+        
+    def build_tracer(self, ex_ctx: PromptExecutionContext):
+        inputs = {}
+        if ex_ctx.inputs.message:
+            inputs["message"] = ex_ctx.inputs.message.content
+        if ex_ctx.inputs.kwargs:
+            inputs["input"] = ex_ctx.inputs.kwargs
+        return Tracer(
+            is_traceable=self.is_traceable,
+            tracer_run=ex_ctx.inputs.tracer_run,
+            name=self._name or self.__class__.__name__,
+            run_type="prompt",
+            inputs=inputs
+        )
+    
+    
+    def build_execution_context(
+            self,
+            message: str | BaseMessage | None = None,
+            views: List[ViewBlock] | ViewBlock | None = None, 
+            context: Context | None = None, 
+            actions: List[Type[BaseModel]] | None = None,
+            tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,
+            tracer_run: Tracer | None=None,
+            **kwargs: Any
+        ) -> PromptExecutionContext:
+        if message is not None:
+            message = HumanMessage(content=message) if isinstance(message, str) else message        
+        prompt_inputs = PromptInputs(
+            message=message,
+            view_blocks=views,
+            context=context,
+            actions=actions or self.actions,
+            tool_choice=tool_choice or self.tool_choice,
+            tracer_run=tracer_run,
+            kwargs=kwargs
+        )
+        return PromptExecutionContext(inputs=prompt_inputs)
+    
+    async def view_step(self, ex_ctx: PromptExecutionContext):
+        root_block = await self.handle_render(
+            views=ex_ctx.inputs.view_blocks, 
+            context=ex_ctx.inputs.context, 
+            message=ex_ctx.inputs.message, 
+            **ex_ctx.inputs.kwargs
+        )
+        ex_ctx.root_block = root_block
+        return ex_ctx
+    
+    def messages_step(self, ex_ctx: PromptExecutionContext):
+        messages, actions = self.llm.transform(
+                root_block=ex_ctx.root_block, 
+                actions=ex_ctx.inputs.actions, 
+                context=ex_ctx.inputs.context, 
+                **ex_ctx.inputs.kwargs
+            )
+        ex_ctx.messages = messages
+        ex_ctx.actions = actions
+        return ex_ctx
+    
+    async def complete_step(self, ex_ctx: PromptExecutionContext):
+        response = await self.llm.complete(
+            messages=ex_ctx.messages, 
+            actions=ex_ctx.actions, 
+            tool_choice=ex_ctx.inputs.tool_choice, 
+            tracer_run=ex_ctx.prompt_run, 
+            **ex_ctx.inputs.kwargs
+        )
+        ex_ctx.output = response
+        return ex_ctx
+            
     def set_methods(self, render_func: Callable | None = None, output_parser: Callable | None = None) -> None:
         self._render_method = render_func
         self._output_parser_method = output_parser
+    
         
+    # async def to_views(
+    #     self,
+    #     message: str | BaseMessage | None = None,        
+    #     views: List[ViewBlock] | ViewBlock | None = None, 
+    #     actions: List[Type[BaseModel]] | None = None,
+    #     **kwargs: Any
+    # ):
+    #     if message is not None:
+    #         message = HumanMessage(content=message) if isinstance(message, str) else message
+    #     actions = actions or self.actions
+    #     views = views or await self.handle_render(message=message, **kwargs)
+    #     view_block = await self.transform(views, **kwargs)        
+    #     return view_block
         
-    async def to_views(
-        self,
-        message: str | BaseMessage | None = None,        
-        views: List[ViewBlock] | ViewBlock | None = None, 
-        actions: List[Type[BaseModel]] | None = None,
-        **kwargs: Any
-    ):
-        if message is not None:
-            message = HumanMessage(content=message) if isinstance(message, str) else message
-        actions = actions or self.actions
-        views = views or await self._render(message=message, **kwargs)
-        view_block = await self.transform(views, **kwargs)        
-        return view_block
-        
-    async def to_messages(
-        self,
-        actions: List[Type[BaseModel]] | None = None,
-        **kwargs: Any
-    ):
-        view_block = await self.to_views(actions=actions, **kwargs)
-        messages, actions = self.llm.transform(view_block, actions=actions, **kwargs)                
-        return messages
+    # async def to_messages(
+    #     self,
+    #     actions: List[Type[BaseModel]] | None = None,
+    #     **kwargs: Any
+    # ):
+    #     view_block = await self.to_views(actions=actions, **kwargs)
+    #     messages, actions = self.llm.transform(view_block, actions=actions, **kwargs)                
+    #     return messages
         
         
     # @classmethod
@@ -229,9 +422,11 @@ class Prompt(BaseModel, Generic[T]):
                 prompt.set_methods(func, output_parser)
                 if self:
                     self.router_prompt = prompt
-                @wraps(func)
-                async def wrapper(**kwargs) -> T:            
-                    return await prompt(**kwargs)
+                # @wraps(func)
+                # async def wrapper(**kwargs) -> T:            
+                #     return await prompt(**kwargs)
+                return prompt
+                    
                 
                 # wrapper.__signature__ = sig
                 return wrapper
