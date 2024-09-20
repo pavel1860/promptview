@@ -155,7 +155,12 @@ class ViewBlock(BaseModel):
         return actions
     
     def push(self, block: ViewBlock):
+        assert isinstance(block, ViewBlock)
         self.view_blocks.append(block)
+        
+    def extend(self, blocks: list[ViewBlock]):
+        assert all(isinstance(b, ViewBlock) for b in blocks)
+        self.view_blocks.extend(blocks)
         
         
     def find(
@@ -401,7 +406,9 @@ def create_view_block(
         view_id = views.id if views.id is not None else view_id
         if isinstance(views, AIMessage):
             action_calls = views.action_calls
-        if isinstance(views, ActionMessage):
+        elif isinstance(views, ActionMessage):
+            if not view_id.startswith("tool"):
+                print("tool message id not starts with tool")
             print(views)
     elif isinstance(views, BaseModel):
         content = views

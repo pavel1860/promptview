@@ -89,9 +89,16 @@ def pirate_view(pirate_stats: PirateStats, user_stats: UserStats):
 
 
 from promptview import AgentRouter
+from promptview.agent.action_agent import ActionAgent
 from promptview import ChatPrompt
 
-pirate_agent = AgentRouter(
+# pirate_agent = AgentRouter(
+#         name="pirate_agent", 
+#         prompt_cls=ChatPrompt, 
+#         add_input_history=True,
+#         iterations=2
+#     )
+pirate_agent = ActionAgent(
         name="pirate_agent", 
         prompt_cls=ChatPrompt, 
         add_input_history=True,
@@ -110,7 +117,7 @@ pirate_agent = AgentRouter(
         "you if you provide a message, it should be without formatting. you should answer as if you are speaking.",
     ],
     actions=[AttackAction, GiveQuestAction, MoveAction, ChangeReputationAction],
-    tool_choice="required"
+    # tool_choice="required"
 )
 def pirate_prompt(context, message, pirate_stats, user_stats):
     if message.role == 'tool':
@@ -139,6 +146,11 @@ def give_quest_reducer(action, pirate_stats, user_stats):
 
 @pirate_agent.reducer(action=MoveAction)
 def move_reducer(action, pirate_stats, user_stats):
+    return pirate_stats
+
+@pirate_agent.reducer(action=ChangeReputationAction)
+def change_reputation_reducer(action, pirate_stats, user_stats):
+    user_stats.reputation += action.reputation
     return pirate_stats
 
 

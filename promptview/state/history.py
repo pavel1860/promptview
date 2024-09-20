@@ -27,6 +27,7 @@ class History:
     
     async def init(self, context):
         messages = await self.load(context)
+        self.contained_id = set([m.id for m in messages])
         for message in messages:
             if not isinstance(message, BaseMessage):
                 raise Exception(f"message {type(message)} is not an instance of BaseMessage")
@@ -35,19 +36,22 @@ class History:
     # def add_many(self, messages: List[BaseMessage]):
         # self.history.extend(messages)
         
-    def get(self, from_idx=1, to_idx=None, safe=False):
+    def get(self, from_idx=1, to_idx=None, prompt=None, safe=False):
         """
         get the last n messages
         safe: remove action messages that are not connected to any tool calls
         """
+        messages = self.history
+        if prompt is not None:
+            messages = [m for m in messages if m.prompt == prompt]
         if to_idx is  not None:
-            messages = self.history[-from_idx: -to_idx]
+            messages = messages[-from_idx: -to_idx]
         else:
-            messages = self.history[-from_idx:]
+            messages = messages[-from_idx:]
         
         if safe:
             messages = filter_action_calls(messages)
-        return messages
+        return [m.model_copy() for m in messages]
     
     def clear(self):
         self.history = []

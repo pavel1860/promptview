@@ -26,7 +26,7 @@ class OpenAiLLM(LLM):
             actions = Actions(actions=actions)
         actions.extend(root_block.find_actions())
         system_block = root_block.first(role="system", depth=1)
-        if system_block:
+        if system_block and actions:
             system_block.push(system_action_view(actions))
         for block in root_block.find(depth=1): 
             content = self.render_block(block, **kwargs)

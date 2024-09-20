@@ -6,7 +6,7 @@ import os
 import anthropic
 
 from promptview.llms.exceptions import LLMToolNotFound
-from promptview.llms.messages import ActionCall, BaseMessage, SystemMessage, AIMessage, filter_action_calls, remove_action_calls
+from promptview.llms.messages import ActionCall, BaseMessage, LlmUsage, SystemMessage, AIMessage, filter_action_calls, remove_action_calls
 from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import find_action, get_action_name
@@ -88,18 +88,21 @@ class AnthropicLlmClient(BaseLlmClient):
         if isinstance(messages[0], SystemMessage):
             system_message = messages[0].content
             messages = messages[1:]
-        antropic_messages = [m.to_anthropic() for m in remove_action_calls(messages)]
-        print(antropic_messages)
+        antropic_messages = [m.to_anthropic() for m in filter_action_calls(messages, user_first=True)]
         tool_choice = anthropic.NOT_GIVEN if not actions else to_antropic_tool_choice(tool_choice)
-        anthropic_completion = await self.client.messages.create(
-            model=model,
-            max_tokens=1000,
-            temperature=0,
-            system=system_message,
-            messages=antropic_messages,
-            tools=tools,
-            tool_choice=tool_choice,
-        )
+        try:
+            anthropic_completion = await self.client.messages.create(
+                model=model,
+                max_tokens=1000,
+                temperature=0,
+                system=system_message,
+                messages=antropic_messages,
+                tools=tools,
+                tool_choice=tool_choice,
+            )
+        except Exception as e:
+            self.serialize_messages(messages, run_id=run_id)
+            raise e
         return self.parse_output(anthropic_completion, actions)
     
     def parse_output(self, response: anthropic.types.message.Message, actions: Actions)-> AIMessage:
@@ -123,5 +126,10 @@ class AnthropicLlmClient(BaseLlmClient):
             content=content, 
             action_calls=action_calls,
             raw=response,
+            usage=LlmUsage(
+                prompt_tokens= response.usage.input_tokens,
+                completion_tokens= response.usage.output_tokens,
+                total_tokens= response.usage.input_tokens + response.usage.output_tokens,
+            )
         )
         return ai_message

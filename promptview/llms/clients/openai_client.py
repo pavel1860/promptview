@@ -6,7 +6,7 @@ from typing import List, Type
 import openai
 from promptview.llms.clients.base import BaseLlmClient
 from promptview.llms.exceptions import LLMToolNotFound, BadClientLlmRequest
-from promptview.llms.messages import AIMessage, ActionCall, BaseMessage, filter_action_calls, validate_msgs
+from promptview.llms.messages import AIMessage, ActionCall, BaseMessage, LlmUsage, filter_action_calls, validate_msgs
 from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import find_action
@@ -51,6 +51,7 @@ class OpenAiLlmClient(BaseLlmClient):
                 **kwargs
             )
         except Exception as e:
+            self.serialize_messages(messages, run_id=run_id)
             raise BadClientLlmRequest(str(e))
         return self.parse_output(openai_completion, actions)
 
@@ -75,6 +76,11 @@ class OpenAiLlmClient(BaseLlmClient):
                 content=output.content,
                 action_calls=tool_calls, 
                 raw=response,
+                usage=LlmUsage(
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens= response.usage.completion_tokens,
+                    total_tokens= response.usage.total_tokens,
+                )
             )
             return ai_message
         except Exception as e:

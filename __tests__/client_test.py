@@ -28,10 +28,10 @@ async def test_openai_client():
     content = "hello" 
     response = await client.complete([HumanMessage(content=content)], actions=[CatAction, NumAction])
     assert len(response.content) > 0
-    assert len(response.actions) == 0
+    assert len(response.action_calls) == 0
     content = "tell me about cats"
     response = await client.complete([HumanMessage(content=content)], actions=[CatAction, NumAction])
-    assert len(response.actions) == 1
+    assert len(response.action_calls) == 1
     assert isinstance(response.output, CatAction) 
     
 
@@ -43,10 +43,10 @@ async def test_anthropic_client():
     content = "hello" 
     response = await client.complete([HumanMessage(content=content)], actions=[CatAction, NumAction])
     assert len(response.content) > 0
-    assert len(response.actions) == 0
+    assert len(response.action_calls) == 0
     content = "tell me about cats"
     response = await client.complete([HumanMessage(content=content)], actions=[CatAction, NumAction])
-    assert len(response.actions) == 1
+    assert len(response.action_calls) == 1
     assert isinstance(response.output, CatAction) 
     
     
