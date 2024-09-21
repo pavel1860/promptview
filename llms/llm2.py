@@ -1,9 +1,10 @@
 from typing import Dict, List, Type
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from promptview.llms.clients.base import BaseLlmClient
+from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.interpreter import LlmInterpreter
 from promptview.llms.llm import ToolChoice
-from promptview.llms.messages import BaseMessage
+from promptview.llms.messages import BaseMessage, HumanMessage
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import ViewBlock
@@ -80,15 +81,15 @@ class LLM(BaseModel, LlmInterpreter):
         return model_kwargs
 
     
-    async def complete(
+    async def run_complete(
         self, 
         messages: List[BaseMessage], 
         actions: Actions=None,
         tool_choice: ToolChoice | BaseModel | None = None,
         tracer_run=None,
         metadata={},
-        retries=3,
-        smart_retry=True,
+        # retries=3,
+        # smart_retry=True,
         **kwargs
     ):
         
@@ -102,16 +103,54 @@ class LLM(BaseModel, LlmInterpreter):
             inputs={"messages": [msg.to_openai() for msg in messages]},
             metadata=metadata,
         ) as llm_run:
-            response = await self.client.complete(
-                messages, 
-                actions=actions,
-                tool_choice=tool_choice,
-                run_id=str(llm_run.id),
-                **llm_kwargs
-            )
-            llm_run.end(outputs=response.raw)
-            return response  
-        
+            try:
+                response = await self.client.complete(
+                    messages, 
+                    actions=actions,
+                    tool_choice=tool_choice,
+                    run_id=str(llm_run.id),
+                    **llm_kwargs
+                )
+                llm_run.end(outputs=response.raw)
+                return response  
+            except Exception as e:
+                llm_run.end(errors=str(e))
+                raise e
+    
+    async def complete(
+        self, 
+        messages: List[BaseMessage], 
+        actions: Actions=None,
+        tool_choice: ToolChoice | BaseModel | None = None,
+        tracer_run=None,
+        metadata={},
+        retries=3,
+        smart_retry=False,
+        **kwargs
+    ):
+        for try_num in range(retries):
+            try:
+                response = await self.run_complete(
+                    messages, 
+                    actions=actions,
+                    tool_choice=tool_choice,
+                    tracer_run=tracer_run,
+                    metadata=metadata,
+                    **kwargs
+                )
+                return response
+            except LLMToolNotFound as e:
+                if try_num == retries - 1:
+                    raise e
+                if smart_retry:
+                    messages.append(HumanMessage(content=f"there is no such tool:\n{str(e)}"))
+            except ValidationError as e:
+                if try_num == retries - 1:
+                    raise e
+                if smart_retry:
+                    messages.append(HumanMessage(content=f"there is a validation error for the tool:\n{str(e)}"))
+    
+       
         
     async def __call__(
         self, 

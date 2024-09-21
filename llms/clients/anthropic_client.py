@@ -91,6 +91,7 @@ class AnthropicLlmClient(BaseLlmClient):
         antropic_messages = [m.to_anthropic() for m in filter_action_calls(messages, user_first=True)]
         tool_choice = anthropic.NOT_GIVEN if not actions else to_antropic_tool_choice(tool_choice)
         try:
+            anthropic_completion = None
             anthropic_completion = await self.client.messages.create(
                 model=model,
                 max_tokens=1000,
@@ -100,10 +101,11 @@ class AnthropicLlmClient(BaseLlmClient):
                 tools=tools,
                 tool_choice=tool_choice,
             )
+            return self.parse_output(anthropic_completion, actions)
         except Exception as e:
-            self.serialize_messages(messages, run_id=run_id)
+            self.serialize_messages(run_id, messages, anthropic_completion)
             raise e
-        return self.parse_output(anthropic_completion, actions)
+        
     
     def parse_output(self, response: anthropic.types.message.Message, actions: Actions)-> AIMessage:
         content = ''

@@ -1,7 +1,7 @@
 from enum import Enum
 import inspect
 import json
-from typing import Any, Optional
+from typing import Any, Literal, Optional, Union, get_args, get_origin
 
 from promptview.llms.utils.completion_parsing import (is_list_model,
                                                     unpack_list_model)
@@ -117,5 +117,64 @@ def serialize_class(cls_: Any):
 
 
 
-def describe_enum(enum_cls: Enum):
-    return ", ".join([v.value for v in enum_cls])
+def describe_enum(enum_cls: Enum, delimiter: str = ", ") -> str:
+    return delimiter.join([v.value for v in enum_cls])
+
+def describe_literal(literal, delimiter="|"):
+    args = get_args(literal)
+    return delimiter.join(args)
+
+def is_union(obj):
+    orig = get_origin(obj)
+    if orig and orig.__name__ == "UnionType":
+        return True
+    return hasattr(obj, "__origin__") and obj.__origin__ == Union
+
+
+def get_type(arg, delimiter="|"):
+    if isinstance(arg, type):
+        if issubclass(arg, Enum):
+            return describe_enum(arg, delimiter)
+    elif get_origin(arg) is Literal:
+        return describe_literal(arg, delimiter)
+    return arg.__name__
+
+
+def get_union_args(field_info, delimiter="|"):    
+    union_args = get_args(field_info.annotation)
+    type_args = []
+    for arg in union_args:
+        if arg == type(None):
+            is_optional = True
+        else:
+            type_args.append(get_type(arg, delimiter))
+    if is_optional:
+        type_args.append("None")
+    return delimiter.join(type_args)
+
+
+def get_list_args(field_info, delimiter="|"):
+    args = get_args(field_info.annotation)[0]
+    return f"List[{stringify_field_info(args, delimiter)}]"
+
+def get_field_info_origin(field_info, delimiter="|"):
+    field_origin = get_origin(field_info.annotation)
+    if field_origin == list:
+        return get_list_args(field_info, delimiter)    
+    else:
+        return get_union_args(field_info.annotation)
+
+
+def stringify_field_info(field_info, delimiter="|"):
+    field_type = field_info.annotation if hasattr(field_info, "annotation") else field_info
+    field_origin = get_origin(field_type)
+    if field_origin == list:
+        return get_list_args(field_info, delimiter)
+    elif is_union(field_type):
+        return get_union_args(field_info, delimiter)
+    else:
+        return get_type(field_type, delimiter)
+
+
+
+
