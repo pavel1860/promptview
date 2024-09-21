@@ -43,6 +43,7 @@ class OpenAiLlmClient(BaseLlmClient):
         if isinstance(tool_choice, BaseModel):
                 tool_choice =  {"type": "function", "function": {"name": tool_choice.__class__.__name__}}            
         try:
+            openai_completion = None
             openai_completion = await self.client.chat.completions.create(
                 messages=oai_messages,
                 tools=tools,
@@ -50,10 +51,12 @@ class OpenAiLlmClient(BaseLlmClient):
                 tool_choice=tool_choice,
                 **kwargs
             )
+            return self.parse_output(openai_completion, actions)
         except Exception as e:
-            self.serialize_messages(messages, run_id=run_id)
-            raise BadClientLlmRequest(str(e))
-        return self.parse_output(openai_completion, actions)
+            self.serialize_messages(run_id, messages, openai_completion)
+            raise e
+            # raise BadClientLlmRequest(str(e))
+        
 
     
     def parse_output(self, response, actions: Actions):
