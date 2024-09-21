@@ -62,7 +62,7 @@ class AgentRouter(BaseModel):
             name=self.name,
             is_traceable=self.is_traceable,
             inputs={"message": message.content} | kwargs,
-            session_id=context.session.id,
+            session_id=context.session_id,
             tracer_run=tracer_run
         ) as tracer_run:
             
@@ -78,9 +78,9 @@ class AgentRouter(BaseModel):
                     )
                 if not self.is_router:
                     context.history.add(context, message, str(tracer_run.id), "user")
-                    context.history.add(context, response, str(tracer_run.id), self.name)
-                tracer_run.add_outputs(response)
-                if response.content:                    
+                    context.history.add(context, response, str(tracer_run.id), self.name)                
+                if response.content:
+                    tracer_run.add_outputs(response)
                     yield response
                 if response.action_calls:
                     for action_call in response.action_calls:
@@ -90,7 +90,7 @@ class AgentRouter(BaseModel):
                             async for output in action_handler(**gen_kwargs):
                                 if output is None:
                                     break
-                                # tracer_run.add_outputs(output)
+                                tracer_run.add_outputs(output)
                                 yield output
                         elif inspect.isfunction(action_handler):
                             action_output = await call_function(action_handler, context=context, action=action_call.action, message=message.content, tracer_run=tracer_run, **kwargs)
@@ -116,7 +116,7 @@ class AgentRouter(BaseModel):
             name=self.name,
             is_traceable=self.is_traceable,
             inputs={"message": message.content} | kwargs,
-            session_id=context.session.id,
+            session_id=context.session_id,
             tracer_run=tracer_run
         ) as tracer_run:
             

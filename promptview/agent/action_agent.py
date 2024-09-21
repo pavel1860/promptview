@@ -62,7 +62,7 @@ class ActionAgent(BaseModel):
             name=self.name,
             is_traceable=self.is_traceable,
             inputs={"message": message.content} | kwargs,
-            session_id=context.session.id,
+            session_id=context.session_id,
             tracer_run=tracer_run
         ) as tracer_run:
             
