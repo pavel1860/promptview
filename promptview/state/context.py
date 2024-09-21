@@ -28,7 +28,15 @@ class Context(BaseModel):
     message: str | None = None
     history: History = Field(default_factory=History)
     created_at: datetime = Field(default_factory=datetime.now)
-    session: Session
+    session: Session = Field(default_factory=Session)
+    add_session_id: bool = True
+    
+    
+    @property
+    def session_id(self):
+        if not self.add_session_id:
+            return None
+        return self.session.id
     
 
 

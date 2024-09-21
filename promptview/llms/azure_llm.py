@@ -3,13 +3,13 @@ from typing import Optional
 
 from promptview.llms.clients.azure_client import AzureOpenAiLlmClient
 from promptview.llms.clients.base import BaseLlmClient
-from promptview.llms.llm import LLM
+from promptview.llms.llm2 import LLM
 
 
 class AzureOpenAiLLM(LLM):
     name: str = "AzureOpenAiLLM"
     client: BaseLlmClient
-    model: str = "gpt-3.5-turbo-0125"
+    model: str = "gpt-4o"
     api_key: Optional[str] = None
     api_version: Optional[str] = "2023-12-01-preview"
     azure_endpoint: Optional[str] = None

@@ -1,11 +1,18 @@
+import json
 from typing import Any, Dict, List, Literal, Optional, Union
+from uuid import uuid4
 
 from pydantic import BaseModel, Field, validator
 
 
+    
+
 class BaseMessage(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
     content: str | None
+    content_blocks: List[Dict[str, Any]] | None = None
     name: str | None = None
+    
     is_example: Optional[bool] = False
     is_history: Optional[bool] = False
     is_output: Optional[bool] = False
@@ -22,6 +29,12 @@ class BaseMessage(BaseModel):
         if self.name:
             oai_msg["name"] = self.name
         return oai_msg
+    
+    def to_anthropic(self):            
+        return {
+            "role": "user",
+            "content": self.content_blocks or self.content,
+        }
 
 
 class SystemMessage(BaseMessage):
@@ -35,41 +48,138 @@ class HumanMessage(BaseMessage):
 
 
 
+class ActionCall(BaseModel):
+    id: str
+    name: str
+    action: dict | BaseModel
+    
+    
+    
+class LlmUsage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
 class AIMessage(BaseMessage):
+    model: str | None = None
     did_finish: Optional[bool] = True
     role: Literal["assistant"] = "assistant"
     run_id: Optional[str] = None
+    action_calls: Optional[List[ActionCall]] = None
+    usage: Optional[LlmUsage] = None
+    
     tool_calls: Optional[List[Any]] = None
-    actions: Optional[List[BaseModel]] = []
+    # actions: Optional[List[BaseModel]] = []
     _iterator = -1
     _tool_responses = {}
+    _tools = {}
+    raw: Any = None
 
 
     def to_openai(self):
-        if self.tool_calls:            
-            oai_msg = {
-                "role": self.role,
-                "content": (self.content or '') + "\n".join([f"{t.function.name}\n{t.function.arguments}" for t in self.tool_calls])
-            }
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_62136354",
+                    "type": "function",
+                    "function": {
+                        "arguments": "{'order_id': 'order_12345'}",
+                        "name": "get_delivery_date"
+                    }
+                }
+            ]
+        }
+        # if self.tool_calls:            
+        #     oai_msg = {
+        #         "role": self.role,
+        #         "content": (self.content or '') + "\n".join([f"{t.function.name}\n{t.function.arguments}" for t in self.tool_calls])
+        #     }
+        # else:
+        #     oai_msg = {
+        #         "role": self.role,
+        #         "content": self.content,
+        #     }
+        oai_msg = {"role": self.role}
+        if self.action_calls:
+            tool_calls = []
+            for action_call in self.action_calls:
+                tool_calls.append({
+                  "id": action_call.id,
+                    "type": "function",
+                    "function": {
+                        # "arguments": json.dumps(action_call.action.model_dump()),
+                        "arguments": action_call.action.model_dump_json() if isinstance(action_call.action, BaseModel) else json.dumps(action_call.action),
+                        "name": action_call.name
+                    }                      
+                })
+            oai_msg["tool_calls"] = tool_calls
         else:
-            oai_msg = {
-                "role": self.role,
-                "content": self.content,
-            }
-        if self._tool_responses:
-            oai_msg['tool_calls'] = [r.tool_call for r in self._tool_responses.values()]
+            oai_msg["content"] = self.content
         if self.name:
             oai_msg["name"] = self.name
         return oai_msg
     
-
-    
+    def to_anthropic(self):
+        if self.action_calls:
+            content_blocks = []
+            if self.content:
+                content_blocks.append({
+                        "type": "text",
+                        "text": self.content
+                    })
+            for action_call in self.action_calls:
+                content_blocks.append({
+                    "type": "tool_use",
+                    "id": action_call.id,
+                    "name": action_call.name,
+                    "input": json.loads(action_call.action.model_dump_json()) if isinstance(action_call.action, BaseModel) else action_call.action
+                    # "input": action_call.action.model_dump()
+                })
+            return {
+                "role": self.role,
+                "content": content_blocks
+            }
+        else:
+            return {
+                "role": self.role,
+                "content": self.content
+            }
+            
+    def to_langsmith(self):
+        msg = {
+            "choices": [
+                {
+                    "message": {
+                        "role": self.role,
+                        "content": self.content,
+                        "tool_calls": [{
+                            "function": {
+                                "name": tool_call.name,
+                                "arguments": tool_call.action.model_dump_json()
+                            }
+                        } for tool_call in self.action_calls]
+                    }
+                }
+            ],            
+        }
+        if self.usage:
+            msg["usage"] = {
+                "input_tokens": self.usage.prompt_tokens,
+                "output_tokens": self.usage.completion_tokens,
+                "total_tokens": self.usage.total_tokens
+            }
+        return msg
+                                                       
+    @property
+    def actions(self):
+        return list(self._tools.values())
     
     @property
     def output(self):
-        if not self.actions:
+        if not self.action_calls:
             return None
-        return self.actions[0]
+        return self.action_calls[0].action
     
     @output.setter
     def output(self, value):
@@ -82,8 +192,14 @@ class AIMessage(BaseMessage):
             return True
         return False
     
-    def add_tool_response(self, response: "ActionMessage"):
+    def _add_tool_response(self, response: "ActionMessage"):
         self._tool_responses[response.id] = response
+    
+    def add_action_output(self, tool_id: str, output: BaseModel | str | dict):
+        self._tool_responses[tool_id] = output
+        
+    def add_action(self, tool_id: str, action: BaseModel):
+        self._tools[tool_id] = action
 
     # def to_openai(self):
     #     oai_msg = {"role": self.role}                
@@ -113,22 +229,33 @@ class AIMessage(BaseMessage):
     
   
 class ActionMessage(BaseMessage):
-    content: str
-    role: Literal["tool"] = "tool"  
-    tool_call: Any = None
+    role: Literal["tool"] = "tool"
     
-    @property
-    def id(self):
-        return self.tool_call.id
+    # @property
+    # def id(self):
+    #     return self.tool_call.id
     
     def to_openai(self):
-        return {
-            "tool_call_id": self.tool_call.id,
+        oai_msg = {
+            "tool_call_id": self.id,
             "role": "tool",
-            "name": self.name,
             "content": self.content
         }
+        if self.name:
+            oai_msg["name"] = self.name
+        return oai_msg
         
+    def to_anthropic(self):
+        return {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": self.id,
+                    "content": self.content
+                }
+            ]
+        }
 
 
 
@@ -141,12 +268,12 @@ def validate_msgs(msgs: List[BaseMessage]) -> List[BaseMessage]:
     validated_msgs = []
     for msg in msgs:
         if isinstance(msg, AIMessage):
-            if msg.tool_calls:
-                ai_messages[msg.tool_calls[0].id] = msg
+            if msg.action_calls:
+                ai_messages[msg.action_calls[0].id] = msg
             else:
                 validated_msgs.append(msg)
         elif isinstance(msg, ActionMessage):
-            ai_msg = ai_messages.get(msg.tool_call.id, None)
+            ai_msg = ai_messages.get(msg.id, None)
             if not ai_msg:
                 continue
             validated_msgs += [ai_msg, msg]
@@ -154,4 +281,79 @@ def validate_msgs(msgs: List[BaseMessage]) -> List[BaseMessage]:
         else:
             validated_msgs.append(msg)
     return validated_msgs
+
+
+
+
+def remove_action_calls(messages):
+    validate_msgs = []
+    found_action_calls = set()
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and msg.action_calls:
+            msg.action_calls = [action_call for action_call in msg.action_calls if action_call.id in found_action_calls]
+            # validate_msgs.append(msg)
+            validate_msgs.insert(0, msg)
+        elif isinstance(msg, ActionMessage):
+            found_action_calls.add(msg.id)
+            # validate_msgs.append(msg)
+            validate_msgs.insert(0, msg)
+        else:
+            # validate_msgs.append(msg)
+            validate_msgs.insert(0, msg)
+    return validate_msgs
+    # return reversed(validate_msgs)
+
+
+def remove_actions(messages):
+    validate_msgs = []
+    found_action_calls = set()
+    for msg in messages:
+        if isinstance(msg, AIMessage) and msg.action_calls:
+            validate_msgs.append(msg)
+            for action_call in msg.action_calls:
+                found_action_calls.add(action_call.id)
+        elif isinstance(msg, ActionMessage):
+            if msg.id in found_action_calls:
+                validate_msgs.append(msg)
+        else:
+            validate_msgs.append(msg)
+    return validate_msgs
+    
+    
+
+def validate_first_message(messages: List[BaseMessage]) -> List[BaseMessage]:
+    for i in range(len(messages)):
+        if messages[i].role == "user":
+            if i != 0:
+                print("first message must be a user message. fixing...")
+            return messages[i:]
+    else:
+        raise ValueError("No user message found in messages. first message must be a user message")
+
+    
+def filter_action_calls(messages: List[BaseMessage], user_first: bool=False) -> List[BaseMessage]:
+    messages = [m.model_copy() for m in messages]
+    messages = remove_actions(remove_action_calls(messages))
+    if user_first:
+        return validate_first_message(messages)
+    return messages
+    # message_id_lookup = {msg.id: msg for msg in messages}
+    # validate_msgs = []
+    # validated_lookup = {}    
+    # for msg in messages:
+    #     if isinstance(msg, AIMessage) and msg.action_calls:
+    #         action_call_lookup = {}
+    #         for action_call in msg.action_calls:
+    #             if action_call.id not in message_id_lookup:
+    #                 break
+    #             action_call_lookup[action_call.id] = msg.id
+    #         else:
+    #             validate_msgs.append(msg)
+    #             validated_lookup.update(action_call_lookup)
+    #     elif isinstance(msg, ActionMessage):
+    #         if msg.id in validated_lookup:
+    #             validate_msgs.append(msg)
+    #     else:
+    #         validate_msgs.append(msg)
+    # return validate_msgs
 
