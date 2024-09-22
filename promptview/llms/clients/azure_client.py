@@ -8,7 +8,8 @@ from typing import Type
 
 import openai
 from promptview.llms.clients.base import BaseLlmClient
-from promptview.llms.messages import AIMessage, BaseMessage, validate_msgs
+from promptview.llms.messages import (ActionCall, AIMessage, BaseMessage,
+                                      LlmUsage, validate_msgs)
 from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
 from pydantic import BaseModel
@@ -99,21 +100,34 @@ class AzureOpenAiLlmClient(BaseLlmClient):
             
             
     def parse_output(self, response, actions: Actions):
-        output = response.choices[0].message
-        tool_calls = []
-        if output.tool_calls:
-            for tool_call in output.tool_calls:
-                action_instance = actions.from_openai(tool_call)
-                tool_calls.append({"id": tool_call.id, "action": action_instance})
-        ai_message = AIMessage(
-            id=response.id,
-            model=response.model,
-            content=output.content, 
-            raw=response,
-        )
-        for tc in tool_calls:
-            ai_message.add_action(tc["id"], tc["action"])                
-        return ai_message
+        try:
+            output = response.choices[0].message
+            tool_calls = []
+            if output.tool_calls:
+                for tool_call in output.tool_calls:
+                    action_instance = actions.from_openai(tool_call)
+                    # tool_calls.append({"id": tool_call.id, "action": action_instance})
+                    tool_calls.append(
+                        ActionCall(
+                            id=tool_call.id,
+                            name=tool_call.function.name,
+                            action=action_instance
+                        ))
+            ai_message = AIMessage(
+                id=response.id,
+                model=response.model,
+                content=output.content,
+                action_calls=tool_calls, 
+                raw=response,
+                usage=LlmUsage(
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens= response.usage.completion_tokens,
+                    total_tokens= response.usage.total_tokens,
+                )
+            )
+            return ai_message
+        except Exception as e:
+            raise e
 
     # async def complete(
     #     self, 
