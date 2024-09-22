@@ -157,7 +157,8 @@ class ActionAgent(BaseModel):
                     break
                            
             else:
-                context.history.add(context, message, str(tracer_run.id), "user")
+                if message.id not in context.history.contained_id:
+                    context.history.add(context, message, str(tracer_run.id), "user")
     
 
     def reducer(self, action: BaseModel):
