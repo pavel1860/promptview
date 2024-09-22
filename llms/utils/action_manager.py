@@ -68,11 +68,15 @@ class Actions(BaseModel):
     
     # ChatCompletionMessageToolCall
     def from_openai(self, tool_call)->BaseModel:
-        tool_args = json.loads(tool_call.function.arguments)
         action = self.get(tool_call.function.name)
         if not action:
             raise LLMToolNotFound(tool_call.function.name)
-        action_instance = action(**tool_args)
+        
+        if tool_call.function.arguments == '':
+            action_instance = action()
+        else:
+            tool_args = json.loads(tool_call.function.arguments)        
+            action_instance = action(**tool_args)
         return action_instance
             
     
