@@ -22,6 +22,7 @@ class History:
             raise Exception("message id is None")
         if message.id not in self.contained_id:
             self.history.append(message)
+            self.contained_id.add(message.id)
             asyncio.create_task(self.save(context, message, run_id, prompt))
     
     
