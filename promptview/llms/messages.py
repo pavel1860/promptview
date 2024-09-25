@@ -318,7 +318,20 @@ def remove_actions(messages):
         else:
             validate_msgs.append(msg)
     return validate_msgs
-    
+
+
+
+def filter_message_alternation(messages: List[BaseMessage]) -> List[BaseMessage]:
+    validated_messages = []
+    prev_role = None
+    for msg in messages:
+        if msg.role == prev_role:
+            validated_messages.pop(-1)        
+        prev_role = msg.role
+        validated_messages.append(msg)
+    return validated_messages
+            
+        
     
 
 def validate_first_message(messages: List[BaseMessage]) -> List[BaseMessage]:
@@ -331,11 +344,13 @@ def validate_first_message(messages: List[BaseMessage]) -> List[BaseMessage]:
         raise ValueError("No user message found in messages. first message must be a user message")
 
     
-def filter_action_calls(messages: List[BaseMessage], user_first: bool=False) -> List[BaseMessage]:
+def filter_action_calls(messages: List[BaseMessage], user_first: bool=False, check_alternation=False) -> List[BaseMessage]:
     messages = [m.model_copy() for m in messages]
     messages = remove_actions(remove_action_calls(messages))
     if user_first:
-        return validate_first_message(messages)
+        messages = validate_first_message(messages)
+    if check_alternation:
+        messages = filter_message_alternation(messages)
     return messages
     # message_id_lookup = {msg.id: msg for msg in messages}
     # validate_msgs = []
