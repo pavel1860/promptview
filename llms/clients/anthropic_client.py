@@ -103,7 +103,8 @@ class AnthropicLlmClient(BaseLlmClient):
             )
             return self.parse_output(anthropic_completion, actions)
         except Exception as e:
-            self.serialize_messages(run_id, messages, anthropic_completion)
+            print(antropic_messages)
+            # self.serialize_messages(run_id, messages, anthropic_completion)
             raise e
         
     
