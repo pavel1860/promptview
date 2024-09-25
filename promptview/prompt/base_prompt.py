@@ -16,13 +16,15 @@ from pydantic import BaseModel, Field
 
 T = TypeVar('T')
 
+ToolChoiceParam = Literal['auto', 'required', 'none'] | BaseModel | None
+
 
 class PromptInputs(BaseModel):
     message: BaseMessage | None = None
     view_blocks: List[ViewBlock] | ViewBlock | None = None
     context: Context | None = None
     actions: List[Type[BaseModel]] | None = None
-    tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None
+    tool_choice: ToolChoiceParam = None
     tracer_run: Tracer | None = None
     kwargs: dict[str, Any] | None = None
     
@@ -72,7 +74,7 @@ class PromptExecutionContext(BaseModel):
 class Prompt(BaseModel, Generic[T]):    
     is_traceable: bool = True
     llm: LLM = Field(default_factory=OpenAiLLM)
-    tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None
+    tool_choice: ToolChoiceParam = None
     actions: List[Type[BaseModel]] | None = []
     
     _render_method: Callable | None = None
@@ -181,7 +183,7 @@ class Prompt(BaseModel, Generic[T]):
             views: List[ViewBlock] | ViewBlock | None = None, 
             context: Context | None = None, 
             actions: List[Type[BaseModel]] | None = None,
-            tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,
+            tool_choice: ToolChoiceParam = None,
             tracer_run: Tracer | None=None,
             output_messages: bool = False,
             **kwargs: Any
@@ -227,7 +229,9 @@ class Prompt(BaseModel, Generic[T]):
     async def __call__(self, *args, **kwargs):        
         ex_ctx = self.build_execution_context(*args, **kwargs)        
         ex_ctx = await self.run_steps(ex_ctx)
-        return ex_ctx.output
+        output = await call_function(self.parse_output, response=ex_ctx.output, messages=ex_ctx.messages, actions=ex_ctx.actions, **kwargs)
+        # output = await self.parse_output(response=ex_ctx.output, messages=ex_ctx.messages, actions=ex_ctx.actions, **kwargs)
+        return output
         # with self.build_tracer(ex_ctx) as prompt_run:
         #     ex_ctx.prompt_run = prompt_run
         #     ex_ctx = await self.view_step(ex_ctx)
@@ -253,6 +257,11 @@ class Prompt(BaseModel, Generic[T]):
                 prompt_run.end(errors=str(e))
                 raise e
         
+    async def parse_output(self, response: AIMessage, messages: List[BaseMessage], actions: Actions, **kwargs: Any):
+        if self._output_parser_method:
+            await call_function(self._output_parser_method, response, messages, actions, **kwargs)
+        return response
+    
         
     async def to_ex_ctx(
         self,
@@ -286,7 +295,7 @@ class Prompt(BaseModel, Generic[T]):
             views: List[ViewBlock] | ViewBlock | None = None, 
             context: Context | None = None, 
             actions: List[Type[BaseModel]] | None = None,
-            tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,
+            tool_choice: ToolChoiceParam = None,
             tracer_run: Tracer | None=None,
             **kwargs: Any
         ) -> PromptExecutionContext:
@@ -394,7 +403,7 @@ class Prompt(BaseModel, Generic[T]):
             parallel_actions: bool = True,
             is_traceable: bool = True,
             output_parser: Callable[[AIMessage], T] | None = None,
-            tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,
+            tool_choice: ToolChoiceParam = None,
             actions: List[Type[BaseModel]] | None = None,
             **kwargs: Any
         ):
@@ -413,7 +422,7 @@ class Prompt(BaseModel, Generic[T]):
                 prompt = cls[T](
                         model=model,
                         llm=llm,                        
-                        tool_choice=tool_choice,
+                        tool_choice=tool_choice or cls.model_fields.get("tool_choice").default,
                         actions=actions,
                         is_traceable=is_traceable,
                         **kwargs
