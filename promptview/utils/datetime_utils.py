@@ -12,7 +12,8 @@ def get_local_datetime(country_code: str):
     if not timezone_str:
         raise ValueError(f"Country code {country_code} not found")
     country_timezone = pytz.timezone(timezone_str[0])
-    country_time = country_timezone.localize(datetime.now())
+    # country_time = country_timezone.localize(datetime.now())
+    country_time = datetime.now(country_timezone)
     return country_time
 
 
