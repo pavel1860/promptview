@@ -346,29 +346,10 @@ def validate_first_message(messages: List[BaseMessage]) -> List[BaseMessage]:
     
 def filter_action_calls(messages: List[BaseMessage], user_first: bool=False, check_alternation=False) -> List[BaseMessage]:
     messages = [m.model_copy() for m in messages]
-    messages = remove_actions(remove_action_calls(messages))
     if user_first:
         messages = validate_first_message(messages)
     if check_alternation:
         messages = filter_message_alternation(messages)
+    messages = remove_actions(remove_action_calls(messages))    
     return messages
-    # message_id_lookup = {msg.id: msg for msg in messages}
-    # validate_msgs = []
-    # validated_lookup = {}    
-    # for msg in messages:
-    #     if isinstance(msg, AIMessage) and msg.action_calls:
-    #         action_call_lookup = {}
-    #         for action_call in msg.action_calls:
-    #             if action_call.id not in message_id_lookup:
-    #                 break
-    #             action_call_lookup[action_call.id] = msg.id
-    #         else:
-    #             validate_msgs.append(msg)
-    #             validated_lookup.update(action_call_lookup)
-    #     elif isinstance(msg, ActionMessage):
-    #         if msg.id in validated_lookup:
-    #             validate_msgs.append(msg)
-    #     else:
-    #         validate_msgs.append(msg)
-    # return validate_msgs
-
+    
