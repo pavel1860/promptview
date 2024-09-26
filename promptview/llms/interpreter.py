@@ -2,16 +2,15 @@ import json
 import textwrap
 from typing import Generator, List, Tuple, Type, Union
 
-from promptview.llms.messages import (AIMessage, ActionMessage, BaseMessage, HumanMessage,
-                                      SystemMessage)
+from promptview.llms.messages import (ActionMessage, AIMessage, BaseMessage,
+                                      HumanMessage, SystemMessage)
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import (BulletType, StripType, ViewBlock, add_tabs,
                                    replace_placeholders)
 from promptview.templates.action_template import system_action_view
 from promptview.utils.function_utils import flatten_list
-from pydantic import BaseModel, Field
-
 from promptview.utils.string_utils import SafeJinjaFormatter
+from pydantic import BaseModel, Field
 
 
 class Conversation:
@@ -308,7 +307,7 @@ class LlmInterpreter:
     #     return messages, conversation.actions
 
 
-    def transform(self, root_block: ViewBlock, actions: Actions | List[BaseModel] | None = None, **kwargs) -> Tuple[List[BaseMessage], Actions]:
+    def transform(self, root_block: ViewBlock, actions: Actions | List[Type[BaseModel]] | None = None, **kwargs) -> Tuple[List[BaseMessage], Actions]:
         messages = []
         if not isinstance(actions, Actions):
             actions = Actions(actions=actions)

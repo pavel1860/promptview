@@ -1,5 +1,5 @@
 from typing import Dict, List, Type
-from pydantic import BaseModel, ValidationError
+
 from promptview.llms.clients.base import BaseLlmClient
 from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.interpreter import LlmInterpreter
@@ -8,8 +8,7 @@ from promptview.llms.messages import BaseMessage, HumanMessage
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import ViewBlock
-
-
+from pydantic import BaseModel, ValidationError
 
 
 class LLM(BaseModel, LlmInterpreter):
@@ -84,7 +83,7 @@ class LLM(BaseModel, LlmInterpreter):
     async def run_complete(
         self, 
         messages: List[BaseMessage], 
-        actions: Actions=None,
+        actions: Actions | None=None,
         tool_choice: ToolChoice | BaseModel | None = None,
         tracer_run=None,
         metadata={},
@@ -120,7 +119,7 @@ class LLM(BaseModel, LlmInterpreter):
     async def complete(
         self, 
         messages: List[BaseMessage], 
-        actions: Actions=None,
+        actions: Actions | None=None,
         tool_choice: ToolChoice | BaseModel | None = None,
         tracer_run=None,
         metadata={},
@@ -150,11 +149,10 @@ class LLM(BaseModel, LlmInterpreter):
                 if smart_retry:
                     messages.append(HumanMessage(content=f"there is a validation error for the tool:\n{str(e)}"))
     
-       
         
     async def __call__(
         self, 
-        views: List[ViewBlock] | ViewBlock | None = None,
+        views: ViewBlock,
         actions: List[Type[BaseModel]] | None = None,
         tool_choice: ToolChoice | BaseModel | None = None,
         metadata: Dict[str, str] | None = None,

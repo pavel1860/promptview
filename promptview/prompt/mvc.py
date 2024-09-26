@@ -4,10 +4,12 @@ import json
 import string
 import textwrap
 from functools import wraps
-from typing import Any, Callable, Generator, List, Literal, Tuple, Type, Union
+from typing import (Any, Callable, Generator, Iterable, List, Literal, Tuple,
+                    Type, Union)
 from uuid import uuid4
 
-from promptview.llms.messages import AIMessage, ActionCall, ActionMessage, BaseMessage
+from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
+                                      BaseMessage)
 from promptview.llms.utils.action_manager import Actions
 from promptview.utils.string_utils import convert_camel_to_snake
 from pydantic import BaseModel, Field
@@ -109,7 +111,7 @@ class ViewBlock(BaseModel):
     content: str | BaseModel | dict | None = None
     view_blocks: list[ViewBlock] = Field(default_factory=list, description="list of view blocks that are children of this view block")
     role: RoleType | None = None
-    actions: list[Type[BaseModel]] | Type[BaseModel] | None = None
+    actions: list[Type[BaseModel]] | None = None
     
     tag: str | None = None
     class_: str | None = None
@@ -145,6 +147,8 @@ class ViewBlock(BaseModel):
     
     @property
     def action_call_uuids(self):
+        if self.action_calls is None:
+            return []
         return [a.id for a in self.action_calls]
     
     def find_actions(self) -> Actions:
@@ -165,10 +169,10 @@ class ViewBlock(BaseModel):
         
     def find(
         self,
-        tag: str=None, 
-        role: str=None, 
-        view_name: str=None, 
-        class_: str=None, 
+        tag: str | None=None, 
+        role: str | None=None, 
+        view_name: str | None=None, 
+        class_: str | None=None, 
         depth: int | None = None,
         min_depth: int=0, 
         max_depth: int=100,
@@ -193,10 +197,10 @@ class ViewBlock(BaseModel):
             
     def first(
         self,        
-        tag: str=None, 
-        role: str=None, 
-        view_name: str=None, 
-        class_: str=None,
+        tag: str | None=None, 
+        role: str | None=None, 
+        view_name: str | None=None, 
+        class_: str | None=None,
         depth: int | None = None,
         min_depth: int=0, 
         max_depth: int=100,
@@ -204,7 +208,7 @@ class ViewBlock(BaseModel):
         uuids: list[str] | None = None,
         skip: int=0,
         enumerated: bool=False
-    ) -> ViewBlock:
+    ) -> ViewBlock | Tuple[Tuple[int, int], ViewBlock] | None:
         """return the first block that matches the filter"""
         for (depth, index), block in self.find(
             tag, 
@@ -226,10 +230,10 @@ class ViewBlock(BaseModel):
     
     def count(
         self, 
-        tag: str=None, 
-        role: str=None, 
-        view_name: str=None, 
-        class_: str=None,
+        tag: str | None=None, 
+        role: str | None=None, 
+        view_name: str | None=None, 
+        class_: str | None=None,
         depth: int | None = None,
         min_depth: int=0, 
         max_depth: int=100,
@@ -253,7 +257,7 @@ class ViewBlock(BaseModel):
         return count
     
         
-    def pre_order_traversal(self, enumerated=False) -> Generator[ViewBlock, None, None]:
+    def pre_order_traversal(self, enumerated=False) -> Generator[Tuple[Tuple[int, int], ViewBlock] | ViewBlock, None, None]:
         """
         Perform pre-order traversal of the tree without recursion.
         This yields each ContentBlock and its children in pre-order.
@@ -302,7 +306,7 @@ class ViewBlock(BaseModel):
 
 
 def transform_list_to_view_blocks(        
-        items: List[Union[ViewBlock, BaseModel, str]],
+        items: Iterable[ViewBlock | BaseModel | str],
         view_name: str,
         role: Literal["assistant", "user", "system"] | None = None,
         bullet: Literal["number" , "astrix" , "dash" , "none", None] | str = None,
@@ -318,6 +322,7 @@ def transform_list_to_view_blocks(
         if isinstance(o, str):
             sub_views.append(
                 ViewBlock(
+                    name=None,
                     view_name=f"{view_name}_str_{i}",
                     content=o,
                     bullet=bullet,
@@ -325,14 +330,15 @@ def transform_list_to_view_blocks(
                     role=role,
                     indent=indent,
                     base_model_indent=base_model_indent,
-                    tag=o.tag if hasattr(o, "tag") else None,
-                    class_=o.class_ if hasattr(o, "class_") else None
                 )   
             )
+        elif isinstance(o, tuple):
+            sub_views.extend(transform_list_to_view_blocks(o, view_name, role, bullet, base_model, base_model_indent, indent))
         elif isinstance(o, dict):
             # raise ValueError("dict type not supported")
             sub_views.append(
                 ViewBlock(
+                    name=None,
                     view_name=f"{view_name}_model_{i}",
                     content=o,
                     bullet=bullet,
@@ -348,6 +354,7 @@ def transform_list_to_view_blocks(
             # raise ValueError("dict type not supported")
             sub_views.append(
                 ViewBlock(
+                    name=None,
                     view_name=f"{view_name}_model_{i}",
                     content=o,
                     bullet=bullet,
@@ -358,7 +365,7 @@ def transform_list_to_view_blocks(
                 )
             )
         else:
-            raise ValueError(f"view type not supported: {type(o)}")
+            raise ValueError(f"view type not supported: {type(o)} for view '{view_name}'")
     return sub_views
 
 
@@ -368,8 +375,8 @@ def create_view_block(
     name: str | None=None,
     title: str | None = None,
     wrap: ViewWrapperType = None,
-    actions: List[BaseModel] | BaseModel | None = None,
-    role: Literal["assistant", "user", "system"] | None = None,
+    actions: List[Type[BaseModel]] | None = None,
+    role: Literal["assistant", "user", "system"] = "user",
     bullet: Literal["number" , "astrix" , "dash" , "none", None] | str = None,
     strip: StripType = None,
     base_model: BaseModelRenderType = 'json',
@@ -426,7 +433,7 @@ def create_view_block(
         strip=strip,
         wrap=wrap,
         role=role,
-        indent=indent,        
+        indent=indent,
         tag=tag,
         class_=class_,
         action_calls=action_calls
@@ -435,10 +442,10 @@ def create_view_block(
     
 def view(
     container=None, 
-    title=None,
-    actions=None, 
-    role="user",
-    name=None,
+    title: str | None=None,
+    actions: List[Type[BaseModel]] | None=None, 
+    role: Literal["assistant", "user", "system"]="user",
+    name: str | None=None,
     bullet: Literal["number" , "astrix" , "dash" , "none", None] | str=None,
     strip: StripType = None,
     base_model: BaseModelRenderType = 'json',
@@ -533,6 +540,8 @@ def add_tabs(content: str, tabs: int):
 
 def render_model(block: ViewBlock):
     model = block.view_blocks
+    if type(model) == list:
+        raise ValueError("base model cannot be a list for rendering")
     prompt = ""
     if block.bullet and block.index:
         prompt += f"{block.index + 1}. "
@@ -547,6 +556,8 @@ def render_model(block: ViewBlock):
 
 def render_string(block: ViewBlock, **kwargs):
     prompt = ''
+    if type(block.view_blocks) != str:
+        raise ValueError("view block content must be a string for string rendering")
     depth = block.depth + 1 if block.has_wrap() else block.depth
     if block.bullet and block.index:
         prompt += f"{block.index + 1}. "    
@@ -599,16 +610,11 @@ def render_wrapper_ending(block: ViewBlock):
 
 
 
-def validate_node(block: any):
-    if type(block) == str:
-        return ViewBlock(view_blocks=block)    
-    return block
-
 
 
 def get_action_name(action_class: Type[BaseModel]):
     if hasattr(action_class, "_title"):
-        return action_class._title.default
+        return action_class._title.default # type: ignore
     return convert_camel_to_snake(action_class.__name__)
 
 
@@ -627,9 +633,9 @@ def find_action(action_name, actions):
 def render_block(block: ViewBlock | tuple, **kwargs):
 
     if type(block) == tuple:
-        stack = [*reversed(block)]    
+        stack: List[ViewBlock] = [*reversed(block)]    
     else:
-        stack = [block]
+        stack: List[ViewBlock] = [block]
 
     base_models = {}
     visited = set()

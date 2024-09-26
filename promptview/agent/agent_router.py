@@ -1,7 +1,8 @@
 
 import inspect
 from functools import wraps
-from typing import Dict, Generic, List, Optional, Type, TypeVar, Union
+from typing import (Callable, Dict, Generic, List, Optional, Type, TypeVar,
+                    Union)
 
 from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
                                       HumanMessage)
@@ -23,10 +24,10 @@ class AgentRouter(BaseModel):
     is_traceable: bool = True 
     is_router: bool = False
 
-    _action_handlers: Dict[str, callable] = {}    
+    _action_handlers: Dict[str, Callable] = {}    
         
 
-    def handle(self, action: BaseModel, handler: callable):
+    def handle(self, action: Type[BaseModel], handler: Callable):
         self._action_handlers[action.__name__] =  handler
         
     
@@ -37,7 +38,7 @@ class AgentRouter(BaseModel):
         return handler
     
     
-    def process_action_output(self, action_call: ActionCall, action_output):          
+    def process_action_output(self, action_call: ActionCall, action_output)-> ActionMessage:
         if type(action_output) == str:
             action_output_str = action_output
         elif isinstance(action_output, BaseModel):
@@ -53,11 +54,17 @@ class AgentRouter(BaseModel):
         
     def route(self, action: Type[BaseModel], prompt: Prompt):
         self.handle(action, prompt)
-        
+
     
     async def __call__(self, context: Context, message: HumanMessage | str, iterations: int | None = None, tracer_run=None, **kwargs):
         iterations = iterations or self.iterations
-        message = HumanMessage(content=message) if isinstance(message, str) else message
+        if not isinstance(message, HumanMessage) and isinstance(message, str):
+            message = HumanMessage(content=message)
+        else:
+            raise ValueError("Invalid message type")
+        
+        if self.router_prompt is None:
+            raise ValueError("Router prompt is not set")
         with Tracer(
             name=self.name,
             is_traceable=self.is_traceable,
@@ -110,83 +117,6 @@ class AgentRouter(BaseModel):
                     break                    
             else:
                 context.history.add(context, message, str(tracer_run.id), "user")
-    
-    
-
-    
-    async def __call__2(self, context: Context, message: HumanMessage | str, iterations: int | None = None, tracer_run=None, **kwargs):
-        iterations = iterations or self.iterations
-        message = HumanMessage(content=message) if isinstance(message, str) else message
-        has_action_response = False
-        with Tracer(
-            name=self.name,
-            is_traceable=self.is_traceable,
-            inputs={"message": message.content} | kwargs,
-            session_id=context.session_id,
-            tracer_run=tracer_run
-        ) as tracer_run:
-            
-            # if self.add_input_history:
-            #     context.history.add(context, message, str(tracer_run.id), "user")
-            action_output = None
-            for i in range(iterations):           
-                response = await call_function(
-                        self.router_prompt.__call__, 
-                        context=context, 
-                        message=message, 
-                        tracer_run=tracer_run, 
-                        action_output=action_output, 
-                        **kwargs
-                    )
-                if not self.is_router:
-                    context.history.add(context, message, str(tracer_run.id), "user")
-                    context.history.add(context, response, str(tracer_run.id), self.name)
-                tracer_run.add_outputs(response)
-                if response.content:                    
-                    yield response
-                if response.action_calls:
-                    for action_call in response.action_calls:
-                        action_handler = self._action_handlers[action_call.action.__class__.__name__]
-                        if inspect.isasyncgenfunction(action_handler):
-                            gen_kwargs = filter_func_args(action_handler, {"context": context, "action": action_call.action, "message": message.content, "tracer_run": tracer_run} | kwargs)
-                            async for output in action_handler(**gen_kwargs):
-                                if output is None:
-                                    break
-                                tracer_run.add_outputs(output)
-                                yield output
-                        elif inspect.isfunction(action_handler):
-                            action_output = await call_function(action_handler, context=context, action=action_call.action, message=message.content, tracer_run=tracer_run, **kwargs)
-                            # tracer_run.add_outputs({"tool_output": action_output})
-                        else:
-                            raise ValueError(f"Invalid action handler: {action_handler}")
-                        if action_output:
-                            has_action_response = True
-                            
-                            if type(action_output) == str:
-                                action_output_str = action_output
-                            elif isinstance(action_output, BaseModel):
-                                action_output_str = action_output.model_dump_json()
-                            else:
-                                raise ValueError(f"Invalid action output ({type(action_output)}): {action_output}")
-                            message = ActionMessage(
-                                    id=action_call.id,
-                                    content=action_output_str,
-                                    # tool_call=response.tool_calls[i]
-                                )
-                            # response.add_action_output(action_message)
-                            # context.history.add(context, message, str(tracer_run.id), self.name)
-                        else:
-                            # tracer_run.end()
-                            return
-                else:
-                    break
-                    
-                if not has_action_response:
-                    break
-            else:
-                context.history.add(context, message, str(tracer_run.id), "user")
-                # message = None                  
-            # tracer_run.end()
 
 
     # def prompt(
@@ -231,7 +161,7 @@ class AgentRouter(BaseModel):
     #     return decorator
 
 
-    def reducer(self, action: BaseModel):
+    def reducer(self, action: Type[BaseModel]):
         def decorator(func):
             self.handle(action, func)
             return func
