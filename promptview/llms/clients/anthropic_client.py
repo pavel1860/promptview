@@ -88,7 +88,7 @@ class AnthropicLlmClient(BaseLlmClient):
         if isinstance(messages[0], SystemMessage):
             system_message = messages[0].content
             messages = messages[1:]
-        antropic_messages = [m.to_anthropic() for m in filter_action_calls(messages, user_first=True)]
+        antropic_messages = [m.to_anthropic() for m in filter_action_calls(messages, user_first=True, check_alternation=True)]
         tool_choice = anthropic.NOT_GIVEN if not actions else to_antropic_tool_choice(tool_choice)
         try:
             anthropic_completion = None
@@ -103,7 +103,8 @@ class AnthropicLlmClient(BaseLlmClient):
             )
             return self.parse_output(anthropic_completion, actions)
         except Exception as e:
-            self.serialize_messages(run_id, messages, anthropic_completion)
+            print(antropic_messages)
+            # self.serialize_messages(run_id, messages, anthropic_completion)
             raise e
         
     

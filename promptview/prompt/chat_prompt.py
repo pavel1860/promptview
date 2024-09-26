@@ -358,6 +358,7 @@ class ChatPrompt(Prompt):
     task: str | List[str] | Callable | None = None
     rules: str | List[str] | Callable | None = None 
     examples: str | List[str] | Callable | None = None 
+    output_format: str | List[str] | Callable | None  = None
 
 
 
