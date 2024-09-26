@@ -1,11 +1,9 @@
 import json
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, validator
 
-
-    
 
 class BaseMessage(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -59,16 +57,17 @@ class LlmUsage(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+    
+    
 
 class AIMessage(BaseMessage):
     model: str | None = None
     did_finish: Optional[bool] = True
     role: Literal["assistant"] = "assistant"
-    run_id: Optional[str] = None
-    action_calls: Optional[List[ActionCall]] = None
+    run_id: str | None = None
+    action_calls: List[ActionCall] | None = None
     usage: Optional[LlmUsage] = None
-    
-    tool_calls: Optional[List[Any]] = None
+        
     # actions: Optional[List[BaseModel]] = []
     _iterator = -1
     _tool_responses = {}
@@ -76,36 +75,13 @@ class AIMessage(BaseMessage):
     raw: Any = None
 
 
-    def to_openai(self):
-        {
-            "role": "assistant",
-            "tool_calls": [
-                {
-                    "id": "call_62136354",
-                    "type": "function",
-                    "function": {
-                        "arguments": "{'order_id': 'order_12345'}",
-                        "name": "get_delivery_date"
-                    }
-                }
-            ]
-        }
-        # if self.tool_calls:            
-        #     oai_msg = {
-        #         "role": self.role,
-        #         "content": (self.content or '') + "\n".join([f"{t.function.name}\n{t.function.arguments}" for t in self.tool_calls])
-        #     }
-        # else:
-        #     oai_msg = {
-        #         "role": self.role,
-        #         "content": self.content,
-        #     }
-        oai_msg = {"role": self.role}
+    def to_openai(self):        
+        oai_msg: dict = {"role": self.role}
         if self.action_calls:
             tool_calls = []
             for action_call in self.action_calls:
                 tool_calls.append({
-                  "id": action_call.id,
+                    "id": action_call.id,
                     "type": "function",
                     "function": {
                         # "arguments": json.dumps(action_call.action.model_dump()),
@@ -176,7 +152,7 @@ class AIMessage(BaseMessage):
         return list(self._tools.values())
     
     @property
-    def output(self):
+    def output(self) -> BaseModel | None:
         if not self.action_calls:
             return None
         return self.action_calls[0].action
