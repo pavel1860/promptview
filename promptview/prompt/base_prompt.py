@@ -172,48 +172,48 @@ class Prompt(BaseModel, Generic[T]):
         return create_view_block(views, "root")
                 
     
-    async def complete(
-            self,
-            message: str | BaseMessage | None = None,
-            views: List[ViewBlock] | ViewBlock | None = None, 
-            context: Context | None = None, 
-            actions: List[Type[BaseModel]] | None = None,
-            tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,
-            tracer_run: Tracer | None=None,
-            output_messages: bool = False,
-            **kwargs: Any
-        ) -> AIMessage:
+    # async def complete(
+    #         self,
+    #         message: str | BaseMessage | None = None,
+    #         views: List[ViewBlock] | ViewBlock | None = None, 
+    #         context: Context | None = None, 
+    #         actions: List[Type[BaseModel]] | None = None,
+    #         tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,
+    #         tracer_run: Tracer | None=None,
+    #         output_messages: bool = False,
+    #         **kwargs: Any
+    #     ) -> AIMessage:
         
-        if message is not None:
-            message = HumanMessage(content=message) if isinstance(message, str) else message        
-        with Tracer(
-            is_traceable=self.is_traceable if not output_messages else False,
-            tracer_run=tracer_run,
-            name=self._name or self.__class__.__name__,
-            run_type="prompt",
-            inputs={
-                "input": kwargs,
-            },
-        ) as prompt_run:
-            try:
-                actions = actions or self.actions
-                view_block = await self.handle_render(views=views, context=context, message=message, **kwargs)
-                messages, actions = self.llm.transform(view_block, actions=actions, context=context, **kwargs)
-                if output_messages:
-                    return messages
+    #     if message is not None:
+    #         message = HumanMessage(content=message) if isinstance(message, str) else message        
+    #     with Tracer(
+    #         is_traceable=self.is_traceable if not output_messages else False,
+    #         tracer_run=tracer_run,
+    #         name=self._name or self.__class__.__name__,
+    #         run_type="prompt",
+    #         inputs={
+    #             "input": kwargs,
+    #         },
+    #     ) as prompt_run:
+    #         try:
+    #             actions = actions or self.actions
+    #             view_block = await self.handle_render(views=views, context=context, message=message, **kwargs)
+    #             messages, actions = self.llm.transform(view_block, actions=actions, context=context, **kwargs)
+    #             if output_messages:
+    #                 return messages
                 
-                response = await self.llm.complete(
-                    messages, 
-                    actions=actions, 
-                    tool_choice=tool_choice or self.tool_choice, 
-                    tracer_run=prompt_run, 
-                    **kwargs
-                )                
-                prompt_run.end(outputs={'output': response})
-                return response
-            except Exception as e:
-                prompt_run.end(errors=str(e))
-                raise e
+    #             response = await self.llm.complete(
+    #                 messages, 
+    #                 actions=actions, 
+    #                 tool_choice=tool_choice or self.tool_choice, 
+    #                 tracer_run=prompt_run, 
+    #                 **kwargs
+    #             )                
+    #             prompt_run.end(outputs={'output': response})
+    #             return response
+    #         except Exception as e:
+    #             prompt_run.end(errors=str(e))
+    #             raise e
             
             
     # async def __call__(self, *args, **kwargs):
@@ -221,9 +221,11 @@ class Prompt(BaseModel, Generic[T]):
     #     return execution_context.response
     
     
-    async def __call__(self, *args, **kwargs):        
+    async def __call__(self, *args, **kwargs) -> AIMessage:        
         ex_ctx = self.build_execution_context(*args, **kwargs)        
         ex_ctx = await self.run_steps(ex_ctx)
+        if not ex_ctx.output:
+            raise ValueError("No output from the prompt")
         return ex_ctx.output
         # with self.build_tracer(ex_ctx) as prompt_run:
         #     ex_ctx.prompt_run = prompt_run
@@ -399,7 +401,6 @@ class Prompt(BaseModel, Generic[T]):
     #         return decorator
 
     #     return prompt_decorator
-
     @classmethod
     def decorator_factory(cls):
         def prompt_decorator( 
@@ -424,9 +425,9 @@ class Prompt(BaseModel, Generic[T]):
                         model=model, 
                         parallel_tool_calls=parallel_actions
                     )
-            def decorator(func) -> Callable[..., Awaitable[T]]:
-                prompt = cls[T](
-                        model=model,
+            def decorator(func) -> Prompt[T]:
+                prompt = cls(
+                        model=model, #type: ignore
                         llm=llm,                        
                         tool_choice=tool_choice,
                         actions=actions,
@@ -448,3 +449,52 @@ class Prompt(BaseModel, Generic[T]):
             
             return decorator
         return prompt_decorator
+
+    # @classmethod
+    # def decorator_factory(cls):
+    #     def prompt_decorator( 
+    #         self=None,   
+    #         model: str = "gpt-4o",
+    #         llm: LLM | None = None,            
+    #         parallel_actions: bool = True,
+    #         is_traceable: bool = True,
+    #         output_parser: Callable[[AIMessage], T] | None = None,
+    #         tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,
+    #         actions: List[Type[BaseModel]] | None = None,
+    #         **kwargs: Any
+    #     ):
+    #         if llm is None:
+    #             if model.startswith("gpt"):
+    #                 llm = OpenAiLLM(
+    #                     model=model, 
+    #                     parallel_tool_calls=parallel_actions
+    #                 )
+    #             elif model.startswith("claude"):
+    #                 llm = AnthropicLLM(
+    #                     model=model, 
+    #                     parallel_tool_calls=parallel_actions
+    #                 )
+    #         def decorator(func) -> Callable[..., Awaitable[T]]:
+    #             prompt = cls[T](
+    #                     model=model,
+    #                     llm=llm,                        
+    #                     tool_choice=tool_choice,
+    #                     actions=actions,
+    #                     is_traceable=is_traceable,
+    #                     **kwargs
+    #                 )
+    #             prompt._name=func.__name__
+    #             prompt.set_methods(func, output_parser)
+    #             if self:
+    #                 self.router_prompt = prompt
+    #             # @wraps(func)
+    #             # async def wrapper(**kwargs) -> T:            
+    #             #     return await prompt(**kwargs)
+    #             return prompt
+                    
+                
+    #             # wrapper.__signature__ = sig
+    #             return wrapper
+            
+    #         return decorator
+    #     return prompt_decorator

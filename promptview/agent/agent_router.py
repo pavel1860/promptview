@@ -12,7 +12,7 @@ from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.decorator import prompt
 from promptview.state.context import Context
 from promptview.utils.function_utils import call_function, filter_func_args
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AgentRouter(BaseModel):
@@ -23,6 +23,8 @@ class AgentRouter(BaseModel):
     add_input_history: bool = False 
     is_traceable: bool = True 
     is_router: bool = False
+    # prompt: Callable = Field(default_factory=prompt)
+    prompt = prompt
 
     _action_handlers: Dict[str, Callable] = {}    
         
@@ -168,5 +170,5 @@ class AgentRouter(BaseModel):
         return decorator
     
     
-    
-AgentRouter.prompt = prompt
+# setattr(AgentRouter, "prompt", prompt)  
+# AgentRouter.prompt = prompt
