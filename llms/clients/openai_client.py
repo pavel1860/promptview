@@ -53,7 +53,8 @@ class OpenAiLlmClient(BaseLlmClient):
             )
             return self.parse_output(openai_completion, actions)
         except Exception as e:
-            self.serialize_messages(run_id, messages, openai_completion)
+            # self.serialize_messages(run_id, messages, openai_completion)
+            print(oai_messages)                
             raise e
             # raise BadClientLlmRequest(str(e))
         
