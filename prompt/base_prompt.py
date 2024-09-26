@@ -24,7 +24,7 @@ class PromptInputs(BaseModel):
     actions: List[Type[BaseModel]] | None = None
     tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None
     tracer_run: Tracer | None = None
-    kwargs: dict[str, Any] | None = None
+    kwargs: dict[str, Any] = {}
     
     class Config:
         arbitrary_types_allowed = True
@@ -34,7 +34,7 @@ class PromptExecutionContext(BaseModel):
     inputs: PromptInputs
     messages: List[BaseMessage] | None = None
     actions: Actions | None = None
-    root_block: List[ViewBlock] | None = None    
+    root_block: ViewBlock | None = None    
     prompt_run: Tracer | None = None
     output: AIMessage | None = None
     
@@ -42,20 +42,14 @@ class PromptExecutionContext(BaseModel):
         arbitrary_types_allowed = True
         
 
-    # def to_new_execution(self):
-    #     ctx = PromptExecutionContext(
-    #         inputs=self.inputs,
-    #         root_block=self.root_block.model_copy(),
-    #     )
-    #     return ctx
     
     def copy_ctx(self, with_views=False, with_messages=False, with_tracer=False):
         ctx = PromptExecutionContext(
             inputs=self.inputs.model_copy(),
-        )
-        if with_views:
+        )        
+        if with_views and self.root_block is not None:
             ctx.root_block = self.root_block.model_copy()
-        if with_messages:
+        if with_messages and self.messages is not None:
             ctx.messages = [m.model_copy() for m in self.messages]
         if with_tracer:
             ctx.prompt_run = self.prompt_run
@@ -63,6 +57,8 @@ class PromptExecutionContext(BaseModel):
         
     
     def extend_views(self, views: List[ViewBlock]):
+        if self.root_block is None:
+            raise ValueError("Root block is not set")
         self.root_block.extend(views)
         return self.root_block
         
@@ -85,7 +81,7 @@ class Prompt(BaseModel, Generic[T]):
         raise NotImplementedError("render method is not set")
     
     
-    async def process_render_output(self, views: Any, **kwargs: Any) -> T:
+    async def process_render_output(self, views: Any, **kwargs: Any) -> ViewBlock | List[ViewBlock]:
         if isinstance(views, str) or isinstance(views, BaseModel):
             return create_view_block(views, view_name=self.__class__.__name__.lower(), role='user')            
         elif isinstance(views, list):
@@ -100,11 +96,12 @@ class Prompt(BaseModel, Generic[T]):
             return valid_views
             
         elif isinstance(views, tuple):
-            return create_view_block(views, view_name="render_" + self._name or self.__class__.__name__, role='user')            
+            view_name = "render_" + self._name if self._name else self.__class__.__name__
+            return create_view_block(views, view_name=view_name, role='user')            
         return views
         
     
-    async def handle_render(self, views: List[ViewBlock] | ViewBlock | None= None, context=None, **kwargs: Any) -> List[ViewBlock] | ViewBlock:
+    async def handle_render(self, views: List[ViewBlock] | ViewBlock | None= None, context=None, **kwargs: Any) -> ViewBlock:
         if not views:
             views = await call_function(
                     self.render if self._render_method is None else self._render_method, 
@@ -151,7 +148,7 @@ class Prompt(BaseModel, Generic[T]):
         return view
     
     
-    async def transform(self, views: List[ViewBlock] | ViewBlock | None = None, **kwargs: Any) -> T:
+    async def transform(self, views: List[ViewBlock] | ViewBlock | None = None, **kwargs: Any) -> ViewBlock:
         template_views = []
         for field_name, field_info in self.model_fields.items():
             if field_name in ["llm", "model", "actions", "is_traceable", "tool_choice"]:
@@ -185,7 +182,7 @@ class Prompt(BaseModel, Generic[T]):
             tracer_run: Tracer | None=None,
             output_messages: bool = False,
             **kwargs: Any
-        ) -> T:
+        ) -> AIMessage:
         
         if message is not None:
             message = HumanMessage(content=message) if isinstance(message, str) else message        
@@ -246,12 +243,25 @@ class Prompt(BaseModel, Generic[T]):
                 if not ex_ctx.messages:
                     ex_ctx = self.messages_step(ex_ctx)
                 ex_ctx = await self.complete_step(ex_ctx)
+                if not ex_ctx.output:
+                    raise ValueError("No output from the prompt")
                 prompt_run.end(outputs={'output': ex_ctx.output.raw})
                 # prompt_run.end(outputs={'output': ex_ctx.output.to_langsmith()})
                 return ex_ctx
             except Exception as e:
                 prompt_run.end(errors=str(e))
                 raise e
+    
+    async def display(self, *args, **kwargs):
+        from IPython.display import Markdown, display
+        ex_ctx = await self.to_ex_ctx(*args, **kwargs)
+        if not ex_ctx.messages:
+            raise ValueError("No messages to display")
+        for msg in ex_ctx.messages:            
+            print(f"-----------------------{msg.role} message----------------------") #type: ignore
+            print(msg.content)
+            # display(Markdown(msg.content))
+        
         
         
     async def to_ex_ctx(
@@ -314,6 +324,8 @@ class Prompt(BaseModel, Generic[T]):
         return ex_ctx
     
     def messages_step(self, ex_ctx: PromptExecutionContext):
+        if not ex_ctx.root_block:
+            raise ValueError("Root block is not set")
         messages, actions = self.llm.transform(
                 root_block=ex_ctx.root_block, 
                 actions=ex_ctx.inputs.actions, 
@@ -325,6 +337,9 @@ class Prompt(BaseModel, Generic[T]):
         return ex_ctx
     
     async def complete_step(self, ex_ctx: PromptExecutionContext):
+        if not ex_ctx.messages:
+            raise ValueError("No messages to complete")
+        
         response = await self.llm.complete(
             messages=ex_ctx.messages, 
             actions=ex_ctx.actions, 
