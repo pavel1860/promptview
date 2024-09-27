@@ -46,6 +46,12 @@ class HumanMessage(BaseMessage):
 
 
 
+class LlmChunk(BaseModel):
+    id: str
+    content: str | None
+    did_finish: Optional[bool] = False
+
+
 class ActionCall(BaseModel):
     id: str
     name: str

@@ -9,7 +9,7 @@ from typing import Type
 import openai
 from promptview.llms.clients.base import BaseLlmClient
 from promptview.llms.messages import (ActionCall, AIMessage, BaseMessage,
-                                      LlmUsage, validate_msgs)
+                                      LlmChunk, LlmUsage, validate_msgs)
 from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
 from pydantic import BaseModel
@@ -99,6 +99,63 @@ class AzureOpenAiLlmClient(BaseLlmClient):
                 raise e
             
             
+    async def stream(
+        self, 
+        messages: list[BaseMessage],
+        actions: Actions | list[Type[BaseModel]]=[], 
+        model="gpt-4o",
+        tool_choice: ToolChoice | BaseModel | None = None,
+        retries=10, 
+        run_id: str| None=None, 
+        **kwargs
+    ):
+        kwargs = {k: v for k, v in kwargs.items() if azure_arg_filters(k, v)}        
+        if not isinstance(actions, Actions):
+            actions = Actions(actions=actions)
+        tools = actions.to_openai()
+        messages = [msg.to_openai() for msg in validate_msgs(messages)]
+        if isinstance(tool_choice, BaseModel):
+            tool_choice =  {"type": "function", "function": {"name": tool_choice.__class__.__name__}}            
+        await rate_limit_event.wait()
+        for i in range(retries):
+            try:
+                openai_stream = await self.client.chat.completions.create(
+                    messages=messages,
+                    tools=tools,
+                    model=model,
+                    tool_choice=tool_choice,                    
+                    stream=True,
+                    **kwargs
+                )
+                async for chunk in openai_stream:
+                    if chunk.choices:
+                        if chunk.choices[0].finish_reason == "stop":
+                            yield LlmChunk(
+                                id=chunk.id,
+                                content=chunk.choices[0].delta.content,
+                                did_finish= True
+                            )
+                            return                        
+                        elif chunk.choices[0].delta.content is not None:
+                            yield LlmChunk(
+                                id=chunk.id,
+                                content=chunk.choices[0].delta.content,
+                            )
+                return
+                # return self.parse_output(openai_completion, actions)
+            except openai.RateLimitError as e:
+                print("hit rate limit")
+                sleep_time = get_delay_from_exception(e)
+                rate_limit_event.clear()
+                await asyncio.sleep(sleep_time)
+                rate_limit_event.set()
+                continue
+            except Exception as e:
+                print("other exception", e)
+                raise e
+        
+            
+            
     def parse_output(self, response, actions: Actions):
         try:
             output = response.choices[0].message
@@ -128,33 +185,8 @@ class AzureOpenAiLlmClient(BaseLlmClient):
             return ai_message
         except Exception as e:
             raise e
+        
+        
+    
 
-    # async def complete(
-    #     self, 
-    #     msgs, 
-    #     actions=None,
-    #     retries=10, 
-    #     run_id: str| None=None, 
-    #     **kwargs
-    # ):
-    #     kwargs = {k: v for k, v in kwargs.items() if azure_arg_filters(k, v)}            
-    #     msgs = self.preprocess(msgs)
-    #     await rate_limit_event.wait()
-    #     for i in range(retries):
-    #         try:
-    #             openai_completion = await self.client.chat.completions.create(
-    #                 messages=msgs,
-    #                 tools=tools,
-    #                 **kwargs
-    #             )
-    #             return openai_completion
-    #         except openai.RateLimitError as e:
-    #             print("hit rate limit")
-    #             sleep_time = get_delay_from_exception(e)
-    #             rate_limit_event.clear()
-    #             await asyncio.sleep(sleep_time)
-    #             rate_limit_event.set()
-    #             continue
-    #         except Exception as e:
-    #             print("other exception", e)
-    #             raise e
+    
