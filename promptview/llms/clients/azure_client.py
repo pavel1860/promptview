@@ -4,12 +4,12 @@
 import asyncio
 import random
 import re
-from typing import Type
+from typing import Any, AsyncGenerator, Generator, Type
 
 import openai
 from promptview.llms.clients.base import BaseLlmClient
 from promptview.llms.messages import (ActionCall, AIMessage, BaseMessage,
-                                      LlmChunk, LlmUsage, validate_msgs)
+                                      LlmUsage, MessageChunk, validate_msgs)
 from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
 from pydantic import BaseModel
@@ -110,7 +110,7 @@ class AzureOpenAiLlmClient(BaseLlmClient):
         retries=10, 
         run_id: str| None=None, 
         **kwargs
-    ):
+    )  -> AsyncGenerator[MessageChunk, None]:
         kwargs = {k: v for k, v in kwargs.items() if azure_arg_filters(k, v)}        
         if not isinstance(actions, Actions):
             actions = Actions(actions=actions)
@@ -134,14 +134,14 @@ class AzureOpenAiLlmClient(BaseLlmClient):
                 async for chunk in openai_stream:
                     if chunk.choices:
                         if chunk.choices[0].finish_reason == "stop":
-                            yield LlmChunk(
+                            yield MessageChunk(
                                 id=chunk.id,
                                 content=chunk.choices[0].delta.content,
                                 did_finish= True
                             )
                             return                        
                         elif chunk.choices[0].delta.content is not None:
-                            yield LlmChunk(
+                            yield MessageChunk(
                                 id=chunk.id,
                                 content=chunk.choices[0].delta.content,
                             )
@@ -190,6 +190,3 @@ class AzureOpenAiLlmClient(BaseLlmClient):
             raise e
         
         
-    
-
-    

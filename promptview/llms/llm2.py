@@ -7,6 +7,7 @@ from promptview.llms.llm import ToolChoice
 from promptview.llms.messages import BaseMessage, HumanMessage
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
+from promptview.prompt.execution_context import LlmExecutionContext
 from promptview.prompt.mvc import ViewBlock
 from pydantic import BaseModel, ValidationError
 
@@ -17,7 +18,6 @@ class LLM(BaseModel, LlmInterpreter):
     temperature: float | None = None
     max_tokens: int | None = None
     stop_sequences: List[str] | None = None
-    stream: bool = False
     logit_bias: Dict[str, int] | None = None
     top_p: float | None = None
     presence_penalty: float | None = None
@@ -78,22 +78,26 @@ class LLM(BaseModel, LlmInterpreter):
         if logprobs is not None:
             model_kwargs['logprobs'] = logprobs        
         return model_kwargs
-
     
-    async def run_complete(
-        self, 
-        messages: List[BaseMessage], 
-        actions: Actions | None=None,
+    
+    
+    
+    async def complete(
+        self,
+        # view_block: ViewBlock,
+        messages: List[BaseMessage],
+        actions: Actions | List[type[BaseModel]] | None = None,
         tool_choice: ToolChoice | BaseModel | None = None,
         tracer_run=None,
         metadata={},
-        # retries=3,
-        # smart_retry=True,
-        **kwargs
+        **kwargs,
     ):
-        
+        # messages, actions = self.transform(
+        #         root_block=view_block, 
+        #         actions=actions, 
+        #         **kwargs
+        #     )        
         llm_kwargs = self.get_llm_args(tools=actions, **kwargs)
-        metadata["model"] = llm_kwargs.get("model", self.model)
         with Tracer(
             is_traceable=self.is_traceable,
             tracer_run=tracer_run,
@@ -104,89 +108,60 @@ class LLM(BaseModel, LlmInterpreter):
         ) as llm_run:
             try:
                 response = await self.client.complete(
-                    messages, 
-                    actions=actions,
-                    tool_choice=tool_choice,
-                    run_id=str(llm_run.id),
-                    **llm_kwargs
-                )
+                        messages, 
+                        actions=actions,
+                        tool_choice=tool_choice,
+                        run_id=str(llm_run.id),
+                        **llm_kwargs
+                    )
                 llm_run.end(outputs=response.raw)
                 return response  
             except Exception as e:
                 llm_run.end(errors=str(e))
                 raise e
     
-    async def complete(
-        self, 
-        messages: List[BaseMessage], 
-        actions: Actions | None=None,
+    
+    async def stream(
+        self,
+        # view_block: ViewBlock,
+        messages: List[BaseMessage],
+        actions: Actions | List[type[BaseModel]] | None = None,
         tool_choice: ToolChoice | BaseModel | None = None,
         tracer_run=None,
         metadata={},
-        retries=3,
-        smart_retry=False,
-        **kwargs
+        **kwargs,
     ):
-        for try_num in range(retries):
+        # messages, actions = self.transform(
+        #         root_block=view_block, 
+        #         actions=actions, 
+        #         **kwargs
+        #     )
+        llm_kwargs = self.get_llm_args(tools=actions, **kwargs)
+        metadata["model"] = llm_kwargs.get("model", self.model)
+        total_text = ''
+        with Tracer(
+            is_traceable=self.is_traceable,
+            tracer_run=tracer_run,
+            run_type="llm",
+            name=self.name,
+            inputs={"messages": [msg.to_openai() for msg in messages]},
+            metadata=metadata,
+        ) as llm_run:
             try:
-                response = await self.run_complete(
+                async for chunk in self.client.stream(
                     messages, 
                     actions=actions,
                     tool_choice=tool_choice,
-                    tracer_run=tracer_run,
-                    metadata=metadata,
-                    **kwargs
-                )
-                return response
-            except LLMToolNotFound as e:
-                if try_num == retries - 1:
-                    raise e
-                if smart_retry:
-                    messages.append(HumanMessage(content=f"there is no such tool:\n{str(e)}"))
-            except ValidationError as e:
-                if try_num == retries - 1:
-                    raise e
-                if smart_retry:
-                    messages.append(HumanMessage(content=f"there is a validation error for the tool:\n{str(e)}"))
+                    run_id=str(llm_run.id),
+                    **llm_kwargs
+                ):
+                    if not chunk.did_finish:
+                        total_text += chunk.content
+                    yield chunk
+                llm_run.end(outputs={"message": total_text})
+                return
+            except Exception as e:
+                llm_run.end(errors=str(e))
+                raise e
     
-        
-    async def __call__(
-        self, 
-        views: ViewBlock,
-        actions: List[Type[BaseModel]] | None = None,
-        tool_choice: ToolChoice | BaseModel | None = None,
-        metadata: Dict[str, str] | None = None,
-        retries: int = 3,
-        smart_retry: bool = True,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        stop_sequences: List[str] | None = None,
-        stream: bool = False,
-        logit_bias: Dict[str, int] | None = None,
-        top_p: float | None = None,
-        presence_penalty: float | None = None,
-        logprobs: bool | None = None,
-        seed: int | None = None,
-        frequency_penalty: float | None = None,
-        is_traceable: bool | None = True,
-    ):
-        messages, actions = self.transform(views)
-        return await self.complete(
-            messages, 
-            actions,
-            tool_choice=tool_choice,
-            metadata=metadata,
-            retries=retries,
-            smart_retry=smart_retry,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stop_sequences=stop_sequences,
-            stream=stream,
-            logit_bias=logit_bias,
-            top_p=top_p,
-            presence_penalty=presence_penalty,
-            logprobs=logprobs,
-            seed=seed,
-            frequency_penalty=frequency_penalty,
-            is_traceable=is_traceable,
-        )
+    

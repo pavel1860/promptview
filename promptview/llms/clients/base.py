@@ -1,16 +1,19 @@
-from datetime import datetime
-from typing import Any, List
-from pydantic import BaseModel
 import pickle
+from datetime import datetime
+from typing import Any, AsyncGenerator, List
+
+from promptview.llms.messages import AIMessage, MessageChunk
+from pydantic import BaseModel
 
 
 class BaseLlmClient(BaseModel):
     client: Any
     
-    async def complete(self, msgs, **kwargs):
+    async def complete(self, *args, **kwargs) -> AIMessage:
         raise NotImplementedError
     
-    
+    async def stream(self, *args, **kwargs) -> AsyncGenerator[MessageChunk, None]:
+        raise NotImplementedError
     
     def serialize_messages(self,  run_id: str, messages: List[BaseModel], response: BaseModel | None = None):
         date_str = datetime.now().strftime("%d_%H-%M")
