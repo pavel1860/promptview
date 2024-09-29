@@ -73,17 +73,19 @@ class AzureOpenAiLlmClient(BaseLlmClient):
         if not isinstance(actions, Actions):
             actions = Actions(actions=actions)
         tools = actions.to_openai()
-        messages = [msg.to_openai() for msg in validate_msgs(messages)]
+        azure_messages = [msg.to_openai() for msg in validate_msgs(messages)]
         if isinstance(tool_choice, BaseModel):
-            tool_choice =  {"type": "function", "function": {"name": tool_choice.__class__.__name__}}            
+            azure_tool_choice =  {"type": "function", "function": {"name": tool_choice.__class__.__name__}}            
+        else:
+            azure_tool_choice = tool_choice
         await rate_limit_event.wait()
         for i in range(retries):
             try:
                 openai_completion = await self.client.chat.completions.create(
-                    messages=messages,
+                    messages=azure_messages,
                     tools=tools,
                     model=model,
-                    tool_choice=tool_choice,
+                    tool_choice=azure_tool_choice,
                     **kwargs
                 )
                 return self.parse_output(openai_completion, actions)
@@ -113,17 +115,19 @@ class AzureOpenAiLlmClient(BaseLlmClient):
         if not isinstance(actions, Actions):
             actions = Actions(actions=actions)
         tools = actions.to_openai()
-        messages = [msg.to_openai() for msg in validate_msgs(messages)]
+        azure_messages = [msg.to_openai() for msg in validate_msgs(messages)]
         if isinstance(tool_choice, BaseModel):
-            tool_choice =  {"type": "function", "function": {"name": tool_choice.__class__.__name__}}            
+            azure_tool_choice =  {"type": "function", "function": {"name": tool_choice.__class__.__name__}}            
+        else:
+            azure_tool_choice = tool_choice
         await rate_limit_event.wait()
         for i in range(retries):
             try:
                 openai_stream = await self.client.chat.completions.create(
-                    messages=messages,
+                    messages=azure_messages,
                     tools=tools,
                     model=model,
-                    tool_choice=tool_choice,                    
+                    tool_choice=azure_tool_choice,                    
                     stream=True,
                     **kwargs
                 )
@@ -142,7 +146,6 @@ class AzureOpenAiLlmClient(BaseLlmClient):
                                 content=chunk.choices[0].delta.content,
                             )
                 return
-                # return self.parse_output(openai_completion, actions)
             except openai.RateLimitError as e:
                 print("hit rate limit")
                 sleep_time = get_delay_from_exception(e)
