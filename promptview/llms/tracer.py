@@ -144,6 +144,21 @@ class Tracer:
             return False
         else:
             return False
+        
+    def end_run(self, exc_type, exc_value, exc_traceback):
+        if self.is_traceable and self.tracer_run is not None:
+            if exc_type is not None:
+                traceback_lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
+                traceback_string = "".join(traceback_lines)
+                self.tracer_run.end(
+                    error= f"Error: {str(exc_value)}\n   Traceback:\n{traceback_string}",
+                )
+            elif not self.did_end:
+                self.tracer_run.end()
+            self.tracer_run.post()
+            return False
+        else:
+            return False
     
     def create_child(self, name, inputs: Any, run_type: RunTypes="chain", extra: Dict[str, Any]={}):
         if not self.is_traceable:
