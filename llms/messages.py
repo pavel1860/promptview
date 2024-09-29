@@ -46,7 +46,7 @@ class HumanMessage(BaseMessage):
 
 
 
-class LlmChunk(BaseModel):
+class MessageChunk(BaseModel):
     id: str
     content: str | None
     did_finish: Optional[bool] = False

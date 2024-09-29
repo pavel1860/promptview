@@ -4,7 +4,7 @@ from functools import wraps
 from typing import (Any, Awaitable, Callable, Generic, List, Literal, Type,
                     TypedDict, TypeVar)
 
-from promptview.llms.messages import AIMessage, BaseMessage
+from promptview.llms.messages import AIMessage, BaseMessage, MessageChunk
 from promptview.llms.tracer import RunTypes, Tracer
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import ViewBlock
@@ -36,6 +36,26 @@ class BaseExecutionContext(BaseModel):
     def end_run(self):
         raise NotImplementedError("end_run method must be implemented")
     
+    @abstractmethod
+    def tracer(self):
+        raise NotImplementedError("tracer method must be implemented")
+    
+
+
+class LlmExecutionContext(BaseExecutionContext):
+    model: str
+    messages: List[BaseMessage] | None = None
+    actions: Actions | None = None
+    response: AIMessage | None = None
+    chunks: List[MessageChunk] | None = None
+    run_type: RunTypes = "llm"
+    
+    
+    def push_chunk(self, chunk: MessageChunk):
+        if self.chunks is None:
+            self.chunks = []
+        self.chunks.append(chunk)
+
     def tracer(self):
         inputs = {}
         if self.inputs.message:
@@ -49,6 +69,7 @@ class BaseExecutionContext(BaseModel):
             run_type=self.run_type,
             inputs=inputs
         )
+    
 
 
 class PromptExecutionContext(BaseExecutionContext):
@@ -57,10 +78,16 @@ class PromptExecutionContext(BaseExecutionContext):
     # is_traceable: bool = True
     root_block: ViewBlock | None = None    
     messages: List[BaseMessage] | None = None
-    actions: Actions | None = None    
+    actions: Actions | None = None  
+    chunks: List[MessageChunk] | None = None  
     # prompt_run: Tracer | None = None
     output: AIMessage | None = None   
 
+    
+    def push_chunk(self, chunk: MessageChunk):
+        if self.chunks is None:
+            self.chunks = []
+        self.chunks.append(chunk)
     
     def copy_ctx(self, with_views=False, with_messages=False, with_tracer=False):
         ctx = PromptExecutionContext(
@@ -89,5 +116,18 @@ class PromptExecutionContext(BaseExecutionContext):
         return self.root_block
     
     
+    def tracer(self):
+        inputs = {}
+        if self.inputs.message:
+            inputs["message"] = self.inputs.message.content
+        if self.inputs.kwargs:
+            inputs["input"] = self.inputs.kwargs
+        return Tracer(
+            is_traceable=self.is_traceable,
+            tracer_run=self.inputs.tracer_run,
+            name=self.name,
+            run_type=self.run_type,
+            inputs=inputs
+        )
     
     
