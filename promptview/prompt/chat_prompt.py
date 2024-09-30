@@ -1,6 +1,6 @@
 
             
-from typing import Any, Callable, List, ParamSpec, Type, TypeVar
+from typing import Any, Callable, Generic, List, ParamSpec, Type, TypeVar
 
 from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.llm2 import LLM
