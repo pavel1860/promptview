@@ -17,7 +17,9 @@ def get_local_datetime(country_code: str):
     return country_time
 
 
-def to_local_datetime(dt, country_code="US"):
+def to_local_datetime(dt, country_code="UTC"):
+    if country_code == "UTC":
+        return dt.astimezone(pytz.utc)
     timezone_str = pytz.country_timezones[country_code]
     tz = pytz.timezone(timezone_str[0])
     return dt.astimezone(tz)
@@ -34,3 +36,21 @@ def is_in_time_window(time, from_time=None, hours=0, minutes=0, seconds=0):
     time_window = timedelta(hours=hours, minutes=minutes, seconds=seconds)
     end_time = start_time - time_window    
     return end_time <= time <= start_time
+
+
+
+
+def convert_datetime_timezone(origin: datetime, origin_code: str, target_code: str="UTC") -> datetime:
+    """Converts a datetime object from one timezone to another timezone"""
+    origin_str = pytz.country_timezones[origin_code]
+    origin_time_zone = pytz.timezone(origin_str[0])
+    origin_time = origin_time_zone.localize(origin)    
+    # Convert to UTC
+    if target_code == "UTC":
+        utc_time = origin_time.astimezone(pytz.utc)
+        return utc_time
+    else:
+        target_str = pytz.country_timezones[target_code]
+        target_time_zone = pytz.timezone(target_str[0])
+        target_time = origin_time.astimezone(target_time_zone)
+        return target_time
