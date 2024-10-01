@@ -70,18 +70,12 @@ class ActionHandler(BaseModel):
 P = ParamSpec("P")
 R = TypeVar("R")  
 
-class Agent(Prompt[P], Generic[P]):
-    # name: str
-    # model: str = "gpt-4o"    
+# class Agent(Prompt[P], Generic[P]):
+class Agent(ChatPrompt[P], Generic[P]):
     iterations: int = 1
-    # router_prompt: Type[ChatPrompt] | None = None
     add_input_history: bool = False 
-    # is_traceable: bool = True 
     is_router: bool = False
-    # _render_method: Callable[P, RenderMethodOutput] | None = None
-
-    _action_handlers: Dict[str, ActionHandler] = {}    
-        
+    _action_handlers: Dict[str, ActionHandler] = {}
 
     def handle(self, action: Type[BaseModel], handler: Callable, is_stream: bool = False):
         action_handler = ActionHandler(
@@ -116,7 +110,19 @@ class Agent(Prompt[P], Generic[P]):
         return ex_ctx
         
     def route(self, action: Type[BaseModel], prompt: Prompt, stream: bool = False):
-        self.handle(action, prompt, is_stream=stream)
+        self.handle(action, prompt, is_stream=stream)                        
+    
+    
+    
+    async def call_agent_prompt(self, ex_ctx: PromptExecutionContext):
+        sub_ctx = await call_function(
+                self.call_ctx,
+                ex_ctx=ex_ctx,
+                *ex_ctx.inputs.args,
+                **ex_ctx.inputs.kwargs
+            ) 
+        ex_ctx.push_response(sub_ctx.output)
+        return ex_ctx
         
         
     async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[AIMessage, None]:
@@ -127,35 +133,28 @@ class Agent(Prompt[P], Generic[P]):
             action_output = None
             ex_ctx = await self.transform(ex_ctx)
             for i in range(self.iterations):
-                sub_ctx = await call_function(
-                    self.call_ctx,
-                    ex_ctx=ex_ctx,
-                    *args,
-                    **kwargs
-                ) 
-                ex_ctx.push_response(sub_ctx.output)
+                ex_ctx = await self.call_agent_prompt(ex_ctx)                
                 if ex_ctx.top_response():
                     yield ex_ctx.pop_response()
-                if sub_ctx.output.action_calls:
-                    for action_call in sub_ctx.action_calls:
-                        action_handler = self.get_action_handler(action_call)                        
-                        if action_handler.type == "async_generator":
-                            stream_gen = action_handler.stream(action_call.action, **kwargs)
-                            async for output in stream_gen:
-                                if output is None:
-                                    break
-                                yield output
-                        elif action_handler.type == "function":
-                            action_output = await action_handler.call(action_call.action, **kwargs)
+                for action_call in ex_ctx.iter_action_calls():
+                    action_handler = self.get_action_handler(action_call)                        
+                    if action_handler.type == "async_generator":
+                        stream_gen = action_handler.stream(action_call.action, **kwargs) #type: ignore
+                        async for output in stream_gen:
+                            if output is None:
+                                break
+                            yield output
+                    elif action_handler.type == "function":
+                        action_output = await action_handler.call(action_call.action, **kwargs)
+                    else:
+                        raise ValueError(f"Invalid action handler type: {action_handler.type}")                        
+                    if action_output:
+                        if isinstance(action_output, AIMessage):
+                            yield action_output
                         else:
-                            raise ValueError(f"Invalid action handler type: {action_handler.type}")                        
-                        if action_output:
-                            if isinstance(action_output, AIMessage):
-                                yield action_output
-                            else:
-                                ex_ctx = self.process_action_output(ex_ctx, action_call, action_output)
-                        else:
-                            return
+                            ex_ctx = self.process_action_output(ex_ctx, action_call, action_output)
+                    else:
+                        return
                 else:
                     break
                     

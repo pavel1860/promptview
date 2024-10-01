@@ -1,11 +1,11 @@
 import inspect
 from abc import abstractmethod
 from functools import wraps
-from typing import (Any, Awaitable, Callable, Generic, List, Literal, Type,
-                    TypedDict, TypeVar)
+from typing import (Any, Awaitable, Callable, Generator, Generic, List,
+                    Literal, Type, TypedDict, TypeVar)
 
-from promptview.llms.messages import (ActionMessage, AIMessage, BaseMessage,
-                                      HumanMessage, MessageChunk)
+from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
+                                      BaseMessage, HumanMessage, MessageChunk)
 from promptview.llms.tracer import RunTypes, Tracer
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import ViewBlock, create_view_block
@@ -85,7 +85,7 @@ class PromptExecutionContext(BaseExecutionContext):
     chunks: List[MessageChunk] | None = None  
     # prompt_run: Tracer | None = None
     output: AIMessage | None = None   
-    action_calls: List[BaseModel] = []
+    action_calls: List[ActionCall] = []
 
     
     def push_chunk(self, chunk: MessageChunk):
@@ -107,6 +107,11 @@ class PromptExecutionContext(BaseExecutionContext):
         if with_tracer:
             ctx.tracer_run = self.tracer_run
         return ctx
+    
+    
+    def iter_action_calls(self) -> Generator[ActionCall, str, None]:
+        while self.action_calls:
+            yield self.action_calls.pop(0)
     
     def end_run(self):
         if self.tracer_run and self.output:

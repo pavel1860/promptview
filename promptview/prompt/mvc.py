@@ -4,13 +4,14 @@ import json
 import string
 import textwrap
 from functools import wraps
-from typing import (Any, Callable, Generator, Iterable, List, Literal, Tuple,
-                    Type, Union)
+from typing import (Any, Callable, Coroutine, Generator, Iterable, List,
+                    Literal, ParamSpec, Tuple, Type, Union)
 from uuid import uuid4
 
 from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
                                       BaseMessage)
 from promptview.llms.utils.action_manager import Actions
+from promptview.prompt.types import RenderMethodOutput, RenderViewTypes
 from promptview.utils.string_utils import convert_camel_to_snake
 from pydantic import BaseModel, Field
 
@@ -456,6 +457,12 @@ def create_view_block(
         action_calls=action_calls
     )
 
+
+# ViewTypes = List[ViewBlock] | ViewBlock | List[str] | str
+
+# ViewMethodOutput = Coroutine[Any, Any, ViewTypes] | ViewTypes | tuple[ViewTypes, Any]
+
+P = ParamSpec("P")
     
 def view(
     container=None, 
@@ -473,9 +480,9 @@ def view(
     tag: str | None = None,
     ):
 
-    def decorator(func):
+    def decorator(func: Callable[P, RenderViewTypes]):
         @wraps(func)
-        def wrapper(*args, **kwargs):                            
+        def wrapper(*args, **kwargs) -> ViewBlock:
             outputs = func(*args, **kwargs)
             if container is not None:
                 outputs = container(*outputs if isinstance(outputs, tuple) else (outputs,))
