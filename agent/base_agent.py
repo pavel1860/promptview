@@ -1,72 +1,28 @@
 
 import inspect
+from abc import abstractmethod
 from functools import wraps
 from typing import (Any, AsyncGenerator, Callable, Dict, Generic, List,
                     Literal, Optional, ParamSpec, Type, TypeVar, Union)
 
+from promptview.agent.handlers import (BaseActionHandler, FunctionHandler,
+                                       PromptHandler)
 from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.llm2 import LLM
 from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
-                                      HumanMessage)
+                                      HumanMessage, MessageChunk)
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
 from promptview.prompt.base_prompt import Prompt
 from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.decorator import prompt
 from promptview.prompt.execution_context import PromptExecutionContext
-from promptview.prompt.types import RenderMethodOutput, ToolChoiceParam
+from promptview.prompt.mvc import RenderMethodOutput
+from promptview.prompt.types import ToolChoiceParam
 from promptview.state.context import Context
 from promptview.utils.function_utils import call_function, filter_func_args
 from pydantic import BaseModel, Field
 
-HandlerTypes = Literal["prompt", "function", "async_generator"]
-
-class ActionHandler(BaseModel):
-    action: Type[BaseModel]
-    handler: Callable
-    is_prompt: bool = False
-    is_stream: bool = False
-    type: HandlerTypes
-    
-    
-    def __init__(self, **data):
-        handler_type = None
-        handler = data.get("handler")
-        if inspect.isasyncgenfunction(handler):
-            handler_type = "async_generator"
-        elif inspect.isfunction(handler):
-            handler_type = "function"
-        elif isinstance(handler, Prompt):
-            if data.get("is_stream"):
-                handler_type = "async_generator"
-            else:
-                handler_type = "function"
-        else:
-            raise ValueError(f"Invalid handler type: {handler}")
-        data["type"] = handler_type
-        super().__init__(**data)
-        
-    def filter_handler_args(self, kwargs):
-        return filter_func_args(self.handler, kwargs)
-        
-    async def call(self, action, **kwargs):
-        handler_kwargs = self.filter_handler_args({
-            "action": action, 
-        } | kwargs)
-        return await call_function(self.handler, **handler_kwargs)
-    
-    def stream(self, action: BaseModel, **kwargs):
-        if self.is_prompt:
-            action_kwargs = action.model_dump()
-            handler_kwargs = filter_func_args(self.handler._render_method, kwargs | action_kwargs)
-            return self.handler.stream(**handler_kwargs)
-        else:
-            handler_kwargs = filter_func_args(self.handler,{
-                "action": action, 
-            } | kwargs)
-            return self.handler(**handler_kwargs)
-
-    
 P = ParamSpec("P")
 R = TypeVar("R")  
 
@@ -75,16 +31,16 @@ class Agent(ChatPrompt[P], Generic[P]):
     iterations: int = 1
     add_input_history: bool = False 
     is_router: bool = False
-    _action_handlers: Dict[str, ActionHandler] = {}
+    _action_handlers: Dict[str, BaseActionHandler] = {}
 
-    def handle(self, action: Type[BaseModel], handler: Callable, is_stream: bool = False):
-        action_handler = ActionHandler(
-                            handler=handler,
-                            action=action,
-                            is_prompt=isinstance(handler, Prompt),
-                            is_stream=is_stream
-                        )
-        self._action_handlers[action.__name__] =  action_handler
+    def handle(self, action: Type[BaseModel], handler: BaseActionHandler):
+        # action_handler = ActionHandler(
+        #                     handler=handler,
+        #                     action=action,
+        #                     is_prompt=isinstance(handler, Prompt),
+        #                     is_stream=is_stream
+        #                 )
+        self._action_handlers[action.__name__] =  handler
         
     
     def get_action_handler(self, action_call: ActionCall):
@@ -109,12 +65,11 @@ class Agent(ChatPrompt[P], Generic[P]):
         ex_ctx.add_view(message)
         return ex_ctx
         
-    def route(self, action: Type[BaseModel], prompt: Prompt, stream: bool = False):
-        self.handle(action, prompt, is_stream=stream)                        
     
     
     
-    async def call_agent_prompt(self, ex_ctx: PromptExecutionContext):
+    
+    async def call_agent_prompt(self, ex_ctx: PromptExecutionContext, is_router: bool=False) -> PromptExecutionContext:
         sub_ctx = await call_function(
                 self.call_ctx,
                 ex_ctx=ex_ctx,
@@ -125,6 +80,38 @@ class Agent(ChatPrompt[P], Generic[P]):
         return ex_ctx
         
         
+    # async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[AIMessage, None]:
+    #     with self.build_execution_context(
+    #             *args, 
+    #             **kwargs
+    #             ) as ex_ctx:
+    #         action_output = None
+    #         ex_ctx = await self.transform(ex_ctx)
+    #         for i in range(self.iterations):
+    #             ex_ctx = await self.call_agent_prompt(ex_ctx)                
+    #             if ex_ctx.top_response():
+    #                 yield ex_ctx.pop_response()
+    #             for action_call in ex_ctx.iter_action_calls():
+    #                 action_handler = self.get_action_handler(action_call)                        
+    #                 if action_handler.type == "async_generator":
+    #                     stream_gen = action_handler.stream(action_call.action, **kwargs) #type: ignore
+    #                     async for output in stream_gen:
+    #                         if output is None:
+    #                             break
+    #                         yield output
+    #                 elif action_handler.type == "function":
+    #                     action_output = await action_handler.call(action_call.action, **kwargs)
+    #                 else:
+    #                     raise ValueError(f"Invalid action handler type: {action_handler.type}")                        
+    #                 if action_output:
+    #                     if isinstance(action_output, AIMessage):
+    #                         yield action_output
+    #                     else:
+    #                         ex_ctx = self.process_action_output(ex_ctx, action_call, action_output)
+    #                 else:
+    #                     return
+    #             else:
+    #                 break
     async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[AIMessage, None]:
         with self.build_execution_context(
                 *args, 
@@ -134,17 +121,18 @@ class Agent(ChatPrompt[P], Generic[P]):
             ex_ctx = await self.transform(ex_ctx)
             for i in range(self.iterations):
                 ex_ctx = await self.call_agent_prompt(ex_ctx)                
-                if ex_ctx.top_response():
+                if ex_ctx.top_response(): #TODO check if this is a router, if not , stream the response.
+                    # ex_ctx.pop_response()
                     yield ex_ctx.pop_response()
                 for action_call in ex_ctx.iter_action_calls():
                     action_handler = self.get_action_handler(action_call)                        
-                    if action_handler.type == "async_generator":
+                    if action_handler.type == "async_generator" or action_handler.type == "prompt":
                         stream_gen = action_handler.stream(action_call.action, **kwargs) #type: ignore
                         async for output in stream_gen:
                             if output is None:
                                 break
                             yield output
-                    elif action_handler.type == "function":
+                    elif action_handler.type == "function" or action_handler.type == "prompt":
                         action_output = await action_handler.call(action_call.action, **kwargs)
                     else:
                         raise ValueError(f"Invalid action handler type: {action_handler.type}")                        
@@ -157,12 +145,50 @@ class Agent(ChatPrompt[P], Generic[P]):
                         return
                 else:
                     break
-                    
 
+                    
+    
+    async def stream(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[MessageChunk, None]:
+        with self.build_execution_context(
+                *args, 
+                **kwargs
+                ) as ex_ctx:
+            action_output = None
+            ex_ctx = await self.transform(ex_ctx)
+            for i in range(self.iterations):
+                ex_ctx = await self.call_agent_prompt(ex_ctx)                
+                if ex_ctx.top_response(): #TODO check if this is a router, if not , stream the response.
+                    ex_ctx.pop_response()
+                    # yield ex_ctx.pop_response()
+                for action_call in ex_ctx.iter_action_calls():
+                    action_handler = self.get_action_handler(action_call)                        
+                    if action_handler.type == "async_generator" or action_handler.type == "prompt":
+                        stream_gen = action_handler.stream(action_call.action, **kwargs) #type: ignore
+                        async for output in stream_gen:
+                            if output is None:
+                                break
+                            yield output
+                    elif action_handler.type == "function" or action_handler.type == "prompt":
+                        action_output = await action_handler.call(action_call.action, **kwargs)
+                    else:
+                        raise ValueError(f"Invalid action handler type: {action_handler.type}")                        
+                    if action_output:
+                        if isinstance(action_output, AIMessage):
+                            yield action_output
+                        else:
+                            ex_ctx = self.process_action_output(ex_ctx, action_call, action_output)
+                    else:
+                        return
+                else:
+                    break
+
+
+    def route(self, action: Type[BaseModel], prompt: Prompt, stream: bool = False):        
+        self.handle(action, PromptHandler(action=action, prompt=prompt))
 
     def reducer(self, action: Type[BaseModel]):
-        def decorator(func):
-            self.handle(action, func)
+        def decorator(func):            
+            self.handle(action, FunctionHandler(action=action, handler=func))
             return func
         return decorator
     

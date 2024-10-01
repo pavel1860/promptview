@@ -8,7 +8,8 @@ from promptview.llms.llm import LLM
 from promptview.llms.messages import AIMessage
 from promptview.prompt.base_prompt import Prompt
 from promptview.prompt.chat_prompt import ChatPrompt
-from promptview.prompt.types import RenderMethodOutput, ToolChoiceParam
+from promptview.prompt.mvc import RenderMethodOutput
+from promptview.prompt.types import ToolChoiceParam
 from pydantic import BaseModel, Field
 
 # T = TypeVar('T')
