@@ -7,14 +7,15 @@ from promptview.llms.llm2 import LLM
 from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.prompt.base_prompt import Prompt
+from promptview.prompt.mvc import RenderMethodOutput
 # from promptview.prompt.decorator import decorator_factory
-from promptview.prompt.types import RenderMethodOutput, ToolChoiceParam
+from promptview.prompt.types import ToolChoiceParam
 from pydantic import BaseModel, Field
 
 T = ParamSpec("T")
 R = TypeVar("R")  
 
-class ChatPrompt(Prompt[T]):
+class ChatPrompt(Prompt[T], Generic[T]):
     # system_prompt: str | None = None
     # llm: AnthropicLLM  = Field(default_factory=AnthropicLLM) 
     background: str | List[str] | Callable | None = Field(None, description="Background information to provide context for the prompt", json_schema_extra={"title": None})

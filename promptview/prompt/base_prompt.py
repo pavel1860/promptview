@@ -11,9 +11,9 @@ from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.execution_context import PromptExecutionContext
-from promptview.prompt.mvc import ViewBlock, create_view_block
-from promptview.prompt.types import (PromptInputs, RenderMethodOutput,
-                                     ToolChoiceParam)
+from promptview.prompt.mvc import (RenderMethodOutput, ViewBlock,
+                                   create_view_block)
+from promptview.prompt.types import PromptInputs, ToolChoiceParam
 from promptview.prompt.view_builder import ViewBlockBuilder
 from promptview.state.context import Context
 from promptview.utils.function_utils import call_function

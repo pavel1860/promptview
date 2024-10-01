@@ -11,13 +11,15 @@ from uuid import uuid4
 from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
                                       BaseMessage)
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.types import RenderMethodOutput, RenderViewTypes
+# from promptview.prompt.types import RenderMethodOutput, RenderViewTypes
 from promptview.utils.string_utils import convert_camel_to_snake
 from pydantic import BaseModel, Field
 
 ViewWrapperType = Literal["xml", "markdown", None]
 BaseModelRenderType =  Literal['model_dump', 'json']
 ListModelRender = Literal['list', 'view_node']
+
+
 
 # class ContentBlock(BaseModel):
 #     vn_id: str = Field(default_factory=lambda: str(uuid4()), description="id of the view node")
@@ -385,6 +387,15 @@ def transform_list_to_view_blocks(
         else:
             raise ValueError(f"view type not supported: {type(o)} for view '{view_name}'")
     return sub_views
+
+
+
+
+
+RenderViewTypes = List[ViewBlock] | ViewBlock | BaseModel | List[str] | str
+
+RenderMethodOutput = Coroutine[Any, Any, RenderViewTypes] | Coroutine[Any, Any, tuple[RenderViewTypes, ...]] | RenderViewTypes | tuple[RenderViewTypes, ...]
+
 
 
 def create_view_block(
