@@ -102,6 +102,12 @@ def combine_filters(
     return combined
 
 
+def is_view_block_list_valid(view: list[ViewBlock]):
+    for v in view:
+        if not isinstance(v, ViewBlock):
+            raise ValueError(f"view block list must contain only ViewBlock instances. Found: {type(v)}")
+    return True
+    
 
 class ViewBlock(BaseModel):
     uuid: str = Field(default_factory=lambda: str(uuid4()), description="id of the view node")
@@ -145,6 +151,9 @@ class ViewBlock(BaseModel):
     def __hash__(self):
         return self.uuid.__hash__()
     
+    def __bool__(self):
+        return bool(self.view_blocks)
+    
     @property
     def action_call_uuids(self):
         if self.action_calls is None:
@@ -165,7 +174,15 @@ class ViewBlock(BaseModel):
     def extend(self, blocks: list[ViewBlock]):
         assert all(isinstance(b, ViewBlock) for b in blocks)
         self.view_blocks.extend(blocks)
-        
+    
+    def add(self, blocks: list[ViewBlock] | ViewBlock):
+        if isinstance(blocks, list):
+            if is_view_block_list_valid(blocks):            
+                self.extend(blocks)
+        elif isinstance(blocks, ViewBlock):
+            self.push(blocks)
+        else:
+            raise ValueError(f"invalid type: {type(blocks)}")
         
     def find(
         self,
@@ -409,7 +426,7 @@ def create_view_block(
         view_blocks = [views]
     elif isinstance(views, BaseMessage):
         content = views.content
-        role = views.role
+        role = views.role # type: ignore
         view_id = views.id if views.id is not None else view_id
         if isinstance(views, AIMessage):
             action_calls = views.action_calls
