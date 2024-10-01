@@ -10,9 +10,9 @@ from pydantic import BaseModel, Field
 ToolChoiceParam = Literal['auto', 'required', 'none'] | BaseModel | None
 
 
-RenderViewTypes = List[ViewBlock] | ViewBlock | List[str] | str
+RenderViewTypes = List[ViewBlock] | ViewBlock | BaseModel | List[str] | str
 
-RenderMethodOutput = Coroutine[Any, Any, RenderViewTypes] | RenderViewTypes
+RenderMethodOutput = Coroutine[Any, Any, RenderViewTypes] | Coroutine[Any, Any, tuple[RenderViewTypes, ...]] | RenderViewTypes | tuple[RenderViewTypes, ...]
 
 T = TypeVar("T")
 P = TypeVar("P")
