@@ -61,6 +61,7 @@ class Prompt(BaseModel, Generic[P]):
             actions: List[Type[BaseModel]] | None = None,
             tool_choice: ToolChoiceParam = None,
             tracer_run: Tracer | None=None,            
+            ex_ctx: PromptExecutionContext | None = None,
             **kwargs: Any
             # *args: P.args,
             # **kwargs: P.kwargs
@@ -77,12 +78,16 @@ class Prompt(BaseModel, Generic[P]):
             args=args,
             kwargs=kwargs
         )
-        return PromptExecutionContext(
+        ex_ctx_inst = PromptExecutionContext(
             name=self._view_builder.prompt_name,
             is_traceable=self.is_traceable,
             inputs=prompt_inputs,
-            run_type="prompt"
+            run_type="prompt",            
         )
+        if ex_ctx:
+            ex_ctx_inst.parent = ex_ctx
+            ex_ctx_inst.root_block = ex_ctx.root_block.model_copy()
+        return ex_ctx_inst
         
     
     async def call_render(self, ex_ctx: PromptExecutionContext) -> ViewBlock:
@@ -113,20 +118,20 @@ class Prompt(BaseModel, Generic[P]):
         self, 
         ex_ctx: PromptExecutionContext
     ) -> PromptExecutionContext:
-        root_block = create_view_block([], "root")
+        
         system_view = await self._view_builder.get_template_views(self, **ex_ctx.inputs.kwargs)
         if system_view:
-            root_block.push(system_view)
+            ex_ctx.root_block.add(system_view)
         render_output = await self.call_render(ex_ctx)
         views = await self._view_builder.process_render_output(render_output)
-        if isinstance(views, list):
-            root_block.extend(views)        
-        elif isinstance(views,ViewBlock):
-            root_block.push(views)
-        else:
-            raise ValueError(f"Invalid views: {type(views)}")
+        ex_ctx.root_block.add(views)
+        # if isinstance(views, list):
+        #     ex_ctx.root_block.extend(views)        
+        # elif isinstance(views,ViewBlock):
+        #     ex_ctx.root_block.push(views)
+        # else:
+            # raise ValueError(f"Invalid views: {type(views)}")
         
-        ex_ctx.root_block = root_block
         return ex_ctx
     
     async def call_llm_complete(self, ex_ctx: PromptExecutionContext) -> PromptExecutionContext:
@@ -139,7 +144,7 @@ class Prompt(BaseModel, Generic[P]):
             tracer_run=ex_ctx.tracer_run, 
             **ex_ctx.inputs.kwargs
         )
-        ex_ctx.output = response
+        ex_ctx.push_response(response)
         return ex_ctx
     
     async def call_parse(self, ex_ctx: PromptExecutionContext) -> AIMessage:
@@ -179,6 +184,34 @@ class Prompt(BaseModel, Generic[P]):
             if not ex_ctx.output:
                 raise ValueError("No output from the prompt")
             return ex_ctx.output
+        
+        
+    async def call_ctx(
+            self, 
+            ex_ctx: PromptExecutionContext | None = None,
+            *args: P.args, 
+            **kwargs: P.kwargs
+        ) -> PromptExecutionContext:
+        # parent_ctx = ex_ctx
+        # if not ex_ctx:
+            # ex_ctx = self.build_execution_context(*args, **kwargs)
+        # with ex_ctx:
+        with self.build_execution_context(
+            ex_ctx=ex_ctx,
+            *args, 
+            **kwargs
+            ) as ex_ctx:
+        
+            if not ex_ctx.root_block:
+                ex_ctx = await self.transform(ex_ctx)
+            if not ex_ctx.messages:
+                ex_ctx = self.call_llm_transform(ex_ctx)
+            if ex_ctx.output:
+                raise ValueError("Output already set")
+            ex_ctx = await self.call_llm_complete(ex_ctx)
+            if not ex_ctx.output:
+                raise ValueError("No output from the prompt execution")
+            return ex_ctx
     
     
     async def __call__(

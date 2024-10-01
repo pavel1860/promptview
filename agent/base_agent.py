@@ -13,6 +13,7 @@ from promptview.llms.tracer import Tracer
 from promptview.prompt.base_prompt import Prompt
 from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.decorator import prompt
+from promptview.prompt.execution_context import PromptExecutionContext
 from promptview.prompt.types import RenderMethodOutput, ToolChoiceParam
 from promptview.state.context import Context
 from promptview.utils.function_utils import call_function, filter_func_args
@@ -45,7 +46,25 @@ class ActionHandler(BaseModel):
         data["type"] = handler_type
         super().__init__(**data)
         
+    def filter_handler_args(self, kwargs):
+        return filter_func_args(self.handler, kwargs)
+        
+    async def call(self, action, **kwargs):
+        handler_kwargs = self.filter_handler_args({
+            "action": action, 
+        } | kwargs)
+        return await call_function(self.handler, **handler_kwargs)
     
+    def stream(self, action: BaseModel, **kwargs):
+        if self.is_prompt:
+            action_kwargs = action.model_dump()
+            handler_kwargs = filter_func_args(self.handler._render_method, kwargs | action_kwargs)
+            return self.handler.stream(**handler_kwargs)
+        else:
+            handler_kwargs = filter_func_args(self.handler,{
+                "action": action, 
+            } | kwargs)
+            return self.handler(**handler_kwargs)
 
     
 P = ParamSpec("P")
@@ -81,7 +100,7 @@ class Agent(Prompt[P], Generic[P]):
         return handler
     
     
-    def process_action_output(self, action_call: ActionCall, action_output)-> ActionMessage:
+    def process_action_output(self, ex_ctx: PromptExecutionContext ,action_call: ActionCall, action_output)-> PromptExecutionContext:
         if type(action_output) == str:
             action_output_str = action_output
         elif isinstance(action_output, BaseModel):
@@ -93,142 +112,53 @@ class Agent(Prompt[P], Generic[P]):
                 content=action_output_str,
                 # tool_call=response.tool_calls[i]
             )
-        return message
+        ex_ctx.add_view(message)
+        return ex_ctx
         
     def route(self, action: Type[BaseModel], prompt: Prompt, stream: bool = False):
         self.handle(action, prompt, is_stream=stream)
         
         
-    # async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Union[AIMessage, None]:
-    #     return await self.run(*args, **kwargs)
-
-    
-    # async def run(self, context: Context, message: HumanMessage | str, iterations: int | None = None, tracer_run=None, **kwargs):
     async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[AIMessage, None]:
-        # iterations = iterations or self.iterations
-        # if not isinstance(message, HumanMessage) and isinstance(message, str):
-        #     message = HumanMessage(content=message)
-        # else:
-        #     raise ValueError("Invalid message type")
-
-        # with Tracer(
-        #     # name=self.name,
-        #     name="agent",
-        #     is_traceable=self.is_traceable,
-        #     inputs={"message": message.content} | kwargs,
-        #     session_id=context.session_id,
-        #     tracer_run=tracer_run
-        # ) as tracer_run:
-    # async def run(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[AIMessage, None]:      
-        action_output = None
-        for i in range(self.iterations):           
-            response = await call_function(
-                    super().__call__,
-                    # self.complete,
-                    # self.router_prompt.__call__, 
-                    # context=context, 
-                    # message=message, 
-                    # tracer_run=tracer_run, 
-                    # action_output=action_output, 
+        with self.build_execution_context(
+                *args, 
+                **kwargs
+                ) as ex_ctx:
+            action_output = None
+            ex_ctx = await self.transform(ex_ctx)
+            for i in range(self.iterations):
+                sub_ctx = await call_function(
+                    self.call_ctx,
+                    ex_ctx=ex_ctx,
                     *args,
                     **kwargs
-                )
-            # if not self.is_router:
-            #     context.history.add(context, message, str(tracer_run.id), "user")
-            #     context.history.add(context, response, str(tracer_run.id), self.name)                
-            if response.content:
-                # tracer_run.add_outputs(response)
-                yield response
-            if response.action_calls:
-                for action_call in response.action_calls:
-                    action_handler = self.get_action_handler(action_call)
-                    if action_handler.type == "async_generator":
-                        gen_kwargs = filter_func_args(action_handler, {
-                            # "context": context, 
-                            "action": action_call.action, 
-                            # "message": message.content, 
-                            # "tracer_run": tracer_run
-                        } | kwargs)
-                        target = action_handler.handler.stream if not action_handler.is_prompt else action_handler.handler 
-                        async for output in target(**gen_kwargs):
-                            if output is None:
-                                break
-                            # tracer_run.add_outputs(output)
-                            yield output
-                    elif action_handler.type == "function":
-                        target = action_handler.handler.__call__ if not action_handler.is_prompt else action_handler.handler
-                        action_output = await call_function(
-                            target, 
-                            # context=context, 
-                            action=action_call.action, 
-                            # message=message.content, 
-                            # tracer_run=tracer_run, **kwargs
-                        )
-                    else:
-                        raise ValueError(f"Invalid action handler type: {action_handler.type}")
-                    # if inspect.isasyncgenfunction(action_handler):
-                    #     gen_kwargs = filter_func_args(action_handler, {"context": context, "action": action_call.action, "message": message.content, "tracer_run": tracer_run} | kwargs)
-                    #     async for output in action_handler(**gen_kwargs):
-                    #         if output is None:
-                    #             break
-                    #         tracer_run.add_outputs(output)
-                    #         yield output
-                    # elif inspect.isfunction(action_handler):
-                    #     action_output = await call_function(action_handler, context=context, action=action_call.action, message=message.content, tracer_run=tracer_run, **kwargs)
-                    # elif isinstance(action_handler, Prompt):
-                    #     action_output = await call_function(action_handler.__call__, context=context, message=message, tracer_run=tracer_run, **kwargs)
-                    # else:
-                    #     raise ValueError(f"Invalid action handler: {action_handler}")
-                    if action_output:
-                        if isinstance(action_output, AIMessage):
-                            # tracer_run.add_outputs(response)
-                            yield action_output
+                ) 
+                ex_ctx.push_response(sub_ctx.output)
+                if ex_ctx.top_response():
+                    yield ex_ctx.pop_response()
+                if sub_ctx.output.action_calls:
+                    for action_call in sub_ctx.action_calls:
+                        action_handler = self.get_action_handler(action_call)                        
+                        if action_handler.type == "async_generator":
+                            stream_gen = action_handler.stream(action_call.action, **kwargs)
+                            async for output in stream_gen:
+                                if output is None:
+                                    break
+                                yield output
+                        elif action_handler.type == "function":
+                            action_output = await action_handler.call(action_call.action, **kwargs)
                         else:
-                            message = self.process_action_output(action_call, action_output)                            
-                    else:
-                        return
-            else:
-                break                    
-        # else:
-            # context.history.add(context, message, str(tracer_run.id), "user")
-                
-
-
-    # def prompt(
-    #     self,
-    #     model: str = "gpt-4o",
-    #     llm: LLM | None = None,
-    #     parallel_actions: bool = True,
-    #     is_traceable: bool = True,
-    #     output_parser: Callable[[AIMessage], R] | None = None,
-    #     tool_choice: ToolChoiceParam = None,
-    #     actions: List[Type[BaseModel]] | None = None,
-    #     **kwargs: Any
-    # ):
-    #     if llm is None:
-    #         if model.startswith("gpt"):
-    #             llm = OpenAiLLM(
-    #                 model=model, 
-    #                 parallel_tool_calls=parallel_actions
-    #             )
-    #         elif model.startswith("claude"):
-    #             llm = AnthropicLLM(
-    #                 model=model, 
-    #                 parallel_tool_calls=parallel_actions
-    #             )
-    #     def decorator(func: Callable[P, RenderMethodOutput]) -> Prompt[P]:
-    #         prompt = ChatPrompt(
-    #                 model=model, #type: ignore
-    #                 llm=llm,                        
-    #                 tool_choice=tool_choice or ChatPrompt.model_fields.get("tool_choice").default,
-    #                 actions=actions,
-    #                 is_traceable=is_traceable,
-    #                 **kwargs
-    #             )
-    #         prompt._name=func.__name__
-    #         prompt.set_methods(func, output_parser)            
-    #         return prompt        
-    #     return decorator
+                            raise ValueError(f"Invalid action handler type: {action_handler.type}")                        
+                        if action_output:
+                            if isinstance(action_output, AIMessage):
+                                yield action_output
+                            else:
+                                ex_ctx = self.process_action_output(ex_ctx, action_call, action_output)
+                        else:
+                            return
+                else:
+                    break
+                    
 
 
     def reducer(self, action: Type[BaseModel]):
@@ -251,6 +181,7 @@ def agent(
     output_parser: Callable[[AIMessage], R] | None = None,
     tool_choice: ToolChoiceParam = None,
     actions: List[Type[BaseModel]] | None = None,
+    iterations: int = 1,
     **kwargs: Any
 ):
     if llm is None:
@@ -271,6 +202,7 @@ def agent(
                 tool_choice=tool_choice or Agent.model_fields.get("tool_choice").default,
                 actions=actions,
                 is_traceable=is_traceable,
+                iterations=iterations,
                 **kwargs
             )
         agent_ins._name=func.__name__
