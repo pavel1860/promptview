@@ -40,8 +40,16 @@ class Agent(ChatPrompt[P], Generic[P]):
         #                     action=action,
         #                     is_prompt=isinstance(handler, Prompt),
         #                     is_stream=is_stream
-        #                 )
+        #                 )        
         self._action_handlers[action.__name__] =  handler
+        if self.actions is None:
+            self.actions = [action]
+        else:
+            existing_action = [a for a in self.actions if a == action]
+            if existing_action:
+                raise ValueError(f"Action {action} already exists in actions list")
+            self.actions.append(action)
+            
         
     
     def get_action_handler(self, action_call: ActionCall) -> BaseActionHandler:
@@ -115,17 +123,21 @@ class Agent(ChatPrompt[P], Generic[P]):
                 if ex_ctx.lifecycle_phase == ExLifecycle.ACTION_CALLS:
                     for action_call in ex_ctx.action_calls:
                         action_handler = self.get_action_handler(action_call)                        
-                        if action_handler.type == "async_generator" or action_handler.type == "prompt":
+                        if action_handler.type == "async_generator":
                             stream_gen = action_handler.stream(action_call, ex_ctx=ex_ctx) #type: ignore
                             async for output in stream_gen:
                                 if output is None:
                                     break
                                 yield output
-                        elif action_handler.type == "function" or action_handler.type == "prompt":
+                        elif action_handler.type == "function":
+                            ex_ctx = await action_handler.call(action_call, ex_ctx)
+                        elif action_handler.type == "prompt":
                             ex_ctx = await action_handler.call(action_call, ex_ctx)
                         else:
                             raise ValueError(f"Invalid action handler type: {action_handler.type}")                                            
                         ex_ctx.finish_action_call(action_call)
+                elif ex_ctx.lifecycle_phase == ExLifecycle.FINISHED:
+                    return
                 else:
                     raise ValueError(f"Invalid lifecycle phase: {ex_ctx.lifecycle_phase}")
                         

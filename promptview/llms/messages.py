@@ -57,6 +57,10 @@ class ActionCall(BaseModel):
     name: str
     action: dict | BaseModel
     
+    def to_kwargs(self):
+        if isinstance(self.action, BaseModel):
+            return self.action.model_dump()
+        return self.action
     
     
 class LlmUsage(BaseModel):

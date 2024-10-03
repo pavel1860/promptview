@@ -6,7 +6,7 @@ from typing import (Any, AsyncGenerator, Callable, Dict, Generic, List,
 
 from promptview.llms.messages import ActionCall, MessageChunk
 from promptview.prompt.base_prompt import Prompt
-from promptview.prompt.execution_context import (ExLifecycle,
+from promptview.prompt.execution_context import (Execution, ExLifecycle,
                                                  PromptExecutionContext)
 from promptview.utils.function_utils import call_function, filter_func_args
 from pydantic import BaseModel, Field
@@ -30,6 +30,10 @@ class BaseActionHandler(BaseModel):
     @abstractmethod
     def type(self) -> HandlerTypes:
         pass
+    
+    @abstractmethod
+    def start_execution(self, action_call: ActionCall, ex_ctx: PromptExecutionContext)-> Execution:
+        pass
 
 
 class FunctionHandler(BaseActionHandler):
@@ -49,6 +53,19 @@ class FunctionHandler(BaseActionHandler):
     #         return "async_generator"
     #     elif inspect.isfunction(self.handler):
     #         return "function"
+    def start_execution(self, action_call: ActionCall, ex_ctx: PromptExecutionContext)-> Execution:
+        execution = Execution(
+            prompt_name=action_call.name,
+            kwargs=ex_ctx.kwargs,
+            run_type="tool",
+            context=ex_ctx.context,
+            parent_tracer_run=ex_ctx.curr_ex.tracer_run if ex_ctx.curr_ex else None,
+            action_call=action_call,
+            ex_type="tool",
+        )
+        execution.start()
+        return execution
+        
     
     async def call(self, action_call: ActionCall, ex_ctx: PromptExecutionContext) -> PromptExecutionContext:
         handler_kwargs = ex_ctx.kwargs | {"action": action_call.action}
@@ -81,17 +98,19 @@ class PromptHandler(BaseActionHandler):
     # def handler_type(self):
     #     return "prompt"
     
-    async def call(self, action: BaseModel, ex_ctx: PromptExecutionContext)-> PromptExecutionContext:
-        action_kwargs = action.model_dump()
-        # handler_kwargs = filter_func_args(self.prompt._render_method, ex_ctx.kwargs | action_kwargs)
-        handler_kwargs = ex_ctx.kwargs | action_kwargs
-        return await call_function(self.prompt.call_ctx, action=action, ex_ctx=ex_ctx, **handler_kwargs)
+    def start_execution(self, action_call: ActionCall, ex_ctx: PromptExecutionContext)-> Execution:
+        pass
     
-    def stream(self, action: BaseModel, ex_ctx: PromptExecutionContext):
-        action_kwargs = action.model_dump()
-        handler_kwargs = ex_ctx.kwargs | action_kwargs | {"ex_ctx": ex_ctx}
+    async def call(self, action_call: ActionCall, ex_ctx: PromptExecutionContext)-> PromptExecutionContext:
+        handler_kwargs = ex_ctx.kwargs | action_call.to_kwargs()
         handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)
-        return self.prompt.stream(**handler_kwargs)
+        ex_ctx = await call_function(self.prompt.call_ctx, ex_ctx=ex_ctx, **handler_kwargs)
+        return ex_ctx
+    
+    def stream(self, action_call: ActionCall, ex_ctx: PromptExecutionContext):
+        handler_kwargs = ex_ctx.kwargs | action_call.to_kwargs()
+        handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)
+        return self.prompt.stream(ex_ctx=ex_ctx, **handler_kwargs)
 
 
 class ActionHandler(BaseModel):

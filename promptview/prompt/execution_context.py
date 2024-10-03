@@ -255,8 +255,14 @@ class PromptExecutionContext(BaseModel):
             tool_choice=tool_choice,
             action_call=action_call,
             ex_type=ex_type,
-        )
+        )                                
         execution.start()
+        if execution.ex_type == "agent_prompt":
+            if self.executions:
+                messages = self.get_message_history()
+                execution.messages = messages
+                execution.lifecycle_phase = ExLifecycle.COMPLETE
+                
         self.executions.append(execution)
         self.stack.append(execution)
         return execution
@@ -271,6 +277,23 @@ class PromptExecutionContext(BaseModel):
         if self.curr_ex.did_finish:
             self.stack.pop()
         return self.curr_ex
+    
+    def get_message_history(self):
+        messages = []
+        for ex in self.executions:
+            if ex.ex_type == "agent_prompt":
+                if ex.messages:
+                    messages.extend(ex.messages)
+                if ex.response:
+                    messages.append(ex.response)
+                else:
+                    raise ValueError("No response in agent prompt execution")
+            elif ex.ex_type == "tool":
+                if ex.response:
+                    messages.append(ex.response)
+                else:
+                    raise ValueError("No response in tool execution")
+        return messages
     
     
     def finish_action_call(self, action_call: ActionCall):

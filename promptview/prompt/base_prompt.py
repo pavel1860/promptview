@@ -220,7 +220,7 @@ class Prompt(BaseModel, Generic[P]):
             model=self.llm.model,
             kwargs=kwargs,
             run_type="prompt"
-        )
+        )        
         
         if ex.lifecycle_phase == ExLifecycle.RENDER:
             ex = await self.transform(ex)
