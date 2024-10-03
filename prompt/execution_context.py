@@ -107,7 +107,7 @@ class Execution(BaseModel):
             raise ValueError("Output is already set")            
         self.response = response
         self.tracer_run.end(outputs={'output': response.raw})
-        if self.ex_type == "agent":
+        if self.ex_type == "agent" or self.ex_type == "prompt":
             if response.content:
                 self.lifecycle_phase = ExLifecycle.SEND_MESSAGE
             elif response.action_calls:
@@ -115,8 +115,8 @@ class Execution(BaseModel):
                 self.todo_action_calls = [a for a in response.action_calls]
             else:
                 self.lifecycle_phase = ExLifecycle.FINISHED                
-        elif self.ex_type == "prompt":
-            self.lifecycle_phase = ExLifecycle.FINISHED
+        # elif self.ex_type == "prompt":
+        #     self.lifecycle_phase = ExLifecycle.FINISHED
         elif self.ex_type == "tool":
             self.lifecycle_phase = ExLifecycle.FINISHED
         else:
@@ -194,6 +194,7 @@ class ExecutionContext(BaseModel):
     is_traceable: bool = True
     context: Context | None = None
     ex_type: ExecutionType = "prompt"
+    run_type: RunTypes = "prompt"
     kwargs: Any = {}
     stack: List[Execution] = [] 
     parent_ctx: Union['ExecutionContext', None] = None   
@@ -240,9 +241,11 @@ class ExecutionContext(BaseModel):
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
-        if self.parent_ctx:
-            self.parent_ctx.merge_child(self)
-        return False 
+        # if self.parent_ctx:
+            # self.parent_ctx.merge_child(self)
+        if self.tracer_run:
+            self.tracer_run.end_run(exc_type, exc_value, traceback)
+        return True 
         
         
     def add_view(self, view: List[ViewBlock] | ViewBlock | HumanMessage | AIMessage | ActionMessage):
@@ -296,12 +299,14 @@ class ExecutionContext(BaseModel):
             response =  self.curr_ex.send_message()
             if not response.content:
                 raise ValueError("No message to send")
+            if self.curr_ex.did_finish:
+                self.stack.pop()
             return response.content
         else:
             raise ValueError("No execution to send message")
         
         
-    def create_child(self, prompt_name: str, ex_type: ExecutionType="prompt", kwargs: Any = {}):
+    def create_child(self, prompt_name: str, ex_type: ExecutionType="prompt", run_type: RunTypes = "prompt", kwargs: Any = {}):
         # if self.ex_type == "agent":
         #     if self.lifecycle_phase == ExLifecycle.ACTION_CALLS or action_call is not None:
         #         ex_type = "tool"
@@ -310,8 +315,8 @@ class ExecutionContext(BaseModel):
         # else:
         #     ex_type = "prompt"
 
-        if self.lifecycle_phase == ExLifecycle.ACTION_CALLS:
-            ex_type = "tool"
+        # if self.lifecycle_phase == ExLifecycle.ACTION_CALLS:
+        #     ex_type = "tool"
         
         
         ex_ctx = ExecutionContext(
@@ -319,6 +324,7 @@ class ExecutionContext(BaseModel):
             is_traceable=self.is_traceable,
             context=self.context,
             ex_type=ex_type,
+            run_type=run_type,
             kwargs=kwargs,
             parent_ctx=self
         )                
@@ -336,7 +342,7 @@ class ExecutionContext(BaseModel):
         self, 
         prompt_name: str,         
         kwargs: Any, 
-        run_type: RunTypes, 
+        run_type: RunTypes | None = None, 
         tool_choice: ToolChoiceParam | None= None,
         action_call: ActionCall | None = None,
         model: str | None = None, 
@@ -354,7 +360,7 @@ class ExecutionContext(BaseModel):
             prompt_name=prompt_name,
             model=model,
             kwargs=self.kwargs,
-            run_type=run_type,
+            run_type=run_type or self.run_type,
             context=self.context,
             parent_tracer_run=self.curr_ex.tracer_run if self.curr_ex else None,
             tool_choice=tool_choice,

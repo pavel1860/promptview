@@ -98,10 +98,11 @@ class Prompt(BaseModel, Generic[P]):
             # **kwargs: P.kwargs
         ) -> ExecutionContext:
         if ex_ctx is not None:
-            return ex_ctx.create_child(
-                prompt_name=self._view_builder.prompt_name,
-                kwargs=kwargs,
-            )
+            return ex_ctx
+            # return ex_ctx.create_child(
+            #     prompt_name=self._view_builder.prompt_name,
+            #     kwargs=kwargs,
+            # )
         return ExecutionContext(
             prompt_name=self._view_builder.prompt_name,
             is_traceable=self.is_traceable,
@@ -221,7 +222,6 @@ class Prompt(BaseModel, Generic[P]):
             prompt_name=self._view_builder.prompt_name,
             model=self.llm.model,
             kwargs=kwargs,
-            run_type="prompt"
         ) as ex_ctx:    
         
             if ex_ctx.lifecycle_phase == ExLifecycle.RENDER:
@@ -230,9 +230,6 @@ class Prompt(BaseModel, Generic[P]):
                 ex_ctx = self.call_llm_transform(ex_ctx)
             if ex_ctx.lifecycle_phase == ExLifecycle.COMPLETE:
                 ex_ctx = await self.call_llm_complete(ex_ctx)
-            
-            if ex_ctx.parent_ctx:
-                return ex_ctx.parent_ctx
             return ex_ctx
     
     
