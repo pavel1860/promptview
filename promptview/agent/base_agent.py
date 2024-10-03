@@ -16,7 +16,8 @@ from promptview.llms.tracer import Tracer
 from promptview.prompt.base_prompt import Prompt
 from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.decorator import prompt
-from promptview.prompt.execution_context import PromptExecutionContext
+from promptview.prompt.execution_context import (ExLifecycle,
+                                                 PromptExecutionContext)
 from promptview.prompt.mvc import RenderMethodOutput
 from promptview.prompt.types import ToolChoiceParam
 from promptview.state.context import Context
@@ -43,11 +44,30 @@ class Agent(ChatPrompt[P], Generic[P]):
         self._action_handlers[action.__name__] =  handler
         
     
-    def get_action_handler(self, action_call: ActionCall):
+    def get_action_handler(self, action_call: ActionCall) -> BaseActionHandler:
         handler = self._action_handlers[action_call.action.__class__.__name__]
         if not handler:
             raise ValueError(f"Action handler not found for {action_call.action.__class__.__name__}")
         return handler
+    
+    
+    def build_execution_context(
+            self,
+            ex_ctx: PromptExecutionContext | None = None,
+            *args: Any,
+            **kwargs: Any
+            # *args: P.args,
+            # **kwargs: P.kwargs
+        ) -> PromptExecutionContext:
+        if ex_ctx is not None:
+            return ex_ctx
+        return PromptExecutionContext(
+            prompt_name=self._view_builder.prompt_name,
+            is_traceable=self.is_traceable,
+            context=kwargs.get("context", None),
+            ex_type="agent",
+            kwargs=kwargs
+        )
     
     
     def process_action_output(self, ex_ctx: PromptExecutionContext ,action_call: ActionCall, action_output)-> PromptExecutionContext:
@@ -70,15 +90,53 @@ class Agent(ChatPrompt[P], Generic[P]):
     
     
     async def call_agent_prompt(self, ex_ctx: PromptExecutionContext, is_router: bool=False) -> PromptExecutionContext:
-        sub_ctx = await call_function(
+        handler_kwargs = filter_func_args(self._render_method, ex_ctx.kwargs)
+        ex_ctx = await call_function(
                 self.call_ctx,
                 ex_ctx=ex_ctx,
-                *ex_ctx.inputs.args,
-                **ex_ctx.inputs.kwargs
+                **handler_kwargs
             ) 
-        ex_ctx.push_response(sub_ctx.output)
         return ex_ctx
-        
+    
+    
+    
+    async def call_agent_ctx(
+        self,
+        ex_ctx: PromptExecutionContext | None = None,
+        *args: P.args, 
+        **kwargs: P.kwargs
+    ):
+        ex_ctx = self.build_execution_context(ex_ctx=ex_ctx, *args, **kwargs)
+        try:
+            for i in range(self.iterations):
+                ex_ctx = await self.call_agent_prompt(ex_ctx)
+                if ex_ctx.lifecycle_phase == ExLifecycle.SEND_MESSAGE:
+                    yield ex_ctx.send_message()
+                if ex_ctx.lifecycle_phase == ExLifecycle.ACTION_CALLS:
+                    for action_call in ex_ctx.action_calls:
+                        action_handler = self.get_action_handler(action_call)                        
+                        if action_handler.type == "async_generator" or action_handler.type == "prompt":
+                            stream_gen = action_handler.stream(action_call, ex_ctx=ex_ctx) #type: ignore
+                            async for output in stream_gen:
+                                if output is None:
+                                    break
+                                yield output
+                        elif action_handler.type == "function" or action_handler.type == "prompt":
+                            ex_ctx = await action_handler.call(action_call, ex_ctx)
+                        else:
+                            raise ValueError(f"Invalid action handler type: {action_handler.type}")                                            
+                        ex_ctx.finish_action_call(action_call)
+                else:
+                    raise ValueError(f"Invalid lifecycle phase: {ex_ctx.lifecycle_phase}")
+                        
+        except Exception as e:
+            raise e
+        finally:
+            print("End of execution")
+            # ex_ctx.end_execution()
+            
+                    
+
         
     # async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[AIMessage, None]:
     #     with self.build_execution_context(
@@ -112,7 +170,10 @@ class Agent(ChatPrompt[P], Generic[P]):
     #                     return
     #             else:
     #                 break
-    async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[AIMessage, None]:
+    async def __call__(
+        self, *args: P.args, 
+        **kwargs: P.kwargs
+    ) -> AsyncGenerator[AIMessage, None]:
         with self.build_execution_context(
                 *args, 
                 **kwargs

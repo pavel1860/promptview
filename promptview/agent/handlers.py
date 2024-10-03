@@ -4,8 +4,10 @@ from abc import abstractmethod
 from typing import (Any, AsyncGenerator, Callable, Dict, Generic, List,
                     Literal, Optional, ParamSpec, Type, TypeVar, Union)
 
-from promptview.llms.messages import MessageChunk
+from promptview.llms.messages import ActionCall, MessageChunk
 from promptview.prompt.base_prompt import Prompt
+from promptview.prompt.execution_context import (ExLifecycle,
+                                                 PromptExecutionContext)
 from promptview.utils.function_utils import call_function, filter_func_args
 from pydantic import BaseModel, Field
 
@@ -17,11 +19,11 @@ class BaseActionHandler(BaseModel):
     action: Type[BaseModel]
             
     @abstractmethod
-    def call(self, action: BaseModel, **kwargs):
+    def call(self, action_call: ActionCall, ex_ctx: PromptExecutionContext)-> PromptExecutionContext:
         pass
     
     @abstractmethod
-    def stream(self, action: BaseModel, **kwargs)-> AsyncGenerator[MessageChunk, None]:
+    def stream(self, action_call: ActionCall, ex_ctx: PromptExecutionContext)-> AsyncGenerator[MessageChunk, None]:
         pass
     
     @property
@@ -48,11 +50,24 @@ class FunctionHandler(BaseActionHandler):
     #     elif inspect.isfunction(self.handler):
     #         return "function"
     
-    async def call(self, action: BaseModel, **kwargs):
-        return await call_function(self.handler, action=action, **kwargs)
+    async def call(self, action_call: ActionCall, ex_ctx: PromptExecutionContext) -> PromptExecutionContext:
+        handler_kwargs = ex_ctx.kwargs | {"action": action_call.action}
+        handler_kwargs = filter_func_args(self.handler, handler_kwargs)
+        ex = ex_ctx.start_execution(
+            prompt_name=action_call.name,
+            kwargs=handler_kwargs,
+            run_type="tool",
+            action_call=action_call
+        )
+        ex.lifecycle_phase = ExLifecycle.COMPLETE
+        response = await call_function(self.handler, **handler_kwargs)        
+        ex_ctx.add_response(response)
+        return ex_ctx
     
-    def stream(self, action: BaseModel, **kwargs):
-        return self.handler(action, **kwargs)
+    def stream(self, action_call: ActionCall, ex_ctx: PromptExecutionContext):
+        handler_kwargs = ex_ctx.kwargs | {"action": action_call.action}
+        handler_kwargs = filter_func_args(self.handler, handler_kwargs)
+        return self.handler(action_call.action, **ex_ctx.kwargs)
     
 
 
@@ -66,12 +81,16 @@ class PromptHandler(BaseActionHandler):
     # def handler_type(self):
     #     return "prompt"
     
-    async def call(self, action: BaseModel, **kwargs):
-        return await call_function(self.prompt, action=action, **kwargs)
-    
-    def stream(self, action: BaseModel, **kwargs):
+    async def call(self, action: BaseModel, ex_ctx: PromptExecutionContext)-> PromptExecutionContext:
         action_kwargs = action.model_dump()
-        handler_kwargs = filter_func_args(self.prompt._render_method, kwargs | action_kwargs)
+        # handler_kwargs = filter_func_args(self.prompt._render_method, ex_ctx.kwargs | action_kwargs)
+        handler_kwargs = ex_ctx.kwargs | action_kwargs
+        return await call_function(self.prompt.call_ctx, action=action, ex_ctx=ex_ctx, **handler_kwargs)
+    
+    def stream(self, action: BaseModel, ex_ctx: PromptExecutionContext):
+        action_kwargs = action.model_dump()
+        handler_kwargs = ex_ctx.kwargs | action_kwargs | {"ex_ctx": ex_ctx}
+        handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)
         return self.prompt.stream(**handler_kwargs)
 
 
