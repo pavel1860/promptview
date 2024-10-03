@@ -6,8 +6,8 @@ from typing import (Any, AsyncGenerator, Callable, Dict, Generic, List,
 
 from promptview.llms.messages import ActionCall, MessageChunk
 from promptview.prompt.base_prompt import Prompt
-from promptview.prompt.execution_context import (Execution, ExLifecycle,
-                                                 ExecutionContext)
+from promptview.prompt.execution_context import (Execution, ExecutionContext,
+                                                 ExLifecycle)
 from promptview.utils.function_utils import call_function, filter_func_args
 from pydantic import BaseModel, Field
 
@@ -90,6 +90,7 @@ class FunctionHandler(BaseActionHandler):
 
 class PromptHandler(BaseActionHandler):
     prompt: "Prompt"
+    is_routing: bool = False
     
     
     @property
@@ -103,8 +104,16 @@ class PromptHandler(BaseActionHandler):
     
     async def call(self, action_call: ActionCall, ex_ctx: ExecutionContext)-> ExecutionContext:
         handler_kwargs = ex_ctx.kwargs | action_call.to_kwargs()
-        handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)
-        ex_ctx = await call_function(self.prompt.call_ctx, ex_ctx=ex_ctx, **handler_kwargs)
+        handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)        
+        prompt_ctx = ex_ctx.create_child(
+            prompt_name=self.prompt._view_builder.prompt_name,
+            ex_type="prompt" if self.is_routing else "tool",
+            run_type="tool",
+            kwargs=handler_kwargs,
+            
+        )
+        prompt_ctx = await call_function(self.prompt.call_ctx, ex_ctx=prompt_ctx, **handler_kwargs)
+        ex_ctx.merge_child(prompt_ctx)
         return ex_ctx
     
     def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext):

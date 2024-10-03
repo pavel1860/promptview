@@ -67,11 +67,12 @@ class Agent(ChatPrompt[P], Generic[P]):
             # **kwargs: P.kwargs
         ) -> ExecutionContext:
         if ex_ctx is not None:
-            return ex_ctx.create_child(
-                prompt_name=self._view_builder.prompt_name,
-                ex_type="agent",
-                kwargs=kwargs,
-            )
+            return ex_ctx
+            # return ex_ctx.create_child(
+            #     prompt_name=self._view_builder.prompt_name,
+            #     ex_type="agent",
+            #     kwargs=kwargs,
+            # )
         return ExecutionContext(
             prompt_name=self._view_builder.prompt_name,
             is_traceable=self.is_traceable,
@@ -102,11 +103,18 @@ class Agent(ChatPrompt[P], Generic[P]):
     
     async def call_agent_prompt(self, ex_ctx: ExecutionContext, is_router: bool=False) -> ExecutionContext:
         handler_kwargs = filter_func_args(self._render_method, ex_ctx.kwargs)
-        ex_ctx = await call_function(
+        prompt_ctx = ex_ctx.create_child(
+            prompt_name=self._view_builder.prompt_name,
+            ex_type="agent",
+            run_type="prompt",
+            kwargs=handler_kwargs,
+        )
+        prompt_ctx = await call_function(
                 self.call_ctx,
-                ex_ctx=ex_ctx,
+                ex_ctx=prompt_ctx,
                 **handler_kwargs
             ) 
+        ex_ctx.merge_child(prompt_ctx)
         return ex_ctx
     
     
@@ -263,7 +271,7 @@ class Agent(ChatPrompt[P], Generic[P]):
 
 
     def route(self, action: Type[BaseModel], prompt: Prompt, stream: bool = False):        
-        self.handle(action, PromptHandler(action=action, prompt=prompt))
+        self.handle(action, PromptHandler(action=action, is_routing=True, prompt=prompt))
 
     def reducer(self, action: Type[BaseModel]):
         def decorator(func):            
