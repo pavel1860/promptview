@@ -7,7 +7,7 @@ from typing import (Any, AsyncGenerator, Callable, Dict, Generic, List,
 from promptview.llms.messages import ActionCall, MessageChunk
 from promptview.prompt.base_prompt import Prompt
 from promptview.prompt.execution_context import (Execution, ExLifecycle,
-                                                 PromptExecutionContext)
+                                                 ExecutionContext)
 from promptview.utils.function_utils import call_function, filter_func_args
 from pydantic import BaseModel, Field
 
@@ -19,11 +19,11 @@ class BaseActionHandler(BaseModel):
     action: Type[BaseModel]
             
     @abstractmethod
-    def call(self, action_call: ActionCall, ex_ctx: PromptExecutionContext)-> PromptExecutionContext:
+    def call(self, action_call: ActionCall, ex_ctx: ExecutionContext)-> ExecutionContext:
         pass
     
     @abstractmethod
-    def stream(self, action_call: ActionCall, ex_ctx: PromptExecutionContext)-> AsyncGenerator[MessageChunk, None]:
+    def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext)-> AsyncGenerator[MessageChunk, None]:
         pass
     
     @property
@@ -32,7 +32,7 @@ class BaseActionHandler(BaseModel):
         pass
     
     @abstractmethod
-    def start_execution(self, action_call: ActionCall, ex_ctx: PromptExecutionContext)-> Execution:
+    def start_execution(self, action_call: ActionCall, ex_ctx: ExecutionContext)-> Execution:
         pass
 
 
@@ -53,7 +53,7 @@ class FunctionHandler(BaseActionHandler):
     #         return "async_generator"
     #     elif inspect.isfunction(self.handler):
     #         return "function"
-    def start_execution(self, action_call: ActionCall, ex_ctx: PromptExecutionContext)-> Execution:
+    def start_execution(self, action_call: ActionCall, ex_ctx: ExecutionContext)-> Execution:
         execution = Execution(
             prompt_name=action_call.name,
             kwargs=ex_ctx.kwargs,
@@ -67,7 +67,7 @@ class FunctionHandler(BaseActionHandler):
         return execution
         
     
-    async def call(self, action_call: ActionCall, ex_ctx: PromptExecutionContext) -> PromptExecutionContext:
+    async def call(self, action_call: ActionCall, ex_ctx: ExecutionContext) -> ExecutionContext:
         handler_kwargs = ex_ctx.kwargs | {"action": action_call.action}
         handler_kwargs = filter_func_args(self.handler, handler_kwargs)
         ex = ex_ctx.start_execution(
@@ -81,7 +81,7 @@ class FunctionHandler(BaseActionHandler):
         ex_ctx.add_response(response)
         return ex_ctx
     
-    def stream(self, action_call: ActionCall, ex_ctx: PromptExecutionContext):
+    def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext):
         handler_kwargs = ex_ctx.kwargs | {"action": action_call.action}
         handler_kwargs = filter_func_args(self.handler, handler_kwargs)
         return self.handler(action_call.action, **ex_ctx.kwargs)
@@ -98,16 +98,16 @@ class PromptHandler(BaseActionHandler):
     # def handler_type(self):
     #     return "prompt"
     
-    def start_execution(self, action_call: ActionCall, ex_ctx: PromptExecutionContext)-> Execution:
+    def start_execution(self, action_call: ActionCall, ex_ctx: ExecutionContext)-> Execution:
         pass
     
-    async def call(self, action_call: ActionCall, ex_ctx: PromptExecutionContext)-> PromptExecutionContext:
+    async def call(self, action_call: ActionCall, ex_ctx: ExecutionContext)-> ExecutionContext:
         handler_kwargs = ex_ctx.kwargs | action_call.to_kwargs()
         handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)
         ex_ctx = await call_function(self.prompt.call_ctx, ex_ctx=ex_ctx, **handler_kwargs)
         return ex_ctx
     
-    def stream(self, action_call: ActionCall, ex_ctx: PromptExecutionContext):
+    def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext):
         handler_kwargs = ex_ctx.kwargs | action_call.to_kwargs()
         handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)
         return self.prompt.stream(ex_ctx=ex_ctx, **handler_kwargs)

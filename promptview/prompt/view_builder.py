@@ -9,7 +9,7 @@ from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.execution_context import PromptExecutionContext
+from promptview.prompt.execution_context import ExecutionContext
 from promptview.prompt.mvc import ViewBlock, create_view_block
 from promptview.prompt.types import PromptInputs, ToolChoiceParam
 from promptview.state.context import Context
