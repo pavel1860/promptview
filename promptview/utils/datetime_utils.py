@@ -44,6 +44,8 @@ def convert_datetime_timezone(origin: datetime, origin_code: str, target_code: s
     """Converts a datetime object from one timezone to another timezone"""
     origin_str = pytz.country_timezones[origin_code]
     origin_time_zone = pytz.timezone(origin_str[0])
+    if origin.tzinfo is not None:
+        origin = origin.replace(tzinfo=None)
     origin_time = origin_time_zone.localize(origin)    
     # Convert to UTC
     if target_code == "UTC":
