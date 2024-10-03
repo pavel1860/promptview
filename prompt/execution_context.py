@@ -107,7 +107,7 @@ class Execution(BaseModel):
             raise ValueError("Output is already set")            
         self.response = response
         self.tracer_run.end(outputs={'output': response.raw})
-        if self.ex_type == "agent_prompt":
+        if self.ex_type == "agent":
             if response.content:
                 self.lifecycle_phase = ExLifecycle.SEND_MESSAGE
             elif response.action_calls:
@@ -117,6 +117,10 @@ class Execution(BaseModel):
                 self.lifecycle_phase = ExLifecycle.FINISHED                
         elif self.ex_type == "prompt":
             self.lifecycle_phase = ExLifecycle.FINISHED
+        elif self.ex_type == "tool":
+            self.lifecycle_phase = ExLifecycle.FINISHED
+        else:
+            raise ValueError(f"Invalid execution type: {self.ex_type}")
         
     
     def finish_action_call(self, action_call: ActionCall):
@@ -184,14 +188,16 @@ class Execution(BaseModel):
         return tracer_run
 
 
-class PromptExecutionContext(BaseModel):
+class ExecutionContext(BaseModel):
     executions: List[Execution] = []
     prompt_name: str
     is_traceable: bool = True
     context: Context | None = None
     ex_type: ExecutionType = "prompt"
     kwargs: Any = {}
-    stack: List[Execution] = []    
+    stack: List[Execution] = [] 
+    parent_ctx: Union['ExecutionContext', None] = None   
+    
     @property
     def curr_ex(self):
         if self.stack:
@@ -205,7 +211,7 @@ class PromptExecutionContext(BaseModel):
     def lifecycle_phase(self):
         if self.curr_ex:
             return self.curr_ex.lifecycle_phase
-        return None
+        return ExLifecycle.FINISHED
     
     @property
     def action_calls(self) -> List[ActionCall]:
@@ -213,9 +219,77 @@ class PromptExecutionContext(BaseModel):
             return self.curr_ex.action_calls
         return []
     
+    @property
+    def tool_choice(self):
+        if self.curr_ex:
+            return self.curr_ex.tool_choice
+        return None
+    
+    @property
+    def tracer_run(self):
+        if self.curr_ex:
+            return self.curr_ex.tracer_run
+        return None
+    
     def build_action_calls(self):
         action_calls = []
         
+    
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.parent_ctx:
+            self.parent_ctx.merge_child(self)
+        return False 
+        
+        
+    def add_view(self, view: List[ViewBlock] | ViewBlock | HumanMessage | AIMessage | ActionMessage):
+        if not self.curr_ex:
+            raise ValueError("No execution to add view")
+        self.curr_ex.add_view(view)
+        return self.curr_ex
+    
+    
+    def get_views(self) -> ViewBlock:
+        if self.curr_ex and self.curr_ex.root_block:
+            return self.curr_ex.root_block
+        raise ValueError("No execution to get views")
+    
+    def set_messages(self, messages: List[BaseMessage], actions: Actions):
+        if not self.curr_ex:
+            raise ValueError("No execution to add messages")
+        self.curr_ex.set_messages(messages, actions)
+        return self.curr_ex
+    
+    def get_messages(self) -> List[BaseMessage]:
+        messages = []
+        for ex in self.executions:
+            
+            if ex.ex_type == "tool":
+                if ex.did_finish:
+                    if ex.response:
+                        messages.append(ex.response)
+                    else:
+                        raise ValueError("No response in tool execution")
+                else:
+                    if ex.messages:
+                        messages.extend(ex.messages)
+                    else:
+                        raise ValueError("No messages in tool execution")
+            else:
+                if ex.messages:
+                    messages.extend(ex.messages)
+                if ex.response:
+                    messages.append(ex.response)
+        return messages  
+    
+    def get_actions(self) -> Actions | None:
+        if self.curr_ex and self.curr_ex.actions:
+            return self.curr_ex.actions
+        return None
+        # raise ValueError("No execution to get actions")
     
     def send_message(self)-> str:
         if self.curr_ex:
@@ -226,6 +300,37 @@ class PromptExecutionContext(BaseModel):
         else:
             raise ValueError("No execution to send message")
         
+        
+    def create_child(self, prompt_name: str, ex_type: ExecutionType="prompt", kwargs: Any = {}):
+        # if self.ex_type == "agent":
+        #     if self.lifecycle_phase == ExLifecycle.ACTION_CALLS or action_call is not None:
+        #         ex_type = "tool"
+        #     else:
+        #         ex_type = "agent_prompt"
+        # else:
+        #     ex_type = "prompt"
+
+        if self.lifecycle_phase == ExLifecycle.ACTION_CALLS:
+            ex_type = "tool"
+        
+        
+        ex_ctx = ExecutionContext(
+            prompt_name=prompt_name,
+            is_traceable=self.is_traceable,
+            context=self.context,
+            ex_type=ex_type,
+            kwargs=kwargs,
+            parent_ctx=self
+        )                
+        return ex_ctx
+    
+    def merge_child(self, ex_ctx: "ExecutionContext"):
+        self.executions.extend(ex_ctx.executions)        
+        if ex_ctx.lifecycle_phase != ExLifecycle.FINISHED:
+            self.stack.extend(ex_ctx.stack)
+        return self
+    
+    
     
     def start_execution(
         self, 
@@ -236,13 +341,13 @@ class PromptExecutionContext(BaseModel):
         action_call: ActionCall | None = None,
         model: str | None = None, 
     ):
-        if self.ex_type == "agent":
-            if self.lifecycle_phase == ExLifecycle.ACTION_CALLS or action_call is not None:
-                ex_type = "tool"
-            else:
-                ex_type = "agent_prompt"
-        else:
-            ex_type = "prompt"
+        # if self.ex_type == "agent":
+        #     if self.lifecycle_phase == ExLifecycle.ACTION_CALLS or action_call is not None:
+        #         ex_type = "tool"
+        #     else:
+        #         ex_type = "agent_prompt"
+        # else:
+        #     ex_type = "prompt"
         
         
         execution = Execution(
@@ -254,18 +359,18 @@ class PromptExecutionContext(BaseModel):
             parent_tracer_run=self.curr_ex.tracer_run if self.curr_ex else None,
             tool_choice=tool_choice,
             action_call=action_call,
-            ex_type=ex_type,
+            ex_type=self.ex_type,
         )                                
         execution.start()
-        if execution.ex_type == "agent_prompt":
-            if self.executions:
-                messages = self.get_message_history()
-                execution.messages = messages
-                execution.lifecycle_phase = ExLifecycle.COMPLETE
+        # if execution.ex_type == "agent_prompt":
+        #     if self.executions:
+        #         messages = self.get_message_history()
+        #         execution.messages = messages
+        #         execution.lifecycle_phase = ExLifecycle.COMPLETE
                 
         self.executions.append(execution)
         self.stack.append(execution)
-        return execution
+        return self
 
 
     def add_response(self, response: Any):
@@ -278,22 +383,6 @@ class PromptExecutionContext(BaseModel):
             self.stack.pop()
         return self.curr_ex
     
-    def get_message_history(self):
-        messages = []
-        for ex in self.executions:
-            if ex.ex_type == "agent_prompt":
-                if ex.messages:
-                    messages.extend(ex.messages)
-                if ex.response:
-                    messages.append(ex.response)
-                else:
-                    raise ValueError("No response in agent prompt execution")
-            elif ex.ex_type == "tool":
-                if ex.response:
-                    messages.append(ex.response)
-                else:
-                    raise ValueError("No response in tool execution")
-        return messages
     
     
     def finish_action_call(self, action_call: ActionCall):
@@ -452,7 +541,7 @@ class PromptExecutionContext2(BaseExecutionContext):
         )
         
         
-    def merge_ctx(self, ex_ctx: "PromptExecutionContext"):
+    def merge_ctx(self, ex_ctx: "ExecutionContext"):
         if ex_ctx.root_block is None:
             raise ValueError("Root block is not set")
         if self.root_block is None:

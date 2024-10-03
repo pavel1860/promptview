@@ -10,8 +10,8 @@ from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.execution_context import (Execution, ExLifecycle,
-                                                 PromptExecutionContext)
+from promptview.prompt.execution_context import (Execution, ExecutionContext,
+                                                 ExLifecycle)
 from promptview.prompt.mvc import (RenderMethodOutput, ViewBlock,
                                    create_view_block)
 from promptview.prompt.types import PromptInputs, ToolChoiceParam
@@ -91,15 +91,18 @@ class Prompt(BaseModel, Generic[P]):
     #     return ex_ctx_inst
     def build_execution_context(
             self,
-            ex_ctx: PromptExecutionContext | None = None,
+            ex_ctx: ExecutionContext | None = None,
             *args: Any,
             **kwargs: Any
             # *args: P.args,
             # **kwargs: P.kwargs
-        ) -> PromptExecutionContext:
+        ) -> ExecutionContext:
         if ex_ctx is not None:
-            return ex_ctx
-        return PromptExecutionContext(
+            return ex_ctx.create_child(
+                prompt_name=self._view_builder.prompt_name,
+                kwargs=kwargs,
+            )
+        return ExecutionContext(
             prompt_name=self._view_builder.prompt_name,
             is_traceable=self.is_traceable,
             context=kwargs.get("context", None),            
@@ -109,40 +112,38 @@ class Prompt(BaseModel, Generic[P]):
         
         
     
-    async def call_render(self, ex: Execution) -> ViewBlock:
+    async def call_render(self, ex_ctx: ExecutionContext) -> ViewBlock:
         views = await call_function(
                 # self.render if self._render_method is None else self._render_method, 
                 self.render,
-                **ex.kwargs
+                **ex_ctx.kwargs
             )        
         # view_block = await self.transform(views, context=context, **kwargs)
         return views
     
     
-    def call_llm_transform(self, ex: Execution) -> Execution:
-        if not ex.root_block:
-            raise ValueError("Root block is not set")
+    def call_llm_transform(self, ex_ctx: ExecutionContext) -> ExecutionContext:
         messages, actions = self.llm.transform(
-                root_block=ex.root_block, 
+                root_block=ex_ctx.get_views(), 
                 actions=self.actions, 
-                context=ex.context, 
-                **ex.kwargs
+                context=ex_ctx.context, 
+                **ex_ctx.kwargs
             )
-        ex.set_messages(messages, actions)
-        return ex
+        ex_ctx.set_messages(messages, actions)
+        return ex_ctx
     
     
     async def transform(
         self, 
-        ex: Execution
-    ) -> Execution:
+        ex_ctx: ExecutionContext
+    ) -> ExecutionContext:
         
-        system_view = await self._view_builder.get_template_views(self, **ex.kwargs)
+        system_view = await self._view_builder.get_template_views(self, **ex_ctx.kwargs)
         if system_view:
-            ex.add_view(system_view)
-        render_output = await self.call_render(ex)
+            ex_ctx.add_view(system_view)
+        render_output = await self.call_render(ex_ctx)
         views = await self._view_builder.process_render_output(render_output)
-        ex.add_view(views)
+        ex_ctx.add_view(views)
         # ex_ctx.root_block.add(views)
         # if isinstance(views, list):
         #     ex_ctx.root_block.extend(views)        
@@ -150,27 +151,28 @@ class Prompt(BaseModel, Generic[P]):
         #     ex_ctx.root_block.push(views)
         # else:
             # raise ValueError(f"Invalid views: {type(views)}")        
-        return ex
+        return ex_ctx
     
-    async def call_llm_complete(self, ex: Execution) -> AIMessage:
-        if not ex.messages:
-            raise ValueError("No messages to complete")        
+    async def call_llm_complete(self, ex_ctx: ExecutionContext) -> ExecutionContext:
+
         response = await self.llm.complete(
-            messages=ex.messages, 
-            actions=ex.actions, 
-            tool_choice=ex.tool_choice, 
-            tracer_run=ex.tracer_run, 
-            **ex.kwargs
+            messages=ex_ctx.get_messages(), 
+            actions=ex_ctx.get_actions(), 
+            tool_choice=ex_ctx.tool_choice, 
+            tracer_run=ex_ctx.tracer_run, 
+            **ex_ctx.kwargs
         )
-        return response
+        parsed_response = await self.call_parse(response, ex_ctx)
+        ex_ctx.add_response(parsed_response)
+        return ex_ctx
         # ex.add_response(response)
         # return ex
     
-    async def call_parse(self, response: AIMessage, ex: Execution) -> Execution:
+    async def call_parse(self, response: AIMessage, ex_ctx: ExecutionContext) -> Execution:
         if self._output_parser_method:
-            parsed_response = await call_function(self._output_parser_method, response, ex.messages, ex.actions, **ex.kwargs)
+            parsed_response = await call_function(self._output_parser_method, response, ex_ctx.get_messages(), ex_ctx.get_actions(), **ex_ctx.kwargs)
         else:
-            parsed_response = await call_function(self.parse, response, ex.messages, ex.actions, **ex.kwargs)        
+            parsed_response = await call_function(self.parse, response, ex_ctx.get_messages(), ex_ctx.get_actions(), **ex_ctx.kwargs)        
         return parsed_response
     
     
@@ -207,30 +209,31 @@ class Prompt(BaseModel, Generic[P]):
         
     async def call_ctx(
             self, 
-            ex_ctx: PromptExecutionContext | None = None,
+            ex_ctx: ExecutionContext | None = None,
             *args: P.args, 
             **kwargs: P.kwargs
-        ) -> PromptExecutionContext:
+        ) -> ExecutionContext:
         # parent_ctx = ex_ctx
         
         ex_ctx = self.build_execution_context(ex_ctx=ex_ctx,*args, **kwargs)
         
-        ex = ex_ctx.start_execution(
+        with ex_ctx.start_execution(
             prompt_name=self._view_builder.prompt_name,
             model=self.llm.model,
             kwargs=kwargs,
             run_type="prompt"
-        )        
+        ) as ex_ctx:    
         
-        if ex.lifecycle_phase == ExLifecycle.RENDER:
-            ex = await self.transform(ex)
-        if ex.lifecycle_phase == ExLifecycle.INTERPRET:
-            ex = self.call_llm_transform(ex)
-        if ex.lifecycle_phase == ExLifecycle.COMPLETE:
-            response = await self.call_llm_complete(ex)        
-            parsed_response = await self.call_parse(response, ex)
-            ex_ctx.add_response(parsed_response)
-        return ex_ctx
+            if ex_ctx.lifecycle_phase == ExLifecycle.RENDER:
+                ex_ctx = await self.transform(ex_ctx)
+            if ex_ctx.lifecycle_phase == ExLifecycle.INTERPRET:
+                ex_ctx = self.call_llm_transform(ex_ctx)
+            if ex_ctx.lifecycle_phase == ExLifecycle.COMPLETE:
+                ex_ctx = await self.call_llm_complete(ex_ctx)
+            
+            if ex_ctx.parent_ctx:
+                return ex_ctx.parent_ctx
+            return ex_ctx
     
     
     async def __call__(

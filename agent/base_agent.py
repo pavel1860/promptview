@@ -16,8 +16,7 @@ from promptview.llms.tracer import Tracer
 from promptview.prompt.base_prompt import Prompt
 from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.decorator import prompt
-from promptview.prompt.execution_context import (ExLifecycle,
-                                                 PromptExecutionContext)
+from promptview.prompt.execution_context import ExecutionContext, ExLifecycle
 from promptview.prompt.mvc import RenderMethodOutput
 from promptview.prompt.types import ToolChoiceParam
 from promptview.state.context import Context
@@ -61,15 +60,19 @@ class Agent(ChatPrompt[P], Generic[P]):
     
     def build_execution_context(
             self,
-            ex_ctx: PromptExecutionContext | None = None,
+            ex_ctx: ExecutionContext | None = None,
             *args: Any,
             **kwargs: Any
             # *args: P.args,
             # **kwargs: P.kwargs
-        ) -> PromptExecutionContext:
+        ) -> ExecutionContext:
         if ex_ctx is not None:
-            return ex_ctx
-        return PromptExecutionContext(
+            return ex_ctx.create_child(
+                prompt_name=self._view_builder.prompt_name,
+                ex_type="agent",
+                kwargs=kwargs,
+            )
+        return ExecutionContext(
             prompt_name=self._view_builder.prompt_name,
             is_traceable=self.is_traceable,
             context=kwargs.get("context", None),
@@ -78,7 +81,7 @@ class Agent(ChatPrompt[P], Generic[P]):
         )
     
     
-    def process_action_output(self, ex_ctx: PromptExecutionContext ,action_call: ActionCall, action_output)-> PromptExecutionContext:
+    def process_action_output(self, ex_ctx: ExecutionContext ,action_call: ActionCall, action_output)-> ExecutionContext:
         if type(action_output) == str:
             action_output_str = action_output
         elif isinstance(action_output, BaseModel):
@@ -97,7 +100,7 @@ class Agent(ChatPrompt[P], Generic[P]):
     
     
     
-    async def call_agent_prompt(self, ex_ctx: PromptExecutionContext, is_router: bool=False) -> PromptExecutionContext:
+    async def call_agent_prompt(self, ex_ctx: ExecutionContext, is_router: bool=False) -> ExecutionContext:
         handler_kwargs = filter_func_args(self._render_method, ex_ctx.kwargs)
         ex_ctx = await call_function(
                 self.call_ctx,
@@ -110,7 +113,7 @@ class Agent(ChatPrompt[P], Generic[P]):
     
     async def call_agent_ctx(
         self,
-        ex_ctx: PromptExecutionContext | None = None,
+        ex_ctx: ExecutionContext | None = None,
         *args: P.args, 
         **kwargs: P.kwargs
     ):
@@ -135,7 +138,10 @@ class Agent(ChatPrompt[P], Generic[P]):
                             ex_ctx = await action_handler.call(action_call, ex_ctx)
                         else:
                             raise ValueError(f"Invalid action handler type: {action_handler.type}")                                            
+                        if ex_ctx.lifecycle_phase == ExLifecycle.SEND_MESSAGE:
+                            yield ex_ctx.send_message()
                         ex_ctx.finish_action_call(action_call)
+                        
                 elif ex_ctx.lifecycle_phase == ExLifecycle.FINISHED:
                     return
                 else:
