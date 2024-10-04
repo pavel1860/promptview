@@ -41,7 +41,7 @@ class Prompt(BaseModel, Generic[P]):
     
     def __init__(self, **data):
         super().__init__(**data)
-        self._view_builder = ViewBlockBuilder(prompt_name="render_" + self._name if self._name else self.__class__.__name__)
+        self._view_builder = ViewBlockBuilder(prompt_name=self.__class__.__name__)
     
     
     async def render(self, *args: P.args, **kwargs: P.kwargs) -> RenderMethodOutput:
@@ -406,8 +406,11 @@ class Prompt(BaseModel, Generic[P]):
     #     return ex_ctx
             
     def set_methods(self, render_func: Callable[P, RenderMethodOutput] | None = None, output_parser: Callable | None = None) -> None:
+        if render_func:
+            self._view_builder.prompt_name = render_func.__name__
         self._render_method = render_func
         self._output_parser_method = output_parser
+        
     
         
     # async def to_views(
