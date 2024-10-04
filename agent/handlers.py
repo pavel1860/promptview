@@ -116,10 +116,23 @@ class PromptHandler(BaseActionHandler):
         ex_ctx.merge_child(prompt_ctx)
         return ex_ctx
     
-    def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext):
+    
+    async def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext) -> AsyncGenerator[MessageChunk, None]:
         handler_kwargs = ex_ctx.kwargs | action_call.to_kwargs()
-        handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)
-        return self.prompt.stream(ex_ctx=ex_ctx, **handler_kwargs)
+        handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)        
+        prompt_ctx = ex_ctx.create_child(
+            prompt_name=self.prompt._view_builder.prompt_name,
+            ex_type="prompt" if self.is_routing else "tool",
+            run_type="tool",
+            kwargs=handler_kwargs,
+            
+        )
+        async for msg in self.prompt.stream(ex_ctx=ex_ctx, **handler_kwargs):
+            yield msg
+    # def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext):
+    #     handler_kwargs = ex_ctx.kwargs | action_call.to_kwargs()
+    #     handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)
+    #     return self.prompt.stream(ex_ctx=ex_ctx, **handler_kwargs)
 
 
 class ActionHandler(BaseModel):
