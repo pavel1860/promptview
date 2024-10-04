@@ -70,15 +70,29 @@ class FunctionHandler(BaseActionHandler):
     async def call(self, action_call: ActionCall, ex_ctx: ExecutionContext) -> ExecutionContext:
         handler_kwargs = ex_ctx.kwargs | {"action": action_call.action}
         handler_kwargs = filter_func_args(self.handler, handler_kwargs)
-        ex = ex_ctx.start_execution(
+        # ex = ex_ctx.start_execution(
+        #     prompt_name=action_call.name,
+        #     kwargs=handler_kwargs,
+        #     run_type="tool",
+        #     action_call=action_call
+        # )
+        
+        func_ctx = ex_ctx.create_child(
             prompt_name=action_call.name,
-            kwargs=handler_kwargs,
+            ex_type="tool",
             run_type="tool",
-            action_call=action_call
+            kwargs=handler_kwargs,
         )
-        ex.lifecycle_phase = ExLifecycle.COMPLETE
-        response = await call_function(self.handler, **handler_kwargs)        
-        ex_ctx.add_response(response)
+        with func_ctx.start_execution(
+            prompt_name=action_call.name,
+            kwargs=handler_kwargs, 
+            action_call=action_call,           
+        ) as ex:        
+        # ex.lifecycle_phase = ExLifecycle.COMPLETE
+            response = await call_function(self.handler, **handler_kwargs)        
+            ex.add_response(response)
+        
+        ex_ctx.merge_child(func_ctx)
         return ex_ctx
     
     def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext):
@@ -107,7 +121,8 @@ class PromptHandler(BaseActionHandler):
         handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)        
         prompt_ctx = ex_ctx.create_child(
             prompt_name=self.prompt._view_builder.prompt_name,
-            ex_type="prompt" if self.is_routing else "tool",
+            # ex_type="prompt" if self.is_routing else "tool",
+            ex_type="prompt",
             run_type="tool",
             kwargs=handler_kwargs,
             
@@ -122,7 +137,8 @@ class PromptHandler(BaseActionHandler):
         handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)        
         prompt_ctx = ex_ctx.create_child(
             prompt_name=self.prompt._view_builder.prompt_name,
-            ex_type="prompt" if self.is_routing else "tool",
+            # ex_type="prompt" if self.is_routing else "tool",
+            ex_type="prompt",
             run_type="tool",
             kwargs=handler_kwargs,
             

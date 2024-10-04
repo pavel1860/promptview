@@ -75,6 +75,55 @@ class Execution(BaseModel):
     def did_finish(self):
         return self.lifecycle_phase == ExLifecycle.FINISHED
     
+    
+    def advance_lifecycle(self):
+        if self.lifecycle_phase == ExLifecycle.START:
+            if self.ex_type == "tool":
+                self.lifecycle_phase = ExLifecycle.COMPLETE
+            else:
+                self.lifecycle_phase = ExLifecycle.RENDER
+        elif self.lifecycle_phase == ExLifecycle.RENDER:
+            if self.root_block:
+                self.lifecycle_phase = ExLifecycle.INTERPRET
+            else:
+                raise ValueError("Root block is not set")
+        elif self.lifecycle_phase == ExLifecycle.INTERPRET:
+            if self.messages:
+                self.lifecycle_phase = ExLifecycle.COMPLETE
+        elif self.lifecycle_phase == ExLifecycle.COMPLETE:
+            if self.ex_type == "agent" or self.ex_type == "prompt":
+                if self.response:
+                    if self.response.content:
+                        self.lifecycle_phase = ExLifecycle.SEND_MESSAGE
+                    elif isinstance(self.response, AIMessage) and self.response.action_calls:
+                        self.lifecycle_phase = ExLifecycle.ACTION_CALLS
+                        self.todo_action_calls = [a for a in self.response.action_calls]
+                    else:
+                        self.lifecycle_phase = ExLifecycle.FINISHED
+            elif self.ex_type == "tool":
+                self.lifecycle_phase = ExLifecycle.FINISHED
+            else:
+                raise ValueError(f"Invalid execution type: {self.ex_type}")
+        elif self.lifecycle_phase == ExLifecycle.SEND_MESSAGE:
+            assert self.response is not None
+            assert self.response.content is not None
+            
+            if isinstance(self.response, AIMessage) and self.response.action_calls:
+                self.lifecycle_phase = ExLifecycle.ACTION_CALLS
+            else:
+                self.lifecycle_phase = ExLifecycle.FINISHED
+                
+        elif self.lifecycle_phase == ExLifecycle.ACTION_CALLS:
+            if not self.todo_action_calls:
+                self.lifecycle_phase = ExLifecycle.FINISHED        
+        else:
+            raise ValueError(f"Invalid lifecycle phase: {self.lifecycle_phase}")
+        # elif self.lifecycle_phase == ExLifecycle.FINISHED:
+            
+        # elif self.lifecycle_phase == ExLifecycle.ERROR:
+            
+        # else:
+        #     raise ValueError(f"Invalid lifecycle phase: {self.lifecycle_phase}")
         
 
     def add_view(self, view: ViewBlock | List[ViewBlock] | HumanMessage | AIMessage | ActionMessage):
@@ -84,13 +133,17 @@ class Execution(BaseModel):
             self.root_block = view
         else:
             self.root_block.add(view)
-        self.lifecycle_phase = ExLifecycle.INTERPRET
+        self.advance_lifecycle()
+        #TODO
+        # self.lifecycle_phase = ExLifecycle.INTERPRET
     
     
     def set_messages(self, messages: List[BaseMessage], actions: Actions):
         self.messages = messages
         self.actions = actions
-        self.lifecycle_phase = ExLifecycle.COMPLETE
+        self.advance_lifecycle()
+        #TODO 
+        # self.lifecycle_phase = ExLifecycle.COMPLETE
             
             
     def add_response(self, response: ViewBlock | AIMessage | Any):        
@@ -106,21 +159,23 @@ class Execution(BaseModel):
         if self.response is not None:
             raise ValueError("Output is already set")            
         self.response = response
-        self.tracer_run.end(outputs={'output': response.raw})
-        if self.ex_type == "agent" or self.ex_type == "prompt":
-            if response.content:
-                self.lifecycle_phase = ExLifecycle.SEND_MESSAGE
-            elif response.action_calls:
-                self.lifecycle_phase = ExLifecycle.ACTION_CALLS
-                self.todo_action_calls = [a for a in response.action_calls]
-            else:
-                self.lifecycle_phase = ExLifecycle.FINISHED                
-        # elif self.ex_type == "prompt":
+        self.tracer_run.end_post(outputs={'output': response.raw})
+        self.advance_lifecycle()
+        #TODO
+        # if self.ex_type == "agent" or self.ex_type == "prompt":
+        #     if response.content:
+        #         self.lifecycle_phase = ExLifecycle.SEND_MESSAGE
+        #     elif response.action_calls:
+        #         self.lifecycle_phase = ExLifecycle.ACTION_CALLS
+        #         self.todo_action_calls = [a for a in response.action_calls]
+        #     else:
+        #         self.lifecycle_phase = ExLifecycle.FINISHED                
+        # # elif self.ex_type == "prompt":
+        # #     self.lifecycle_phase = ExLifecycle.FINISHED
+        # elif self.ex_type == "tool":
         #     self.lifecycle_phase = ExLifecycle.FINISHED
-        elif self.ex_type == "tool":
-            self.lifecycle_phase = ExLifecycle.FINISHED
-        else:
-            raise ValueError(f"Invalid execution type: {self.ex_type}")
+        # else:
+        #     raise ValueError(f"Invalid execution type: {self.ex_type}")
         
     
     def finish_action_call(self, action_call: ActionCall):
@@ -130,8 +185,10 @@ class Execution(BaseModel):
                 break
         else:
             raise ValueError(f"Action call not found: {action_call}")    
-        if not self.todo_action_calls:
-            self.lifecycle_phase = ExLifecycle.FINISHED
+        self.advance_lifecycle()
+        #TODO 
+        # if not self.todo_action_calls:
+        #     self.lifecycle_phase = ExLifecycle.FINISHED
         
         
     def add_function_response(self, action_output: Any):
@@ -152,8 +209,13 @@ class Execution(BaseModel):
             content=action_output_str,
         )
         self.response = response
-        self.tracer_run.end(outputs={'output': response})
-        self.lifecycle_phase = ExLifecycle.FINISHED
+        # self.tracer_run.add_outputs(response)
+        self.tracer_run.end_post(outputs={'output': action_output_str})
+        # self.tracer_run.end(outputs={'output': action_output_str})
+        # self.tracer_run.end_run(outputs={'output': response})
+        self.advance_lifecycle()
+        #TODO 
+        # self.lifecycle_phase = ExLifecycle.FINISHED
     
     
     
@@ -162,15 +224,19 @@ class Execution(BaseModel):
             raise ValueError("Response is not set")
         if self.lifecycle_phase != ExLifecycle.SEND_MESSAGE:
             raise ValueError("not in send message phase")
-        if self.response.action_calls:
-            self.lifecycle_phase = ExLifecycle.ACTION_CALLS
-        else:
-            self.lifecycle_phase = ExLifecycle.FINISHED
+        self.advance_lifecycle()
+        #TODO
+        # if self.response.action_calls:
+        #     self.lifecycle_phase = ExLifecycle.ACTION_CALLS
+        # else:
+        #     self.lifecycle_phase = ExLifecycle.FINISHED
         return self.response
         
     def start(self):
         self.tracer_run = self.build_tracer()
-        self.lifecycle_phase = ExLifecycle.RENDER
+        self.advance_lifecycle()
+        #TODO
+        # self.lifecycle_phase = ExLifecycle.RENDER
         return self.tracer_run
     
         
@@ -243,8 +309,8 @@ class ExecutionContext(BaseModel):
     def __exit__(self, exc_type, exc_value, traceback):
         # if self.parent_ctx:
             # self.parent_ctx.merge_child(self)
-        if self.tracer_run:
-            self.tracer_run.end_run(exc_type, exc_value, traceback)
+        # if self.tracer_run:
+            # self.tracer_run.end_run(exc_type, exc_value, traceback)
         return True 
         
         
@@ -299,8 +365,9 @@ class ExecutionContext(BaseModel):
             response =  self.curr_ex.send_message()
             if not response.content:
                 raise ValueError("No message to send")
-            if self.curr_ex.did_finish:
-                self.stack.pop()
+            # if self.curr_ex.did_finish:
+            #     self.stack.pop()
+            self.manage_stack()
             return response.content
         else:
             raise ValueError("No execution to send message")
@@ -362,7 +429,8 @@ class ExecutionContext(BaseModel):
             kwargs=self.kwargs,
             run_type=run_type or self.run_type,
             context=self.context,
-            parent_tracer_run=self.curr_ex.tracer_run if self.curr_ex else None,
+            # parent_tracer_run=self.curr_ex.tracer_run if self.curr_ex else None,
+            parent_tracer_run=self.parent_ctx.tracer_run if self.parent_ctx else None,
             tool_choice=tool_choice,
             action_call=action_call,
             ex_type=self.ex_type,
@@ -378,15 +446,22 @@ class ExecutionContext(BaseModel):
         self.stack.append(execution)
         return self
 
+    
+    def manage_stack(self):
+        if self.curr_ex:
+            if self.curr_ex.did_finish:
+                ex = self.stack.pop()
+                # if ex.tracer_run:
+                #     ex.tracer_run.end_run()
+        
 
     def add_response(self, response: Any):
         if not self.curr_ex:
             raise ValueError("No execution to add response")
         # if self.curr_ex.lifecycle_phase != ExLifecycle.COMPLETE:
-        #     raise ValueError("Execution is not in complete phase")            
+        #     raise ValueError("Execution is not in complete phase")
         self.curr_ex.add_response(response)
-        if self.curr_ex.did_finish:
-            self.stack.pop()
+        self.manage_stack()
         return self.curr_ex
     
     
@@ -397,8 +472,7 @@ class ExecutionContext(BaseModel):
         if self.curr_ex.lifecycle_phase != ExLifecycle.ACTION_CALLS:
             raise ValueError("Execution is not in action calls phase")
         self.curr_ex.finish_action_call(action_call)
-        if self.curr_ex.did_finish:
-            self.stack.pop()
+        self.manage_stack()
         
         
         
@@ -519,7 +593,7 @@ class PromptExecutionContext2(BaseExecutionContext):
     
     def end_run(self):
         if self.tracer_run and self.output:
-            self.tracer_run.end(outputs={'output': self.output.raw})
+            self.tracer_run.end_post(outputs={'output': self.output.raw})
         
     
     def extend_views(self, views: List[ViewBlock]):

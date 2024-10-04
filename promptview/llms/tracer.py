@@ -101,6 +101,12 @@ class Tracer:
         if self.is_traceable and self.tracer_run is not None:
             self.tracer_run.end(outputs=outputs, error=errors)
             self.did_end = True
+            
+    def end_post(self, outputs: Any | None = None, errors: Optional[str]=None):
+        if self.is_traceable and self.tracer_run is not None:
+            self.tracer_run.end(outputs=outputs, error=errors)
+            self.did_end = True
+            self.tracer_run.post()
     
             
     def add_outputs(self, output: Any):
