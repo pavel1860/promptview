@@ -1,4 +1,5 @@
 import pickle
+from abc import abstractmethod
 from datetime import datetime
 from typing import Any, AsyncGenerator, List
 
@@ -12,7 +13,9 @@ class BaseLlmClient(BaseModel):
     async def complete(self, *args, **kwargs) -> AIMessage:
         raise NotImplementedError
     
+    
     async def stream(self, *args, **kwargs) -> AsyncGenerator[MessageChunk, None]:
+        yield MessageChunk(id="test", content="streaming not implemented")
         raise NotImplementedError
     
     def serialize_messages(self,  run_id: str, messages: List[BaseModel], response: BaseModel | None = None):

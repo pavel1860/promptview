@@ -5,7 +5,7 @@ from typing import (Any, AsyncGenerator, Callable, Dict, Generic, List,
                     Literal, Optional, ParamSpec, Type, TypeVar, Union)
 
 from promptview.llms.messages import ActionCall, MessageChunk
-from promptview.prompt.base_prompt import Prompt
+from promptview.prompt.base_prompt import Prompt, PromptChunk
 from promptview.prompt.execution_context import (Execution, ExecutionContext,
                                                  ExLifecycle)
 from promptview.utils.function_utils import call_function, filter_func_args
@@ -23,7 +23,7 @@ class BaseActionHandler(BaseModel):
         pass
     
     @abstractmethod
-    def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext)-> AsyncGenerator[MessageChunk, None]:
+    def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext)-> AsyncGenerator[PromptChunk, None]:
         pass
     
     @property
@@ -95,7 +95,7 @@ class FunctionHandler(BaseActionHandler):
         ex_ctx.merge_child(func_ctx)
         return ex_ctx
     
-    def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext):
+    def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext) -> AsyncGenerator[PromptChunk, None]:
         handler_kwargs = ex_ctx.kwargs | {"action": action_call.action}
         handler_kwargs = filter_func_args(self.handler, handler_kwargs)
         return self.handler(action_call.action, **ex_ctx.kwargs)
@@ -132,7 +132,7 @@ class PromptHandler(BaseActionHandler):
         return ex_ctx
     
     
-    async def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext) -> AsyncGenerator[MessageChunk, None]:
+    async def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext) -> AsyncGenerator[PromptChunk, None]:
         handler_kwargs = ex_ctx.kwargs | action_call.to_kwargs()
         handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)        
         prompt_ctx = ex_ctx.create_child(
@@ -143,8 +143,21 @@ class PromptHandler(BaseActionHandler):
             kwargs=handler_kwargs,
             
         )
-        async for msg in self.prompt.stream(ex_ctx=ex_ctx, **handler_kwargs):
-            yield msg
+        async for msg in self.prompt.stream(ex_ctx=prompt_ctx, **handler_kwargs):
+            if not msg.did_finish:
+                yield msg
+            else:
+                if not msg.ex_ctx:
+                    raise ValueError("PromptChunk must have ex_ctx")
+                prompt_ctx.merge_child(msg.ex_ctx)                
+                yield PromptChunk(
+                    id=msg.id,
+                    prompt_name=self.prompt._view_builder.prompt_name,
+                    content=msg.content,
+                    did_finish=True,
+                    ex_ctx=prompt_ctx
+                )
+            
     # def stream(self, action_call: ActionCall, ex_ctx: ExecutionContext):
     #     handler_kwargs = ex_ctx.kwargs | action_call.to_kwargs()
     #     handler_kwargs = filter_func_args(self.prompt._render_method, handler_kwargs)

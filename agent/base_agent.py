@@ -13,7 +13,7 @@ from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
                                       HumanMessage, MessageChunk)
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
-from promptview.prompt.base_prompt import Prompt
+from promptview.prompt.base_prompt import Prompt, PromptChunk
 from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.decorator import prompt
 from promptview.prompt.execution_context import ExecutionContext, ExLifecycle
@@ -167,7 +167,7 @@ class Agent(ChatPrompt[P], Generic[P]):
         ex_ctx: ExecutionContext | None = None,
         *args: P.args, 
         **kwargs: P.kwargs
-    )-> AsyncGenerator[AIMessage, None]:
+    )-> AsyncGenerator[PromptChunk, None]:
         agent_ctx = self.build_execution_context(ex_ctx=ex_ctx, *args, **kwargs)
         try:
             for i in range(self.iterations):
@@ -187,11 +187,17 @@ class Agent(ChatPrompt[P], Generic[P]):
                             agent_ctx = await action_handler.call(action_call, agent_ctx)
                         elif action_handler.type == "prompt":
                             async for msg in action_handler.stream(action_call, agent_ctx):
-                                yield msg
+                                if not msg.did_finish:
+                                    yield msg
+                                else:
+                                    if not msg.ex_ctx:
+                                        raise ValueError(f"Invalid execution context: {msg.ex_ctx}")
+                                    agent_ctx = msg.ex_ctx
+                                    yield msg
                         else:
                             raise ValueError(f"Invalid action handler type: {action_handler.type}")                                            
-                        if agent_ctx.lifecycle_phase == ExLifecycle.SEND_MESSAGE:
-                            yield agent_ctx.send_message()
+                        # if agent_ctx.lifecycle_phase == ExLifecycle.SEND_MESSAGE:
+                            # yield agent_ctx.send_message()
                         agent_ctx.finish_action_call(action_call)
                         
                 elif agent_ctx.lifecycle_phase == ExLifecycle.FINISHED:

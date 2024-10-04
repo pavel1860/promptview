@@ -50,6 +50,7 @@ class MessageChunk(BaseModel):
     id: str
     content: str | None
     did_finish: Optional[bool] = False
+    full_response: Optional["AIMessage"] = None
 
 
 class ActionCall(BaseModel):

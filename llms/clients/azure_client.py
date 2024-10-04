@@ -131,16 +131,21 @@ class AzureOpenAiLlmClient(BaseLlmClient):
                     stream=True,
                     **kwargs
                 )
+                full_text = ''
                 async for chunk in openai_stream:
                     if chunk.choices:
                         if chunk.choices[0].finish_reason == "stop":
                             yield MessageChunk(
                                 id=chunk.id,
                                 content=chunk.choices[0].delta.content,
-                                did_finish= True
+                                did_finish= True,
+                                full_response=AIMessage(
+                                    content=full_text,
+                                )
                             )
                             return                        
                         elif chunk.choices[0].delta.content is not None:
+                            full_text += chunk.choices[0].delta.content
                             yield MessageChunk(
                                 id=chunk.id,
                                 content=chunk.choices[0].delta.content,
