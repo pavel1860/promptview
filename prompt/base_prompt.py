@@ -45,9 +45,10 @@ class Prompt(BaseModel, Generic[P]):
     
     
     async def render(self, *args: P.args, **kwargs: P.kwargs) -> RenderMethodOutput:
-        if self._render_method is None:
-            raise NotImplementedError("Render method is not implemented")
-        return await call_function(self._render_method, *args, **kwargs)
+        raise NotImplementedError("Render method is not implemented")
+        # if self._render_method is None:
+        #     raise NotImplementedError("Render method is not implemented")
+        # return await call_function(self._render_method, *args, **kwargs)
     
     async def parse(self, response: AIMessage, messages: List[BaseMessage], actions: Actions, **kwargs: Any) -> AIMessage:
         return response
@@ -106,7 +107,7 @@ class Prompt(BaseModel, Generic[P]):
         return ExecutionContext(
             prompt_name=self._view_builder.prompt_name,
             is_traceable=self.is_traceable,
-            context=kwargs.get("context", None),            
+            context=kwargs.pop("context", None),            
             ex_type="prompt",
             kwargs=kwargs,
         )
@@ -114,11 +115,18 @@ class Prompt(BaseModel, Generic[P]):
         
     
     async def call_render(self, ex_ctx: ExecutionContext) -> ViewBlock:
-        views = await call_function(
-                # self.render if self._render_method is None else self._render_method, 
-                self.render,
+        if self._render_method is not None:
+            views = await call_function(
+                self._render_method,
+                context=ex_ctx.context,
                 **ex_ctx.kwargs
-            )        
+            )
+        else:                    
+            views = await call_function(
+                    self.render,
+                    context=ex_ctx.context,
+                    **ex_ctx.kwargs
+                )        
         # view_block = await self.transform(views, context=context, **kwargs)
         return views
     
@@ -159,7 +167,7 @@ class Prompt(BaseModel, Generic[P]):
         response = await self.llm.complete(
             messages=ex_ctx.get_messages(), 
             actions=ex_ctx.get_actions(), 
-            tool_choice=ex_ctx.tool_choice, 
+            tool_choice=self.tool_choice, 
             tracer_run=ex_ctx.tracer_run, 
             **ex_ctx.kwargs
         )
@@ -254,35 +262,35 @@ class Prompt(BaseModel, Generic[P]):
         
 
         
-    async def stream(
-            self,             
-            *args: P.args, 
-            **kwargs: P.kwargs
-        ) -> AsyncGenerator[MessageChunk, None]:
+    # async def stream(
+    #         self,             
+    #         *args: P.args, 
+    #         **kwargs: P.kwargs
+    #     ) -> AsyncGenerator[MessageChunk, None]:
         
-        with self.build_execution_context(
-            *args, 
-            **kwargs
-        ) as ex_ctx:
-                if not ex_ctx.root_block:
-                    ex_ctx = await self.transform(ex_ctx)
-                if not ex_ctx.messages:
-                    ex_ctx = self.call_llm_transform(ex_ctx)
-                if not ex_ctx.messages:
-                    raise ValueError("No messages to stream")
-                async for chunk in self.llm.stream(
-                        messages=ex_ctx.messages, 
-                        actions=ex_ctx.actions, 
-                        tool_choice=ex_ctx.inputs.tool_choice, 
-                        tracer_run=ex_ctx.tracer_run, 
-                        **ex_ctx.inputs.kwargs
-                    ):
-                    # ex_ctx.push_chunk(chunk)
-                    if not chunk.did_finish:
-                        yield chunk
-        return
+    #     with self.build_execution_context(
+    #         *args, 
+    #         **kwargs
+    #     ) as ex_ctx:
+    #             if not ex_ctx.root_block:
+    #                 ex_ctx = await self.transform(ex_ctx)
+    #             if not ex_ctx.messages:
+    #                 ex_ctx = self.call_llm_transform(ex_ctx)
+    #             if not ex_ctx.messages:
+    #                 raise ValueError("No messages to stream")
+    #             async for chunk in self.llm.stream(
+    #                     messages=ex_ctx.messages, 
+    #                     actions=ex_ctx.actions, 
+    #                     tool_choice=ex_ctx.inputs.tool_choice, 
+    #                     tracer_run=ex_ctx.tracer_run, 
+    #                     **ex_ctx.inputs.kwargs
+    #                 ):
+    #                 # ex_ctx.push_chunk(chunk)
+    #                 if not chunk.did_finish:
+    #                     yield chunk
+    #     return
     
-    async def stream_ctx(
+    async def stream(
             self, 
             ex_ctx: ExecutionContext | None = None,
             *args: P.args, 

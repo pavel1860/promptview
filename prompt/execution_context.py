@@ -311,7 +311,7 @@ class ExecutionContext(BaseModel):
             # self.parent_ctx.merge_child(self)
         # if self.tracer_run:
             # self.tracer_run.end_run(exc_type, exc_value, traceback)
-        return True 
+        return False 
         
         
     def add_view(self, view: List[ViewBlock] | ViewBlock | HumanMessage | AIMessage | ActionMessage):

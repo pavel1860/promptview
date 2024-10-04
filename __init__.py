@@ -3,6 +3,7 @@
 
 # from promptview.agent.action_agent import ActionAgent
 from promptview.agent.agent_router import AgentRouter
+from promptview.agent.base_agent import Agent, agent
 from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.azure_llm import AzureOpenAiLLM
 from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
@@ -38,5 +39,7 @@ __all__ = [
     # "ActionAgent",
     "OpenAiLLM",
     "AnthropicLLM",
-    "AzureOpenAiLLM"
+    "AzureOpenAiLLM",
+    "Agent",
+    "agent",
 ]
