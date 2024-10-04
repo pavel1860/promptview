@@ -281,6 +281,39 @@ class Prompt(BaseModel, Generic[P]):
                     if not chunk.did_finish:
                         yield chunk
         return
+    
+    async def stream_ctx(
+            self, 
+            ex_ctx: ExecutionContext | None = None,
+            *args: P.args, 
+            **kwargs: P.kwargs
+        )-> AsyncGenerator[MessageChunk, None]:
+        # parent_ctx = ex_ctx
+        
+        ex_ctx = self.build_execution_context(ex_ctx=ex_ctx,*args, **kwargs)
+        
+        with ex_ctx.start_execution(
+            prompt_name=self._view_builder.prompt_name,
+            model=self.llm.model,
+            kwargs=kwargs,
+        ) as ex_ctx:    
+        
+            if ex_ctx.lifecycle_phase == ExLifecycle.RENDER:
+                ex_ctx = await self.transform(ex_ctx)
+            if ex_ctx.lifecycle_phase == ExLifecycle.INTERPRET:
+                ex_ctx = self.call_llm_transform(ex_ctx)
+            if ex_ctx.lifecycle_phase == ExLifecycle.COMPLETE:
+                async for chunk in self.llm.stream(
+                        messages=ex_ctx.get_messages(), 
+                        actions=ex_ctx.get_actions(), 
+                        tool_choice=ex_ctx.tool_choice, 
+                        tracer_run=ex_ctx.tracer_run, 
+                        **ex_ctx.kwargs
+                    ):
+                    # ex_ctx.push_chunk(chunk)
+                    if not chunk.did_finish:
+                        yield chunk
+        return
 
         
     # async def run_steps(self, ex_ctx: PromptExecutionContext)-> PromptExecutionContext:
