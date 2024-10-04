@@ -138,7 +138,6 @@ class LLM(BaseModel, LlmInterpreter):
         #     )
         llm_kwargs = self.get_llm_args(tools=actions, **kwargs)
         metadata["model"] = llm_kwargs.get("model", self.model)
-        total_text = ''
         with Tracer(
             is_traceable=self.is_traceable,
             tracer_run=tracer_run,
@@ -156,9 +155,9 @@ class LLM(BaseModel, LlmInterpreter):
                     **llm_kwargs
                 ):
                     if not chunk.did_finish:
-                        total_text += chunk.content
-                    yield chunk
-                llm_run.end(outputs={"message": total_text})
+                        yield chunk
+                llm_run.end(outputs={"message": chunk.full_response})
+                yield chunk
                 return
             except Exception as e:
                 llm_run.end(errors=str(e))

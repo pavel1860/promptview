@@ -26,6 +26,11 @@ R = TypeVar("R")
 
 
 
+class PromptChunk(MessageChunk):
+    prompt_name: str
+    ex_ctx: ExecutionContext | None = None
+
+
 
 class Prompt(BaseModel, Generic[P]):    
     is_traceable: bool = True
@@ -295,7 +300,7 @@ class Prompt(BaseModel, Generic[P]):
             ex_ctx: ExecutionContext | None = None,
             *args: P.args, 
             **kwargs: P.kwargs
-        )-> AsyncGenerator[MessageChunk, None]:
+        )-> AsyncGenerator[PromptChunk, None]:
         # parent_ctx = ex_ctx
         
         ex_ctx = self.build_execution_context(ex_ctx=ex_ctx,*args, **kwargs)
@@ -320,7 +325,22 @@ class Prompt(BaseModel, Generic[P]):
                     ):
                     # ex_ctx.push_chunk(chunk)
                     if not chunk.did_finish:
-                        yield chunk
+                        yield PromptChunk(
+                            id=chunk.id,
+                            prompt_name=self._view_builder.prompt_name,
+                            content=chunk.content,
+                            did_finish=chunk.did_finish,
+                        )
+                    else:
+                        ex_ctx.add_response(chunk.full_response)
+                        yield PromptChunk(
+                            id=chunk.id,
+                            prompt_name=self._view_builder.prompt_name,
+                            content=chunk.content,
+                            did_finish=chunk.did_finish,
+                            ex_ctx=ex_ctx
+                        )
+                
         return
 
         
