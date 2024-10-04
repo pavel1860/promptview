@@ -5,7 +5,7 @@ import string
 import textwrap
 from functools import wraps
 from typing import (Any, Callable, Coroutine, Generator, Iterable, List,
-                    Literal, ParamSpec, Tuple, Type, Union)
+                    Literal, ParamSpec, Sequence, Tuple, Type, Union)
 from uuid import uuid4
 
 from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
@@ -392,10 +392,14 @@ def transform_list_to_view_blocks(
 
 
 
-RenderViewTypes = List[ViewBlock] | ViewBlock | BaseModel | List[str] | str
+# RenderViewTypes = List[ViewBlock] | ViewBlock | BaseModel | List[str] | str
+# RenderMethodOutput = Coroutine[Any, Any, RenderViewTypes] | Coroutine[Any, Any, tuple[RenderViewTypes, ...]] | RenderViewTypes | tuple[RenderViewTypes, ...]
 
-RenderMethodOutput = Coroutine[Any, Any, RenderViewTypes] | Coroutine[Any, Any, tuple[RenderViewTypes, ...]] | RenderViewTypes | tuple[RenderViewTypes, ...]
 
+
+RenderViewTypes =  ViewBlock | BaseModel | str
+RenderContainerType = Sequence[RenderViewTypes] | Sequence[Sequence[RenderViewTypes]]
+RenderMethodOutput = Coroutine[Any, Any, RenderContainerType] | RenderContainerType | RenderViewTypes
 
 
 def create_view_block(

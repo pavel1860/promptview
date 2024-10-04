@@ -76,7 +76,7 @@ class Agent(ChatPrompt[P], Generic[P]):
         return ExecutionContext(
             prompt_name=self._view_builder.prompt_name,
             is_traceable=self.is_traceable,
-            context=kwargs.get("context", None),
+            context=kwargs.pop("context", None),
             ex_type="agent",
             kwargs=kwargs
         )
@@ -119,7 +119,7 @@ class Agent(ChatPrompt[P], Generic[P]):
     
     
     
-    async def call_agent_ctx(
+    async def __call__(
         self,
         ex_ctx: ExecutionContext | None = None,
         *args: P.args, 
@@ -162,7 +162,7 @@ class Agent(ChatPrompt[P], Generic[P]):
             # ex_ctx.end_execution()
             
             
-    async def stream_agent_ctx(
+    async def stream(
         self,
         ex_ctx: ExecutionContext | None = None,
         *args: P.args, 
@@ -239,78 +239,78 @@ class Agent(ChatPrompt[P], Generic[P]):
     #                     return
     #             else:
     #                 break
-    async def __call__(
-        self, *args: P.args, 
-        **kwargs: P.kwargs
-    ) -> AsyncGenerator[AIMessage, None]:
-        with self.build_execution_context(
-                *args, 
-                **kwargs
-                ) as ex_ctx:
-            action_output = None
-            ex_ctx = await self.transform(ex_ctx)
-            for i in range(self.iterations):
-                ex_ctx = await self.call_agent_prompt(ex_ctx)                
-                if ex_ctx.top_response(): #TODO check if this is a router, if not , stream the response.
-                    # ex_ctx.pop_response()
-                    yield ex_ctx.pop_response()
-                for action_call in ex_ctx.iter_action_calls():
-                    action_handler = self.get_action_handler(action_call)                        
-                    if action_handler.type == "async_generator" or action_handler.type == "prompt":
-                        stream_gen = action_handler.stream(action_call.action, **kwargs) #type: ignore
-                        async for output in stream_gen:
-                            if output is None:
-                                break
-                            yield output
-                    elif action_handler.type == "function" or action_handler.type == "prompt":
-                        action_output = await action_handler.call(action_call.action, **kwargs)
-                    else:
-                        raise ValueError(f"Invalid action handler type: {action_handler.type}")                        
-                    if action_output:
-                        if isinstance(action_output, AIMessage):
-                            yield action_output
-                        else:
-                            ex_ctx = self.process_action_output(ex_ctx, action_call, action_output)
-                    else:
-                        return
-                else:
-                    break
+    # async def __call__(
+    #     self, *args: P.args, 
+    #     **kwargs: P.kwargs
+    # ) -> AsyncGenerator[AIMessage, None]:
+    #     with self.build_execution_context(
+    #             *args, 
+    #             **kwargs
+    #             ) as ex_ctx:
+    #         action_output = None
+    #         ex_ctx = await self.transform(ex_ctx)
+    #         for i in range(self.iterations):
+    #             ex_ctx = await self.call_agent_prompt(ex_ctx)                
+    #             if ex_ctx.top_response(): #TODO check if this is a router, if not , stream the response.
+    #                 # ex_ctx.pop_response()
+    #                 yield ex_ctx.pop_response()
+    #             for action_call in ex_ctx.iter_action_calls():
+    #                 action_handler = self.get_action_handler(action_call)                        
+    #                 if action_handler.type == "async_generator" or action_handler.type == "prompt":
+    #                     stream_gen = action_handler.stream(action_call.action, **kwargs) #type: ignore
+    #                     async for output in stream_gen:
+    #                         if output is None:
+    #                             break
+    #                         yield output
+    #                 elif action_handler.type == "function" or action_handler.type == "prompt":
+    #                     action_output = await action_handler.call(action_call.action, **kwargs)
+    #                 else:
+    #                     raise ValueError(f"Invalid action handler type: {action_handler.type}")                        
+    #                 if action_output:
+    #                     if isinstance(action_output, AIMessage):
+    #                         yield action_output
+    #                     else:
+    #                         ex_ctx = self.process_action_output(ex_ctx, action_call, action_output)
+    #                 else:
+    #                     return
+    #             else:
+    #                 break
 
                     
     
-    async def stream(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[MessageChunk, None]:
-        with self.build_execution_context(
-                *args, 
-                **kwargs
-                ) as ex_ctx:
-            action_output = None
-            ex_ctx = await self.transform(ex_ctx)
-            for i in range(self.iterations):
-                ex_ctx = await self.call_agent_prompt(ex_ctx)                
-                if ex_ctx.top_response(): #TODO check if this is a router, if not , stream the response.
-                    ex_ctx.pop_response()
-                    # yield ex_ctx.pop_response()
-                for action_call in ex_ctx.iter_action_calls():
-                    action_handler = self.get_action_handler(action_call)                        
-                    if action_handler.type == "async_generator" or action_handler.type == "prompt":
-                        stream_gen = action_handler.stream(action_call.action, **kwargs) #type: ignore
-                        async for output in stream_gen:
-                            if output is None:
-                                break
-                            yield output
-                    elif action_handler.type == "function" or action_handler.type == "prompt":
-                        action_output = await action_handler.call(action_call.action, **kwargs)
-                    else:
-                        raise ValueError(f"Invalid action handler type: {action_handler.type}")                        
-                    if action_output:
-                        if isinstance(action_output, AIMessage):
-                            yield action_output
-                        else:
-                            ex_ctx = self.process_action_output(ex_ctx, action_call, action_output)
-                    else:
-                        return
-                else:
-                    break
+    # async def stream(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[MessageChunk, None]:
+    #     with self.build_execution_context(
+    #             *args, 
+    #             **kwargs
+    #             ) as ex_ctx:
+    #         action_output = None
+    #         ex_ctx = await self.transform(ex_ctx)
+    #         for i in range(self.iterations):
+    #             ex_ctx = await self.call_agent_prompt(ex_ctx)                
+    #             if ex_ctx.top_response(): #TODO check if this is a router, if not , stream the response.
+    #                 ex_ctx.pop_response()
+    #                 # yield ex_ctx.pop_response()
+    #             for action_call in ex_ctx.iter_action_calls():
+    #                 action_handler = self.get_action_handler(action_call)                        
+    #                 if action_handler.type == "async_generator" or action_handler.type == "prompt":
+    #                     stream_gen = action_handler.stream(action_call.action, **kwargs) #type: ignore
+    #                     async for output in stream_gen:
+    #                         if output is None:
+    #                             break
+    #                         yield output
+    #                 elif action_handler.type == "function" or action_handler.type == "prompt":
+    #                     action_output = await action_handler.call(action_call.action, **kwargs)
+    #                 else:
+    #                     raise ValueError(f"Invalid action handler type: {action_handler.type}")                        
+    #                 if action_output:
+    #                     if isinstance(action_output, AIMessage):
+    #                         yield action_output
+    #                     else:
+    #                         ex_ctx = self.process_action_output(ex_ctx, action_call, action_output)
+    #                 else:
+    #                     return
+    #             else:
+    #                 break
 
 
     def route(self, action: Type[BaseModel], prompt: Prompt, stream: bool = False):        
