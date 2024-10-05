@@ -4,7 +4,7 @@ from typing import Dict, Generic, List, Optional, Type, TypeVar, Union
 from pydantic import BaseModel
 from promptview.prompt.base_prompt import Prompt
 from promptview.state.context import Context
-from promptview.llms.messages import ActionCall, ActionMessage, HumanMessage
+from promptview.llms.messages import AIMessage, ActionCall, ActionMessage, HumanMessage
 from promptview.utils.function_utils import call_function, filter_func_args
 from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.llms.tracer import Tracer
@@ -97,6 +97,9 @@ class AgentRouter(BaseModel):
                         else:
                             raise ValueError(f"Invalid action handler: {action_handler}")
                         if action_output:
+                            if isinstance(action_output, AIMessage):
+                                yield action_output
+                                return 
                             message = self.process_action_output(action_call, action_output)                            
                         else:
                             return
