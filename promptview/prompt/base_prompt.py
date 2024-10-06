@@ -380,6 +380,10 @@ class Prompt(BaseModel, Generic[P]):
             print(msg.content)
             # display(Markdown(msg.content))
         
+    async def parse_output(self, response: AIMessage, messages: List[BaseMessage], actions: Actions, **kwargs: Any):
+        if self._output_parser_method:
+            await call_function(self._output_parser_method, response=response, messages=messages, actions=actions, **kwargs)
+        return response
     
         
     async def to_ex_ctx(
