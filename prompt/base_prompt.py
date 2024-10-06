@@ -251,19 +251,21 @@ class Prompt(BaseModel, Generic[P]):
             *args: P.args, 
             **kwargs: P.kwargs
         ) -> AIMessage:
-        with self.build_execution_context(
-            *args, 
-            **kwargs
-            ) as ex_ctx:
-            if not ex_ctx.root_block:
-                ex_ctx = await self.transform(ex_ctx)
-            if not ex_ctx.messages:
-                ex_ctx = self.call_llm_transform(ex_ctx)
-            if not ex_ctx.output:
-                ex_ctx = await self.call_llm_complete(ex_ctx)                    
-            if not ex_ctx.output:
-                raise ValueError("No output from the prompt")
-            return ex_ctx.output
+        ex_ctx = await self.call_ctx(*args, **kwargs)
+        return ex_ctx.response
+        # with self.build_execution_context(
+        #     *args, 
+        #     **kwargs
+        #     ) as ex_ctx:
+        #     if not ex_ctx.root_block:
+        #         ex_ctx = await self.transform(ex_ctx)
+        #     if not ex_ctx.messages:
+        #         ex_ctx = self.call_llm_transform(ex_ctx)
+        #     if not ex_ctx.output:
+        #         ex_ctx = await self.call_llm_complete(ex_ctx)                    
+        #     if not ex_ctx.output:
+        #         raise ValueError("No output from the prompt")
+        #     return ex_ctx.output
         
 
         
@@ -332,7 +334,7 @@ class Prompt(BaseModel, Generic[P]):
                             did_finish=chunk.did_finish,
                         )
                     else:
-                        ex_ctx.add_response(chunk.full_response)
+                        ex_ctx.add_response(chunk.full_response, is_stream=True)
                         yield PromptChunk(
                             id=chunk.id,
                             prompt_name=self._view_builder.prompt_name,
