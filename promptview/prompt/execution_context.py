@@ -45,6 +45,7 @@ class Execution(BaseModel):
     root_block: ViewBlock | None = None
     messages: List[BaseMessage] | None = None
     response: AIMessage | ActionMessage | None = None
+    is_stream: bool = False
     run_type: RunTypes
     ex_type: ExecutionType = "prompt"
     tool_choice: ToolChoiceParam | None = None
@@ -92,7 +93,9 @@ class Execution(BaseModel):
                 self.lifecycle_phase = ExLifecycle.COMPLETE
         elif self.lifecycle_phase == ExLifecycle.COMPLETE:
             if self.ex_type == "agent" or self.ex_type == "prompt":
-                if self.response:
+                if self.is_stream:
+                    self.lifecycle_phase = ExLifecycle.FINISHED
+                elif self.response:
                     if self.response.content:
                         self.lifecycle_phase = ExLifecycle.SEND_MESSAGE
                     elif isinstance(self.response, AIMessage) and self.response.action_calls:
@@ -129,10 +132,13 @@ class Execution(BaseModel):
     def add_view(self, view: ViewBlock | List[ViewBlock] | HumanMessage | AIMessage | ActionMessage):
         if not isinstance(view, ViewBlock):
             view = create_view_block(view, self.prompt_name + '_output')
+        # if self.root_block is None:
+        #     self.root_block = view
+        # else:
+        #     self.root_block.add(view)
         if self.root_block is None:
-            self.root_block = view
-        else:
-            self.root_block.add(view)
+            self.root_block = create_view_block([], 'root')        
+        self.root_block.add(view)
         self.advance_lifecycle()
         #TODO
         # self.lifecycle_phase = ExLifecycle.INTERPRET
@@ -146,7 +152,8 @@ class Execution(BaseModel):
         # self.lifecycle_phase = ExLifecycle.COMPLETE
             
             
-    def add_response(self, response: ViewBlock | AIMessage | Any):        
+    def add_response(self, response: ViewBlock | AIMessage | Any, is_stream: bool = False):
+        self.is_stream = is_stream
         if isinstance(response, AIMessage):
             self.add_prompt_response(response)
         else:
@@ -158,7 +165,7 @@ class Execution(BaseModel):
             raise ValueError("Tracer is not set")
         if self.response is not None:
             raise ValueError("Output is already set")            
-        self.response = response
+        self.response = response        
         self.tracer_run.end_post(outputs={'output': response.raw})
         self.advance_lifecycle()
         #TODO
@@ -273,6 +280,12 @@ class ExecutionContext(BaseModel):
         #     return self.executions[-1]
         return None
     
+    
+    @property
+    def response(self):
+        if not self.executions:
+            return None
+        return self.executions[-1].response
     
     @property
     def lifecycle_phase(self):
@@ -455,12 +468,12 @@ class ExecutionContext(BaseModel):
                 #     ex.tracer_run.end_run()
         
 
-    def add_response(self, response: Any):
+    def add_response(self, response: Any, is_stream: bool = False):
         if not self.curr_ex:
             raise ValueError("No execution to add response")
         # if self.curr_ex.lifecycle_phase != ExLifecycle.COMPLETE:
         #     raise ValueError("Execution is not in complete phase")
-        self.curr_ex.add_response(response)
+        self.curr_ex.add_response(response, is_stream)
         self.manage_stack()
         return self.curr_ex
     
