@@ -121,27 +121,15 @@ class Execution(BaseModel):
                 self.lifecycle_phase = ExLifecycle.FINISHED        
         else:
             raise ValueError(f"Invalid lifecycle phase: {self.lifecycle_phase}")
-        # elif self.lifecycle_phase == ExLifecycle.FINISHED:
-            
-        # elif self.lifecycle_phase == ExLifecycle.ERROR:
-            
-        # else:
-        #     raise ValueError(f"Invalid lifecycle phase: {self.lifecycle_phase}")
         
 
     def add_view(self, view: ViewBlock | List[ViewBlock] | HumanMessage | AIMessage | ActionMessage):
         if not isinstance(view, ViewBlock):
             view = create_view_block(view, self.prompt_name + '_output')
-        # if self.root_block is None:
-        #     self.root_block = view
-        # else:
-        #     self.root_block.add(view)
         if self.root_block is None:
             self.root_block = create_view_block([], 'root')        
         self.root_block.add(view)
         self.advance_lifecycle()
-        #TODO
-        # self.lifecycle_phase = ExLifecycle.INTERPRET
     
     
     def set_messages(self, messages: List[BaseMessage], actions: Actions):
@@ -168,21 +156,7 @@ class Execution(BaseModel):
         self.response = response        
         self.tracer_run.end_post(outputs={'output': response.raw})
         self.advance_lifecycle()
-        #TODO
-        # if self.ex_type == "agent" or self.ex_type == "prompt":
-        #     if response.content:
-        #         self.lifecycle_phase = ExLifecycle.SEND_MESSAGE
-        #     elif response.action_calls:
-        #         self.lifecycle_phase = ExLifecycle.ACTION_CALLS
-        #         self.todo_action_calls = [a for a in response.action_calls]
-        #     else:
-        #         self.lifecycle_phase = ExLifecycle.FINISHED                
-        # # elif self.ex_type == "prompt":
-        # #     self.lifecycle_phase = ExLifecycle.FINISHED
-        # elif self.ex_type == "tool":
-        #     self.lifecycle_phase = ExLifecycle.FINISHED
-        # else:
-        #     raise ValueError(f"Invalid execution type: {self.ex_type}")
+
         
     
     def finish_action_call(self, action_call: ActionCall):
@@ -193,9 +167,6 @@ class Execution(BaseModel):
         else:
             raise ValueError(f"Action call not found: {action_call}")    
         self.advance_lifecycle()
-        #TODO 
-        # if not self.todo_action_calls:
-        #     self.lifecycle_phase = ExLifecycle.FINISHED
         
         
     def add_function_response(self, action_output: Any):
@@ -216,13 +187,8 @@ class Execution(BaseModel):
             content=action_output_str,
         )
         self.response = response
-        # self.tracer_run.add_outputs(response)
         self.tracer_run.end_post(outputs={'output': action_output_str})
-        # self.tracer_run.end(outputs={'output': action_output_str})
-        # self.tracer_run.end_run(outputs={'output': response})
         self.advance_lifecycle()
-        #TODO 
-        # self.lifecycle_phase = ExLifecycle.FINISHED
     
     
     
@@ -232,18 +198,11 @@ class Execution(BaseModel):
         if self.lifecycle_phase != ExLifecycle.SEND_MESSAGE:
             raise ValueError("not in send message phase")
         self.advance_lifecycle()
-        #TODO
-        # if self.response.action_calls:
-        #     self.lifecycle_phase = ExLifecycle.ACTION_CALLS
-        # else:
-        #     self.lifecycle_phase = ExLifecycle.FINISHED
         return self.response
         
     def start(self):
         self.tracer_run = self.build_tracer()
         self.advance_lifecycle()
-        #TODO
-        # self.lifecycle_phase = ExLifecycle.RENDER
         return self.tracer_run
     
         
@@ -371,33 +330,21 @@ class ExecutionContext(BaseModel):
         if self.curr_ex and self.curr_ex.actions:
             return self.curr_ex.actions
         return None
-        # raise ValueError("No execution to get actions")
     
-    def send_message(self)-> str:
+    def send_message(self)-> AIMessage:
         if self.curr_ex:
             response =  self.curr_ex.send_message()
             if not response.content:
                 raise ValueError("No message to send")
-            # if self.curr_ex.did_finish:
-            #     self.stack.pop()
+            if isinstance(response, ActionMessage):
+                raise ValueError("Action message cannot be sent")
             self.manage_stack()
-            return response.content
+            return response
         else:
             raise ValueError("No execution to send message")
         
         
     def create_child(self, prompt_name: str, ex_type: ExecutionType="prompt", run_type: RunTypes = "prompt", kwargs: Any = {}):
-        # if self.ex_type == "agent":
-        #     if self.lifecycle_phase == ExLifecycle.ACTION_CALLS or action_call is not None:
-        #         ex_type = "tool"
-        #     else:
-        #         ex_type = "agent_prompt"
-        # else:
-        #     ex_type = "prompt"
-
-        # if self.lifecycle_phase == ExLifecycle.ACTION_CALLS:
-        #     ex_type = "tool"
-        
         
         ex_ctx = ExecutionContext(
             prompt_name=prompt_name,
@@ -427,14 +374,7 @@ class ExecutionContext(BaseModel):
         action_call: ActionCall | None = None,
         model: str | None = None, 
     ):
-        # if self.ex_type == "agent":
-        #     if self.lifecycle_phase == ExLifecycle.ACTION_CALLS or action_call is not None:
-        #         ex_type = "tool"
-        #     else:
-        #         ex_type = "agent_prompt"
-        # else:
-        #     ex_type = "prompt"
-        
+
         
         execution = Execution(
             prompt_name=prompt_name,
@@ -488,19 +428,7 @@ class ExecutionContext(BaseModel):
         self.manage_stack()
         
         
-        
 
-    # def end_execution(self):
-    #     if not self.curr_ex:
-    #         raise ValueError("No execution to end")
-    #     if self.curr_ex.lifecycle_phase != ExLifecycle.FINISHED:
-    #         raise ValueError("Execution is not finished")
-    #     self.stack.pop()
-    #     # self.curr_ex.response = response
-    #     # self.curr_ex.error = error
-        
-        
-    
     
     
 
@@ -537,144 +465,5 @@ class BaseExecutionContext(BaseModel):
     
 
 
-class LlmExecutionContext(BaseExecutionContext):
-    model: str
-    messages: List[BaseMessage] | None = None
-    actions: Actions | None = None
-    response: AIMessage | None = None
-    chunks: List[MessageChunk] | None = None
-    run_type: RunTypes = "llm"
-    
-    
-    def push_chunk(self, chunk: MessageChunk):
-        if self.chunks is None:
-            self.chunks = []
-        self.chunks.append(chunk)
-
-    def tracer(self):
-        inputs = {}
-        if self.inputs.message:
-            inputs["message"] = self.inputs.message.content
-        if self.inputs.kwargs:
-            inputs["input"] = self.inputs.kwargs
-        return Tracer(
-            is_traceable=self.is_traceable,
-            tracer_run=self.inputs.tracer_run,
-            name=self.name,
-            run_type=self.run_type,
-            inputs=inputs
-        )  
 
 
-class PromptExecutionContext2(BaseExecutionContext):
-    # name: str   
-    # inputs: PromptInputs
-    # is_traceable: bool = True
-    root_block: ViewBlock = Field(default_factory=lambda: create_view_block([], "root"))
-    messages: List[BaseMessage] | None = None
-    actions: Actions | None = None  
-    chunks: List[MessageChunk] | None = None  
-    # prompt_run: Tracer | None = None
-    output: AIMessage | None = None   
-    action_calls: List[ActionCall] = []
-
-    
-    def push_chunk(self, chunk: MessageChunk):
-        if self.chunks is None:
-            self.chunks = []
-        self.chunks.append(chunk)
-    
-    def copy_ctx(self, with_views=False, with_messages=False, with_tracer=False):
-        ctx = PromptExecutionContext2(
-            name=self.name,
-            is_traceable=self.is_traceable,
-            inputs=self.inputs.model_copy(),
-            run_type=self.run_type
-        )        
-        if with_views and self.root_block is not None:
-            ctx.root_block = self.root_block.model_copy()
-        if with_messages and self.messages is not None:
-            ctx.messages = [m.model_copy() for m in self.messages]
-        if with_tracer:
-            ctx.tracer_run = self.tracer_run
-        return ctx
-    
-    
-    def iter_action_calls(self) -> Generator[ActionCall, str, None]:
-        while self.action_calls:
-            yield self.action_calls.pop(0)
-    
-    def end_run(self):
-        if self.tracer_run and self.output:
-            self.tracer_run.end_post(outputs={'output': self.output.raw})
-        
-    
-    def extend_views(self, views: List[ViewBlock]):
-        if self.root_block is None:
-            raise ValueError("Root block is not set")
-        self.root_block.extend(views)
-        return self.root_block
-    
-    
-    def tracer(self):
-        inputs = {}
-        if self.inputs.message:
-            inputs["message"] = self.inputs.message.content
-        if self.inputs.kwargs:
-            inputs["input"] = self.inputs.kwargs
-        parent_tracer = None
-        if self.parent:
-            parent_tracer = self.parent.tracer_run
-        return Tracer(
-            is_traceable=self.is_traceable,
-            tracer_run=parent_tracer,
-            name=self.name,
-            run_type=self.run_type,
-            inputs=inputs
-        )
-        
-        
-    def merge_ctx(self, ex_ctx: "ExecutionContext"):
-        if ex_ctx.root_block is None:
-            raise ValueError("Root block is not set")
-        if self.root_block is None:
-            self.root_block = ex_ctx.root_block.model_copy()
-        else:
-            self.extend_views(ex_ctx.root_block.view_blocks)
-        if ex_ctx.output:
-            if self.output:
-                raise ValueError("Output is already set")
-            self.output = ex_ctx.output.model_copy()
-            # self.root_block.push(create_view_block(ex_ctx.output, ex_ctx.name + '_output'))
-            
-    
-            
-    def add_view(self, view: ViewBlock | HumanMessage | AIMessage | ActionMessage):
-        if not isinstance(view, ViewBlock):
-            view = create_view_block(view, self.name +"_" + view.role + '_output')
-        self.root_block.add(view)
-    
-    def push_response(self, view: ViewBlock | AIMessage):
-        if isinstance(view, AIMessage):
-            if self.output is not None:
-                raise ValueError("Output is already set")
-            self.output = view
-            if view.action_calls:
-                self.action_calls.extend([a.model_copy() for a in view.action_calls])
-        else:
-            raise ValueError("Invalid Response view type")
-        # self.root_block.add(view)
-    
-    
-    def top_response(self):
-        if self.output:
-            return True
-        return False
-    
-    def pop_response(self):
-        if not self.output:
-            raise ValueError("Output is not set")
-        response = self.output
-        self.root_block.push(create_view_block(self.output, self.name + '_output'))
-        self.output = None
-        return response

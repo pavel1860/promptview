@@ -7,9 +7,6 @@ from typing import (Any, Dict, Generic, List, Literal, Optional, Type,
 from uuid import uuid4
 
 from promptview.llms.utils.completion_parsing import is_list_model
-# from pydantic import BaseModel
-# from promptview.app_manager import app_manager
-# from promptview.llms.mvc import BaseModel
 from promptview.vectors.stores.base import OrderBy, VectorStoreBase
 from promptview.vectors.stores.qdrant_vector_store import QdrantVectorStore
 from promptview.vectors.vectorizers.base import (VectorizerBase,
@@ -25,12 +22,6 @@ K = TypeVar('K', bound=BaseModel)
 V = TypeVar('V', bound=BaseModel)
 
 
-
-# class RagDocMetadata(Generic[K, V], BaseModel):
-#     id: Union[str, int]
-#     key: Optional[Union[K, str]]
-#     value: Union[V, str]
-# class RagDocMetadata:
 
 
 
@@ -89,15 +80,15 @@ class IndexSchema(TypedDict):
     schema: Literal['keyword', 'integer', 'float', 'bool', 'geo', 'datetime', 'text']
 
 
-class RagDocuments:
+class RagDocuments(Generic[K, V]):
 
     def __init__(
             self, 
             namespace: str, 
+            metadata_class: Type[V],
             vectorizers: List[VectorizerBase] = [], 
             vector_store: VectorStoreBase | None = None, 
-            key_class: Type[K] | Type[str] = str, 
-            metadata_class: Type[V] | Type[str] = str,
+            key_class: Type[K] | Type[str] = str,             
             indexs: Optional[List[str]] = None
         ) -> None:
         self.namespace = namespace
@@ -112,10 +103,10 @@ class RagDocuments:
         self.key_class = key_class
         self.metadata_class = metadata_class
         self.indexs = indexs or get_model_indexs(self.metadata_class)
-        # app_manager.register_rag_space(namespace, metadata_class)
+        
 
 
-    async def _embed_documents(self, documents: List[Any]):
+    async def _embed_documents(self, documents: List[str]):
         embeds = await asyncio.gather(
             *[vectorizer.embed_documents(documents) for vectorizer in self.vectorizers]
         )
@@ -137,7 +128,7 @@ class RagDocuments:
         return new_instance
     
     
-    def _pack_results(self, results):
+    def _pack_results(self, results) -> List[RagSearchResult[V]]:
         rag_results = []
         for res in results:
             # if self.key_class == str:
@@ -145,7 +136,7 @@ class RagDocuments:
             # else:
             #     key = self.key_class(**res.metadata["key"])
             metadata = self.metadata_class(**res.metadata)
-            rag_results.append(RagSearchResult(
+            rag_results.append(RagSearchResult[V](
                 id=res.id, 
                 score=res.score, 
                 metadata=metadata,
@@ -215,7 +206,7 @@ class RagDocuments:
             order_by: OrderBy | str | None=None, 
             group_by: Dict | None=None,
             group_size=1,
-            ):
+            ) -> List[RagSearchResult[V]]:
         res = await self.vector_store.get_documents(
             filters=filters, 
             ids=ids, 
@@ -244,7 +235,7 @@ class RagDocuments:
             alpha=None, 
             with_vectors=False, 
             fussion: Literal["RRF", "RSF"] | None= None
-        ):
+        ) -> List[RagSearchResult[V]]:
         query_vector = await self._embed_documents([query])
         query_vector = query_vector[0]
         res = await self.vector_store.similarity(
@@ -264,7 +255,7 @@ class RagDocuments:
         return self._pack_results(res)
     
 
-    async def get_many(self, top_k=10):
+    async def get_many(self, top_k=10) -> List[RagSearchResult[V]]:
         res = await self.vector_store.get_many(top_k=top_k, with_payload=True)
         return self._pack_results(res)
     

@@ -33,13 +33,7 @@ class Agent(ChatPrompt[P], Generic[P]):
     is_router: bool = False
     _action_handlers: Dict[str, BaseActionHandler] = {}
 
-    def handle(self, action: Type[BaseModel], handler: BaseActionHandler):
-        # action_handler = ActionHandler(
-        #                     handler=handler,
-        #                     action=action,
-        #                     is_prompt=isinstance(handler, Prompt),
-        #                     is_stream=is_stream
-        #                 )        
+    def handle(self, action: Type[BaseModel], handler: BaseActionHandler):   
         self._action_handlers[action.__name__] =  handler
         if self.actions is None:
             self.actions = [action]
@@ -124,7 +118,7 @@ class Agent(ChatPrompt[P], Generic[P]):
         ex_ctx: ExecutionContext | None = None,
         *args: P.args, 
         **kwargs: P.kwargs
-    ):
+    ) -> AsyncGenerator[AIMessage, None]:
         agent_ctx = self.build_execution_context(ex_ctx=ex_ctx, *args, **kwargs)
         try:
             for i in range(self.iterations):
@@ -237,7 +231,7 @@ def agent(
     actions: List[Type[BaseModel]] | None = None,
     iterations: int = 1,
     **kwargs: Any
-):
+) -> Callable[[Callable[T, RenderMethodOutput]], Agent[T]]:
     if llm is None:
         if model.startswith("gpt"):
             llm = OpenAiLLM(
@@ -253,7 +247,7 @@ def agent(
         agent_ins = Agent(
                 model=model, #type: ignore
                 llm=llm,                        
-                tool_choice=tool_choice or Agent.model_fields.get("tool_choice").default,
+                tool_choice=tool_choice or Agent.get_default_field("tool_choice"),
                 actions=actions,
                 is_traceable=is_traceable,
                 iterations=iterations,
@@ -263,29 +257,3 @@ def agent(
         agent_ins.set_methods(func, output_parser)            
         return agent_ins        
     return decorator
-
-
-# def agent(
-#     model: str = "gpt-4o",
-#     llm: LLM | None = None,
-#     parallel_actions: bool = True,
-#     is_traceable: bool = True,
-#     output_parser: Callable[[AIMessage], R] | None = None,
-#     tool_choice: ToolChoiceParam = None,
-#     actions: List[Type[BaseModel]] | None = None,
-#     **kwargs: Any
-# ):
-#     def decorator(func: Callable[P, RenderMethodOutput]) -> Agent[P]:
-#         agent_inst = Agent(
-#                 model=model, #type: ignore
-#                 llm=llm,                        
-#                 tool_choice=tool_choice or ChatPrompt.model_fields.get("tool_choice").default,
-#                 actions=actions,
-#                 is_traceable=is_traceable,
-#                 **kwargs
-#             )
-        
-#         agent_inst._name=func.__name__
-#         agent_inst.set_methods(func, output_parser)            
-#         return agent_inst
-#     return decorator
