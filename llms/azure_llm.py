@@ -9,7 +9,7 @@ from promptview.llms.messages import (ActionMessage, AIMessage, BaseMessage,
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import ViewBlock
 from pydantic import BaseModel
-
+from promptview.templates.action_template import system_action_view
 
 class AzureOpenAiLLM(LLM):
     name: str = "AzureOpenAiLLM"
