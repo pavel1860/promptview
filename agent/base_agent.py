@@ -72,6 +72,7 @@ class Agent(ChatPrompt[P], Generic[P]):
             is_traceable=self.is_traceable,
             context=kwargs.pop("context", None),
             ex_type="agent",
+            run_type="chain",
             kwargs=kwargs
         )
     
@@ -120,39 +121,45 @@ class Agent(ChatPrompt[P], Generic[P]):
         **kwargs: P.kwargs
     ) -> AsyncGenerator[AIMessage, None]:
         agent_ctx = self.build_execution_context(ex_ctx=ex_ctx, *args, **kwargs)
-        try:
-            for i in range(self.iterations):
-                agent_ctx = await self.call_agent_prompt(agent_ctx)
-                if agent_ctx.lifecycle_phase == ExLifecycle.SEND_MESSAGE:
-                    yield agent_ctx.send_message()
-                if agent_ctx.lifecycle_phase == ExLifecycle.ACTION_CALLS:
-                    for action_call in agent_ctx.action_calls:
-                        action_handler = self.get_action_handler(action_call)                        
-                        if action_handler.type == "async_generator":
-                            stream_gen = action_handler.stream(action_call, ex_ctx=agent_ctx) #type: ignore
-                            async for output in stream_gen:
-                                if output is None:
-                                    break
-                                yield output
-                        elif action_handler.type == "function":
-                            agent_ctx = await action_handler.call(action_call, agent_ctx)
-                        elif action_handler.type == "prompt":
-                            agent_ctx = await action_handler.call(action_call, agent_ctx)
-                        else:
-                            raise ValueError(f"Invalid action handler type: {action_handler.type}")                                            
-                        if agent_ctx.lifecycle_phase == ExLifecycle.SEND_MESSAGE:
-                            yield agent_ctx.send_message()
-                        agent_ctx.finish_action_call(action_call)
-                        
-                elif agent_ctx.lifecycle_phase == ExLifecycle.FINISHED:
-                    return
-                else:
-                    raise ValueError(f"Invalid lifecycle phase: {agent_ctx.lifecycle_phase}")
-                        
-        except Exception as e:
-            raise e
-        finally:
-            print("End of execution")
+        with agent_ctx.start_execution(
+            prompt_name=self._view_builder.prompt_name,
+            kwargs=kwargs,
+        ) as agent_ctx:    
+            try:
+                for i in range(self.iterations):
+                    agent_ctx = await self.call_agent_prompt(agent_ctx)
+                    if agent_ctx.lifecycle_phase == ExLifecycle.SEND_MESSAGE:
+                        yield agent_ctx.send_message()
+                    if agent_ctx.lifecycle_phase == ExLifecycle.ACTION_CALLS:
+                        for action_call in agent_ctx.action_calls:
+                            action_handler = self.get_action_handler(action_call)                        
+                            if action_handler.type == "async_generator":
+                                stream_gen = action_handler.stream(action_call, ex_ctx=agent_ctx) #type: ignore
+                                async for output in stream_gen:
+                                    if output is None:
+                                        break
+                                    yield output
+                            elif action_handler.type == "function":
+                                agent_ctx = await action_handler.call(action_call, agent_ctx)
+                            elif action_handler.type == "prompt":
+                                agent_ctx = await action_handler.call(action_call, agent_ctx)
+                            else:
+                                raise ValueError(f"Invalid action handler type: {action_handler.type}")                                            
+                            if agent_ctx.lifecycle_phase == ExLifecycle.SEND_MESSAGE:
+                                yield agent_ctx.send_message()
+                            agent_ctx.finish_action_call(action_call)
+                            
+                    elif agent_ctx.lifecycle_phase == ExLifecycle.FINISHED:
+                        return
+                    else:
+                        raise ValueError(f"Invalid lifecycle phase: {agent_ctx.lifecycle_phase}")
+                            
+            except Exception as e:
+                raise e
+            finally:
+                # agent_ctx.add_response(AIMessage(content="End of execution"))
+                agent_ctx.end_execution("End of execution")
+                print("End of execution")
             # ex_ctx.end_execution()
             
             
@@ -202,6 +209,7 @@ class Agent(ChatPrompt[P], Generic[P]):
         except Exception as e:
             raise e
         finally:
+            agent_ctx.add_response(AIMessage(content="End of execution"))
             print("End of execution")
             
 

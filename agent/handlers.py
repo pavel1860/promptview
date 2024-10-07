@@ -112,7 +112,7 @@ class PromptHandler(BaseActionHandler):
             prompt_name=self.prompt._view_builder.prompt_name,
             # ex_type="prompt" if self.is_routing else "tool",
             ex_type="prompt",
-            run_type="tool",
+            # run_type="tool",
             kwargs=handler_kwargs,
             
         )

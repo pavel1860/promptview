@@ -138,18 +138,21 @@ def get_run_messages(run):
             error=run.error
         )
         return ls_doc_run
-    
-    ls_run = LsRun(
-            id=str(run.id), 
-            name=run.name, 
-            run_type=run.run_type, 
-            inputs=run.inputs.get('input', {}),
-            output=run.outputs.get('output', {}) if run.outputs else {},
-            metadata=run.metadata,
-            start_time=run.start_time,
-            end_time=run.end_time,
-            error=run.error
-        )
+    try:
+        ls_run = LsRun(
+                id=str(run.id), 
+                name=run.name, 
+                run_type=run.run_type, 
+                inputs=run.inputs.get('input', {}),
+                output=(run.outputs.get('output', {}) if run.outputs else {}) or {},
+                metadata=run.metadata,
+                start_time=run.start_time,
+                end_time=run.end_time,
+                error=run.error
+            )
+    except Exception as e:
+        print(run)
+        raise e
     if run.child_runs:
         for child_run in run.child_runs:
             ls_child = get_run_messages(child_run)

@@ -50,11 +50,13 @@ class Tracer:
         self.tracer_run = None
         self.session_id = session_id
         self.outputs = {}
+        
         if not self.is_traceable:
             return
         if os.environ.get("LANGCHAIN_API_KEY") is None:
             self.is_traceable = False
             return
+        self.metadata = metadata or {}
         if type(tracer_run) == Tracer:
             tracer_run = tracer_run.tracer_run
         

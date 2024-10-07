@@ -212,6 +212,7 @@ class Execution(BaseModel):
             inputs["inputs"] = self.kwargs
         tracer_run = Tracer(
             is_traceable=self.is_traceable,
+            # tracer_run=self.parent_tracer_run.tracer_run if self.parent_tracer_run else None,
             tracer_run=self.parent_tracer_run,
             name=self.prompt_name,
             run_type=self.run_type,
@@ -268,6 +269,7 @@ class ExecutionContext(BaseModel):
     def tracer_run(self):
         if self.curr_ex:
             return self.curr_ex.tracer_run
+        print("No tracer run!@")
         return None
     
     def build_action_calls(self):
@@ -417,6 +419,16 @@ class ExecutionContext(BaseModel):
         self.manage_stack()
         return self.curr_ex
     
+    
+    def end_execution(self, outputs: Any):
+        if not self.curr_ex:
+            raise ValueError("No execution to end")
+        # if self.curr_ex.lifecycle_phase != ExLifecycle.FINISHED:
+            # raise ValueError("Execution is not in finished phase")
+        self.curr_ex.lifecycle_phase = ExLifecycle.FINISHED
+        self.manage_stack()
+        return self.curr_ex
+        
     
     
     def finish_action_call(self, action_call: ActionCall):
