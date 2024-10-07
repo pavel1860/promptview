@@ -59,6 +59,11 @@ class Prompt(BaseModel, Generic[P]):
         return response
     
     
+    @classmethod
+    def get_default_field(cls, field_name: str) -> Any:
+        field  = cls.model_fields.get(field_name, None)
+        if field is not None:
+            return field.default
     # def build_execution_context(
     #         self,
     #         *args: Any,
@@ -190,35 +195,35 @@ class Prompt(BaseModel, Generic[P]):
         return parsed_response
     
     
-    async def complete(
-            self, 
-            message: str | BaseMessage | None = None,
-            views: List[ViewBlock] | ViewBlock | None = None, 
-            context: Context | None = None, 
-            actions: List[Type[BaseModel]] | None = None,
-            tool_choice: ToolChoiceParam = None,
-            tracer_run: Tracer | None=None,
-            *args: P.args, 
-            **kwargs: P.kwargs
-        ) -> AIMessage:
-        with self.build_execution_context(
-            *args, 
-            message=message,
-            views=views,
-            context=context,
-            actions=actions,
-            tool_choice=tool_choice,
-            tracer_run=tracer_run,            
-            **kwargs) as ex_ctx:
-            if not ex_ctx.root_block:
-                ex_ctx = await self.transform(ex_ctx)
-            if not ex_ctx.messages:
-                ex_ctx = self.call_llm_transform(ex_ctx)
-            if not ex_ctx.output:
-                ex_ctx = await self.call_llm_complete(ex_ctx)                    
-            if not ex_ctx.output:
-                raise ValueError("No output from the prompt")
-            return ex_ctx.output
+    # async def complete(
+    #         self, 
+    #         message: str | BaseMessage | None = None,
+    #         views: List[ViewBlock] | ViewBlock | None = None, 
+    #         context: Context | None = None, 
+    #         actions: List[Type[BaseModel]] | None = None,
+    #         tool_choice: ToolChoiceParam = None,
+    #         tracer_run: Tracer | None=None,
+    #         *args: P.args, 
+    #         **kwargs: P.kwargs
+    #     ) -> AIMessage:
+    #     with self.build_execution_context(
+    #         *args, 
+    #         message=message,
+    #         views=views,
+    #         context=context,
+    #         actions=actions,
+    #         tool_choice=tool_choice,
+    #         tracer_run=tracer_run,            
+    #         **kwargs) as ex_ctx:
+    #         if not ex_ctx.root_block:
+    #             ex_ctx = await self.transform(ex_ctx)
+    #         if not ex_ctx.messages:
+    #             ex_ctx = self.call_llm_transform(ex_ctx)
+    #         if not ex_ctx.output:
+    #             ex_ctx = await self.call_llm_complete(ex_ctx)                    
+    #         if not ex_ctx.output:
+    #             raise ValueError("No output from the prompt")
+    #         return ex_ctx.output
         
         
     async def call_ctx(
@@ -251,51 +256,12 @@ class Prompt(BaseModel, Generic[P]):
             *args: P.args, 
             **kwargs: P.kwargs
         ) -> AIMessage:
-        ex_ctx = await self.call_ctx(*args, **kwargs)
+        ex_ctx: ExecutionContext = await self.call_ctx(*args, **kwargs)
+        if not ex_ctx.response or not isinstance(ex_ctx.response, AIMessage):
+            raise ValueError("No response from the prompt")
         return ex_ctx.response
-        # with self.build_execution_context(
-        #     *args, 
-        #     **kwargs
-        #     ) as ex_ctx:
-        #     if not ex_ctx.root_block:
-        #         ex_ctx = await self.transform(ex_ctx)
-        #     if not ex_ctx.messages:
-        #         ex_ctx = self.call_llm_transform(ex_ctx)
-        #     if not ex_ctx.output:
-        #         ex_ctx = await self.call_llm_complete(ex_ctx)                    
-        #     if not ex_ctx.output:
-        #         raise ValueError("No output from the prompt")
-        #     return ex_ctx.output
         
-
         
-    # async def stream(
-    #         self,             
-    #         *args: P.args, 
-    #         **kwargs: P.kwargs
-    #     ) -> AsyncGenerator[MessageChunk, None]:
-        
-    #     with self.build_execution_context(
-    #         *args, 
-    #         **kwargs
-    #     ) as ex_ctx:
-    #             if not ex_ctx.root_block:
-    #                 ex_ctx = await self.transform(ex_ctx)
-    #             if not ex_ctx.messages:
-    #                 ex_ctx = self.call_llm_transform(ex_ctx)
-    #             if not ex_ctx.messages:
-    #                 raise ValueError("No messages to stream")
-    #             async for chunk in self.llm.stream(
-    #                     messages=ex_ctx.messages, 
-    #                     actions=ex_ctx.actions, 
-    #                     tool_choice=ex_ctx.inputs.tool_choice, 
-    #                     tracer_run=ex_ctx.tracer_run, 
-    #                     **ex_ctx.inputs.kwargs
-    #                 ):
-    #                 # ex_ctx.push_chunk(chunk)
-    #                 if not chunk.did_finish:
-    #                     yield chunk
-    #     return
     
     async def stream(
             self, 
@@ -346,29 +312,6 @@ class Prompt(BaseModel, Generic[P]):
         return
 
         
-    # async def run_steps(self, ex_ctx: PromptExecutionContext)-> PromptExecutionContext:
-    #     # with self.build_tracer(ex_ctx) as prompt_run:
-    #     with ex_ctx.tracer() as prompt_run:
-    #         try:
-    #             ex_ctx.prompt_run = prompt_run
-    #             if not ex_ctx.root_block:
-    #                 ex_ctx = await self.view_step(ex_ctx)
-    #             if not ex_ctx.messages:
-    #                 ex_ctx = self.messages_step(ex_ctx)
-    #             ex_ctx = await self.complete_step(ex_ctx)
-    #             if not ex_ctx.output:
-    #                 raise ValueError("No output from the prompt")
-    #             prompt_run.end(outputs={'output': ex_ctx.output.raw})
-    #             # prompt_run.end(outputs={'output': ex_ctx.output.to_langsmith()})
-    #             return ex_ctx
-    #         except Exception as e:
-    #             prompt_run.end(errors=str(e))
-    #             raise e
-        
-    # async def parse_output(self, response: AIMessage, messages: List[BaseMessage], actions: Actions, **kwargs: Any):
-    #     if self._output_parser_method:
-    #         await call_function(self._output_parser_method, response, messages, actions, **kwargs)
-    #     return response
     
     async def display(self, *args, **kwargs):
         from IPython.display import Markdown, display

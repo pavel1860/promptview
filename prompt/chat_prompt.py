@@ -37,7 +37,7 @@ def prompt(
     tool_choice: ToolChoiceParam = None,
     actions: List[Type[BaseModel]] | None = None,
     **kwargs: Any
-):
+)-> Callable[[Callable[P, RenderMethodOutput]], Prompt[P]]:
     if llm is None:
         if model.startswith("gpt"):
             llm = OpenAiLLM(
@@ -53,7 +53,7 @@ def prompt(
         prompt = ChatPrompt(
                 model=model, #type: ignore
                 llm=llm,                        
-                tool_choice=tool_choice or ChatPrompt.model_fields.get("tool_choice").default,
+                tool_choice=tool_choice or ChatPrompt.get_default_field("tool_choice"),
                 actions=actions,
                 is_traceable=is_traceable,
                 **kwargs
