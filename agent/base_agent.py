@@ -67,14 +67,18 @@ class Agent(ChatPrompt[P], Generic[P]):
             #     ex_type="agent",
             #     kwargs=kwargs,
             # )
-        return ExecutionContext(
+        context: Context = kwargs.pop("context", None)
+        ex_ctx = ExecutionContext(
             prompt_name=self._view_builder.prompt_name,
             is_traceable=self.is_traceable,
-            context=kwargs.pop("context", None),
+            context=context,
             ex_type="agent",
             run_type="chain",
             kwargs=kwargs
         )
+        if context is not None and context.ex_ctx is None:
+            context.ex_ctx = ex_ctx        
+        return ex_ctx
     
     
     def process_action_output(self, ex_ctx: ExecutionContext ,action_call: ActionCall, action_output)-> ExecutionContext:
@@ -99,7 +103,7 @@ class Agent(ChatPrompt[P], Generic[P]):
     async def call_agent_prompt(self, ex_ctx: ExecutionContext, is_router: bool=False) -> ExecutionContext:
         handler_kwargs = filter_func_args(self._render_method, ex_ctx.kwargs)
         prompt_ctx = ex_ctx.create_child(
-            prompt_name=self._view_builder.prompt_name,
+            prompt_name=self._view_builder.prompt_name + "_prompt",
             ex_type="agent",
             run_type="prompt",
             kwargs=handler_kwargs,

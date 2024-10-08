@@ -1,3 +1,4 @@
+
 import inspect
 from abc import abstractmethod
 from enum import Enum
@@ -426,7 +427,9 @@ class ExecutionContext(BaseModel):
         # if self.curr_ex.lifecycle_phase != ExLifecycle.FINISHED:
             # raise ValueError("Execution is not in finished phase")
         self.curr_ex.lifecycle_phase = ExLifecycle.FINISHED
-        self.manage_stack()
+        if self.tracer_run:
+            self.tracer_run.end_post(outputs={'output': outputs})
+        # self.manage_stack()
         return self.curr_ex
         
     
