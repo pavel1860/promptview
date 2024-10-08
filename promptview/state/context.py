@@ -30,6 +30,7 @@ class Context(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     session: Session = Field(default_factory=Session)
     add_session_id: bool = True
+    ex_ctx: Any = None
     
     
     @property
@@ -89,4 +90,12 @@ class Context(BaseModel):
         return None
     
     async def delete(self):
+        return None
+    
+    
+    def get_root_run_id(self):
+        if self.ex_ctx:
+            if self.ex_ctx.executions:
+                if self.ex_ctx.executions[0].tracer_run:
+                    return str(self.ex_ctx.executions[0].tracer_run.id)
         return None
