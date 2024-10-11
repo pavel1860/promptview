@@ -22,11 +22,6 @@ class TextVectorizer(VectorizerDenseBase):
     metric: VectorMetrics = VectorMetrics.COSINE
     
     async def embed_documents(self, documents: List[str]):
-        # for doc in documents:
-            # if len(doc) > 43000:
-                # doc = doc[:43000]
-        
-        # documents = [doc[:43000] for doc in documents]
         documents = [trim_and_stringify(doc) for doc in documents]
         return await self.dense_embeddings.embed_documents(documents)
     

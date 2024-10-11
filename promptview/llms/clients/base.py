@@ -3,7 +3,7 @@ from abc import abstractmethod
 from datetime import datetime
 from typing import Any, AsyncGenerator, List
 
-from promptview.llms.messages import AIMessage, MessageChunk
+from ...llms.messages import AIMessage, MessageChunk
 from pydantic import BaseModel
 
 

@@ -1,114 +1,64 @@
-from functools import wraps
-from typing import (Any, Awaitable, Callable, List, Literal, Optional,
-                    ParamSpec, Tuple, Type, TypeVar)
 
-from promptview.llms import OpenAiLLM
+            
+from typing import Any, Callable, Generic, List, ParamSpec, Type, TypeVar
+
 from promptview.llms.anthropic_llm import AnthropicLLM
-from promptview.llms.llm import LLM
-from promptview.llms.messages import AIMessage
+from promptview.llms.llm2 import LLM
+from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
+from promptview.llms.openai_llm import OpenAiLLM
 from promptview.prompt.base_prompt import Prompt
-from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.mvc import RenderMethodOutput
+# from promptview.prompt.decorator import decorator_factory
 from promptview.prompt.types import ToolChoiceParam
 from pydantic import BaseModel, Field
 
-# T = TypeVar('T')
+T = ParamSpec("T")
+R = TypeVar("R")  
 
-# def prompt( 
-#     self=None,   
-#     model: str = "gpt-3.5-turbo-0125",
-#     llm: LLM | None = None,
-#     system_prompt: Optional[str] = None,
-#     background: Optional[str] = None,
-#     task: Optional[str] = None,
-#     rules: Optional[str | List[str] | Callable] = None,
-#     examples: Optional[str | List[str] | Callable] = None,
-#     actions: Optional[List[Type[BaseModel]]] = None,
-#     response_model: Optional[Type[BaseModel]] = None,
-#     parallel_actions: bool = True,
-#     is_traceable: bool = True,
-#     output_parser: Callable[[AIMessage], T] | None = None,
-#     tool_choice: Literal['auto', 'required', 'none'] | BaseModel | None = None,
-# ):
-#     if llm is None:
-#         llm = OpenAiLLM(
-#             model=model, 
-#             parallel_tool_calls=parallel_actions
-#         )
-#     def decorator(func) -> Callable[..., Awaitable[T]]:
-#         prompt = ChatPrompt[T](
-#                 name=func.__name__,
-#                 model=model,
-#                 llm=llm,
-#                 system_prompt=system_prompt,
-#                 background=background,
-#                 task=task,
-#                 rules=rules,
-#                 examples=examples,
-#                 actions=actions,
-#                 response_model=response_model,
-#                 tool_choice=tool_choice,
-#             )
-#         prompt.set_methods(func, output_parser)
-#         if self:
-#             self.router_prompt = prompt
-#         @wraps(func)
-#         async def wrapper(**kwargs) -> T:            
-#             return await prompt(**kwargs)
-
-#         return wrapper
-    
-#     return decorator
-
-# from promptview.prompt.chat_prompt import ChatPrompt
-
-# prompt = ChatPrompt.decorator_factory()
-
+class ChatPrompt(Prompt[T], Generic[T]):
+    # system_prompt: str | None = None
+    # llm: AnthropicLLM  = Field(default_factory=AnthropicLLM) 
+    background: str | List[str] | Callable | None = Field(None, description="Background information to provide context for the prompt", json_schema_extra={"title": None})
+    task: str | List[str] | Callable | None = None
+    rules: str | List[str] | Callable | None = None 
+    examples: str | List[str] | Callable | None = None 
+    output_format: str | List[str] | Callable | None  = None
 
 
 P = ParamSpec("P")
-R = TypeVar("R")  
+# prompt = decorator_factory(ChatPrompt)
 
-def decorator_factory(cls: Type[Prompt[P]]):
-    def prompt_decorator( 
-        self=None,   
-        model: str = "gpt-4o",
-        llm: LLM | None = None,            
-        parallel_actions: bool = True,
-        is_traceable: bool = True,
-        output_parser: Callable[[AIMessage], R] | None = None,
-        tool_choice: ToolChoiceParam = None,
-        actions: List[Type[BaseModel]] | None = None,
-        **kwargs: Any
-    ):
-        if llm is None:
-            if model.startswith("gpt"):
-                llm = OpenAiLLM(
-                    model=model, 
-                    parallel_tool_calls=parallel_actions
-                )
-            elif model.startswith("claude"):
-                llm = AnthropicLLM(
-                    model=model, 
-                    parallel_tool_calls=parallel_actions
-                )
-        def decorator(func: Callable[P, RenderMethodOutput]) -> Prompt[P]:
-            prompt = cls[P](
-                    model=model, #type: ignore
-                    llm=llm,                        
-                    tool_choice=tool_choice or cls.model_fields.get("tool_choice").default,
-                    actions=actions,
-                    is_traceable=is_traceable,
-                    **kwargs
-                )
-            prompt._name=func.__name__
-            prompt.set_methods(func, output_parser)            
-            return prompt        
-        return decorator
-    
-    return prompt_decorator
-
-
-
-
-prompt = decorator_factory(ChatPrompt)
+def prompt(
+    model: str = "gpt-4o",
+    llm: LLM | None = None,
+    parallel_actions: bool = True,
+    is_traceable: bool = True,
+    output_parser: Callable[[AIMessage], R] | None = None,
+    tool_choice: ToolChoiceParam = None,
+    actions: List[Type[BaseModel]] | None = None,
+    **kwargs: Any
+)-> Callable[[Callable[P, RenderMethodOutput]], Prompt[P]]:
+    if llm is None:
+        if model.startswith("gpt"):
+            llm = OpenAiLLM(
+                model=model, 
+                parallel_tool_calls=parallel_actions
+            )
+        elif model.startswith("claude"):
+            llm = AnthropicLLM(
+                model=model, 
+                parallel_tool_calls=parallel_actions
+            )
+    def decorator(func: Callable[P, RenderMethodOutput]) -> Prompt[P]:
+        prompt = ChatPrompt(
+                model=model, #type: ignore
+                llm=llm,                        
+                tool_choice=tool_choice or ChatPrompt.get_default_field("tool_choice"),
+                actions=actions,
+                is_traceable=is_traceable,
+                **kwargs
+            )
+        prompt._name=func.__name__
+        prompt.set_methods(func, output_parser)            
+        return prompt        
+    return decorator
