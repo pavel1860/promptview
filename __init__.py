@@ -10,9 +10,8 @@ from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
                                       SystemMessage)
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
-from promptview.prompt.chat_prompt import ChatPrompt, prompt
+from promptview.prompt.decorator import ChatPrompt, prompt
 from promptview.prompt.components import ToolEnum
-from promptview.prompt.decorator import decorator_factory
 from promptview.prompt.map import map_prompt
 from promptview.prompt.mvc import view
 from promptview.state.context import Context
