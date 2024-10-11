@@ -1,14 +1,16 @@
-from typing import Dict, List, Type
+from typing import Dict, List, Literal, Type
 
 from promptview.llms.clients.base import BaseLlmClient
 from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.interpreter import LlmInterpreter
-from promptview.llms.llm import ToolChoice
 from promptview.llms.messages import BaseMessage, HumanMessage
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
 from pydantic import BaseModel, ValidationError
 
+
+
+ToolChoice = Literal['auto', 'required', 'none']
 
 class LLM(BaseModel, LlmInterpreter):
     model: str
