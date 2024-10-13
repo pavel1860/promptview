@@ -13,12 +13,15 @@ from promptview.utils.string_utils import SafeJinjaFormatter
 from pydantic import BaseModel, Field
 
 
-class LlmInterpreter:
+class LlmInterpreter(BaseModel):
     
     
-    # formatter: SafeJinjaFormatter = Field(default_factory=SafeJinjaFormatter)
-    def __init__(self):
-        self.formatter = SafeJinjaFormatter()
+    formatter: SafeJinjaFormatter = Field(default_factory=SafeJinjaFormatter)
+    # def __init__(self):
+        # self.formatter = SafeJinjaFormatter()
+        
+    class Config:
+        arbitrary_types_allowed = True
     
     
     def render_model(self, block: ViewBlock, depth):

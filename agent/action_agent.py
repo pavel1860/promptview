@@ -7,7 +7,7 @@ from promptview.state.context import Context
 from promptview.llms.interpreter.messages import ActionCall, ActionMessage, HumanMessage
 from promptview.utils.function_utils import call_function, filter_func_args
 from promptview.prompt.chat_prompt import ChatPrompt
-from promptview.llms.tracer import Tracer
+from promptview.llms.tracing.tracer import Tracer
 import inspect
 from promptview.prompt.decorator import prompt
 

@@ -3,7 +3,7 @@ from typing import List, Type
 
 import anthropic
 import openai
-from promptview.llms.exceptions import LLMToolNotFound
+from promptview.llms.types import LLMToolNotFound
 from promptview.utils.model_utils import schema_to_function
 from promptview.utils.string_utils import convert_camel_to_snake
 from pydantic import BaseModel, Field

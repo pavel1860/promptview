@@ -8,7 +8,7 @@ from typing import (Any, Awaitable, Callable, Generator, Generic, List,
 
 from promptview.llms.interpreter.messages import (ActionCall, ActionMessage, AIMessage,
                                       BaseMessage, HumanMessage, MessageChunk)
-from promptview.llms.tracer import RunTypes, Tracer
+from promptview.llms.tracing.tracer import RunTypes, Tracer
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import ViewBlock, create_view_block
 from promptview.prompt.types import PromptInputs, ToolChoiceParam

@@ -2,7 +2,7 @@ import json
 
 import aiohttp
 from promptview.llms.clients.base import BaseLlmClient
-from promptview.llms.exceptions import LlmError
+from promptview.llms.types import LlmError
 from promptview.llms.interpreter.messages import AIMessage
 
 

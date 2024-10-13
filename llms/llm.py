@@ -1,10 +1,9 @@
 from typing import Dict, List, Literal, Type
 
 from promptview.llms.clients.base import BaseLlmClient
-from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.interpreter.interpreter import LlmInterpreter
 from promptview.llms.interpreter.messages import BaseMessage, HumanMessage
-from promptview.llms.tracer import Tracer
+from promptview.llms.tracing.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
 from pydantic import BaseModel, ValidationError
 
@@ -12,7 +11,7 @@ from pydantic import BaseModel, ValidationError
 
 ToolChoice = Literal['auto', 'required', 'none']
 
-class LLM(BaseModel, LlmInterpreter):
+class LLM(LlmInterpreter):
     model: str
     name: str
     temperature: float | None = None

@@ -6,7 +6,7 @@ from typing import (Callable, Dict, Generic, List, Literal, Optional,
 
 from promptview.llms.interpreter.messages import (ActionCall, ActionMessage, AIMessage,
                                       HumanMessage)
-from promptview.llms.tracer import Tracer
+from promptview.llms.tracing.tracer import Tracer
 from promptview.prompt.base_prompt import Prompt
 from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.decorator import prompt
