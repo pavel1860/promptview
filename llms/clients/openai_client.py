@@ -8,8 +8,6 @@ from promptview.llms.clients.base import BaseLlmClient
 from promptview.llms.interpreter.messages import AIMessage, ActionCall, BaseMessage, LlmUsage, filter_action_calls, validate_msgs
 from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import find_action
-from promptview.utils.model_utils import schema_to_function
 from pydantic import BaseModel
 
 

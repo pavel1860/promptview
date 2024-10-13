@@ -9,7 +9,7 @@ from promptview.llms.llm import LLM
 from promptview.llms.interpreter.messages import (ActionMessage, AIMessage, BaseMessage,
                                       HumanMessage, SystemMessage)
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import ViewBlock
+from promptview.prompt.view_block import ViewBlock
 from promptview.templates.action_template import system_action_view
 from pydantic import BaseModel, Field
 

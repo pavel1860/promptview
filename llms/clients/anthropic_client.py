@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Type
 
 from pydantic import BaseModel
 from promptview.llms.clients.base import BaseLlmClient
@@ -8,9 +8,16 @@ import anthropic
 from promptview.llms.interpreter.messages import ActionCall, BaseMessage, LlmUsage, SystemMessage, AIMessage, filter_action_calls, remove_action_calls
 from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import find_action, get_action_name
 from promptview.utils.model_utils import schema_to_function
 from typing import List, get_args
+
+
+
+
+def get_action_name(action_class: Type[BaseModel]):
+    if hasattr(action_class, "_title"):
+        return action_class._title.default # type: ignore
+    return convert_camel_to_snake(action_class.__name__)
 
 
 def convert_camel_to_snake(name):
