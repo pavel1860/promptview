@@ -2,7 +2,7 @@ from typing import (Any, Coroutine, Generic, List, Literal, ParamSpec, Type,
                     TypeVar)
 
 from promptview.llms.interpreter.messages import BaseMessage
-from promptview.llms.tracer import Tracer
+from promptview.llms.tracing.tracer import Tracer
 from promptview.prompt.mvc import ViewBlock
 from promptview.state.context import Context
 from pydantic import BaseModel, Field

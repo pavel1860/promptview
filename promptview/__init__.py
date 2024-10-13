@@ -9,7 +9,7 @@ from promptview.llms.azure_llm import AzureOpenAiLLM
 from promptview.llms.interpreter.messages import (AIMessage, BaseMessage, HumanMessage,
                                       SystemMessage)
 from promptview.llms.openai_llm import OpenAiLLM
-from promptview.llms.tracer import Tracer
+from promptview.llms.tracing.tracer import Tracer
 from promptview.prompt.decorator import ChatPrompt, prompt
 from promptview.prompt.components import ToolEnum
 from promptview.prompt.map import map_prompt

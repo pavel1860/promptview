@@ -7,7 +7,7 @@ from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.llm import LLM
 from promptview.llms.interpreter.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
-from promptview.llms.tracer import Tracer
+from promptview.llms.tracing.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.execution_context import ExecutionContext
 from promptview.prompt.mvc import ViewBlock, create_view_block

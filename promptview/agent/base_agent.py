@@ -12,7 +12,7 @@ from promptview.llms.llm import LLM
 from promptview.llms.interpreter.messages import (ActionCall, ActionMessage, AIMessage,
                                       HumanMessage, MessageChunk)
 from promptview.llms.openai_llm import OpenAiLLM
-from promptview.llms.tracer import Tracer
+from promptview.llms.tracing.tracer import Tracer
 from promptview.prompt.base_prompt import Prompt, PromptChunk
 from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.decorator import prompt

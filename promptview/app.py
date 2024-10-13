@@ -5,8 +5,8 @@ from typing import Any, List, Literal, Optional
 from promptview.app_manager import app_manager
 from promptview.llms.utils.completion_parsing import (is_list_model,
                                                     unpack_list_model)
-from promptview.llms.prompt_tracer import PromptTracer
-from promptview.llms.tracer_api import get_run_messages
+from promptview.llms.tracing.prompt_tracer import PromptTracer
+from promptview.llms.tracing.tracer_api import get_run_messages
 from promptview.vectors.rag_documents import RagDocuments
 from promptview.vectors.stores.base import OrderBy
 from fastapi import FastAPI
