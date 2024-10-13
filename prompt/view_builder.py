@@ -5,7 +5,7 @@ from typing import (Any, Awaitable, Callable, Generic, List, Literal, Type,
 
 from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.llm import LLM
-from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
+from promptview.llms.interpreter.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions

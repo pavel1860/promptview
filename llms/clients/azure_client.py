@@ -8,7 +8,7 @@ from typing import Any, AsyncGenerator, Generator, Type
 
 import openai
 from promptview.llms.clients.base import BaseLlmClient
-from promptview.llms.messages import (ActionCall, AIMessage, BaseMessage,
+from promptview.llms.interpreter.messages import (ActionCall, AIMessage, BaseMessage,
                                       LlmUsage, MessageChunk, validate_msgs)
 from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions

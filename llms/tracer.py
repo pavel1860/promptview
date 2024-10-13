@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 # from langsmith import RunTree
 from langsmith.run_trees import RunTree
-from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
+from promptview.llms.interpreter.messages import AIMessage, BaseMessage, HumanMessage
 
 # class RunTree(ls_schemas.RunBase):
 # outputs: Optional[Dict] = None

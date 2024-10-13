@@ -4,7 +4,7 @@ from functools import wraps
 from typing import (Callable, Dict, Generic, List, Literal, Optional,
                     ParamSpec, Type, TypeVar, Union)
 
-from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
+from promptview.llms.interpreter.messages import (ActionCall, ActionMessage, AIMessage,
                                       HumanMessage)
 from promptview.llms.tracer import Tracer
 from promptview.prompt.base_prompt import Prompt

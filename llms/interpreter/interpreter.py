@@ -16,7 +16,9 @@ from pydantic import BaseModel, Field
 class LlmInterpreter:
     
     
-    formatter: SafeJinjaFormatter = Field(default_factory=SafeJinjaFormatter)
+    # formatter: SafeJinjaFormatter = Field(default_factory=SafeJinjaFormatter)
+    def __init__(self):
+        self.formatter = SafeJinjaFormatter()
     
     
     def render_model(self, block: ViewBlock, depth):

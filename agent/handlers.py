@@ -4,7 +4,7 @@ from abc import abstractmethod
 from typing import (Any, AsyncGenerator, Callable, Dict, Generic, List,
                     Literal, Optional, ParamSpec, Type, TypeVar, Union)
 
-from promptview.llms.messages import ActionCall, MessageChunk
+from promptview.llms.interpreter.messages import ActionCall, MessageChunk
 from promptview.prompt.base_prompt import Prompt, PromptChunk
 from promptview.prompt.execution_context import (Execution, ExecutionContext,
                                                  ExLifecycle)

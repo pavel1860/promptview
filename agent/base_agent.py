@@ -9,7 +9,7 @@ from promptview.agent.handlers import (BaseActionHandler, FunctionHandler,
                                        PromptHandler)
 from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.llm import LLM
-from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
+from promptview.llms.interpreter.messages import (ActionCall, ActionMessage, AIMessage,
                                       HumanMessage, MessageChunk)
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer

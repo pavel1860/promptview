@@ -8,7 +8,7 @@ from typing import (Any, Callable, Coroutine, Generator, Iterable, List,
                     Literal, ParamSpec, Sequence, Tuple, Type, Union)
 from uuid import uuid4
 
-from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
+from promptview.llms.interpreter.messages import (ActionCall, ActionMessage, AIMessage,
                                       BaseMessage)
 from promptview.llms.utils.action_manager import Actions
 # from promptview.prompt.types import RenderMethodOutput, RenderViewTypes
