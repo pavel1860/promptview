@@ -1,14 +1,11 @@
 
             
 from typing import Any, Callable, Generic, List, ParamSpec, Type, TypeVar
-
-from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.llm import LLM
 from promptview.llms.interpreter.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.prompt.base_prompt import Prompt
 from promptview.prompt.mvc import RenderMethodOutput
-# from promptview.prompt.decorator import decorator_factory
 from promptview.prompt.types import ToolChoiceParam
 from pydantic import BaseModel, Field
 
@@ -16,8 +13,6 @@ T = ParamSpec("T")
 R = TypeVar("R")  
 
 class ChatPrompt(Prompt[T], Generic[T]):
-    # system_prompt: str | None = None
-    # llm: AnthropicLLM  = Field(default_factory=AnthropicLLM) 
     background: str | List[str] | Callable | None = Field(None, description="Background information to provide context for the prompt", json_schema_extra={"title": None})
     task: str | List[str] | Callable | None = None
     rules: str | List[str] | Callable | None = None 
@@ -45,6 +40,7 @@ def prompt(
                 parallel_tool_calls=parallel_actions
             )
         elif model.startswith("claude"):
+            from promptview.llms.anthropic_llm import AnthropicLLM
             llm = AnthropicLLM(
                 model=model, 
                 parallel_tool_calls=parallel_actions
