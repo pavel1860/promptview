@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any, List, Union
 
-from promptview.app_manager import app_manager
+# from promptview.app_manager import app_manager
 from promptview.state.history import History
 from promptview.llms.messages import BaseMessage                                      
 from pydantic import BaseModel, Field
@@ -73,14 +73,14 @@ class Context(BaseModel):
         await self.set_prompt(prompt_cls.__name__)
         self.curr_prompt_cls = prompt_cls
         
-    async def get_current_prompt(self):        
-        prompt_name = await self.get_prompt()
-        if not prompt_name:
-            return None
-        prompt = app_manager.prompts.get(prompt_name, None)
-        if not prompt:
-            raise Exception(f"Prompt {self.curr_prompt} not found in app_manager.prompts")
-        return prompt()
+    # async def get_current_prompt(self):        
+    #     prompt_name = await self.get_prompt()
+    #     if not prompt_name:
+    #         return None
+    #     prompt = app_manager.prompts.get(prompt_name, None)
+    #     if not prompt:
+    #         raise Exception(f"Prompt {self.curr_prompt} not found in app_manager.prompts")
+    #     return prompt()
 
     @staticmethod
     async def get(key, **kwargs):
