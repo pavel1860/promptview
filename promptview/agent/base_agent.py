@@ -8,7 +8,7 @@ from typing import (Any, AsyncGenerator, Callable, Dict, Generic, List,
 from promptview.agent.handlers import (BaseActionHandler, FunctionHandler,
                                        PromptHandler)
 from promptview.llms.anthropic_llm import AnthropicLLM
-from promptview.llms.llm2 import LLM
+from promptview.llms.llm import LLM
 from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
                                       HumanMessage, MessageChunk)
 from promptview.llms.openai_llm import OpenAiLLM

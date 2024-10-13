@@ -6,7 +6,7 @@ from typing import (Any, Dict, Generic, List, Literal, Optional, Type,
                     TypedDict, TypeVar, Union)
 from uuid import uuid4
 
-from promptview.llms.utils.completion_parsing import is_list_model
+from promptview.utils.model_utils import is_list_model
 from promptview.vectors.stores.base import OrderBy, VectorStoreBase
 from promptview.vectors.stores.qdrant_vector_store import QdrantVectorStore
 from promptview.vectors.vectorizers.base import (VectorizerBase,
