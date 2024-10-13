@@ -3,7 +3,7 @@ import asyncio
 from typing import Any, Callable, Dict, Generator, List, Tuple
 
 from promptview.llms.tracing.tracer import Tracer
-from promptview.prompt.chat_prompt import ChatPrompt
+from promptview.prompt.decorator import ChatPrompt
 from promptview.utils.function_utils import call_function
 
 

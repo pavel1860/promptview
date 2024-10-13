@@ -1,27 +1,19 @@
-
-import inspect
-from abc import abstractmethod
-from functools import wraps
 from typing import (Any, AsyncGenerator, Callable, Dict, Generic, List,
-                    Literal, Optional, ParamSpec, Type, TypeVar, Union)
+                    ParamSpec, Type, TypeVar)
 
 from promptview.agent.handlers import (BaseActionHandler, FunctionHandler,
                                        PromptHandler)
-from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.llm import LLM
-from promptview.llms.interpreter.messages import (ActionCall, ActionMessage, AIMessage,
-                                      HumanMessage, MessageChunk)
+from promptview.llms.interpreter.messages import (ActionCall, ActionMessage, AIMessage)
 from promptview.llms.openai_llm import OpenAiLLM
-from promptview.llms.tracing.tracer import Tracer
 from promptview.prompt.base_prompt import Prompt, PromptChunk
-from promptview.prompt.chat_prompt import ChatPrompt
-from promptview.prompt.decorator import prompt
+from promptview.prompt.decorator import ChatPrompt
 from promptview.prompt.execution_context import ExecutionContext, ExLifecycle
 from promptview.prompt.mvc import RenderMethodOutput
 from promptview.prompt.types import ToolChoiceParam
 from promptview.state.context import Context
 from promptview.utils.function_utils import call_function, filter_func_args
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 P = ParamSpec("P")
 R = TypeVar("R")  
@@ -251,6 +243,7 @@ def agent(
                 parallel_tool_calls=parallel_actions
             )
         elif model.startswith("claude"):
+            from promptview.llms.anthropic_llm import AnthropicLLM
             llm = AnthropicLLM(
                 model=model, 
                 parallel_tool_calls=parallel_actions
