@@ -5,7 +5,7 @@ from promptview.llms.types import LLMToolNotFound
 from promptview.llms.interpreter.messages import AIMessage, ActionCall
 from promptview.prompt.base_prompt import ToolChoiceParam
 from promptview.prompt.chat_prompt import ChatPrompt
-from promptview.prompt.mvc import view
+from promptview.prompt.view_block import view
 import xml.etree.ElementTree as ET
 
 

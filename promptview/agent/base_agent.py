@@ -9,7 +9,7 @@ from promptview.llms.openai_llm import OpenAiLLM
 from promptview.prompt.base_prompt import Prompt, PromptChunk
 from promptview.prompt.decorator import ChatPrompt
 from promptview.prompt.execution_context import ExecutionContext, ExLifecycle
-from promptview.prompt.mvc import RenderMethodOutput
+from promptview.prompt.view_block import RenderMethodOutput
 from promptview.prompt.types import ToolChoiceParam
 from promptview.state.context import Context
 from promptview.utils.function_utils import call_function, filter_func_args

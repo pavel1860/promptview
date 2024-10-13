@@ -1,7 +1,7 @@
 import inspect
 from typing import (Any, List, TypeVar)
 
-from promptview.prompt.mvc import ViewBlock, create_view_block
+from promptview.prompt.view_block import ViewBlock, create_view_block
 from promptview.utils.function_utils import call_function
 from pydantic import BaseModel
 

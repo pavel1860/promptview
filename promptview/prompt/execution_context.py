@@ -10,7 +10,7 @@ from promptview.llms.interpreter.messages import (ActionCall, ActionMessage, AIM
                                       BaseMessage, HumanMessage, MessageChunk)
 from promptview.llms.tracing.tracer import RunTypes, Tracer
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import ViewBlock, create_view_block
+from promptview.prompt.view_block import ViewBlock, create_view_block
 from promptview.prompt.types import PromptInputs, ToolChoiceParam
 from promptview.state.context import Context
 from pydantic import BaseModel, Field

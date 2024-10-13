@@ -7,7 +7,7 @@ from promptview.llms.llm import LLM
 from promptview.llms.interpreter.messages import AIMessage
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.prompt.base_prompt import Prompt
-from promptview.prompt.mvc import RenderMethodOutput
+from promptview.prompt.view_block import RenderMethodOutput
 # from promptview.prompt.decorator import decorator_factory
 from promptview.prompt.types import ToolChoiceParam
 from pydantic import BaseModel, Field

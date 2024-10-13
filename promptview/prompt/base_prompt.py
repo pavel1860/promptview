@@ -9,7 +9,7 @@ from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.execution_context import (Execution, ExecutionContext,
                                                  ExLifecycle)
-from promptview.prompt.mvc import (RenderMethodOutput, ViewBlock)
+from promptview.prompt.view_block import (RenderMethodOutput, ViewBlock)
 from promptview.prompt.types import PromptInputs, ToolChoiceParam
 from promptview.prompt.view_builder import ViewBlockBuilder
 from promptview.utils.function_utils import call_function

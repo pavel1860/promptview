@@ -1,7 +1,6 @@
 import pytest
 import pytest_asyncio
 from promptview import view
-from promptview.prompt.mvc import render_block
 from promptview.prompt.chat_prompt import ChatPrompt
 
 prompt = ChatPrompt.decorator_factory()

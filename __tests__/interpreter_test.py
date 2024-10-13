@@ -5,7 +5,7 @@ import pytest_asyncio
 from promptview import view, prompt
 from promptview.llms.interpreter.interpreter import LlmInterpreter
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import create_view_block, render_block
+from promptview.prompt.view_block import create_view_block
 
 class TestAction(BaseModel):
         """use this if the user asks"""

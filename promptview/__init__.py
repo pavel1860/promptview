@@ -8,7 +8,7 @@ from promptview.llms.tracing.tracer import Tracer
 from promptview.prompt.decorator import ChatPrompt, prompt
 from promptview.prompt.components import ToolEnum
 from promptview.prompt.map import map_prompt
-from promptview.prompt.mvc import view
+from promptview.prompt.view_block import view
 from promptview.state.context import Context
 from promptview.state.history import History
 from promptview.vectors.rag_documents import RagDocuments, RagSearchResult
