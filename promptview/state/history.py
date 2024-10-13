@@ -1,6 +1,6 @@
 
 from typing import List
-from promptview.llms.messages import BaseMessage, filter_action_calls, validate_msgs
+from promptview.llms.interpreter.messages import BaseMessage, filter_action_calls, validate_msgs
 import asyncio
 
 

@@ -6,7 +6,7 @@ from functools import wraps
 from typing import (Any, Awaitable, Callable, Generator, Generic, List,
                     Literal, ParamSpec, Type, TypedDict, TypeVar, Union)
 
-from promptview.llms.messages import (ActionCall, ActionMessage, AIMessage,
+from promptview.llms.interpreter.messages import (ActionCall, ActionMessage, AIMessage,
                                       BaseMessage, HumanMessage, MessageChunk)
 from promptview.llms.tracer import RunTypes, Tracer
 from promptview.llms.utils.action_manager import Actions

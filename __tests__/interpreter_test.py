@@ -3,7 +3,7 @@ from pydantic import Field
 import pytest
 import pytest_asyncio
 from promptview import view, prompt
-from promptview.llms.interpreter import LlmInterpreter
+from promptview.llms.interpreter.interpreter import LlmInterpreter
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import create_view_block, render_block
 

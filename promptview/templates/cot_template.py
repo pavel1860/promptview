@@ -2,7 +2,7 @@
 from uuid import uuid4
 from pydantic import BaseModel, Field
 from promptview.llms.exceptions import LLMToolNotFound
-from promptview.llms.messages import AIMessage, ActionCall
+from promptview.llms.interpreter.messages import AIMessage, ActionCall
 from promptview.prompt.base_prompt import ToolChoiceParam
 from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.mvc import view

@@ -4,7 +4,7 @@ from typing import List, Optional, Tuple, Type
 from promptview.llms.clients.azure_client import AzureOpenAiLlmClient
 from promptview.llms.clients.base import BaseLlmClient
 from promptview.llms.llm import LLM
-from promptview.llms.messages import (ActionMessage, AIMessage, BaseMessage,
+from promptview.llms.interpreter.messages import (ActionMessage, AIMessage, BaseMessage,
                                       HumanMessage, SystemMessage)
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import ViewBlock

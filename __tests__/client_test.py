@@ -5,7 +5,7 @@ import pytest_asyncio
 from promptview.llms.clients.openai_client import OpenAiLlmClient
 from promptview.llms.clients.anthropic_client import AnthropicLlmClient
 
-from promptview.llms.messages import HumanMessage
+from promptview.llms.interpreter.messages import HumanMessage
 
 
 

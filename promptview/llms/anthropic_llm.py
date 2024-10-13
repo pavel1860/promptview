@@ -2,7 +2,7 @@ from typing import List, Tuple
 from pydantic import BaseModel, Field
 from promptview.llms.clients.anthropic_client import AnthropicLlmClient
 from promptview.llms.llm import LLM
-from promptview.llms.messages import AIMessage, ActionMessage, BaseMessage, HumanMessage, SystemMessage
+from promptview.llms.interpreter.messages import AIMessage, ActionMessage, BaseMessage, HumanMessage, SystemMessage
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.mvc import ViewBlock
 from promptview.templates.action_template import system_action_view

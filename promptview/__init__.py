@@ -6,7 +6,7 @@
 from promptview.agent.base_agent import Agent, agent
 from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.azure_llm import AzureOpenAiLLM
-from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
+from promptview.llms.interpreter.messages import (AIMessage, BaseMessage, HumanMessage,
                                       SystemMessage)
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer

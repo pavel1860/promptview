@@ -1,4 +1,4 @@
-from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ActionMessage
+from promptview.llms.interpreter.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ActionMessage
 
 def load_messages(raw_messages):
   messages = []
