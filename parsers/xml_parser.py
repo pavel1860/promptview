@@ -2,9 +2,11 @@
 from typing import List, Type
 from uuid import uuid4
 from pydantic import BaseModel, Field
-from promptview.llms.exceptions import LLMToolNotFound
-from promptview.llms.messages import AIMessage, ActionCall
+from promptview.llms.types import LLMToolNotFound
+from promptview.llms.interpreter.messages import AIMessage, ActionCall
 import xml.etree.ElementTree as ET
+
+from promptview.utils.model_utils import is_list_model, unpack_list_model
 
 
 
@@ -36,12 +38,25 @@ class XmlOutputParser:
             )
         return action_calls
         
+    
+    def find_list(self, root, tag, list_model_cls):
+        fields = self.get_model_fields(list_model_cls)        
+        list_roots = root.findall(tag)
+        list_data = []
+        for lr in list_roots:
+            params = {k: lr.find(k).text for k in fields}
+            list_data.append(list_model_cls(**params))
+        return list_data
         
-    def find(self, root, tag):
-        res = root.find(tag)
-        if res is None:
-            return None
-        return res.text
+    def find_field(self, root, tag, field_info):
+        if is_list_model(field_info.annotation):
+            list_model = unpack_list_model(field_info.annotation)
+            return self.find_list(root, tag, list_model)
+        else: 
+            res = root.find(tag)
+            if res is None:
+                return None
+            return res.text
 
     def get_model_fields(self, model_cls):
         if not issubclass(model_cls, BaseModel):
@@ -59,7 +74,7 @@ class XmlOutputParser:
             raise ValueError("model_cls must be a subclass of AIMessage")
         root = ET.fromstring(response.content)
         fields = self.get_model_fields(ai_model_cls)
-        params = {k: self.find(root, k) for k in fields}
+        params = {k: self.find_field(root, k, f) for k, f in fields.items()}
         action_calls = {"action_calls": self.find_actions(actions, root)}
         try:
             output = ai_model_cls(

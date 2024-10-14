@@ -34,6 +34,6 @@ __all__ = [
     "AnthropicLLM",
     "AzureOpenAiLLM",
     "Agent",
-    "agent",,
+    "agent",
     "parsers",
 ]
