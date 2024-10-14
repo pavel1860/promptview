@@ -12,6 +12,7 @@ from promptview.prompt.view_block import view
 from promptview.state.context import Context
 from promptview.state.history import History
 from promptview.vectors.rag_documents import RagDocuments, RagSearchResult
+from promptview import parsers
 
 __all__ = [
     "ChatPrompt", 
@@ -33,5 +34,6 @@ __all__ = [
     "AnthropicLLM",
     "AzureOpenAiLLM",
     "Agent",
-    "agent",
+    "agent",,
+    "parsers",
 ]
