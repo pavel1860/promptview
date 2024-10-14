@@ -186,7 +186,7 @@ class Prompt(BaseModel, Generic[P]):
         if self._output_parser_method:
             parsed_response = await call_function(self._output_parser_method, response, ex_ctx.get_messages(), ex_ctx.get_actions(), **ex_ctx.kwargs)
         else:
-            parsed_response = await call_function(self.parse, response, ex_ctx.get_messages(), ex_ctx.get_actions(), **ex_ctx.kwargs)        
+            parsed_response = await call_function(self.parse, response=response, messages=ex_ctx.get_messages(), actions=ex_ctx.get_actions(), **ex_ctx.kwargs)        
         return parsed_response
     
     
