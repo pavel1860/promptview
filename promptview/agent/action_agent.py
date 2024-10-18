@@ -90,11 +90,11 @@ class ActionAgent(BaseModel):
             ex_ctx = await self.router_prompt.run_steps(ex_ctx)
             response = ex_ctx.output
             if not self.is_router:
-                context.history.add(context, message, str(tracer_run.id), self.name)                
+                await context.history.add(context, message, str(tracer_run.id), self.name)                
             #? action handling loop
             for i in range(iterations):           
                 if not self.is_router:
-                    context.history.add(context, response, str(tracer_run.id), self.name)
+                    await context.history.add(context, response, str(tracer_run.id), self.name)
                 tracer_run.add_outputs(response)
                 if response.content:                    
                     yield response
@@ -118,7 +118,7 @@ class ActionAgent(BaseModel):
                         if action_output:
                             message = self.process_action_output(action_call, action_output)
                             if not self.is_router:
-                                context.history.add(context, message, str(tracer_run.id), self.name)
+                                await context.history.add(context, message, str(tracer_run.id), self.name)
                             action_output_views.append(message)
                             action_output = None
                         else:
@@ -158,7 +158,7 @@ class ActionAgent(BaseModel):
                            
             else:
                 if message.id not in context.history.contained_id:
-                    context.history.add(context, message, str(tracer_run.id), "user")
+                    await context.history.add(context, message, str(tracer_run.id), "user")
     
 
     def reducer(self, action: BaseModel):

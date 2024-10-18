@@ -17,18 +17,38 @@ def extract_json_schema(cls_):
         return cls_.model_json_schema()
     return schema_to_function(cls_)
 
-
-
-
+def extract_class(cls_):
+    if cls_ is None:
+        return None
+    elif cls_ is str:
+        return {
+        "type": "function",
+        "function": {
+                "name": "str",
+                "description": "str",
+                "parameters": [
+                    {
+                        "name": "value",
+                        "type": "string",
+                    }],
+            }
+        }
+    else:
+        return schema_to_function(cls_)
+    
+    
 def serialize_asset(asset_cls):
     asset = asset_cls()
     return {
-        # "input_class": convert_to_openai_tool(asset.input_class).get('function', None),
-        # "output_class": convert_to_openai_tool(asset.output_class).get('function', None),
-        "input_class": schema_to_function(asset.input_class) if asset.input_class is not None else None,
-        "output_class": schema_to_function(asset.output_class),
-        "metadata_class": schema_to_function(asset.metadata_class),
+        "input_class": extract_class(asset.input_class),
+        "output_class": extract_class(asset.output_class),
+        "metadata_class": extract_class(asset.metadata_class),
     }
+    # return {
+    #     "input_class": schema_to_function(asset.input_class) if asset.input_class is not None else None,
+    #     "output_class": schema_to_function(asset.output_class),
+    #     "metadata_class": schema_to_function(asset.metadata_class),
+    # }
     
 
 def serialize_profile(profile_cls, sub_cls_filter=None, exclude=False):
@@ -125,11 +145,11 @@ class AppManager(metaclass=SingletonMeta):
             "asset_class": serialize_asset(asset_cls)
         } for asset_name, asset_cls in self.assets.items()]
 
-        profile_json = [{
-            "name": profile_name,
-            "profile_fields": serialize_profile(profile_cls)
-        } for profile_name, profile_cls in self.profiles.items()]
-
+        # profile_json = [{
+        #     "name": profile_name,
+        #     "profile_fields": serialize_profile(profile_cls)
+        # } for profile_name, profile_cls in self.profiles.items()]
+        profile_json = []
 
         prompt_json = [{
             "name": prompt_name,

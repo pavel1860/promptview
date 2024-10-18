@@ -76,9 +76,9 @@ class AgentRouter(BaseModel):
                         action_output=action_output, 
                         **kwargs
                     )
-                if not self.is_router:
-                    context.history.add(context, message, str(tracer_run.id), "user")
-                    context.history.add(context, response, str(tracer_run.id), self.name)                
+                await context.history.add(context, message, str(tracer_run.id), "user")
+                if not self.is_router:                    
+                    await context.history.add(context, response, str(tracer_run.id), self.name)                
                 if response.content:
                     tracer_run.add_outputs(response)
                     yield response
@@ -97,16 +97,19 @@ class AgentRouter(BaseModel):
                         else:
                             raise ValueError(f"Invalid action handler: {action_handler}")
                         if action_output:
-                            if isinstance(action_output, AIMessage):
+                            if isinstance(action_output, AIMessage):                                
+                                action_message = self.process_action_output(action_call, action_output)
+                                await context.history.add(context, action_message, str(tracer_run.id), self.name)
+                                await context.history.add(context, action_output, str(tracer_run.id), self.name)
                                 yield action_output
                                 return 
-                            message = self.process_action_output(action_call, action_output)                            
+                            message = self.process_action_output(action_call, action_output)
                         else:
                             return
                 else:
                     break                    
             else:
-                context.history.add(context, message, str(tracer_run.id), "user")
+                await context.history.add(context, message, str(tracer_run.id), "user")
     
     
 

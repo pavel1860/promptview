@@ -22,10 +22,10 @@ def remove_a_key(d, remove_key):
                 remove_a_key(d[key], remove_key)
 
 def schema_to_function(schema: Any):
-    assert schema.__doc__, f"{schema.__name__} is missing a docstring."
-    assert (
-        "title" not in schema.__fields__.keys()
-    ), "`title` is a reserved keyword and cannot be used as a field name."
+    # assert schema.__doc__, f"{schema.__name__} is missing a docstring."
+    # assert (
+    #     "title" not in schema.__fields__.keys()
+    # ), "`title` is a reserved keyword and cannot be used as a field name."
     schema_dict = schema.model_json_schema()
     remove_a_key(schema_dict, "title")
 
