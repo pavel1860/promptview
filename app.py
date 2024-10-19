@@ -15,6 +15,9 @@ from pydantic import BaseModel
 
 LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "default")
 
+
+# this is a test comment
+
 class GetRagParams(BaseModel):
     namespace: str
 
