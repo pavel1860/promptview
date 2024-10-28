@@ -3,7 +3,7 @@ from typing import Type, get_args
 
 from promptview.llms.utils.completion_parsing import (is_list_model,
                                                     unpack_list_model)
-from promptview.utils.model_utils import iterate_class_fields, schema_to_function, serialize_class
+from promptview.utils.model_utils import get_union_args, is_union, iterate_class_fields, schema_to_function, serialize_class
 from promptview.vectors.rag_documents import RagDocuments
 from pydantic import BaseModel
 
@@ -64,8 +64,23 @@ def serialize_profile(profile_cls, sub_cls_filter=None, exclude=False):
     #     "field": field,
     #     "type": PYTHON_TO_JSON_TYPES.get(info.annotation.__name__, info.annotation.__name__),
     # } for field, info in iterate_class_fields(profile_cls, sub_cls_filter, exclude=exclude)]
+    def get_field_type(field, info):
+        if hasattr(info.annotation, '__name__'):
+            field_type = PYTHON_TO_JSON_TYPES.get(info.annotation.__name__, info.annotation.__name__)
+            return field_type
+        elif is_union(info.annotation):
+            for arg in get_args(info.annotation):
+                field_type = PYTHON_TO_JSON_TYPES.get(arg.__name__, None)
+                if field_type:
+                    return field_type
+        else:
+            raise ValueError(f"Field {field} has an unsupported type {info.annotation}")
+    # response = {
+    #     field : PYTHON_TO_JSON_TYPES.get(info.annotation.__name__, info.annotation.__name__)
+    # for field, info in iterate_class_fields(profile_cls, sub_cls_filter, exclude=exclude)}
+    
     response = {
-        field : PYTHON_TO_JSON_TYPES.get(info.annotation.__name__, info.annotation.__name__)
+        field : get_field_type(field, info)
     for field, info in iterate_class_fields(profile_cls, sub_cls_filter, exclude=exclude)}
 
     return response
@@ -145,11 +160,11 @@ class AppManager(metaclass=SingletonMeta):
             "asset_class": serialize_asset(asset_cls)
         } for asset_name, asset_cls in self.assets.items()]
 
-        # profile_json = [{
-        #     "name": profile_name,
-        #     "profile_fields": serialize_profile(profile_cls)
-        # } for profile_name, profile_cls in self.profiles.items()]
-        profile_json = []
+        profile_json = [{
+            "name": profile_name,
+            "profile_fields": serialize_profile(profile_cls)
+        } for profile_name, profile_cls in self.profiles.items()]
+        # profile_json = []
 
         prompt_json = [{
             "name": prompt_name,

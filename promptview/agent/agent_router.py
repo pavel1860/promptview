@@ -86,14 +86,14 @@ class AgentRouter(BaseModel):
                     for action_call in response.action_calls:
                         action_handler = self.get_action_handler(action_call)
                         if inspect.isasyncgenfunction(action_handler):
-                            gen_kwargs = filter_func_args(action_handler, {"context": context, "action": action_call.action, "message": message.content, "tracer_run": tracer_run} | kwargs)
+                            gen_kwargs = filter_func_args(action_handler, {"context": context, "action": action_call.action, "message": message, "tracer_run": tracer_run} | kwargs)
                             async for output in action_handler(**gen_kwargs):
                                 if output is None:
                                     break
                                 tracer_run.add_outputs(output)
                                 yield output
                         elif inspect.isfunction(action_handler):
-                            action_output = await call_function(action_handler, context=context, action=action_call.action, message=message.content, tracer_run=tracer_run, **kwargs)
+                            action_output = await call_function(action_handler, context=context, action=action_call.action, message=message, tracer_run=tracer_run, **kwargs)
                         else:
                             raise ValueError(f"Invalid action handler: {action_handler}")
                         if action_output:

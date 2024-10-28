@@ -29,7 +29,7 @@ class XmlOutputParser:
             action_inst = action_cls(**params)
             action_calls.append(
                 ActionCall(
-                    id=f"tool_call_{uuid4()}", 
+                    id=f"tool_call_{uuid4()}"[:40], 
                     name=action.attrib["name"], 
                     action=action_inst
                 )
