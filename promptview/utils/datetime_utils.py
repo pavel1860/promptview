@@ -2,7 +2,9 @@ from datetime import datetime, timedelta
 import pytz
 
 
-def get_int_timestamp():
+def get_int_timestamp(ref_time=None):
+    if ref_time:
+        return int(ref_time.timestamp() * 1000000)
     return int(datetime.now().timestamp() * 1000000)
 
 

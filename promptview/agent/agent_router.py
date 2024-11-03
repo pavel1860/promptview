@@ -77,7 +77,7 @@ class AgentRouter(BaseModel):
                         **kwargs
                     )
                 await context.history.add(context, message, str(tracer_run.id), "user")
-                if not self.is_router:                    
+                if not self.is_router or (response.output and hasattr(response.output,"_history") and response.output._history):                    
                     await context.history.add(context, response, str(tracer_run.id), self.name)                
                 if response.content:
                     tracer_run.add_outputs(response)

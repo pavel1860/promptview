@@ -345,7 +345,7 @@ def validate_first_message(messages: List[BaseMessage]) -> List[BaseMessage]:
 
     
 def filter_action_calls(messages: List[BaseMessage], user_first: bool=False, check_alternation=False) -> List[BaseMessage]:
-    messages = [m.model_copy() for m in messages]
+    messages = [m.model_copy() for m in messages if m.content]
     if user_first:
         messages = validate_first_message(messages)
     if check_alternation:

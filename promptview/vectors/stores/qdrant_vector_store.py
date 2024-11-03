@@ -230,6 +230,7 @@ class QdrantVectorStore(VectorStoreBase):
         if not ids:
             ids = [str(uuid4()) for i in range(len(vectors))]
         
+        results = []
         for vector_chunk in chunks(zip(ids, vectors, metadata), batch_size=batch_size):
             points = [
                 PointStruct(
@@ -242,7 +243,15 @@ class QdrantVectorStore(VectorStoreBase):
                 collection_name=namespace,
                 points=points
             )
-
+            results += [
+                VectorSearchResult(
+                    id=p.id,
+                    score=-1,
+                    metadata=p.payload,
+                    vector=p.vector
+                ) 
+                for p in points]        
+        return results
 
     async def update_documents(self, metadata: Dict, ids: List[str | int] | None=None, filters=None,  namespace=None):
         namespace = namespace or self.collection_name        
