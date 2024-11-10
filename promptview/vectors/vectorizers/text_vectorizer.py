@@ -15,6 +15,12 @@ def trim_and_stringify(doc):
     return str(doc)[:43000]
 
 
+def varify_type(doc):
+    if isinstance(doc, str):
+        return doc
+    return str(doc)
+
+
 class Tokenizer:
     def __init__(self, model="cl100k_base", max_tokens=8191):
         self._enc = tiktoken.get_encoding(model)
@@ -45,9 +51,9 @@ class TextVectorizer(VectorizerDenseBase):
     tokenizer: tiktoken.core.Encoding = Field(default_factory=Tokenizer)
     
     async def embed_documents(self, documents: List[str]):
-        documents = self.tokenizer.trim_texts(documents)
+        documents = self.tokenizer.trim_texts([varify_type(d) for d in documents])
         return await self.dense_embeddings.embed_documents(documents)
     
     async def embed_query(self, query: str):
-        query = self.tokenizer.trim_text(query)
+        query = self.tokenizer.trim_text(varify_type(query))
         return await self.dense_embeddings.embed_query(query)
