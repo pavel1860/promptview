@@ -11,7 +11,7 @@ setup(
     install_requires=[
         "numpy==1.26.4",
         "pydantic>=2.8.2, <3",
-        "tiktoken==0.6.0",
+        "tiktoken==0.5.2",
         "pinecone-text==0.9.0",
         "scipy==1.11.4",
         "boto3==1.24.47",
