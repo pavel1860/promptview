@@ -172,15 +172,18 @@ class LlmInterpreter:
     def render_model(self, block: ViewBlock, depth):
         model = block.content
         prompt = ""
-        if block.bullet and block.index:
-            prompt += f"{block.index + 1}. "
-            
-        if block.base_model == 'json':
-            return add_tabs(prompt + json.dumps(model.model_dump(), indent=block.indent), depth)
-        elif block.base_model == 'model_dump':
-            return add_tabs(prompt + str(model.model_dump()) + "\n", depth)
-        else:
-            raise ValueError(f"base_model type not supported: {block.base_model}")
+        try:
+            if block.bullet and block.index:
+                prompt += f"{block.index + 1}. "
+                
+            if block.base_model == 'json':
+                return add_tabs(prompt + json.dumps(model.model_dump(), indent=block.indent), depth)
+            elif block.base_model == 'model_dump':
+                return add_tabs(prompt + str(model.model_dump()) + "\n", depth)
+            else:
+                raise ValueError(f"base_model type not supported: {block.base_model}")
+        except Exception as e:
+            raise ValueError(f"view: {block.view_name}\n{e.args[0]}") from e
 
     def render_string(self, block: ViewBlock, depth, index, bullet: BulletType, **kwargs):
            
@@ -289,6 +292,12 @@ class LlmInterpreter:
         if block.strip:
             content = self.strip_content(content, block.strip)
         return content
+        # except Exception as e:
+        #     new_message = f"view: {block.view_name}\n{e.args[0]}"
+        #     if hasattr(e, 'code'):
+        #         raise type(e)(new_message, code=e.code) from e
+        #     raise type(e)(new_message) from e
+            # raise type(e)(f"view: {block.view_name}\n{e.args[0]}") from e
     
     
     # def run_transform(self, content_blocks: list[ViewBlock]):

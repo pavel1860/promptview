@@ -62,7 +62,6 @@ def to_antropic_tool_choice(tool_choice: ToolChoice):
     
     
     
-    
 class AnthropicLlmClient(BaseLlmClient):
 
     def __init__(self, api_key=None):
@@ -70,6 +69,12 @@ class AnthropicLlmClient(BaseLlmClient):
             # client = anthropic.Anthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY")),
             client = anthropic.AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY")),
         )
+        
+    async def before_complete(self, messages: List[dict], actions: any, **kwargs):
+        return messages, actions
+
+    async def after_complete(self, completion: anthropic.types.message.Message, **kwargs):
+        return completion
 
     async def complete(
         self, 
@@ -88,7 +93,10 @@ class AnthropicLlmClient(BaseLlmClient):
         if isinstance(messages[0], SystemMessage):
             system_message = messages[0].content
             messages = messages[1:]
-        antropic_messages = [m.to_anthropic() for m in filter_action_calls(messages, user_first=True, check_alternation=True)]
+        # antropic_messages = [m.to_anthropic() for m in filter_action_calls(messages, user_first=True, check_alternation=True)]
+        antropic_messages = [m.to_anthropic() for m in messages]
+        # log_messages(antropic_messages)
+        antropic_messages, actions = await self.before_complete(antropic_messages, actions)
         tool_choice = anthropic.NOT_GIVEN if not actions else to_antropic_tool_choice(tool_choice)
         try:
             anthropic_completion = None
@@ -101,6 +109,7 @@ class AnthropicLlmClient(BaseLlmClient):
                 tools=tools,
                 tool_choice=tool_choice,
             )
+            anthropic_completion = await self.after_complete(anthropic_completion)
             return self.parse_output(anthropic_completion, actions)
         except Exception as e:
             print(antropic_messages)
