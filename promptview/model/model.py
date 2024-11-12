@@ -1,6 +1,6 @@
 
 
-from typing import Tuple, Type
+from typing import Any, Tuple, Type, TypeVar
 from pydantic import BaseModel
 from pydantic import Field as PdField
 
@@ -25,8 +25,8 @@ def Field(
 
 
 
-class Vector(BaseModel):
-    pass
+# class Vector(BaseModel):  
+#     pass
 
 
 
@@ -49,6 +49,10 @@ class CombinedMeta(BaseModelMeta, ModelMeta):
 
 
 
+
+
+MODEL = TypeVar("MODEL", bound="Model")
+
 class Model(BaseModel, metaclass=CombinedMeta):
     
         
@@ -56,12 +60,30 @@ class Model(BaseModel, metaclass=CombinedMeta):
     async def generate_namespace(self):
         pass
     
+    
+    @classmethod
+    async def create(
+        cls: Type[MODEL],
+        **kwargs: Any
+    ):
+        instance = cls(**kwargs)
+        await instance.save()
+        return instance
+    
     @staticmethod
     async def last(self):
         pass
     
     @staticmethod
+    async def one(self):
+        pass
+    
+    @staticmethod
     async def get_many(self):
+        pass
+    
+    @staticmethod
+    async def get_or_create(self):
         pass
     
     @staticmethod

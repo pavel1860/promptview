@@ -53,6 +53,10 @@ def get_model_indexs(cls_, prefix=""):
                     "field": prefix+field,
                     "schema": extra["index"]
                 })
+    if "_metadata" in cls_.__private_attributes__:
+        default_factory = cls_.__private_attributes__['_metadata'].default_factory
+        if default_factory:
+            indexs_to_create += get_model_indexs(default_factory, prefix=prefix+"_metadata.")
     return indexs_to_create
 
 

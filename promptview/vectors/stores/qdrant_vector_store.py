@@ -226,7 +226,7 @@ class QdrantVectorStore(VectorStoreBase):
     async def add_documents(self, vectors, metadata: List[Dict | BaseModel], ids=None, namespace=None, batch_size=100):
         namespace = namespace or self.collection_name
         # metadata = [m.dict(exclude={'__orig_class__'}) if isinstance(m, BaseModel) else m for m in metadata]
-        metadata = [m if isinstance(m, dict) else m.dict(exclude={'__orig_class__'}) for m in metadata]
+        metadata = [m if isinstance(m, dict) else m.model_dump(exclude={'__orig_class__'}) for m in metadata]
         if not ids:
             ids = [str(uuid4()) for i in range(len(vectors))]
         
