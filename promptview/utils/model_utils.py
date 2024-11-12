@@ -1,6 +1,7 @@
 from enum import Enum
 import inspect
 import json
+from types import UnionType
 from typing import Any, Literal, Optional, Union, get_args, get_origin
 
 from promptview.llms.utils.completion_parsing import (is_list_model,
@@ -177,4 +178,25 @@ def stringify_field_info(field_info, delimiter="|"):
 
 
 
+
+
+def get_field_type(field_info):
+    field_type = field_info.annotation if hasattr(field_info, "annotation") else field_info
+    field_origin = get_origin(field_type)
+    if field_origin == list:
+        field_type = get_args(field_info.annotation)[0]
+    elif field_origin == UnionType:
+        field_type = get_args(field_info.annotation)
+    return field_type, field_origin
+    
+
+def get_complex_fields(model_class):
+    complex_fields = {}
+
+    for field, field_info in model_class.model_fields.items():
+        field_type, field_origin = get_field_type(field_info)
+        if inspect.isclass(field_type):
+            if issubclass(field_type, BaseModel):
+                complex_fields[field] = field_type            
+    return complex_fields
 
