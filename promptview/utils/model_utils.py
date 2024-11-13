@@ -1,6 +1,7 @@
 from enum import Enum
 import inspect
 import json
+import jsonref
 from types import UnionType
 from typing import Any, Literal, Optional, Union, get_args, get_origin
 
@@ -29,6 +30,9 @@ def schema_to_function(schema: Any):
     # ), "`title` is a reserved keyword and cannot be used as a field name."
     schema_dict = schema.model_json_schema()
     remove_a_key(schema_dict, "title")
+
+    schema_dict = jsonref.replace_refs(schema_dict, proxies=False)
+    remove_a_key(schema_dict, "$defs")
 
     return {
         "type": "function",
