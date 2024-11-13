@@ -43,7 +43,7 @@ def schema_to_function(schema: Any):
         }
     }
 
-def schema_to_ts(value_type) -> str:
+def _schema_to_ts(value_type, indent: int = 2, depth: int = 0) -> str:
     """Convert Pydantic model to TypeScript type notation string."""
 
     # Handle basic types directly
@@ -59,7 +59,7 @@ def schema_to_ts(value_type) -> str:
     if origin == list:
         list_type_args = get_args(value_type)
         if list_type_args:
-            item_ts_type = schema_to_ts(list_type_args[0])
+            item_ts_type = _schema_to_ts(list_type_args[0], indent, depth)
             return f'{item_ts_type}[]'
         return 'any[]'
     
@@ -67,21 +67,25 @@ def schema_to_ts(value_type) -> str:
     if not hasattr(value_type, 'model_fields'):
         return 'any'
     
+    indent_str = ' ' * indent * depth
+    fields_indent_str = indent_str + ' ' * indent
     fields = []
     for field_name, field in value_type.model_fields.items():
         field_type = field.annotation
 
-        ts_type = schema_to_ts(field_type)
+        ts_type = _schema_to_ts(field_type, indent, depth + 1)
             
         # Add field description if available
         description = field.description or ''
         if description:
-            fields.append(f'    {field_name}: {ts_type}, // {description}')
+            fields.append(f'{fields_indent_str}{field_name}: {ts_type}, // {description}')
         else:
-            fields.append(f'    {field_name}: {ts_type},')
+            fields.append(f'{fields_indent_str}{field_name}: {ts_type},')
             
-    return '{\n' + '\n'.join(fields) + '\n}'
+    return '{\n' + '\n'.join(fields) + f'\n{indent_str}}}'
 
+def schema_to_ts(value_type, indent: int = 2) -> str:
+    return _schema_to_ts(value_type, indent, 0)
 
 def make_optional(model: BaseModel) -> BaseModel:
     optional_fields = {k: (Optional[v], None) for k, v in model.__annotations__.items()}
