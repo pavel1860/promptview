@@ -11,6 +11,7 @@ setup(
     install_requires=[
         "numpy==1.26.4",
         "pydantic>=2.8.2, <3",
+        "jsonref==1.1.0",
         "tiktoken==0.5.2",
         "pinecone-text==0.9.0",
         "scipy==1.11.4",
