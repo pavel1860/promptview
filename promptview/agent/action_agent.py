@@ -96,7 +96,7 @@ class ActionAgent(BaseModel):
                 if not self.is_router:
                     await context.history.add(context, response, str(tracer_run.id), self.name)
                 tracer_run.add_outputs(response)
-                if response.content:                    
+                if response.content and not response.action_calls:                    
                     yield response
                 if response.action_calls:
                     action_output_views = []

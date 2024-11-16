@@ -33,22 +33,26 @@ V = TypeVar('V', bound=BaseModel)
 # class RagDocMetadata:
 
 
+def get_extra(info):
+    if hasattr(info, 'json_schema_extra'):
+        return info.json_schema_extra
+    elif hasattr(info, 'field_info'): # check if pydantic v1
+        return info.field_info.extra
+    return None
 
     
     
 def get_model_indexs(cls_, prefix=""):
     indexs_to_create = []
     for field, info in cls_.__fields__.items():
+        extra = get_extra(info)
         if inspect.isclass(info.annotation) and issubclass(info.annotation, BaseModel):
-            indexs_to_create += get_model_indexs(info.annotation, prefix=prefix+field+".")
-        extra = None
-        if hasattr(info, 'json_schema_extra'):
-            extra = info.json_schema_extra
-        elif hasattr(info, 'field_info'): # check if pydantic v1
-            extra = info.field_info.extra
+            is_relation = extra.get("is_relation", None)
+            if is_relation == True:
+                continue
+            indexs_to_create += get_model_indexs(info.annotation, prefix=prefix+field+".")                
         if extra:
             if "index" in extra:
-                # print("found index:", field, extra["index"])
                 indexs_to_create.append({
                     "field": prefix+field,
                     "schema": extra["index"]

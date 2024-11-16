@@ -76,7 +76,7 @@ class AgentRouter(BaseModel):
                         action_output=action_output, 
                         **kwargs
                     )
-                await context.history.add(context, message, str(tracer_run.id), "user")
+                await context.history.add(context, message, str(tracer_run.id), self.name)
                 if not self.is_router or (response.output and hasattr(response.output,"_history") and response.output._history):                    
                     await context.history.add(context, response, str(tracer_run.id), self.name)                
                 if response.content:
@@ -109,7 +109,7 @@ class AgentRouter(BaseModel):
                 else:
                     break                    
             else:
-                await context.history.add(context, message, str(tracer_run.id), "user")
+                await context.history.add(context, message, str(tracer_run.id), self.name)
     
     
 
