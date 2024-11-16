@@ -15,6 +15,79 @@ import itertools
 
 from promptview.model.fields import VectorSpaceMetrics
 from promptview.model.namespace import VectorSpace
+from promptview.model.query import QueryFilter, FieldComparable, FieldOp, QueryOp
+from qdrant_client import models
+
+
+
+def to_qdrant_filters(base_query):
+
+    match_filters = {}
+
+    not_match_filters = {}
+
+    range_filters = {} 
+
+
+    def traverse(query):
+        if isinstance(query._operator, QueryOp):
+            traverse(query._left)
+            traverse( query._right)
+        elif isinstance(query._operator, FieldOp):
+            # if isinstance(query._left, FieldComparable):
+            #     field = query._left
+            #     value = query._right
+            # elif isinstance(query._right, FieldComparable):
+            #     field = query._right
+            #     value = query._left
+            # else:
+            #     raise ValueError("No FieldComparable found")
+            field, value = query.field, query.value
+            
+            if query._operator in [FieldOp.GT, FieldOp.GE, FieldOp.LT, FieldOp.LE]:
+                range_filter = range_filters.get(field.name)
+                if not range_filter:
+                    range_filter = models.FieldCondition(
+                        key=field.name,
+                        range=models.DatetimeRange() if query.is_datetime() else models.Range()
+                    )
+                    range_filters[field.name] = range_filter
+                if query._operator == FieldOp.GT:
+                    range_filter.range.gt = value
+                elif query._operator == FieldOp.GE:
+                    range_filter.range.gte = value
+                elif query._operator == FieldOp.LT:
+                    range_filter.range.lt = value
+                elif query._operator == FieldOp.LE:
+                    range_filter.range.lte = value
+                # print("Range", field.name, query._operator, value)
+            elif query._operator in [FieldOp.EQ]:
+                match_filter = range_filters.get(field.name)
+                if match_filter:
+                    raise ValueError(f"Match filter already exists for field {field.name}")
+                match_filters[field.name] = models.FieldCondition(
+                    key=field.name,
+                    match=models.MatchValue(value=value)
+                )
+                print("Match", field.name, query._operator, value)
+            elif query._operator in [FieldOp.NE]:
+                not_match_filters[field.name] = models.FieldCondition(
+                    key=field.name,
+                    match=models.MatchValue(value=value)
+                    
+                )
+                print("Not Match", field.name, query._operator, value)
+                
+        else:
+            raise ValueError("Unknown operator")
+
+    traverse(base_query)
+
+    model_filters = models.Filter(
+            must=[f for f in match_filters.values()] + [ f for f in range_filters.values()],
+            must_not=[ f for f in not_match_filters.values() ],        
+        )
+    return model_filters
 
 
 def chunks(iterable, batch_size=100):
@@ -201,6 +274,53 @@ class QdrantClient:
         return recs
     
     
+    async def scroll2(
+            self,
+            collection_name: str, 
+            filters: Any,  
+            ids: List[str | int] | None=None, 
+            top_k: int=10, 
+            offset: int=0,
+            with_payload=False, 
+            with_vectors=False, 
+            order_by: OrderBy | str | None=None,
+        ):
+        filter_ = None
+        if ids is not None:
+            # top_k: int | None = None
+            filter_ = models.Filter(
+                must=[
+                    models.HasIdCondition(has_id=ids)
+                ],
+            )        
+        if filters:
+            filter_ = to_qdrant_filters(filters)
+        if order_by:
+            if type(order_by) == str:
+                pass                
+            elif type(order_by) == dict:
+                order_by = models.OrderBy(
+                    key=order_by.get("key"),
+                    direction=order_by.get("direction", "desc"), # type: ignore
+                    start_from=order_by.get("start_from", None),  # start from this value
+                )
+                offset = None
+            else:
+                raise ValueError("order_by must be a string or a dict.")
+        
+            
+        recs, _ = await self.client.scroll(
+            collection_name=collection_name,
+            scroll_filter=filter_,
+            limit=top_k,
+            offset=offset,
+            with_payload=with_payload,
+            with_vectors=with_vectors,
+            # order_by=order_by # type: ignore
+        )
+        return recs
+    
+    
     
     
     async def delete(self, filters):
@@ -277,4 +397,5 @@ class QdrantClient:
             if raise_error:
                 raise e
             return None
+    
     

@@ -5,6 +5,7 @@ import inspect
 import json
 from typing import Any, Dict, List, Optional, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
+from promptview.model.query import FieldComparable
 from promptview.model.vectors.base_vectorizer import BaseVectorizer
 from promptview.model.fields import VectorSpaceMetrics, get_model_indices
 from promptview.utils.model_utils import unpack_list_model, is_list_model
@@ -133,6 +134,8 @@ class Relation:
 
 
 
+
+
 class ModelMeta(ModelMetaclass, type):
     
     # def __new__(cls, name, bases, dct):
@@ -213,6 +216,13 @@ class ModelMeta(ModelMetaclass, type):
         if name != "Model":
             model_manager.add_asset(asset_inst)
         return asset_inst
+    
+    
+    def __getattr__(cls, name):
+        if field_info:= cls.model_fields.get(name, None):
+            # print("Getting attribute",cls.__name__, name)
+            return FieldComparable(name, field_info)
+        return super().__getattr__(name)
 
 
 class Model(BaseModel, metaclass=ModelMeta):
@@ -325,7 +335,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         }
         namespace = cls._namespace.default
         ns = await connection_manager.get_namespace(namespace)
-        res = await ns.conn.scroll(
+        res = await ns.conn.scroll2(
             collection_name=namespace,
             top_k=top_k,
             filters=filters,
