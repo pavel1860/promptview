@@ -14,6 +14,10 @@ V = TypeVar('V')
 
 class BaseVectorizer(BaseModel, Generic[V, T]):    
     
+    
+    class Config:
+        arbitrary_types_allowed = True
+    
     async def transform(self, doc: list[T]) -> list[V]:
         raise NotImplementedError("Unsupported type")
 
