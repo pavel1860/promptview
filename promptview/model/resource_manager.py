@@ -70,11 +70,13 @@ class NamespaceParams:
     name: str
     vector_spaces: dict[str, VectorSpace]
     conn: QdrantClient
+    indices: list[dict[str, str]]
     
-    def __init__(self, name: str, vector_spaces: list[VectorSpace], connection: QdrantClient):
+    def __init__(self, name: str, vector_spaces: list[VectorSpace], connection: QdrantClient, indices: list[dict[str, str]] | None = None):
         self.name = name
         self.vector_spaces = {vs.name: vs for vs in vector_spaces}
         self.conn = connection
+        self.indices = indices or []
 
     def get(self, vector_space: str):
         return self.vector_spaces[vector_space]
@@ -137,11 +139,12 @@ class ConnectionManager:
         except KeyError:
             raise ValueError(f"Connection {db_name} not found")
                 
-    def add_namespace(self, namespace: str, vector_spaces: list[VectorSpace]):        
+    def add_namespace(self, namespace: str, vector_spaces: list[VectorSpace], indices: list[dict[str, str]] | None=None):        
         self._namespaces[namespace] = NamespaceParams(
             name=namespace,
             vector_spaces=vector_spaces,
-            connection=self._qdrant_connection
+            connection=self._qdrant_connection,
+            indices=indices or []
         )
         for vs in vector_spaces:
             self.vectorizers_manager.add_vectorizer(vs.name, vs.vectorizer_cls)
@@ -157,6 +160,7 @@ class ConnectionManager:
         except KeyError:
             raise ValueError(f"Namespace {namespace} not found")
         
+        
     async def get_namespace(self, namespace: str)->NamespaceParams:
         try:
             ns = self._active_namespaces[namespace]
@@ -165,18 +169,25 @@ class ConnectionManager:
             return ns
         except KeyError:
             try:
-                ns = self._namespaces[namespace]                
-                create_result = await ns.conn.create_collection(
-                    collection_name=namespace,
-                    vector_spaces=list(ns.vector_spaces.values())
-                )
-                if not create_result:
-                    raise ValueError(f"Some error occured while creating collection {namespace}")
+                ns = self._namespaces[namespace]
+                collection = await ns.conn.get_collection(namespace, raise_error=False)
+                if not collection:
+                    create_result = await ns.conn.create_collection(
+                        collection_name=namespace,
+                        vector_spaces=list(ns.vector_spaces.values()),
+                        indices=ns.indices
+                    )
+                    if not create_result:
+                        raise ValueError(f"Some error occured while creating collection {namespace}")
                 self._active_namespaces[namespace] = ns
                 return ns
             except KeyError:
                 raise ValueError(f"Collection {namespace} not found")
-        
+    
+    async def add_namespace_indices(self, namespace: str, indices: list[dict[str, str]]):
+        ns = await self.get_namespace(namespace)
+        ns.indices += indices        
+        return ns    
         
     async def validate_namespace(self):
         try:

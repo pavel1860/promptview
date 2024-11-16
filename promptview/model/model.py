@@ -6,7 +6,7 @@ import json
 from typing import Any, Dict, List, Optional, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
 from promptview.model.vectors.base_vectorizer import BaseVectorizer
-from promptview.model.fields import VectorSpaceMetrics
+from promptview.model.fields import VectorSpaceMetrics, get_model_indices
 from promptview.utils.model_utils import unpack_list_model, is_list_model
 from promptview.utils.datetime_utils import get_int_timestamp
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
@@ -35,6 +35,7 @@ def get_model_fields(model_instance, model_class):
         return model_class(**fields)
     except:
         return None
+
 
 
 MetadataArg = BaseModel | dict | str | None
@@ -83,7 +84,7 @@ class ModelManager:
         return asset
         
 
-asset_manager = ModelManager()  
+model_manager = ModelManager()  
 
 
 
@@ -146,13 +147,13 @@ class ModelMeta(ModelMetaclass, type):
         namespace = None
         if name != "Model":
             for field, field_type in dct.items():
-                # temporal field extraction
+                #? temporal field extraction
                 if inspect.isclass(field_type.__class__):
                     if isinstance(field_type, FieldInfo):
                         if field_type.json_schema_extra.get("auto_now_add", None):
                             default_temporal_field = field
                             default_temporal_type = field_type
-                    # vector space extraction                   
+                    #? vector space extraction                   
                     vector_spaces = []         
                     if field == "VectorSpace":
                         vectorizers = field_type.__annotations__
@@ -167,12 +168,19 @@ class ModelMeta(ModelMetaclass, type):
                                 ))
                             # vectorizers_manager.add_vectorizer(vec_name, vec_cls)
                         namespace = name
+                        indices = get_model_indices(dct)
                         connection_manager.add_namespace(
                             namespace=namespace,
                             vector_spaces=vector_spaces,
+                            indices=indices
                         )
+            #? extract indices 
+            
+            
+                    
                         
                         print("Found Vector Space", name, field_type)
+            #? partition extraction
             if annotations:= dct.get("__annotations__", None):
                 for field, field_type in annotations.items():       
                     field_origin = get_origin(field_type)
@@ -203,7 +211,7 @@ class ModelMeta(ModelMetaclass, type):
             # dct["_vectorizers"] = connection_manager.get_vectorizers(namespace)
         asset_inst = super().__new__(cls, name, bases, dct)
         if name != "Model":
-            asset_manager.add_asset(asset_inst)
+            model_manager.add_asset(asset_inst)
         return asset_inst
 
 
@@ -234,6 +242,13 @@ class Model(BaseModel, metaclass=ModelMeta):
     @property
     def score(self):
         return self._score
+    
+    
+    @classmethod
+    async def get_client(cls):
+        ns = await connection_manager.get_namespace(cls._namespace.default)
+        return ns.conn
+        
     
         
     # async def verify_namespace(self):
@@ -285,8 +300,8 @@ class Model(BaseModel, metaclass=ModelMeta):
     def _pack_search_result(cls, search_result):
         return cls(
             _id=search_result.id,
-            _score=search_result.score,
-            **search_result.metadata.model_dump()
+            _score=search_result.score if hasattr(search_result, "score") else -1,
+            **search_result.payload
         )
         
     @classmethod
@@ -308,8 +323,19 @@ class Model(BaseModel, metaclass=ModelMeta):
             "direction": "asc" if ascending else "desc",
             "start_from": start_from
         }
-        rag_documents = await connection_manager.get_rag_documents(cls)
-        res = await rag_documents.get_documents(top_k=top_k, filters=filters, order_by=order_by, offset=offset, ids=ids, with_vectors=True)
+        namespace = cls._namespace.default
+        ns = await connection_manager.get_namespace(namespace)
+        res = await ns.conn.scroll(
+            collection_name=namespace,
+            top_k=top_k,
+            filters=filters,
+            order_by=order_by,
+            offset=offset,
+            ids=ids,
+            with_payload=True,
+            with_vectors=True
+        )
+        # res = await rag_documents.get_documents(top_k=top_k, filters=filters, order_by=order_by, offset=offset, ids=ids, with_vectors=True)
         return [cls._pack_search_result(r) for r in res]
     
     
@@ -355,65 +381,65 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     
-    async def get(self, partitions=None, limit=1, start_from=None, ascending=False, with_metadata=False):
-        partitions = partitions or {}
-        partitions.update(self.partitions)
-        res = await self.get_assets(top_k=limit, filters=partitions, start_from=start_from, ascending=ascending)
-        if limit == 1:
-            if len(res) == 0:
-                return None                
-            return res[0] if with_metadata else res[0].output
-        return res if with_metadata else [r.output for r in res]
+    # async def get(self, partitions=None, limit=1, start_from=None, ascending=False, with_metadata=False):
+    #     partitions = partitions or {}
+    #     partitions.update(self.partitions)
+    #     res = await self.get_assets(top_k=limit, filters=partitions, start_from=start_from, ascending=ascending)
+    #     if limit == 1:
+    #         if len(res) == 0:
+    #             return None                
+    #         return res[0] if with_metadata else res[0].output
+    #     return res if with_metadata else [r.output for r in res]
     
         
-    async def get_or_create(self, partitions=None, default=None, limit=1):
-        partitions = partitions or {}
-        partitions.update(self.partitions)
-        default = default or self.output_class()
-        res = await self.get_assets(top_k=limit, filters=partitions)
-        if len(res) == 0:
-            res = await self.add(default)
-            return self._pack_record(res)
+    # async def get_or_create(self, partitions=None, default=None, limit=1):
+    #     partitions = partitions or {}
+    #     partitions.update(self.partitions)
+    #     default = default or self.output_class()
+    #     res = await self.get_assets(top_k=limit, filters=partitions)
+    #     if len(res) == 0:
+    #         res = await self.add(default)
+    #         return self._pack_record(res)
             
-        return self._pack_record(res[0])
+    #     return self._pack_record(res[0])
     
     
-    async def last(self, partitions=None):
-        partitions = partitions or {}
-        partitions.update(self.partitions)
-        res = await self.get_assets(top_k=1, filters=partitions, ascending=False)
-        if len(res) == 0:
-            return None
-        return self._pack_record(res[0])
+    # async def last(self, partitions=None):
+    #     partitions = partitions or {}
+    #     partitions.update(self.partitions)
+    #     res = await self.get_assets(top_k=1, filters=partitions, ascending=False)
+    #     if len(res) == 0:
+    #         return None
+    #     return self._pack_record(res[0])
     
     
-    async def one(self, partitions=None, start_from=None, ascending=False):
-        partitions = partitions or {}
-        partitions.update(self.partitions)
-        res = await self.get_assets(top_k=1, filters=partitions, start_from=start_from, ascending=ascending)
-        if len(res) == 0:
-            return None
-        return self._pack_record(res[0])
+    # async def one(self, partitions=None, start_from=None, ascending=False):
+    #     partitions = partitions or {}
+    #     partitions.update(self.partitions)
+    #     res = await self.get_assets(top_k=1, filters=partitions, start_from=start_from, ascending=ascending)
+    #     if len(res) == 0:
+    #         return None
+    #     return self._pack_record(res[0])
     
     
-    async def get_many(self, partitions=None, limit=10, start_from=None, ascending=False):
-        partitions = partitions or {}
-        partitions.update(self.partitions)
-        res = await self.get_assets(top_k=limit, filters=partitions, start_from=start_from, ascending=ascending)
-        return [self._pack_record(r) for r in res]
+    # async def get_many(self, partitions=None, limit=10, start_from=None, ascending=False):
+    #     partitions = partitions or {}
+    #     partitions.update(self.partitions)
+    #     res = await self.get_assets(top_k=limit, filters=partitions, start_from=start_from, ascending=ascending)
+    #     return [self._pack_record(r) for r in res]
     
     
-    def from_json(self, data: dict):
-        return self._search_result_class(
-            # id=data["id"],
-            # vector=data["vector"],
-            # created_at=data["created_at"],
-            # updated_at=data["created_at"],
-            input_class=self.input_class,
-            metadata_class=self.output_class,
-            namespace=self.rag_documents.namespace,
-            **data
-        )
+    # def from_json(self, data: dict):
+    #     return self._search_result_class(
+    #         # id=data["id"],
+    #         # vector=data["vector"],
+    #         # created_at=data["created_at"],
+    #         # updated_at=data["created_at"],
+    #         input_class=self.input_class,
+    #         metadata_class=self.output_class,
+    #         namespace=self.rag_documents.namespace,
+    #         **data
+    #     )
     
     # async def update_output(self, output: dict, ids: list[str] | None=None):
     #     vs = self.rag_documents.vector_store.client

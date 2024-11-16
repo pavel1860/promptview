@@ -1,8 +1,9 @@
 import datetime as dt
 from enum import Enum
+import inspect
 from typing import Any
 import typing
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic_core import PydanticUndefined
 from pydantic import types
 from pydantic.fields import _Unset, AliasPath, AliasChoices, FieldInfo, JsonDict, Unpack, _EmptyKwargs, Deprecated
@@ -160,6 +161,41 @@ def ModelField(
 
 
 
+
+
+def get_field_extra(info):
+    if hasattr(info, 'json_schema_extra'):
+        return info.json_schema_extra
+    elif hasattr(info, 'field_info'): # check if pydantic v1
+        return info.field_info.extra
+    return {}
+
+
+
+def interate_fields(obj):
+    if hasattr(obj, "__fields__"):
+        for field, info in obj.__fields__.items():
+            if isinstance(info, FieldInfo):
+                yield field, info
+    else:
+        for field, info in obj.items():
+            if isinstance(info, FieldInfo):
+                yield field, info
+
+def get_model_indices(cls_, prefix=""):
+    indexs_to_create = []
+    for field, info in interate_fields(cls_):
+        if inspect.isclass(info.annotation) and issubclass(info.annotation, BaseModel):
+            indexs_to_create += get_model_indices(info.annotation, prefix=prefix+field+".")
+        extra = get_field_extra(info)        
+        if extra:
+            if "index" in extra:
+                # print("found index:", field, extra["index"])
+                indexs_to_create.append({
+                    "field": prefix+field,
+                    "schema": extra["index"]
+                })
+    return indexs_to_create
 
 
 

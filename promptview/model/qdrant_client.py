@@ -8,6 +8,8 @@ from qdrant_client.models import (DatetimeRange, Distance, FieldCondition,
                                   PointStruct, Range, SearchRequest,
                                   SparseIndexParams, SparseVector,
                                   SparseVectorParams, VectorParams)
+from qdrant_client.http.exceptions import UnexpectedResponse
+import grpc
 import os
 import itertools
 
@@ -148,7 +150,8 @@ class QdrantClient:
     
     
     async def scroll(
-            self, 
+            self,
+            collection_name: str, 
             filters: Any,  
             ids: List[str | int] | None=None, 
             top_k: int=10, 
@@ -165,8 +168,9 @@ class QdrantClient:
                     models.HasIdCondition(has_id=ids)
                 ],
             )
-        if filters is not None:
-            must_not, must = self.parse_filter(filters)
+        query = Query()
+        if filters:
+            must_not, must = query.parse_filter(filters)
             filter_ = models.Filter(
                 must_not=must_not,
                 must=must
@@ -186,15 +190,15 @@ class QdrantClient:
         
             
         recs, _ = await self.client.scroll(
-            collection_name=self.collection_name,
-            scroll_filter=filter_,
+            collection_name=collection_name,
+            # scroll_filter=filter_,
             limit=top_k,
             offset=offset,
             with_payload=with_payload,
             with_vectors=with_vectors,
-            order_by=order_by # type: ignore
+            # order_by=order_by # type: ignore
         )
-        return self._pack_points(recs)
+        return recs
     
     
     
@@ -220,7 +224,7 @@ class QdrantClient:
 
 
 
-    async def create_collection(self, collection_name: str , vector_spaces: list[VectorSpace], indexs=None):
+    async def create_collection(self, collection_name: str , vector_spaces: list[VectorSpace], indices: list[dict[str, str]]=None):
         http_client = AsyncQdrantClient(
             url=self.url,
             api_key=self.api_key,
@@ -244,8 +248,8 @@ class QdrantClient:
             vectors_config=vector_config,
             sparse_vectors_config=sparse_vector_config           
         )
-        if indexs:
-            for index in indexs:
+        if indices:
+            for index in indices:
                 try:
                     await http_client.create_payload_index(
                         collection_name=collection_name,
@@ -264,3 +268,13 @@ class QdrantClient:
         
     async def get_collections(self):
         return await self.client.get_collections()
+    
+    
+    async def get_collection(self, collection_name: str, raise_error=True):
+        try:
+            return await self.client.get_collection(collection_name)
+        except (UnexpectedResponse, grpc.aio._call.AioRpcError) as e:
+            if raise_error:
+                raise e
+            return None
+    
