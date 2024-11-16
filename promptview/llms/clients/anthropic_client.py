@@ -102,12 +102,12 @@ class AnthropicLlmClient(BaseLlmClient):
             anthropic_completion = None
             anthropic_completion = await self.client.messages.create(
                 model=model,
-                max_tokens=1000,
                 temperature=0,
                 system=system_message,
                 messages=antropic_messages,
                 tools=tools,
                 tool_choice=tool_choice,
+                **kwargs
             )
             anthropic_completion = await self.after_complete(anthropic_completion)
             return self.parse_output(anthropic_completion, actions)

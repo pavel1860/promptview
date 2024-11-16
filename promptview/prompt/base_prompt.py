@@ -405,6 +405,7 @@ class Prompt(BaseModel, Generic[T]):
             output_parser: Callable[[AIMessage], T] | None = None,
             tool_choice: ToolChoiceParam = None,
             actions: List[Type[BaseModel]] | None = None,
+            max_tokens: int = 4096,
             **kwargs: Any
         ):
             if llm is None:
