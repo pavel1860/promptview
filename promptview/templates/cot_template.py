@@ -74,7 +74,10 @@ def chain_of_thought_view():
 
 
 
-
+def sanitize_text(text):
+    if text.strip() in ["None", "", "none", "null", "nil", "NIL", "NULL", "NoneType", "noneType", "undefined"]:
+        return None
+    return text
 
 
 
@@ -89,11 +92,12 @@ class CotPrompt(ChatPrompt):
             action_cls = actions.get(action.attrib["name"])
             if not action_cls:
                 raise LLMToolNotFound(action.attrib["name"])
-            params = {param.attrib["name"]: param.text for param in action.findall(param_tag)}
+            params = {param.attrib["name"]: sanitize_text(param.text) for param in action.findall(param_tag)}
             action_inst = action_cls(**params)
             action_calls.append(
                 ActionCall(
-                    id=f"tool_call_{uuid4()}", 
+                    # id=f"tool_call_{uuid4()}", 
+                    id=f"toolu_{uuid4().hex[:23]}",
                     name=action.attrib["name"], 
                     action=action_inst
                 )
@@ -117,9 +121,13 @@ class CotPrompt(ChatPrompt):
         fields = self.get_model_fields(model_cls)
         params = {k: root.find(k).text for k in fields}
         action_calls = {"action_calls": self.find_actions(actions, root)}
-        return model_cls(**(response.model_dump() | params | action_calls))
+        try:
+            return model_cls(**(response.model_dump(exclude=["raw"]) | params | action_calls))
+        except Exception as e:
+            print(response.content)
+            raise e
         
-    async def parse_output(self, response, actions):
+    async def parse_output(self, response, actions):        
         return self.parse_xml_response(response, actions, CotMessage)
     # async def parse_output(self, response, actions):
     #     xml_string = response.content

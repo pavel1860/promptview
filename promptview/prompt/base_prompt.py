@@ -4,6 +4,7 @@ from typing import (Any, Awaitable, Callable, Generic, List, Literal, Type,
                     TypedDict, TypeVar)
 
 from promptview.llms.anthropic_llm import AnthropicLLM
+from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.llm2 import LLM
 from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
@@ -36,6 +37,7 @@ class PromptExecutionContext(BaseModel):
     inputs: PromptInputs
     messages: List[BaseMessage] | None = None
     actions: Actions | None = None
+    error: str | None = None
     root_block: List[ViewBlock] | None = None    
     prompt_run: Tracer | None = None
     output: AIMessage | None = None
@@ -228,10 +230,18 @@ class Prompt(BaseModel, Generic[T]):
     
     async def __call__(self, *args, **kwargs):        
         ex_ctx = self.build_execution_context(*args, **kwargs)        
-        ex_ctx = await self.run_steps(ex_ctx)
-        output = await call_function(self.parse_output, response=ex_ctx.output, messages=ex_ctx.messages, actions=ex_ctx.actions, **kwargs)
+        for i in range(3):
+            try:
+                ex_ctx = await self.run_steps(ex_ctx)                      
+                output = await call_function(self.parse_output, response=ex_ctx.output, messages=ex_ctx.messages, actions=ex_ctx.actions, **kwargs)
+                return output
+            except LLMToolNotFound as e:
+                print(f"Tool not found: {e}")
+                ex_ctx.error = f"Tool not found:{str(e)}"
+        else:
+            raise e
         # output = await self.parse_output(response=ex_ctx.output, messages=ex_ctx.messages, actions=ex_ctx.actions, **kwargs)
-        return output
+        
         # with self.build_tracer(ex_ctx) as prompt_run:
         #     ex_ctx.prompt_run = prompt_run
         #     ex_ctx = await self.view_step(ex_ctx)
@@ -334,8 +344,15 @@ class Prompt(BaseModel, Generic[T]):
         return ex_ctx
     
     async def complete_step(self, ex_ctx: PromptExecutionContext):
+        extra_messages = []
+        if ex_ctx.error:
+            if ex_ctx.output:
+                extra_messages = [
+                    ex_ctx.output,
+                    HumanMessage(content=ex_ctx.error)
+                ]
         response = await self.llm.complete(
-            messages=ex_ctx.messages, 
+            messages=ex_ctx.messages + extra_messages, 
             actions=ex_ctx.actions, 
             tool_choice=ex_ctx.inputs.tool_choice, 
             tracer_run=ex_ctx.prompt_run, 

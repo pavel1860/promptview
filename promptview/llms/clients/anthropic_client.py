@@ -82,6 +82,8 @@ class AnthropicLlmClient(BaseLlmClient):
         actions: Actions | List[BaseModel]=[], 
         model="claude-3-5-sonnet-20240620",
         tool_choice: ToolChoice | BaseModel | None = None,
+        max_tokens=1000,
+        temperature=0,
         run_id: str | None=None, 
         **kwargs
     ):
@@ -102,7 +104,8 @@ class AnthropicLlmClient(BaseLlmClient):
             anthropic_completion = None
             anthropic_completion = await self.client.messages.create(
                 model=model,
-                temperature=0,
+                temperature=temperature,
+                max_tokens=max_tokens,
                 system=system_message,
                 messages=antropic_messages,
                 tools=tools,

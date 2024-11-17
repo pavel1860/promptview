@@ -47,9 +47,10 @@ def get_model_indexs(cls_, prefix=""):
     for field, info in cls_.__fields__.items():
         extra = get_extra(info)
         if inspect.isclass(info.annotation) and issubclass(info.annotation, BaseModel):
-            is_relation = extra.get("is_relation", None)
-            if is_relation == True:
-                continue
+            if extra:
+                is_relation = extra.get("is_relation", None)
+                if is_relation == True:
+                    continue
             indexs_to_create += get_model_indexs(info.annotation, prefix=prefix+field+".")                
         if extra:
             if "index" in extra:
