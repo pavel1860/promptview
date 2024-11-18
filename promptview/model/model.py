@@ -8,6 +8,7 @@ from uuid import uuid4
 from promptview.model.query import FieldComparable
 from promptview.model.vectors.base_vectorizer import BaseVectorizer
 from promptview.model.fields import VectorSpaceMetrics, get_model_indices
+from promptview.utils.function_utils import call_function
 from promptview.utils.model_utils import unpack_list_model, is_list_model
 from promptview.utils.datetime_utils import get_int_timestamp
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
@@ -218,11 +219,11 @@ class ModelMeta(ModelMetaclass, type):
         return asset_inst
     
     
-    def __getattr__(cls, name):
-        if field_info:= cls.model_fields.get(name, None):
-            # print("Getting attribute",cls.__name__, name)
-            return FieldComparable(name, field_info)
-        return super().__getattr__(name)
+    # def __getattr__(cls, name):
+    #     if field_info:= cls.model_fields.get(name, None):
+    #         # print("Getting attribute",cls.__name__, name)
+    #         return FieldComparable(name, field_info)
+    #     return super().__getattr__(name)
 
 
 class Model(BaseModel, metaclass=ModelMeta):
@@ -254,6 +255,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         return self._score
     
     
+    
     @classmethod
     async def get_client(cls):
         ns = await connection_manager.get_namespace(cls._namespace.default)
@@ -273,25 +275,42 @@ class Model(BaseModel, metaclass=ModelMeta):
         return {vec_name: vec for vec_name, vec in zip(cls._vectorizers.keys(), vector_list)}
     
     
-    async def vectorize(self, key: str):
-        ns = await connection_manager.get_namespace(self._namespace)        
+    # async def vectorize(self, key: str):
+    #     ns = await connection_manager.get_namespace(self._namespace)        
+    #     key = self.model_dump_json()
+    #     vector_list = await asyncio.gather(*[
+    #         vs.vectorizer.embed_documents([key]) for _, vs in ns.vector_spaces.items()
+    #     ])        
+    #     return {vec_name: vec[0] for vec_name, vec in zip(ns.vector_spaces.keys(), vector_list)}
+    async def vectorize(self, vectorizers: dict[str, BaseVectorizer]):        
         key = self.model_dump_json()
         vector_list = await asyncio.gather(*[
-            vs.vectorizer.embed_documents([key]) for _, vs in ns.vector_spaces.items()
-        ])
-        # vector_list = []
-        # for _, vs in ns.vector_spaces.items():
-        #     embed = await vs.vectorizer.embed_documents([key])
-        #     vector_list.append(embed)
-        return {vec_name: vec[0] for vec_name, vec in zip(ns.vector_spaces.keys(), vector_list)}
+            vectorizer.embed_documents([key]) for _, vectorizer in vectorizers.items()
+        ])        
+        return {vec_name: vec[0] for vec_name, vec in zip(vectorizers.keys(), vector_list)}
+
+    async def _call_vectorize(self):
+        ns = await connection_manager.get_namespace(self._namespace)
+        vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items()}
+        return await call_function(self.vectorize, vectorizers=vectorizers)
 
     
+    @classmethod
+    async def _call_vectorize_query(cls, query: str, use: str=None):
+        namespace = cls._namespace.default
+        ns = await connection_manager.get_namespace(namespace)
+        vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items() if name == use}
+        vector_list = await asyncio.gather(*[
+            vectorizer.embed_documents([query]) for _, vectorizer in vectorizers.items()
+        ])
+        return {vec_name: vec[0] for vec_name, vec in zip(vectorizers.keys(), vector_list)}
+        
     async def save(self):
         if not self._namespace:
             raise ValueError("Namespace not defined")
         namespace = await connection_manager.get_namespace(self._namespace)        
-        key = self.model_dump_json()
-        vectors = await self.vectorize(key)
+        # key = self.model_dump_json()
+        vectors = await self._call_vectorize()
         metadata = self.model_dump()
         res = await namespace.conn.upsert(
                 namespace=self._namespace,
@@ -347,6 +366,28 @@ class Model(BaseModel, metaclass=ModelMeta):
         )
         # res = await rag_documents.get_documents(top_k=top_k, filters=filters, order_by=order_by, offset=offset, ids=ids, with_vectors=True)
         return [cls._pack_search_result(r) for r in res]
+    
+    @classmethod
+    async def similar(
+        cls, 
+        query: str, 
+        top_k=10, 
+        filters=None, 
+        use: str=None,
+        threshold: float | None=None
+    ):
+        namespace = cls._namespace.default
+        vector = await cls._call_vectorize_query(query, use=use)
+        ns = await connection_manager.get_namespace(namespace)
+        res = await ns.conn.search(
+            namespace,
+            query=vector,
+            top_k=top_k,
+            filters=filters,
+            threshold=threshold
+        )
+        return [cls._pack_search_result(r) for r in res]
+        
     
     
     @classmethod

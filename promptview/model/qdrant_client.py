@@ -143,7 +143,10 @@ class Query:
                         must.append(models.FieldCondition(key=field, match=models.MatchValue(value=value)))
                         
 
-            return must_not, must
+            return models.Filter(
+                must_not=must_not,
+                must=must
+            )
 
 
 class OrderBy(TypedDict):
@@ -294,7 +297,8 @@ class QdrantClient:
                 ],
             )        
         if filters:
-            filter_ = to_qdrant_filters(filters)
+            filter_ = Query().parse_filter(filters)
+            # filter_ = to_qdrant_filters(filters)
         if order_by:
             if type(order_by) == str:
                 pass                
@@ -320,6 +324,53 @@ class QdrantClient:
         )
         return recs
     
+    
+    async def search(
+            self, 
+            collection_name: str, 
+            query, 
+            top_k=3, 
+            filters=None, 
+            alpha=None, 
+            with_vectors=False, 
+            fussion: Literal["RRF", "RSF"] | None = None,
+            retry: int=3,
+            base_delay=1, 
+            max_delay=8,
+            threshold: float | None=None,
+            order_by: OrderBy | str | None=None,
+        ):
+        filter_ = None
+        if filters:
+            filter_ = Query().parse_filter(filters)
+            # filter_ = to_qdrant_filters(filters)
+        if order_by:
+            if type(order_by) == str:
+                pass                
+            elif type(order_by) == dict:
+                order_by = models.OrderBy(
+                    key=order_by.get("key"),
+                    direction=order_by.get("direction", "desc"), # type: ignore
+                    start_from=order_by.get("start_from", None),  # start from this value
+                )
+                offset = None
+            else:
+                raise ValueError("order_by must be a string or a dict.")
+        
+        recs = await self.client.search(
+            collection_name=collection_name,
+            query_vector=NamedVector(
+                name="dense",
+                vector=query["dense"]
+            ),
+            query_filter=filter_,
+            limit=top_k,            
+            with_payload=True,
+            with_vectors=with_vectors,
+            score_threshold=threshold,
+        )
+        return recs
+        
     
     
     
