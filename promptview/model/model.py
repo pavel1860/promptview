@@ -399,19 +399,20 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def similar(
         cls, 
         query: str, 
-        top_k=10, 
         filters=None, 
+        limit=10, 
         use: str=None,
         threshold: float | None=None
     ):
         namespace = cls._namespace.default
+        query_filters = filters(QueryProxy(cls))
         vector = await cls._call_vectorize_query(query, use=use)
         ns = await connection_manager.get_namespace(namespace)
         res = await ns.conn.search(
             namespace,
             query=vector,
-            top_k=top_k,
-            filters=filters,
+            limit=limit,
+            filters=query_filters,
             threshold=threshold
         )
         return [cls._pack_search_result(r) for r in res]
@@ -425,7 +426,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     #     return recs
     
     @classmethod
-    async def all(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter], limit: int=10, offset: int=0, ascending: bool=False):
+    async def all(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter] | None = None, limit: int=10, offset: int=0, ascending: bool=False):
         query_filters = filters(QueryProxy(cls))
         recs = await cls.get_assets(limit=limit, filters=query_filters, offset=offset, ascending=ascending)
         return recs
