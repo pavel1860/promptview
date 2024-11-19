@@ -3,9 +3,9 @@ from datetime import datetime
 from enum import Enum
 import inspect
 import json
-from typing import Any, Dict, List, Optional, Type, TypeVar,  get_args, get_origin
+from typing import Any, Callable, Dict, List, Optional, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
-from promptview.model.query import FieldComparable
+from promptview.model.query import FieldComparable, QueryFilter
 from promptview.model.vectors.base_vectorizer import BaseVectorizer
 from promptview.model.fields import VectorSpaceMetrics, get_model_indices
 from promptview.utils.function_utils import call_function
@@ -237,6 +237,9 @@ class ModelMeta(ModelMetaclass, type):
     #     return super().__getattr__(name)
 
 
+
+
+
 class Model(BaseModel, metaclass=ModelMeta):
     _id: str = PrivateAttr(default_factory=lambda: str(uuid4()))
     _score: float = PrivateAttr(default=-1)
@@ -255,7 +258,17 @@ class Model(BaseModel, metaclass=ModelMeta):
             self._id = _id
         if _score:
             self._score = _score
-    
+    # def __init__(self,**data):
+    #     super().__init__(**data)
+    #     if data.get("_id"):
+    #         self._id = data.get("_id")
+    #     if data.get("_score"):
+    #         self._score = data.get("_score")
+    # def model_post_init(self, __context: Any):
+    #     if __context.get("_id"):
+    #             self._id = __context.get("_id")
+    #     if __context.get("_score"):
+    #             self._score = __context.get("_score")
         
     @property
     def id(self):
@@ -412,6 +425,10 @@ class Model(BaseModel, metaclass=ModelMeta):
         return recs
     
     @classmethod
+    async def all2(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter]):
+        return filters(cls)
+    
+    @classmethod
     async def add(cls: Type[MODEL]):
         pass
     
@@ -446,6 +463,9 @@ class Model(BaseModel, metaclass=ModelMeta):
         # partitions.update(self.partitions) #TODO need to understand how to get partitions
     
     
+    @classmethod
+    async def delete_namespace(cls):
+        await connection_manager.delete_namespace(cls._namespace.default)
     
     # async def get(self, partitions=None, limit=1, start_from=None, ascending=False, with_metadata=False):
     #     partitions = partitions or {}

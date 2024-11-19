@@ -189,7 +189,7 @@ def get_model_indices(cls_, prefix=""):
             indexs_to_create += get_model_indices(info.annotation, prefix=prefix+field+".")
         extra = get_field_extra(info)        
         if extra:
-            if "index" in extra:
+            if extra.get("index", None):
                 # print("found index:", field, extra["index"])
                 indexs_to_create.append({
                     "field": prefix+field,

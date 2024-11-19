@@ -20,37 +20,6 @@ from promptview.model.vectors.base_vectorizer import BaseVectorizer
 
 
 
-
-
-class RagDocumentsMenager:
-    
-    _rag_documents: Dict[str, RagDocuments] = {}
-    
-    def __init__(self):
-        self._rag_documents = {}
-        
-    async def get_rag_documents(self, metadata_model: Type[BaseModel]):
-        try:
-            return self._rag_documents[metadata_model.__name__]
-        except KeyError:
-            rag_documents = RagDocuments(
-                metadata_model.__name__,
-                metadata_class=metadata_model,
-                # vectorizers=[EmptyVectorizer(size=1536) if self.input_class is None else TextVectorizer()],
-                # vectorizers=[EmptyVectorizer(size=1536)],
-            )
-            self._rag_documents[metadata_model.__name__] = rag_documents
-            await rag_documents.verify_namespace()
-            return rag_documents
-
-
-
-
-
-
-
-
-
 class VectorSpace:
     name: str
     vectorizer_cls: Type[BaseVectorizer]
@@ -219,11 +188,21 @@ class ConnectionManager:
         ns.indices += indices        
         return ns    
         
-    async def validate_namespace(self):
+    # async def validate_namespace(self):
+    #     try:
+    #         await self.vector_store.info()
+    #     except (UnexpectedResponse, grpc.aio._call.AioRpcError) as e:            
+    #         await self.create_namespace()
+            
+    async def delete_namespace(self, namespace: str):
         try:
-            await self.vector_store.info()
-        except (UnexpectedResponse, grpc.aio._call.AioRpcError) as e:            
-            await self.create_namespace()
+            await self._qdrant_connection.delete_collection(namespace)
+            if namespace in self._active_namespaces:
+                del self._active_namespaces[namespace]
+            if namespace in self._namespaces:
+                del self._namespaces[namespace]            
+        except (UnexpectedResponse, grpc.aio._call.AioRpcError) as e:
+            pass
 
         
 
@@ -232,7 +211,7 @@ class ConnectionManager:
 
         
 
-# connection_manager = RagDocumentsMenager()
+
 connection_manager = ConnectionManager()
 
 
