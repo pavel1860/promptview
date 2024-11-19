@@ -82,7 +82,7 @@ class AnthropicLlmClient(BaseLlmClient):
         actions: Actions | List[BaseModel]=[], 
         model="claude-3-5-sonnet-20240620",
         tool_choice: ToolChoice | BaseModel | None = None,
-        max_tokens=1000,
+        max_tokens=4096,
         temperature=0,
         run_id: str | None=None, 
         **kwargs
