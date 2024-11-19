@@ -330,7 +330,18 @@ def filter_message_alternation(messages: List[BaseMessage]) -> List[BaseMessage]
         prev_role = msg.role
         validated_messages.append(msg)
     return validated_messages
-            
+
+
+def merge_messages(messages: List[BaseMessage]) -> List[BaseMessage]:
+    validated_messages = []
+    prev_role = None
+    for msg in messages:
+        if msg.role == prev_role:
+            validated_messages[-1].content += "\n" + msg.content
+        else:
+            validated_messages.append(msg)
+        prev_role = msg.role
+    return validated_messages
         
     
 
@@ -344,12 +355,14 @@ def validate_first_message(messages: List[BaseMessage]) -> List[BaseMessage]:
         raise ValueError("No user message found in messages. first message must be a user message")
 
     
-def filter_action_calls(messages: List[BaseMessage], user_first: bool=False, check_alternation=False) -> List[BaseMessage]:
+def filter_action_calls(messages: List[BaseMessage], user_first: bool=False, check_alternation=False, should_merge=False) -> List[BaseMessage]:
     messages = [m.model_copy() for m in messages if m.content]
     if user_first:
         messages = validate_first_message(messages)
+    if should_merge:
+        messages = merge_messages(messages)
     if check_alternation:
-        messages = filter_message_alternation(messages)
+        messages = filter_message_alternation(messages)    
     messages = remove_actions(remove_action_calls(messages))    
     return messages
     
