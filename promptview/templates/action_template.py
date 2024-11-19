@@ -3,7 +3,7 @@ import inspect
 from pydantic import BaseModel
 from promptview.prompt.mvc import view
 from typing import Optional, Union, get_type_hints, get_origin, get_args, Type, Literal
-
+import datetime as dt
 from promptview.utils.model_utils import describe_enum, get_complex_fields, stringify_field_info
 
 
@@ -17,7 +17,13 @@ def action_field_view(field_name: str, field_info):
         # return f"{field_name} ({get_field_info_origin(field_info)}): {field_info.description}"
         if field_info.description is None:
             raise ActionAttributeError(f"Missing description for field: {field_name}")
-        return f"""{field_name} ({stringify_field_info(field_info, "|")}): {field_info.description}"""
+        extra_format = ""
+        if hasattr(field_info, "annotation"): 
+            if field_info.annotation == dt.date:
+                extra_format = "use YYYY-MM-DD format. "
+            elif field_info.annotation == dt.datetime:
+                extra_format = "use YYYY-MM-DD HH:MM:SS format. "
+        return f"""{field_name} ({stringify_field_info(field_info, "|")}):{extra_format}{field_info.description}"""
     except AttributeError:
         raise ValueError(f"Invalid field_info: {field_info}")
     
