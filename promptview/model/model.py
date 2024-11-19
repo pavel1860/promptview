@@ -5,7 +5,7 @@ import inspect
 import json
 from typing import Any, Callable, Dict, List, Optional, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
-from promptview.model.query import FieldComparable, QueryFilter
+from promptview.model.query import FieldComparable, QueryFilter, QueryProxy
 from promptview.model.vectors.base_vectorizer import BaseVectorizer
 from promptview.model.fields import VectorSpaceMetrics, get_model_indices
 from promptview.utils.function_utils import call_function
@@ -371,7 +371,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     @classmethod
-    async def get_assets(cls, top_k=10, filters=None, start_from=None, offset=0, ascending=False, ids=None):
+    async def get_assets(cls, limit: int=10, filters=None, start_from=None, offset=0, ascending=False, ids=None):
         sort_key = cls._get_default_temporal_field()
         if not sort_key:
             raise ValueError("Temporal Field not defined")
@@ -384,7 +384,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         ns = await connection_manager.get_namespace(namespace)
         res = await ns.conn.scroll2(
             collection_name=namespace,
-            top_k=top_k,
+            limit=limit,
             filters=filters,
             order_by=order_by,
             offset=offset,
@@ -418,15 +418,17 @@ class Model(BaseModel, metaclass=ModelMeta):
         
     
     
-    @classmethod
-    async def all(cls, partitions=None, limit=10, start_from=None, offset=0, ascending=False, ids=None):
-        partitions = partitions or {}
-        recs = await cls.get_assets(top_k=limit, filters=partitions, start_from=start_from, offset=offset, ascending=ascending, ids=ids)
-        return recs
+    # @classmethod
+    # async def all(cls, partitions=None, limit=10, start_from=None, offset=0, ascending=False, ids=None):
+    #     partitions = partitions or {}
+    #     recs = await cls.get_assets(top_k=limit, filters=partitions, start_from=start_from, offset=offset, ascending=ascending, ids=ids)
+    #     return recs
     
     @classmethod
-    async def all2(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter]):
-        return filters(cls)
+    async def all(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter], limit: int=10, offset: int=0, ascending: bool=False):
+        query_filters = filters(QueryProxy(cls))
+        recs = await cls.get_assets(limit=limit, filters=query_filters, offset=offset, ascending=ascending)
+        return recs
     
     @classmethod
     async def add(cls: Type[MODEL]):

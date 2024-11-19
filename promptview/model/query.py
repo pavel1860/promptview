@@ -45,10 +45,6 @@ class QueryFilter:
     def __or__(self, other):
         return QueryFilter(self, other, QueryOp.OR)
     
-    def __getattr__(cls, name):
-        if field_info:= cls.model_fields.get(name, None):
-            return FieldComparable(name, field_info)
-        return super().__getattr__(name)
     
     
     def _set_values(self):
@@ -107,3 +103,23 @@ class FieldComparable:
     
     def contains(self, other):
         return QueryFilter(self, other, FieldOp.IN)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+class QueryProxy:
+    
+    def __init__(self, cls):
+        self._cls = cls
+    
+    def __getattr__(self, name):
+        if field_info:= self._cls.model_fields.get(name, None):
+            return FieldComparable(name, field_info)
+        else:
+            raise AttributeError(f"{self._cls.__name__} has no attribute {name}")
+        

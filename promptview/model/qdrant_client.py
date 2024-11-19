@@ -282,7 +282,7 @@ class QdrantClient:
             collection_name: str, 
             filters: Any,  
             ids: List[str | int] | None=None, 
-            top_k: int=10, 
+            limit: int=10, 
             offset: int=0,
             with_payload=False, 
             with_vectors=False, 
@@ -297,8 +297,8 @@ class QdrantClient:
                 ],
             )        
         if filters:
-            filter_ = Query().parse_filter(filters)
-            # filter_ = to_qdrant_filters(filters)
+            # filter_ = Query().parse_filter(filters)
+            filter_ = to_qdrant_filters(filters)
         if order_by:
             if type(order_by) == str:
                 pass                
@@ -316,7 +316,7 @@ class QdrantClient:
         recs, _ = await self.client.scroll(
             collection_name=collection_name,
             scroll_filter=filter_,
-            limit=top_k,
+            limit=limit,
             offset=offset,
             with_payload=with_payload,
             with_vectors=with_vectors,
@@ -342,8 +342,8 @@ class QdrantClient:
         ):
         filter_ = None
         if filters:
-            filter_ = Query().parse_filter(filters)
-            # filter_ = to_qdrant_filters(filters)
+            # filter_ = Query().parse_filter(filters)
+            filter_ = to_qdrant_filters(filters)
         if order_by:
             if type(order_by) == str:
                 pass                
