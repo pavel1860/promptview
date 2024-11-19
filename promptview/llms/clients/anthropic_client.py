@@ -114,6 +114,8 @@ class AnthropicLlmClient(BaseLlmClient):
                     await asyncio.sleep(delay)
                 else:
                     raise e
+        else:
+            raise e
                 
         
 

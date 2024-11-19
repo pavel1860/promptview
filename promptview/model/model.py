@@ -150,6 +150,13 @@ class ModelMeta(ModelMetaclass, type):
         default_temporal_type = None
         namespace = None
         if name != "Model":
+            #? add model partition
+            model_base = bases[0]
+            if model_base == Model:
+                dct["_subspace"] = None
+            else: 
+                dct["_subspace"] = name                
+            
             for field, field_type in dct.items():
                 #? temporal field extraction
                 if inspect.isclass(field_type.__class__):
@@ -158,8 +165,9 @@ class ModelMeta(ModelMetaclass, type):
                             default_temporal_field = field
                             default_temporal_type = field_type
                     #? vector space extraction                   
-                    vector_spaces = []         
+                    
                     if field == "VectorSpace":
+                        vector_spaces = []
                         vectorizers = field_type.__annotations__
                         for vec_name, vec_cls in vectorizers.items():
                             if not issubclass(vec_cls, BaseVectorizer):
@@ -171,19 +179,21 @@ class ModelMeta(ModelMetaclass, type):
                                     metric=VectorSpaceMetrics.COSINE                                
                                 ))
                             # vectorizers_manager.add_vectorizer(vec_name, vec_cls)
-                        namespace = name
+                        #? namespace and indices extraction
+                        namespace = name                        
                         indices = get_model_indices(dct)
                         connection_manager.add_namespace(
                             namespace=namespace,
+                            # subspace=dct.get("_subspace"),
                             vector_spaces=vector_spaces,
                             indices=indices
                         )
-            #? extract indices 
-            
-            
-                    
-                        
-                        print("Found Vector Space", name, field_type)
+            if dct.get("_subspace", None):
+                if not hasattr(bases[0], "_namespace"):
+                    raise ValueError(f"Namespace not defined in base class of {name}")
+                indices = get_model_indices(dct)
+                connection_manager.add_subspace(bases[0]._namespace.default, dct["_subspace"], indices)
+                
             #? partition extraction
             if annotations:= dct.get("__annotations__", None):
                 for field, field_type in annotations.items():       
@@ -208,6 +218,7 @@ class ModelMeta(ModelMetaclass, type):
                             }
                             field_info.default_factory = lambda: Relation(target_type, partition)  
                             print("Found",field, partition)
+                
             dct["_partitions"] = cls_partitions
             dct["_default_temporal_field"] = default_temporal_field
             if namespace:
@@ -262,6 +273,10 @@ class Model(BaseModel, metaclass=ModelMeta):
         return ns.conn
         
     
+    def _payload_dump(self):
+        dump = self.model_dump()
+        dump["_subspace"] = self._subspace
+        return dump
         
     # async def verify_namespace(self):
         # await self.rag_documents.verify_namespace()
@@ -311,7 +326,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         namespace = await connection_manager.get_namespace(self._namespace)        
         # key = self.model_dump_json()
         vectors = await self._call_vectorize()
-        metadata = self.model_dump()
+        metadata = self._payload_dump()
         res = await namespace.conn.upsert(
                 namespace=self._namespace,
                 vectors=[vectors],
