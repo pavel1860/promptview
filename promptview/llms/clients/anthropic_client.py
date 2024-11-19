@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from promptview.llms.clients.base import BaseLlmClient
 import os
 import anthropic
-
+import asyncio
 from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.messages import ActionCall, BaseMessage, LlmUsage, SystemMessage, AIMessage, filter_action_calls, remove_action_calls
 from promptview.llms.types import ToolChoice
@@ -13,6 +13,7 @@ from promptview.prompt.mvc import find_action, get_action_name
 from promptview.utils.model_utils import schema_to_function
 from promptview.llms.interpreter import LlmInterpreter
 from typing import List, get_args
+import random
 
 
 def convert_camel_to_snake(name):
@@ -75,6 +76,46 @@ class AnthropicLlmClient(BaseLlmClient):
 
     async def after_complete(self, completion: anthropic.types.message.Message, **kwargs):
         return completion
+    
+    
+    async def create(
+            self,
+            model: str,
+            temperature: int,
+            max_tokens: int,
+            system: str,
+            messages: List[dict],
+            tools: Any,
+            tool_choice: str,
+            max_retries=10, 
+            base_delay=1, 
+            max_delay=32,
+            **kwargs
+        ):
+        for attempt in range(max_retries):
+            try:
+                anthropic_completion = await self.client.messages.create(
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    system=system,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    **kwargs
+                )
+                return anthropic_completion
+            except anthropic.InternalServerError as e:
+                if e.status_code == 529:
+                    delay = min(base_delay * (2 ** (attempt - 1)), max_delay)
+                    # Add jitter to avoid thundering herd problems
+                    delay = delay * random.uniform(0.5, 1.5)
+                    print(f"Attempt {attempt} failed: {e}. Retrying in {delay:.2f} seconds...")
+                    await asyncio.sleep(delay)
+                else:
+                    raise e
+                
+        
 
     async def complete(
         self, 
@@ -102,7 +143,17 @@ class AnthropicLlmClient(BaseLlmClient):
         tool_choice = anthropic.NOT_GIVEN if not actions else to_antropic_tool_choice(tool_choice)
         try:
             anthropic_completion = None
-            anthropic_completion = await self.client.messages.create(
+            # anthropic_completion = await self.client.messages.create(
+            #     model=model,
+            #     temperature=temperature,
+            #     max_tokens=max_tokens,
+            #     system=system_message,
+            #     messages=antropic_messages,
+            #     tools=tools,
+            #     tool_choice=tool_choice,
+            #     **kwargs
+            # )
+            anthropic_completion = await self.create(
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
@@ -113,7 +164,8 @@ class AnthropicLlmClient(BaseLlmClient):
                 **kwargs
             )
             anthropic_completion = await self.after_complete(anthropic_completion)
-            return self.parse_output(anthropic_completion, actions)
+            return self.parse_output(anthropic_completion, actions)        
+                
         except Exception as e:
             print(antropic_messages)
             # self.serialize_messages(run_id, messages, anthropic_completion)
