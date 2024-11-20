@@ -5,7 +5,7 @@ import inspect
 import json
 from typing import Any, Callable, Dict, List, Optional, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
-from promptview.model.query import FieldComparable, QueryFilter, QueryProxy
+from promptview.model.query import FieldComparable, QueryFilter, QueryProxy, ALL_VECS, QuerySet
 from promptview.model.vectors.base_vectorizer import BaseVectorizer
 from promptview.model.fields import VectorSpaceMetrics, get_model_indices
 from promptview.utils.function_utils import call_function
@@ -302,6 +302,10 @@ class Model(BaseModel, metaclass=ModelMeta):
         ])
         return {vec_name: vec for vec_name, vec in zip(cls._vectorizers.keys(), vector_list)}
     
+    @classmethod
+    async def get_namespace(cls):
+        namespace = cls._namespace.default
+        return await connection_manager.get_namespace(namespace)
     
     # async def vectorize(self, key: str):
     #     ns = await connection_manager.get_namespace(self._namespace)        
@@ -324,10 +328,10 @@ class Model(BaseModel, metaclass=ModelMeta):
 
     
     @classmethod
-    async def _call_vectorize_query(cls, query: str, use: str=None):
+    async def _call_vectorize_query(cls, query: str, use_vectors: list[str]):
         namespace = cls._namespace.default
         ns = await connection_manager.get_namespace(namespace)
-        vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items() if name == use}
+        vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items() if name in use_vectors}
         vector_list = await asyncio.gather(*[
             vectorizer.embed_documents([query]) for _, vectorizer in vectorizers.items()
         ])
@@ -354,7 +358,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     @classmethod
-    def _pack_search_result(cls, search_result):
+    def pack_search_result(cls, search_result):
         return cls(
             _id=search_result.id,
             _score=search_result.score if hasattr(search_result, "score") else -1,
@@ -396,28 +400,16 @@ class Model(BaseModel, metaclass=ModelMeta):
         return [cls._pack_search_result(r) for r in res]
     
     @classmethod
-    async def similar(
-        cls, 
-        query: str, 
-        filters=None, 
-        limit=10, 
-        use: str=None,
-        threshold: float | None=None
-    ):
-        namespace = cls._namespace.default
-        query_filters = filters(QueryProxy(cls))
-        vector = await cls._call_vectorize_query(query, use=use)
-        ns = await connection_manager.get_namespace(namespace)
-        res = await ns.conn.search(
-            namespace,
-            query=vector,
-            limit=limit,
-            filters=query_filters,
-            threshold=threshold
-        )
-        return [cls._pack_search_result(r) for r in res]
-        
+    def similar(cls: Type[MODEL], query: str, use: list[str] | str=ALL_VECS):        
+        return QuerySet(cls).similar(query, use)
     
+    @classmethod
+    def first(cls: Type[MODEL]):
+        return QuerySet(cls).first()
+    
+    @classmethod
+    def filter(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter]):
+        return QuerySet(cls).filter(filters)
     
     # @classmethod
     # async def all(cls, partitions=None, limit=10, start_from=None, offset=0, ascending=False, ids=None):
@@ -448,22 +440,22 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def create(cls: Type[MODEL]):
         pass
     
-    @classmethod
-    async def first(cls: Type[MODEL], partitions=None):
-        partitions = partitions or {}
-        res = await cls.get_assets(top_k=1, filters=partitions, ascending=True)
-        if len(res) == 0:
-            return None
-        return res[0]
+    # @classmethod
+    # async def first(cls: Type[MODEL], partitions=None):
+    #     partitions = partitions or {}
+    #     res = await cls.get_assets(top_k=1, filters=partitions, ascending=True)
+    #     if len(res) == 0:
+    #         return None
+    #     return res[0]
     
-    @classmethod
-    async def last(cls: Type[MODEL], partitions=None):
-        partitions = partitions or {}
-        res = await cls.get_assets(top_k=1, filters=partitions, ascending=False)
-        if len(res) == 0:
-            return None
-        return res[0]
-        # partitions.update(self.partitions) #TODO need to understand how to get partitions
+    # @classmethod
+    # async def last(cls: Type[MODEL], partitions=None):
+    #     partitions = partitions or {}
+    #     res = await cls.get_assets(top_k=1, filters=partitions, ascending=False)
+    #     if len(res) == 0:
+    #         return None
+    #     return res[0]
+    #     # partitions.update(self.partitions) #TODO need to understand how to get partitions
     
     
     @classmethod

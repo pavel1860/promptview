@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, TypedDict
 from uuid import uuid4
 from qdrant_client import AsyncQdrantClient, QdrantClient, models
 from qdrant_client.http.exceptions import ResponseHandlingException
@@ -15,79 +15,11 @@ import itertools
 
 from promptview.model.fields import VectorSpaceMetrics
 from promptview.model.namespace import VectorSpace
-from promptview.model.query import QueryFilter, FieldComparable, FieldOp, QueryOp
+
 from qdrant_client import models
 
-
-
-def to_qdrant_filters(base_query):
-
-    match_filters = {}
-
-    not_match_filters = {}
-
-    range_filters = {} 
-
-
-    def traverse(query):
-        if isinstance(query._operator, QueryOp):
-            traverse(query._left)
-            traverse( query._right)
-        elif isinstance(query._operator, FieldOp):
-            # if isinstance(query._left, FieldComparable):
-            #     field = query._left
-            #     value = query._right
-            # elif isinstance(query._right, FieldComparable):
-            #     field = query._right
-            #     value = query._left
-            # else:
-            #     raise ValueError("No FieldComparable found")
-            field, value = query.field, query.value
-            
-            if query._operator in [FieldOp.GT, FieldOp.GE, FieldOp.LT, FieldOp.LE]:
-                range_filter = range_filters.get(field.name)
-                if not range_filter:
-                    range_filter = models.FieldCondition(
-                        key=field.name,
-                        range=models.DatetimeRange() if query.is_datetime() else models.Range()
-                    )
-                    range_filters[field.name] = range_filter
-                if query._operator == FieldOp.GT:
-                    range_filter.range.gt = value
-                elif query._operator == FieldOp.GE:
-                    range_filter.range.gte = value
-                elif query._operator == FieldOp.LT:
-                    range_filter.range.lt = value
-                elif query._operator == FieldOp.LE:
-                    range_filter.range.lte = value
-                # print("Range", field.name, query._operator, value)
-            elif query._operator in [FieldOp.EQ]:
-                match_filter = range_filters.get(field.name)
-                if match_filter:
-                    raise ValueError(f"Match filter already exists for field {field.name}")
-                match_filters[field.name] = models.FieldCondition(
-                    key=field.name,
-                    match=models.MatchValue(value=value)
-                )
-                print("Match", field.name, query._operator, value)
-            elif query._operator in [FieldOp.NE]:
-                not_match_filters[field.name] = models.FieldCondition(
-                    key=field.name,
-                    match=models.MatchValue(value=value)
-                    
-                )
-                print("Not Match", field.name, query._operator, value)
-                
-        else:
-            raise ValueError("Unknown operator")
-
-    traverse(base_query)
-
-    model_filters = models.Filter(
-            must=[f for f in match_filters.values()] + [ f for f in range_filters.values()],
-            must_not=[ f for f in not_match_filters.values() ],        
-        )
-    return model_filters
+# if TYPE_CHECKING:
+from promptview.model.query import QueryFilter, FieldComparable, FieldOp, QueryOp
 
 
 def chunks(iterable, batch_size=100):
@@ -220,9 +152,7 @@ class QdrantClient:
             #         vector=p.vector
             #     ) 
             #     for p in points]        
-        return results
-
-        
+        return results     
     
     
     async def scroll(
@@ -298,7 +228,7 @@ class QdrantClient:
             )        
         if filters:
             # filter_ = Query().parse_filter(filters)
-            filter_ = to_qdrant_filters(filters)
+            filter_ = self.transform_filters(filters)
         if order_by:
             if type(order_by) == str:
                 pass                
@@ -313,7 +243,7 @@ class QdrantClient:
                 raise ValueError("order_by must be a string or a dict.")
         
             
-        recs, _ = await self.client.scroll(
+        recs, a = await self.client.scroll(
             collection_name=collection_name,
             scroll_filter=filter_,
             limit=limit,
@@ -325,11 +255,53 @@ class QdrantClient:
         return recs
     
     
+    async def query_points(
+        self,
+        collection_name: str, 
+        vectors: dict[str, Any],
+        filters: Any,  
+        ids: List[str | int] | None=None, 
+        limit: int=10, 
+        offset: int=0,
+        with_payload=False, 
+        with_vectors=False, 
+        order_by: OrderBy | str | None=None,
+    ):        
+        filter_ = None
+        if filters:
+            # filter_ = Query().parse_filter(filters)
+            filter_ = self.transform_filters(filters)
+        if order_by:
+            if type(order_by) == str:
+                pass                
+            elif type(order_by) == dict:
+                order_by = models.OrderBy(
+                    key=order_by.get("key"),
+                    direction=order_by.get("direction", "desc"), # type: ignore
+                    start_from=order_by.get("start_from", None),  # start from this value
+                )
+                offset = None
+            else:
+                raise ValueError("order_by must be a string or a dict.")
+        using, query = next(iter(vectors.items()))
+        recs = await self.client.query_points(
+            collection_name=collection_name,
+            query=query,
+            using=using,
+            query_filter=filter_,
+            limit=limit,
+            offset=offset,
+            with_payload=with_payload,
+            with_vectors=with_vectors,            
+        )
+        
+        return recs
+    
     async def search(
             self, 
             collection_name: str, 
             query, 
-            top_k=3, 
+            limit=3, 
             filters=None, 
             alpha=None, 
             with_vectors=False, 
@@ -343,7 +315,7 @@ class QdrantClient:
         filter_ = None
         if filters:
             # filter_ = Query().parse_filter(filters)
-            filter_ = to_qdrant_filters(filters)
+            filter_ = self.transform_filters(filters)
         if order_by:
             if type(order_by) == str:
                 pass                
@@ -364,14 +336,13 @@ class QdrantClient:
                 vector=query["dense"]
             ),
             query_filter=filter_,
-            limit=top_k,            
+            limit=limit,            
             with_payload=True,
             with_vectors=with_vectors,
             score_threshold=threshold,
         )
         return recs
         
-    
     
     
     async def delete(self, filters):
@@ -430,6 +401,133 @@ class QdrantClient:
                 except Exception as e:
                     raise e
         return create_res
+    
+    def transform_filters(self, query_filters):
+        return self._parse_query_filter(query_filters)
+    
+    def _parse_query_filter(self, query_filter: QueryFilter) -> Filter:
+        """Recursively parse QueryFilter into Qdrant Filter object."""
+        if isinstance(query_filter._operator, QueryOp):
+            # Logical operators (AND/OR)
+            if query_filter._operator == QueryOp.AND:
+                return Filter(
+                    must=[
+                        self._parse_query_filter(query_filter._left),
+                        self._parse_query_filter(query_filter._right)
+                    ]
+                )
+            elif query_filter._operator == QueryOp.OR:
+                return Filter(
+                    should=[
+                        self._parse_query_filter(query_filter._left),
+                        self._parse_query_filter(query_filter._right)
+                    ]
+                )
+        elif isinstance(query_filter._operator, FieldOp):
+            # Field comparison operators
+            if query_filter._operator == FieldOp.EQ:
+                return Filter(
+                    must=[
+                        FieldCondition(key=query_filter.field.name, match=models.MatchValue(value=query_filter.value))
+                    ]
+                )
+            elif query_filter._operator == FieldOp.NE:
+                return Filter(
+                    must_not=[
+                        FieldCondition(key=query_filter.field.name, match=models.MatchValue(value=query_filter.value))
+                    ]
+                )
+            elif query_filter._operator in {FieldOp.GT, FieldOp.GE, FieldOp.LT, FieldOp.LE}:
+                return Filter(
+                    must=[
+                        FieldCondition(
+                            key=query_filter.field.name,
+                            range=Range(**{query_filter._operator.value: query_filter.value})
+                        )
+                    ]
+                )
+            elif query_filter._operator == FieldOp.IN:
+                return Filter(
+                    must=[
+                        FieldCondition(key=query_filter.field.name, match=models.MatchValue(values=query_filter.value))
+                    ]
+                )
+        else:
+            raise ValueError(f"Unsupported operator: {query_filter._operator}")
+
+    
+    
+    
+    def transform_filters2(self, query_filters):
+
+        match_filters = {}
+
+        not_match_filters = {}
+
+        range_filters = {} 
+
+
+        def traverse(query):
+            if isinstance(query._operator, QueryOp):
+                traverse(query._left)
+                traverse( query._right)
+                print(traverse)
+            elif isinstance(query._operator, FieldOp):
+                # if isinstance(query._left, FieldComparable):
+                #     field = query._left
+                #     value = query._right
+                # elif isinstance(query._right, FieldComparable):
+                #     field = query._right
+                #     value = query._left
+                # else:
+                #     raise ValueError("No FieldComparable found")
+                field, value = query.field, query.value
+                
+                if query._operator in [FieldOp.GT, FieldOp.GE, FieldOp.LT, FieldOp.LE]:
+                    range_filter = range_filters.get(field.name)
+                    if not range_filter:
+                        range_filter = models.FieldCondition(
+                            key=field.name,
+                            range=models.DatetimeRange() if query.is_datetime() else models.Range()
+                        )
+                        range_filters[field.name] = range_filter
+                    if query._operator == FieldOp.GT:
+                        range_filter.range.gt = value
+                    elif query._operator == FieldOp.GE:
+                        range_filter.range.gte = value
+                    elif query._operator == FieldOp.LT:
+                        range_filter.range.lt = value
+                    elif query._operator == FieldOp.LE:
+                        range_filter.range.lte = value
+                    # print("Range", field.name, query._operator, value)
+                elif query._operator in [FieldOp.EQ]:
+                    match_filter = range_filters.get(field.name)
+                    if match_filter:
+                        raise ValueError(f"Match filter already exists for field {field.name}")
+                    match_filters[field.name] = models.FieldCondition(
+                        key=field.name,
+                        match=models.MatchValue(value=value)
+                    )
+                    print("Match", field.name, query._operator, value)
+                elif query._operator in [FieldOp.NE]:
+                    not_match_filters[field.name] = models.FieldCondition(
+                        key=field.name,
+                        match=models.MatchValue(value=value)
+                        
+                    )
+                    print("Not Match", field.name, query._operator, value)
+                    
+            else:
+                raise ValueError("Unknown operator")
+
+        traverse(query_filters)
+
+        model_filters = models.Filter(
+                must=[f for f in match_filters.values()] + [ f for f in range_filters.values()],
+                must_not=[ f for f in not_match_filters.values() ],        
+            )
+        return model_filters
+
 
 
 

@@ -1,6 +1,10 @@
 from enum import Enum
+from typing import TYPE_CHECKING, Any, Callable, Generic, Type, TypeVar
 from pydantic.fields import FieldInfo
 import datetime as dt
+from qdrant_client import models
+if TYPE_CHECKING:  # pragma: nocoverage
+    from .model import Model
 
 
 class FieldOp(Enum):
@@ -25,6 +29,7 @@ class QueryFilter:
         self._left = left
         self._right = right
         self._operator = operator
+        print("INIT", left, right, operator)
         if operator not in [QueryOp.AND, QueryOp.OR]:
             if isinstance(self._left, FieldComparable):
                 self.field = self._left
@@ -43,6 +48,7 @@ class QueryFilter:
         return QueryFilter(self, other, QueryOp.AND)
     
     def __or__(self, other):
+        print("OR", self, other)
         return QueryFilter(self, other, QueryOp.OR)
     
     
@@ -55,7 +61,10 @@ class QueryFilter:
             self._field = self._right
             self._value = self._left
         else:
-            raise ValueError("No FieldComparable found")        
+            raise ValueError("No FieldComparable found")     
+        
+        
+    
         
     
 
@@ -109,17 +118,173 @@ class FieldComparable:
     
     
     
+
     
     
+
+        
+# G = TypeVar("G")   
     
-class QueryProxy:
     
-    def __init__(self, cls):
-        self._cls = cls
+# class QueryProxy(Generic[G]):
+    
+#     def __getattr__(self, name):
+#         if field_info:= self._cls.model_fields.get(name, None):
+#             return FieldComparable(name, field_info)
+#         else:
+#             raise AttributeError(f"{self._cls.__name__} has no attribute {name}")
+        
+        
+        
+MODEL = TypeVar("MODEL", bound="Model")
+
+# class VectorQuerySet:
+
+class AllVecs:
+    def __bool__(self):
+        return True
+    
+ALL_VECS = AllVecs()
+
+
+class QueryProxy(Generic[MODEL]):
+    model: MODEL
+    
+    def __init__(self, model: MODEL):
+        self.model = model
     
     def __getattr__(self, name):
-        if field_info:= self._cls.model_fields.get(name, None):
+        if name == "model":
+            return self.model
+        print("GET ATTR", name)
+        if field_info:= self.model.model_fields.get(name, None):
             return FieldComparable(name, field_info)
         else:
-            raise AttributeError(f"{self._cls.__name__} has no attribute {name}")
+            raise AttributeError(f"{self.model.__name__} has no attribute {name}")
+
+class VectorQuerySet:
+    query: Any
+    vectors: list[str] | AllVecs
+    
+    def __init__(self, query: str, vectors: str | AllVecs=ALL_VECS):
+        self.query = query
+        self.vectors = vectors
+    
+
+
+class QuerySet(Generic[MODEL]):    
+    model: Type[MODEL]
+    _limit: int
+    _offset: int
+    _order_by: str | dict
+    _filters: QueryFilter
+    _vector_query: VectorQuerySet | None
+    _unpack_result: bool = False
+    
+    
+    def __init__(self, model: Type[MODEL]):
+        self.model = model
+        self._limit = None
+        self._offset = None
+        self._order_by = None
+        self._filters = []
+        self._vector_query = None
         
+    def __await__(self):
+        return self.execute().__await__()
+    
+    async def execute(self):        
+        if self._vector_query:
+            result = await self._execute_vector_query()
+            records = [self.model.pack_search_result(r) for r in result.points]
+        else:
+            result = await self._execute_fetch()
+            records = [self.model.pack_search_result(r) for r in result]
+        
+        if self._unpack_result:
+            if len(records):
+                return records[0]
+            else:
+                return None
+        return records
+    
+    
+    async def to_db_filters(self):
+        ns = await self.model.get_namespace()        
+        return ns.conn.transform_filters(self._filters)
+    
+    
+    async def _execute_vector_query(self):        
+        ns = await self.model.get_namespace()
+        if self._vector_query.vectors == ALL_VECS:
+            use_vectors = [vn for vn in ns.vector_spaces]
+        else:
+            use_vectors = self._vector_query.vectors
+        vectors = await self.model._call_vectorize_query(
+            self._vector_query.query, 
+            use_vectors=use_vectors)        
+        res = await ns.conn.query_points(
+            ns.name,
+            vectors=vectors,
+            limit=self._limit,
+            filters=self._filters,
+            # threshold=threshold
+            with_payload=True,
+            with_vectors=True
+        )
+        return res
+    
+    async def _execute_fetch(self):
+        ns = await self.model.get_namespace()
+        res = await ns.conn.scroll2(
+            collection_name=ns.name,
+            limit=self._limit,
+            filters=self._filters,
+            order_by=self._order_by,
+            offset=self._offset,
+            # ids=ids,
+            with_payload=True,
+            with_vectors=True
+        ) 
+        return res       
+    
+    def similar(self, query: str, use: list[str] | str=ALL_VECS):
+        self._vector_query = VectorQuerySet(
+            query=query,
+            vectors=use
+        )
+        return self
+    
+    def filter(self, filter_fn: Callable[[Type[MODEL]], QueryFilter]):
+        self._filters = filter_fn(QueryProxy(self.model))
+        return self
+        
+    def limit(self, limit: int):
+        self._limit = limit
+        return self
+    
+    def topk(self, topk: int):
+        self._limit = topk
+        self._offset = 0
+        return self
+    
+    def first(self):
+        self._limit = 1
+        self._offset = 0
+        self._unpack_result = True
+        return self
+    
+    def offset(self, offset: int):
+        self._offset = offset
+        return self
+    
+    async def all(self):
+        self._limit = None
+        self._offset = None
+        return self
+    
+    def last(self):
+        pass
+    
+    
+    
