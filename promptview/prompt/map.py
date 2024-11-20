@@ -43,7 +43,7 @@ async def map_prompt(
                     return output
                 except Exception as e:
                     if logger:
-                        logger.error(f"Error processing item {index}: {e}")
+                        logger.exception(f"Error processing item {index}: {e}")
                     return None
         
         tasks = [run_prompt(index=index, **kwargs) for index, kwargs in enumerate(kwargs_list)]

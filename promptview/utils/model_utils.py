@@ -1,12 +1,10 @@
-from enum import Enum
 import inspect
 import json
 import jsonref
 from types import UnionType
 from typing import Any, Literal, Optional, Union, get_args, get_origin
-
 from promptview.llms.utils.completion_parsing import (is_list_model,
-                                                    unpack_list_model)
+                                                      unpack_list_model)
 from pydantic import BaseModel, create_model
 
 
@@ -210,6 +208,7 @@ def serialize_class(cls_: Any):
         "schema": schema,
         "pydantic_version": version
     }
+
 
 
 
