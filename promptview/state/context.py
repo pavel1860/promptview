@@ -7,9 +7,13 @@ from typing import Any, List, Union
 
 from promptview.app_manager import app_manager
 from promptview.state.history import History
-from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
-                                      SystemMessage)
+from promptview.llms.messages import BaseMessage                                      
 from pydantic import BaseModel, Field
+
+
+class Session(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    updated_at: datetime = Field(default_factory=datetime.now)
 
 
 class Context(BaseModel):
@@ -24,6 +28,16 @@ class Context(BaseModel):
     message: str | None = None
     history: History = Field(default_factory=History)
     created_at: datetime = Field(default_factory=datetime.now)
+    session: Session = Field(default_factory=Session)
+    add_session_id: bool = True
+    
+    
+    @property
+    def session_id(self):
+        if not self.add_session_id:
+            return None
+        return self.session.id
+    
 
 
     async def init_context(self):
@@ -67,3 +81,12 @@ class Context(BaseModel):
             raise Exception(f"Prompt {self.curr_prompt} not found in app_manager.prompts")
         return prompt()
 
+    @staticmethod
+    async def get(key, **kwargs):
+        return None
+    
+    async def set(self,  key, **kwargs):
+        return None
+    
+    async def delete(self):
+        return None

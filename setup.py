@@ -11,15 +11,19 @@ setup(
     install_requires=[
         "numpy==1.26.4",
         "pydantic>=2.8.2, <3",
+        "jsonref==1.1.0",
         "tiktoken==0.5.2",
         "pinecone-text==0.9.0",
         "scipy==1.11.4",
         "boto3==1.24.47",
         "openai==1.37.1",
+        "anthropic==0.34.2",
         "langdetect==1.0.9",
         "qdrant-client==1.10.1",
         "docstring_parser==0.16",
         "iso-639==0.4.5",
+        "aiohttp==3.10.0",
+        "langsmith==0.1.95",
     ],    
     classifiers=[
         # Classifiers help users find your project by categorizing it.

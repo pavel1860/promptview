@@ -165,7 +165,7 @@ class LLM(BaseModel):
             tool_choice: ToolChoice | BaseModel | None = None,
             response_model: type[BaseModel] | None=None,
             tracer_run=None, 
-            metadata={}, 
+            metadata={},
             completion=None,
             retries=3, 
             smart_retry=True,
@@ -234,6 +234,12 @@ class LLM(BaseModel):
                         raise e
                     if smart_retry:
                         msgs.append(HumanMessage(content=f"could not parse output:\n{str(e)}"))
+                except json.JSONDecodeError as e:
+                    if try_num == retries - 1:
+                        llm_run.end(errors=str(e))
+                        raise e
+                    if smart_retry:
+                        msgs.append(HumanMessage(content=f"bad json output:\n{str(e)}"))
                 except ValidationError as e:
                     print(f"try {try_num} validation error")
                     if try_num == retries - 1:
@@ -253,6 +259,7 @@ class LLM(BaseModel):
     def parse_output(self, completion, tools, tool_choice: ToolChoice | BaseModel | None, response_model):
         output = completion.choices[0].message
         finish_reason = completion.choices[0].finish_reason
+        tool_calls = completion.choices[0].message.tool_calls
 
         if response_model:
             parser = OutputParser(response_model)
@@ -263,9 +270,9 @@ class LLM(BaseModel):
                 print("########## ERROR PARSING OUTPUT ##########") 
         actions = None
         if finish_reason == "stop":
-            if tool_choice == "required":
+            if tool_choice == "required" and not tool_calls:
                 raise LLMToolNotFound("Tool call is required")            
-        elif finish_reason == "tool_calls":
+        if tool_calls:
             if completion.choices[0].message.content is not None:
                 print("### tool call with message: ", completion.choices[0].message.content)
             tool_lookup = {t.__name__: t for t in tools}
@@ -278,6 +285,22 @@ class LLM(BaseModel):
                 else:
                     raise LLMToolNotFound(f"Tool {tool_call.function.name} not found in tools")
                 tool_call.function.name                
+        # if finish_reason == "stop":
+        #     if tool_choice == "required":
+        #         raise LLMToolNotFound("Tool call is required")            
+        # elif finish_reason == "tool_calls":
+        #     if completion.choices[0].message.content is not None:
+        #         print("### tool call with message: ", completion.choices[0].message.content)
+        #     tool_lookup = {t.__name__: t for t in tools}
+        #     actions = []
+        #     for tool_call in output.tool_calls:
+        #         tool_args = json.loads(tool_call.function.arguments)
+        #         tool_cls = tool_lookup.get(tool_call.function.name, None)
+        #         if tool_cls:
+        #             actions.append(tool_cls(**tool_args))
+        #         else:
+        #             raise LLMToolNotFound(f"Tool {tool_call.function.name} not found in tools")
+        #         tool_call.function.name                
             # return actions
         return AIMessage(content=output.content, tool_calls=output.tool_calls, actions=actions)
         

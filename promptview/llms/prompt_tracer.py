@@ -278,6 +278,10 @@ class PromptRunTree:
         }
 
 
+def add_filter(filters, new_filter):
+    if filters is None:
+        return new_filter
+    return f'and({filters}, {new_filter})'
 
 
 class PromptTracer:
@@ -291,10 +295,12 @@ class PromptTracer:
             self, 
             name: List[str] | str | None = None,             
             execution_order=None, 
-            filter=None, 
+            filters=None, 
             project_name=LANGCHAIN_PROJECT, 
+            session_id=None,
             limit=10,
-            error: bool=False,
+            error: bool=None,
+            is_root=True
         ):
         runs = []        
         active_filter = None
@@ -307,18 +313,25 @@ class PromptTracer:
             active_filter = ",".join(name_filters)
             if len(name_filters) > 1:
                 active_filter = f'or({active_filter})'
-        if filter is not None:
+        # if session_id is not None:
+        
+            
+        if filters is not None:
             if active_filter is not None:
-                active_filter = f'and({active_filter}, {filter})'
+                active_filter = f'and({active_filter}, {filters})'
             else:
-                active_filter = filter
+                active_filter = filters
+                
+        if session_id:
+            active_filter = add_filter(active_filter, f"and(eq(metadata_key, 'session_id'), eq(metadata_value, '{session_id}'))")                  
             
         for run in self.client.list_runs(
             project_name=project_name,
             filter=active_filter,
             execution_order=execution_order,
             error=error,
-            limit=limit
+            limit=limit,
+            is_root=is_root
             # filter='or(eq(name, "AgentExecutor"), eq(name, "RouterChain"), eq(name, "AvoConversationalRetrievalChain"))',                    
         ):
             runs.append(PromptRun(run))
@@ -329,14 +342,16 @@ class PromptTracer:
     async def aget_runs(
             self, 
             name: List[str] | str | None = None, 
-            execution_order=1, 
+            execution_order=None, 
+            session_id=None,
             filter=None, 
             project_name=LANGCHAIN_PROJECT, 
             limit=10,
-            error: bool=False,
+            error: bool=None,
+            is_root=True
         ):
         return await asyncio.get_running_loop().run_in_executor(
-            None, self.get_run_list, name, execution_order, filter, project_name, limit, error
+            None, self.get_run_list, name, execution_order, filter, project_name, session_id, limit, error, is_root
         )
 
 

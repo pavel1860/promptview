@@ -3,7 +3,7 @@ from typing import Type, get_args
 
 from promptview.llms.utils.completion_parsing import (is_list_model,
                                                     unpack_list_model)
-from promptview.utils.model_utils import iterate_class_fields, schema_to_function, serialize_class
+from promptview.utils.model_utils import get_union_args, is_union, iterate_class_fields, schema_to_function, serialize_class
 from promptview.vectors.rag_documents import RagDocuments
 from pydantic import BaseModel
 
@@ -17,18 +17,38 @@ def extract_json_schema(cls_):
         return cls_.model_json_schema()
     return schema_to_function(cls_)
 
-
-
-
+def extract_class(cls_):
+    if cls_ is None:
+        return None
+    elif cls_ is str:
+        return {
+        "type": "function",
+        "function": {
+                "name": "str",
+                "description": "str",
+                "parameters": [
+                    {
+                        "name": "value",
+                        "type": "string",
+                    }],
+            }
+        }
+    else:
+        return schema_to_function(cls_)
+    
+    
 def serialize_asset(asset_cls):
     asset = asset_cls()
     return {
-        # "input_class": convert_to_openai_tool(asset.input_class).get('function', None),
-        # "output_class": convert_to_openai_tool(asset.output_class).get('function', None),
-        "input_class": schema_to_function(asset.input_class) if asset.input_class is not None else None,
-        "output_class": schema_to_function(asset.output_class),
-        "metadata_class": schema_to_function(asset.metadata_class),
+        "input_class": extract_class(asset.input_class),
+        "output_class": extract_class(asset.output_class),
+        "metadata_class": extract_class(asset.metadata_class),
     }
+    # return {
+    #     "input_class": schema_to_function(asset.input_class) if asset.input_class is not None else None,
+    #     "output_class": schema_to_function(asset.output_class),
+    #     "metadata_class": schema_to_function(asset.metadata_class),
+    # }
     
 
 def serialize_profile(profile_cls, sub_cls_filter=None, exclude=False):
@@ -44,8 +64,23 @@ def serialize_profile(profile_cls, sub_cls_filter=None, exclude=False):
     #     "field": field,
     #     "type": PYTHON_TO_JSON_TYPES.get(info.annotation.__name__, info.annotation.__name__),
     # } for field, info in iterate_class_fields(profile_cls, sub_cls_filter, exclude=exclude)]
+    def get_field_type(field, info):
+        if hasattr(info.annotation, '__name__'):
+            field_type = PYTHON_TO_JSON_TYPES.get(info.annotation.__name__, info.annotation.__name__)
+            return field_type
+        elif is_union(info.annotation):
+            for arg in get_args(info.annotation):
+                field_type = PYTHON_TO_JSON_TYPES.get(arg.__name__, None)
+                if field_type:
+                    return field_type
+        else:
+            raise ValueError(f"Field {field} has an unsupported type {info.annotation}")
+    # response = {
+    #     field : PYTHON_TO_JSON_TYPES.get(info.annotation.__name__, info.annotation.__name__)
+    # for field, info in iterate_class_fields(profile_cls, sub_cls_filter, exclude=exclude)}
+    
     response = {
-        field : PYTHON_TO_JSON_TYPES.get(info.annotation.__name__, info.annotation.__name__)
+        field : get_field_type(field, info)
     for field, info in iterate_class_fields(profile_cls, sub_cls_filter, exclude=exclude)}
 
     return response
@@ -129,7 +164,7 @@ class AppManager(metaclass=SingletonMeta):
             "name": profile_name,
             "profile_fields": serialize_profile(profile_cls)
         } for profile_name, profile_cls in self.profiles.items()]
-
+        # profile_json = []
 
         prompt_json = [{
             "name": prompt_name,
