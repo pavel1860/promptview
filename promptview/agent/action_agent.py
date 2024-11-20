@@ -132,6 +132,9 @@ class ActionAgent(BaseModel):
                     ex_ctx.extend_views(action_views)
                     ex_ctx = await self.router_prompt.run_steps(ex_ctx)
                     response = ex_ctx.output
+
+                    if i == iterations - 1:
+                        yield response
                     
                     # ex_ctx = self.router_prompt.build_execution_context(
                     #         context=context, 
