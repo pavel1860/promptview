@@ -297,6 +297,50 @@ class QdrantClient:
         
         return recs
     
+    
+    async def prefetch(
+        self,
+        collection_name: str, 
+        vectors: dict[str, Any],
+        filters: Any,  
+        ids: List[str | int] | None=None, 
+        limit: int=10, 
+        offset: int=0,
+        with_payload=False, 
+        with_vectors=False, 
+        order_by: OrderBy | str | None=None,
+    ):        
+        filter_ = None
+        if filters:
+            # filter_ = Query().parse_filter(filters)
+            filter_ = self.transform_filters(filters)
+        if order_by:
+            if type(order_by) == str:
+                pass                
+            elif type(order_by) == dict:
+                order_by = models.OrderBy(
+                    key=order_by.get("key"),
+                    direction=order_by.get("direction", "desc"), # type: ignore
+                    start_from=order_by.get("start_from", None),  # start from this value
+                )
+                offset = None
+            else:
+                raise ValueError("order_by must be a string or a dict.")
+        using, query = next(iter(vectors.items()))
+        recs = await self.client.prefetch(
+            collection_name=collection_name,
+            query=query,
+            using=using,
+            query_filter=filter_,
+            limit=limit,
+            offset=offset,
+            with_payload=with_payload,
+            with_vectors=with_vectors,            
+        )
+        
+        return recs
+    
+    
     async def search(
             self, 
             collection_name: str, 

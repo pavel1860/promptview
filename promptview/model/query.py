@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Generic, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Generic, Literal, Type, TypeVar
 from pydantic.fields import FieldInfo
 import datetime as dt
 from qdrant_client import models
@@ -138,6 +138,8 @@ class FieldComparable:
         
 MODEL = TypeVar("MODEL", bound="Model")
 
+FussionType = Literal["rff", "dbsf"]
+
 # class VectorQuerySet:
 
 class AllVecs:
@@ -164,11 +166,11 @@ class QueryProxy(Generic[MODEL]):
 
 class VectorQuerySet:
     query: Any
-    vectors: list[str] | AllVecs
+    vec: list[str] | AllVecs
     
-    def __init__(self, query: str, vectors: str | AllVecs=ALL_VECS):
+    def __init__(self, query: str, vec: str | AllVecs=ALL_VECS):
         self.query = query
-        self.vectors = vectors
+        self.vec = vec
     
 
 
@@ -216,10 +218,10 @@ class QuerySet(Generic[MODEL]):
     
     async def _execute_vector_query(self):        
         ns = await self.model.get_namespace()
-        if self._vector_query.vectors == ALL_VECS:
+        if self._vector_query.vec == ALL_VECS:
             use_vectors = [vn for vn in ns.vector_spaces]
         else:
-            use_vectors = self._vector_query.vectors
+            use_vectors = self._vector_query.vec
         vectors = await self.model._call_vectorize_query(
             self._vector_query.query, 
             use_vectors=use_vectors)        
@@ -248,10 +250,10 @@ class QuerySet(Generic[MODEL]):
         ) 
         return res       
     
-    def similar(self, query: str, use: list[str] | str=ALL_VECS):
+    def similar(self, query: str, vec: list[str] | str=ALL_VECS):
         self._vector_query = VectorQuerySet(
             query=query,
-            vectors=use
+            vec=vec
         )
         return self
     
@@ -284,6 +286,9 @@ class QuerySet(Generic[MODEL]):
         return self
     
     def last(self):
+        pass
+    
+    def fussion(self, *args):
         pass
     
     

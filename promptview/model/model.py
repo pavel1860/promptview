@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 import inspect
 import json
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar,  get_args, get_origin
+from typing import Any, Callable, Dict, List, Optional, Self, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
 from promptview.model.query import FieldComparable, QueryFilter, QueryProxy, ALL_VECS, QuerySet
 from promptview.model.vectors.base_vectorizer import BaseVectorizer
@@ -149,6 +149,7 @@ class ModelMeta(ModelMetaclass, type):
         default_temporal_field = None
         default_temporal_type = None
         namespace = None
+        vec_field_map = {}
         if name != "Model":
             #? add model partition
             model_base = bases[0]
@@ -164,7 +165,7 @@ class ModelMeta(ModelMetaclass, type):
                         if field_type.json_schema_extra.get("auto_now_add", None):
                             default_temporal_field = field
                             default_temporal_type = field_type
-                    #? vector space extraction                   
+                    #? vector space extraction
                     
                     if field == "VectorSpace":
                         vector_spaces = []
@@ -188,6 +189,16 @@ class ModelMeta(ModelMetaclass, type):
                             vector_spaces=vector_spaces,
                             indices=indices
                         )
+                        
+                    #? vector field extraction. the vector has to be a field of type VectorSpace
+                    if type(field_type) == FieldInfo:
+                        if vec:= field_type.json_schema_extra.get("vec"):                            
+                            for v in vec: 
+                                if v not in vec_field_map:
+                                    vec_field_map[v] = []
+                                vec_field_map[v] += [field]
+                        #TODO validate that the vector exists in the vector space
+
             if dct.get("_subspace", None):
                 if not hasattr(bases[0], "_namespace"):
                     raise ValueError(f"Namespace not defined in base class of {name}")
@@ -221,6 +232,7 @@ class ModelMeta(ModelMetaclass, type):
                 
             dct["_partitions"] = cls_partitions
             dct["_default_temporal_field"] = default_temporal_field
+            dct["_vec_field_map"] = vec_field_map
             if namespace:
                 dct["_namespace"] = namespace
             # dct["_vectorizers"] = connection_manager.get_vectorizers(namespace)
@@ -314,12 +326,32 @@ class Model(BaseModel, metaclass=ModelMeta):
     #         vs.vectorizer.embed_documents([key]) for _, vs in ns.vector_spaces.items()
     #     ])        
     #     return {vec_name: vec[0] for vec_name, vec in zip(ns.vector_spaces.keys(), vector_list)}
+    
+    
+
+    
+    # @classmethod
+    def stringify_model(self, obj: Self):
+        # for field, field_type in obj.__class__.model_fields.items():
+        # for field_name, field_info in obj.model_fields.items():
+            # value = getattr(obj, field_name)
+        if not self._vec_field_map:
+            return obj.model_dump_json()
+        vec_strings = {}
+        for vec, fields in self._vec_field_map.items():
+            fields_str = [getattr(obj, field) for field in fields]            
+            vec_strings[vec] = "\n".join([str(f) for f in fields_str])
+        return vec_strings
+            
+            
     async def vectorize(self, vectorizers: dict[str, BaseVectorizer]):        
-        key = self.model_dump_json()
+        vector_keys = self.stringify_model(self)
         vector_list = await asyncio.gather(*[
-            vectorizer.embed_documents([key]) for _, vectorizer in vectorizers.items()
+            vectorizer.embed_documents([vector_keys[vec]]) for vec, vectorizer in vectorizers.items()
         ])        
-        return {vec_name: vec[0] for vec_name, vec in zip(vectorizers.keys(), vector_list)}
+        return {vec_name: vec[0] for vec_name, vec in zip(vectorizers.keys(), vector_list)}    
+        
+        
 
     async def _call_vectorize(self):
         ns = await connection_manager.get_namespace(self._namespace)
@@ -400,8 +432,8 @@ class Model(BaseModel, metaclass=ModelMeta):
         return [cls._pack_search_result(r) for r in res]
     
     @classmethod
-    def similar(cls: Type[MODEL], query: str, use: list[str] | str=ALL_VECS):        
-        return QuerySet(cls).similar(query, use)
+    def similar(cls: Type[MODEL], query: str, vec: list[str] | str=ALL_VECS, fusion=""):        
+        return QuerySet(cls).similar(query, vec)
     
     @classmethod
     def first(cls: Type[MODEL]):
@@ -410,6 +442,10 @@ class Model(BaseModel, metaclass=ModelMeta):
     @classmethod
     def filter(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter]):
         return QuerySet(cls).filter(filters)
+    
+    @classmethod
+    def fussion(cls: Type[MODEL], *args):
+        return QuerySet(cls).fussion(*args)
     
     # @classmethod
     # async def all(cls, partitions=None, limit=10, start_from=None, offset=0, ascending=False, ids=None):

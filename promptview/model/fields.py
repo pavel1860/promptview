@@ -51,6 +51,7 @@ def ModelField(
     auto_now_add: bool = False,
     auto_now: bool = False,
     default_factory: typing.Callable[[], Any] | None = _Unset,
+    vec: str | list[str] | None = None,
     alias: str | None = _Unset,
     alias_priority: int | None = _Unset,
     validation_alias: str | AliasPath | AliasChoices | None = _Unset,
@@ -108,14 +109,15 @@ def ModelField(
             index = IndexType.Datetime
         elif index != IndexType.Datetime:
             raise ValueError("auto_now_add must have index type of Datetime")
-        
+       
     json_schema_extra={
             "partition": partition,
             "is_relation": True if partition else False,
             "index": index.value if index else None,
             "is_tenent": is_tenent,
             "auto_now_add": auto_now_add,
-            "auto_now": auto_now
+            "auto_now": auto_now,
+            "vec": vec if vec is None or type(vec) == list else [vec]
         }
     
     return Field(
