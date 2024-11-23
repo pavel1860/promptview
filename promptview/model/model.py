@@ -404,12 +404,13 @@ class Model(BaseModel, metaclass=ModelMeta):
     #     return {vec_name: vec[0] for vec_name, vec in zip(vectorizers.keys(), vector_list)}
         
     async def save(self):
-        if not self._namespace:
-            raise ValueError("Namespace not defined")
-        namespace = await connection_manager.get_namespace(self._namespace)
+        # if not self._namespace:
+            # raise ValueError("Namespace not defined")
+        # namespace = await connection_manager.get_namespace(self._namespace)
+        ns = await self.get_namespace()
         vectors = await self.__class__.model_batch_embed([self])
         metadata = self._payload_dump()
-        res = await namespace.conn.upsert(
+        res = await ns.conn.upsert(
                 namespace=self._namespace,
                 vectors=vectors,
                 metadata=[metadata],
@@ -494,18 +495,21 @@ class Model(BaseModel, metaclass=ModelMeta):
     @classmethod
     def first(cls: Type[MODEL]):
         return QuerySet(cls, query_type="scroll").first()
-    
-    # @classmethod
-    # async def all(cls, partitions=None, limit=10, start_from=None, offset=0, ascending=False, ids=None):
-    #     partitions = partitions or {}
-    #     recs = await cls.get_assets(top_k=limit, filters=partitions, start_from=start_from, offset=offset, ascending=ascending, ids=ids)
-    #     return recs
+
     
     @classmethod
-    async def all(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter] | None = None, limit: int=10, offset: int=0, ascending: bool=False):
-        query_filters = filters(QueryProxy(cls))
-        recs = await cls.get_assets(limit=limit, filters=query_filters, offset=offset, ascending=ascending)
-        return recs
+    def all(cls: Type[MODEL]):
+        return QuerySet(cls, query_type="scroll").all()
+    
+    # @classmethod
+    # def order_by(cls: Type[MODEL], field: str, ascending: bool=False, start_from: Any=None):        
+    #     return QuerySet(cls, query_type="scroll").order(ascending)
+        
+    # @classmethod
+    # async def all(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter] | None = None, limit: int=10, offset: int=0, ascending: bool=False):
+    #     query_filters = filters(QueryProxy(cls))
+    #     recs = await cls.get_assets(limit=limit, filters=query_filters, offset=offset, ascending=ascending)
+    #     return recs
     
     @classmethod
     async def add(cls: Type[MODEL]):

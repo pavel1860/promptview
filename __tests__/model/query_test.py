@@ -103,3 +103,20 @@ async def test_named_query(seeded_database):
     assert len(recs) == 2
     for rec in recs:
         assert rec.topic == "movies"
+        
+        
+        
+        
+@pytest.mark.asyncio        
+async def test_filtering(seeded_database):
+    recs = await BasicModel.similar("the matrix is a great movie").filter(lambda x: x.topic == "animals")
+    for rec in recs:
+        assert rec.topic == "animals"
+        
+    recs = await BasicModel.similar("the matrix is a great movie").filter(lambda x: x.topic == "movies")
+    for rec in recs:
+        assert rec.topic == "movies"
+        
+    recs = await BasicModel.similar("the matrix is a great movie").filter(lambda x: (x.topic == "animals") | (x.topic == "physics"))
+    for rec in recs:
+        assert rec.topic in ["animals", "physics"]

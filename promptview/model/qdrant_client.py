@@ -454,7 +454,29 @@ class QdrantClient:
     
     async def execute_query(self, collection_name: str, query_set: QuerySet):
         
-        query, prefetch, query_filter, using, limit, offset = self._parse_query(query_set)      
+        query, prefetch, query_filter, using, limit, offset = self._parse_query(query_set)
+        
+        order_by = None
+        if query_set._order_by:
+            prefetch = models.Prefetch(
+                    prefetch=prefetch,
+                    query=query,
+                    using=using,
+                    filter=query_filter,
+                    limit=limit,
+                    # offset=offset,
+                )
+            order_by = models.OrderBy(
+                key=query_set._order_by.get("key"),
+                direction=query_set._order_by.get("direction", "desc"), # type: ignore
+                start_from=query_set._order_by.get("start_from", None),  # start from this value
+            )
+            query = models.OrderByQuery(
+                order_by=order_by,
+            )
+            using = None
+            limit = None
+            offset = None
         
         recs = await self.client.query_points(
             collection_name=collection_name,
@@ -464,6 +486,7 @@ class QdrantClient:
             query_filter=query_filter,
             limit=limit,
             offset=offset,
+            # order_by=order_by,
         )
         return recs
     
@@ -472,8 +495,29 @@ class QdrantClient:
         prefetch = None
         query = None
         using = None
+        order_by = None
         if query_set._filters:
             query_filter = self.transform_filters(query_set._filters)
+        # if filters:= query_set.get_filters():
+        #     query_filter = self.transform_filters(filters)
+        if subspace:= query_set.get_subspace():
+            if query_filter is not None:
+                query_filter.must.append(
+                    models.FieldCondition(
+                        key=subspace.field,
+                        match=models.MatchValue(value=subspace)
+                    )
+                )
+            else:
+                query_filter = models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="_subspace",
+                            match=models.MatchValue(value=subspace)
+                        )
+                    ]
+                )
+        
         if query_set._prefetch:
             prefetch = [self._parse_prefetch(q) for q in query_set._prefetch]        
         if query_set.query_type == "vector":
@@ -502,7 +546,9 @@ class QdrantClient:
             if query_set._fusion == "rff":
                 query = models.FusionQuery(fusion=models.Fusion.RRF)
             elif query_set._fusion == "dbsf":
-                query = models.FusionQuery(fusion=models.Fusion.DBSF)           
+                query = models.FusionQuery(fusion=models.Fusion.DBSF)                           
+                
+        # if query_set._order_by:
         return query, prefetch, query_filter, using, query_set._limit, query_set._offset
     
     

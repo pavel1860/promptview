@@ -221,6 +221,15 @@ class QuerySet(Generic[MODEL]):
     def __await__(self):
         return self.execute().__await__()
     
+    def get_filters(self):
+        if self.model._subspace.default:
+            return QueryFilter(FieldComparable("_subspace"), self.model._subspace.default, FieldOp.EQ) & self._filters
+        return self._filters
+    
+    def get_subspace(self):
+        if self.model._subspace.default:
+            return self.model._subspace.default
+        return None
     
     async def execute(self):
         ns = await self.model.get_namespace()
@@ -340,13 +349,21 @@ class QuerySet(Generic[MODEL]):
         self._offset = offset
         return self
     
-    async def all(self):
+    def all(self):
         self._limit = None
         self._offset = None
         return self
     
     def last(self):
         pass
+    
+    def order_by(self, key, ascending: bool=False, start_from=None):
+        self._order_by = {
+            "key": key,
+            "direction": "asc" if ascending else "desc",
+            "start_from": start_from
+        }
+        return self
     
     def fusion(self, *args, type: FusionType="rff"):
         for arg in args:
