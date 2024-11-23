@@ -19,7 +19,7 @@ from promptview.model.namespace import VectorSpace
 from qdrant_client import models
 
 # if TYPE_CHECKING:
-from promptview.model.query import QueryFilter, FieldComparable, FieldOp, QueryOp
+from promptview.model.query import QueryFilter, FieldComparable, FieldOp, QueryOp, QuerySet
 
 
 def chunks(iterable, batch_size=100):
@@ -293,8 +293,7 @@ class QdrantClient:
             offset=offset,
             with_payload=with_payload,
             with_vectors=with_vectors,            
-        )
-        
+        )        
         return recs
     
     
@@ -445,6 +444,78 @@ class QdrantClient:
                 except Exception as e:
                     raise e
         return create_res
+    
+    def _build_vector_query(self, vec_name, vector):
+        if isinstance(vector, dict):                
+            return models.SparseVector(**vector)                          
+        else:
+            return vector.tolist()
+            # return models.NamedVector(name=vec_name, vector=vector)
+    
+    async def execute_query(self, collection_name: str, query_set: QuerySet):
+        
+        query, prefetch, query_filter, using, limit, offset = self._parse_query(query_set)      
+        
+        recs = await self.client.query_points(
+            collection_name=collection_name,
+            prefetch=prefetch,
+            query=query,
+            using=using,
+            query_filter=query_filter,
+            limit=limit,
+            offset=offset,
+        )
+        return recs
+    
+    def _parse_query(self, query_set: QuerySet):
+        query_filter = None
+        prefetch = None
+        query = None
+        using = None
+        if query_set._filters:
+            query_filter = self.transform_filters(query_set._filters)
+        if query_set._prefetch:
+            prefetch = [self._parse_prefetch(q) for q in query_set._prefetch]        
+        if query_set.query_type == "vector":
+            if len(query_set._vector_query) == 1:
+                # for vec_name, vector in query_set._vector_query.vector_lookup.items():
+                vec_name, vector = query_set._vector_query.first()
+                query = self._build_vector_query(vec_name, vector)
+                using = vec_name
+            else:
+                prefetch = []
+                # for vec_name, vector in query_set._vector_query.vector_lookup.items():
+                for vec_name, vector in query_set._vector_query:
+                    vec_query = self._build_vector_query(vec_name, vector)
+                    prefetch.append(
+                        models.Prefetch(
+                            query=vec_query,
+                            using=vec_name,
+                            limit=query_set._limit,
+                        )
+                    )                                    
+                if query_set._fusion == "dbsf":
+                    query = models.FusionQuery(fusion=models.Fusion.DBSF)
+                else:
+                    query = models.FusionQuery(fusion=models.Fusion.RRF)
+        elif query_set.query_type == "fusion":
+            if query_set._fusion == "rff":
+                query = models.FusionQuery(fusion=models.Fusion.RRF)
+            elif query_set._fusion == "dbsf":
+                query = models.FusionQuery(fusion=models.Fusion.DBSF)           
+        return query, prefetch, query_filter, using, query_set._limit, query_set._offset
+    
+    
+    def _parse_prefetch(self, query_set: QuerySet):
+        query, prefetch, query_filter, using = self._parse_query(query_set)
+        # vec_name, _ = query_set._vector_query.first()
+        return models.Prefetch(
+            query=query,
+            using=using,
+            limit=query_set._limit,
+            filter=query_filter,
+            prefetch=prefetch
+        )
     
     def transform_filters(self, query_filters):
         return self._parse_query_filter(query_filters)

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Generic, Literal, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Generic, Literal, Self, Type, TypeVar
 from pydantic.fields import FieldInfo
 import datetime as dt
 from qdrant_client import models
@@ -138,7 +138,7 @@ class FieldComparable:
         
 MODEL = TypeVar("MODEL", bound="Model")
 
-FussionType = Literal["rff", "dbsf"]
+FusionType = Literal["rff", "dbsf"]
 
 # class VectorQuerySet:
 
@@ -167,41 +167,101 @@ class QueryProxy(Generic[MODEL]):
 class VectorQuerySet:
     query: Any
     vec: list[str] | AllVecs
+    vector_lookup: dict[str, str] | None
     
     def __init__(self, query: str, vec: str | AllVecs=ALL_VECS):
-        self.query = query
+        self.query = query        
         self.vec = vec
+        self.vector_lookup = None
+        
+    def __repr__(self):
+        return f"""
+            query: "{self.query}"
+            vec: {self.vec}
+        """
+        
+    def __len__(self):
+        return len(self.vector_lookup)
+    
+    def __iter__(self)->tuple[str, Any]:
+        return iter(self.vector_lookup.items())
+    
+    def first(self)->tuple[str, Any]:
+        if self.vector_lookup:
+            return next(iter(self.vector_lookup.items()))
+        return None
     
 
+QueryType = Literal["vector", "fusion", "id", "order", "scroll"]
 
 class QuerySet(Generic[MODEL]):    
     model: Type[MODEL]
+    query_type: QueryType
     _limit: int
     _offset: int
     _order_by: str | dict
     _filters: QueryFilter
     _vector_query: VectorQuerySet | None
     _unpack_result: bool = False
+    _fusion: FusionType | None
+    _prefetch: list[Self]
     
     
-    def __init__(self, model: Type[MODEL]):
+    def __init__(self, model: Type[MODEL], query_type: QueryType):
         self.model = model
+        self.query_type = query_type
         self._limit = None
         self._offset = None
         self._order_by = None
         self._filters = []
         self._vector_query = None
+        self._prefetch = []
+        self._fusion = None
         
     def __await__(self):
         return self.execute().__await__()
     
-    async def execute(self):        
+    
+    async def execute(self):
+        ns = await self.model.get_namespace()
+        await self._recursive_vectorization()                
+        result = await ns.conn.execute_query(
+            ns.name,
+            query_set=self
+        )
+        records = [self.model.pack_search_result(r) for r in result.points]        
+        if self._unpack_result:
+            if len(records):
+                return records[0]
+            else:
+                return None
+        return records
+    
+    
+    async def _recursive_vectorization(self):
+        if self.query_type == "vector":
+            ns = await self.model.get_namespace()
+            if self._vector_query.vec == ALL_VECS:
+                use_vectors = [vn for vn in ns.vector_spaces]
+            else:
+                use_vectors = self._vector_query.vec
+            vectors = await self.model.query_embed(
+                self._vector_query.query, 
+                vec=use_vectors)
+            self._vector_query.vector_lookup = vectors
+        if self._prefetch:
+            for p in self._prefetch:
+                await p._recursive_vectorization()
+        return True
+    
+    
+    async def execute2(self):        
         if self._vector_query:
             result = await self._execute_vector_query()
             records = [self.model.pack_search_result(r) for r in result.points]
         else:
             result = await self._execute_fetch()
-            records = [self.model.pack_search_result(r) for r in result]
+            records = [self.model.pack_search_result(r) for r in result]        
         
         if self._unpack_result:
             if len(records):
@@ -248,7 +308,7 @@ class QuerySet(Generic[MODEL]):
             with_payload=True,
             with_vectors=True
         ) 
-        return res       
+        return res
     
     def similar(self, query: str, vec: list[str] | str=ALL_VECS):
         self._vector_query = VectorQuerySet(
@@ -288,8 +348,66 @@ class QuerySet(Generic[MODEL]):
     def last(self):
         pass
     
-    def fussion(self, *args):
-        pass
+    def fusion(self, *args, type: FusionType="rff"):
+        for arg in args:
+            if isinstance(arg, QuerySet):
+                self._prefetch.append(arg)
+            else:
+                raise ValueError(f"Only QuerySet allowed in prefetch. got {arg}")
+            self._fusion = type
+        return self
+        
     
     
-    
+    # def __repr__(self):
+    #     return f"""
+    #     QuerySet:
+    #         model: {self.model.__class__.__name__}
+    #         query_type: {self.query_type}
+    #         _limit: {self._limit}
+    #         _offset: {self._offset}
+    #         _order_by: {self._order_by}
+    #         _filters: {self._filters}
+    #         _vector_query: {self._vector_query}
+    #         _unpack_result: {self._unpack_result}
+    #         _fusion: {self._fusion}
+    #         _prefetch: {self._prefetch}
+    #     """
+    def __repr__(self):
+        def stringify_prefetch(prefetch_list, indent_level=1):
+            """
+            Helper function to recursively format the `prefetch` list with indentation.
+            """
+            indent = "    " * indent_level
+            if not prefetch_list:
+                return "[]"
+            formatted_items = []
+            for item in prefetch_list:
+                if isinstance(item, QuerySet):  # If the item is another QuerySet, call its __repr__
+                    formatted_items.append(item.__repr__().replace("\n", f"\n{indent}"))
+                else:  # Handle other types gracefully
+                    formatted_items.append(repr(item))
+            return "[\n" + indent + (",\n" + indent).join(formatted_items) + "\n" + ("    " * (indent_level - 1)) + "]"
+        
+        # Collect fields that are not None
+        fields = {
+            # "model": self.model.__class__.__name__,
+            # "query_type": self.query_type,
+            "_limit": self._limit,
+            "_offset": self._offset,
+            "_order_by": self._order_by,
+            "_filters": self._filters,
+            "_vector_query": self._vector_query,
+            "_unpack_result": self._unpack_result,
+            "_fusion": self._fusion,
+            "_prefetch": stringify_prefetch(self._prefetch) if self._prefetch else None,
+        }
+        # Format the fields dynamically, excluding None values
+        formatted_fields = "\n".join(
+            f"    {key}: {value}" for key, value in fields.items() if value is not None and value != []
+        )
+        
+        return f"""
+QuerySet({self.model.__name__})[{self.query_type}]:
+{formatted_fields}
+        """

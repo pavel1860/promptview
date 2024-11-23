@@ -5,7 +5,7 @@ import inspect
 import json
 from typing import Any, Callable, Dict, List, Optional, Self, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
-from promptview.model.query import FieldComparable, QueryFilter, QueryProxy, ALL_VECS, QuerySet
+from promptview.model.query import FieldComparable, QueryFilter, QueryProxy, ALL_VECS, QuerySet, FusionType
 from promptview.model.vectors.base_vectorizer import BaseVectorizer
 from promptview.model.fields import VectorSpaceMetrics, get_model_indices
 from promptview.utils.function_utils import call_function
@@ -331,54 +331,87 @@ class Model(BaseModel, metaclass=ModelMeta):
 
     
     # @classmethod
-    def stringify_model(self, obj: Self):
-        # for field, field_type in obj.__class__.model_fields.items():
-        # for field_name, field_info in obj.model_fields.items():
-            # value = getattr(obj, field_name)
+    # def stringify_model(cls: Type[MODEL], obj: Self):
+    #     if not cls._vec_field_map:
+    #         return obj.model_dump_json()
+    #     vec_strings = {}
+    #     for vec, fields in cls._vec_field_map.default.items():
+    #         fields_str = [getattr(obj, field) for field in fields]            
+    #         vec_strings[vec] = "\n".join([str(f) for f in fields_str])
+    #     return vec_strings
+
+    def model_chunk(self):
         if not self._vec_field_map:
-            return obj.model_dump_json()
+            return self.model_dump_json()
         vec_strings = {}
         for vec, fields in self._vec_field_map.items():
-            fields_str = [getattr(obj, field) for field in fields]            
+            fields_str = [getattr(self, field) for field in fields]            
             vec_strings[vec] = "\n".join([str(f) for f in fields_str])
         return vec_strings
-            
-            
-    async def vectorize(self, vectorizers: dict[str, BaseVectorizer]):        
-        vector_keys = self.stringify_model(self)
-        vector_list = await asyncio.gather(*[
-            vectorizer.embed_documents([vector_keys[vec]]) for vec, vectorizer in vectorizers.items()
-        ])        
-        return {vec_name: vec[0] for vec_name, vec in zip(vectorizers.keys(), vector_list)}    
-        
-        
-
-    async def _call_vectorize(self):
-        ns = await connection_manager.get_namespace(self._namespace)
-        vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items()}
-        return await call_function(self.vectorize, vectorizers=vectorizers)
-
+    
+    
+    @classmethod 
+    async def query_embed(cls: Type[MODEL], query: str, vec: list[str] | str = ALL_VECS):
+        ns = await cls.get_namespace()                
+        vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items() if name in vec}
+        tasks = [vectorizer.embed_documents([query]) for _, vectorizer in vectorizers.items()]
+        vector_list = await asyncio.gather(*tasks)
+        return {vec_name: vec[0] for vec_name, vec in zip(vectorizers.keys(), vector_list)}
+    
     
     @classmethod
-    async def _call_vectorize_query(cls, query: str, use_vectors: list[str]):
-        namespace = cls._namespace.default
-        ns = await connection_manager.get_namespace(namespace)
-        vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items() if name in use_vectors}
+    async def model_batch_embed(cls: Type[MODEL], objs: List[Self]):
+        ns = await cls.get_namespace()
+        vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items()}
+        chunks = [obj.model_chunk() for obj in objs]
         vector_list = await asyncio.gather(*[
-            vectorizer.embed_documents([query]) for _, vectorizer in vectorizers.items()
+            vectorizer.embed_documents([c[vec_name] for c in chunks])
+            for vec_name, vectorizer in vectorizers.items()
         ])
-        return {vec_name: vec[0] for vec_name, vec in zip(vectorizers.keys(), vector_list)}
+        vec_names = list(vectorizers.keys())
+        embeddings = []
+        for vecs in zip(*vector_list):
+            embeddings.append({vec_names[i]: vec for i, vec in enumerate(vecs)})
+        return embeddings
+        
+    
+        
+            
+    # async def vectorize(self, vectorizers: dict[str, BaseVectorizer]):        
+    #     vector_keys = self.stringify_model(self)
+    #     vector_list = await asyncio.gather(*[
+    #         vectorizer.embed_documents([vector_keys[vec]]) for vec, vectorizer in vectorizers.items()
+    #     ])        
+    #     return {vec_name: vec[0] for vec_name, vec in zip(vectorizers.keys(), vector_list)}    
+        
+        
+
+    # async def _call_vectorize(self):
+    #     ns = await connection_manager.get_namespace(self._namespace)
+    #     vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items()}
+    #     return await call_function(self.vectorize, vectorizers=vectorizers)
+    
+
+    
+    # @classmethod
+    # async def _call_vectorize_query(cls, query: str, use_vectors: list[str]):
+    #     namespace = cls._namespace.default
+    #     ns = await connection_manager.get_namespace(namespace)
+    #     vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items() if name in use_vectors}
+    #     vector_list = await asyncio.gather(*[
+    #         vectorizer.embed_documents([query]) for _, vectorizer in vectorizers.items()
+    #     ])
+    #     return {vec_name: vec[0] for vec_name, vec in zip(vectorizers.keys(), vector_list)}
         
     async def save(self):
         if not self._namespace:
             raise ValueError("Namespace not defined")
-        namespace = await connection_manager.get_namespace(self._namespace)        
-        # key = self.model_dump_json()
-        vectors = await self._call_vectorize()
+        namespace = await connection_manager.get_namespace(self._namespace)
+        vectors = await self.__class__.model_batch_embed([self])
         metadata = self._payload_dump()
         res = await namespace.conn.upsert(
                 namespace=self._namespace,
-                vectors=[vectors],
+                vectors=vectors,
                 metadata=[metadata],
                 ids=[self._id]
             )
@@ -387,6 +420,21 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def delete(self):
         db_conn = await connection_manager.get_collection_conn(self.__class__)
         return await db_conn.delete_documents(ids=[self._id])
+    
+    
+    @classmethod
+    async def batch_upsert(cls: Type[MODEL], points: List["Model"]):
+        vectors = await cls.model_batch_embed(points)
+        metadata = [point._payload_dump() for point in points]
+        ids = [point._id for point in points]
+        namespace = await connection_manager.get_namespace(cls._namespace.default)
+        res = await namespace.conn.upsert(
+            namespace=cls._namespace.default,
+            vectors=vectors,
+            metadata=metadata,
+            ids=ids
+        )
+        return res
     
     
     @classmethod
@@ -432,20 +480,20 @@ class Model(BaseModel, metaclass=ModelMeta):
         return [cls._pack_search_result(r) for r in res]
     
     @classmethod
-    def similar(cls: Type[MODEL], query: str, vec: list[str] | str=ALL_VECS, fusion=""):        
-        return QuerySet(cls).similar(query, vec)
-    
-    @classmethod
-    def first(cls: Type[MODEL]):
-        return QuerySet(cls).first()
+    def similar(cls: Type[MODEL], query: str, vec: list[str] | str=ALL_VECS, fusion: FusionType="rff"):        
+        return QuerySet(cls, query_type="vector").similar(query, vec)    
     
     @classmethod
     def filter(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter]):
-        return QuerySet(cls).filter(filters)
+        return QuerySet(cls, query_type="scroll").filter(filters)
     
     @classmethod
-    def fussion(cls: Type[MODEL], *args):
-        return QuerySet(cls).fussion(*args)
+    def fusion(cls: Type[MODEL], *args, type: FusionType="rff"):
+        return QuerySet(cls, query_type="fusion").fusion(*args, type=type)
+    
+    @classmethod
+    def first(cls: Type[MODEL]):
+        return QuerySet(cls, query_type="scroll").first()
     
     # @classmethod
     # async def all(cls, partitions=None, limit=10, start_from=None, offset=0, ascending=False, ids=None):
