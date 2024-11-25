@@ -1,9 +1,9 @@
 import asyncio
-from promptview.model.vectors.base_vectorizer import BaseVectorizer, VectorType
 import openai
 import numpy as np
 from pydantic import BaseModel, Field
 from pinecone_text.sparse import BM25Encoder
+from .base_vectorizer import BaseVectorizer, VectorType
 
 
 

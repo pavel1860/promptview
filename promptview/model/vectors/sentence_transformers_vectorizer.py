@@ -1,8 +1,8 @@
-from promptview.model.vectors.base_vectorizer import BaseVectorizer, VectorType
 from pydantic import BaseModel, Field
 import numpy as np
 import asyncio
 from sentence_transformers import SentenceTransformer
+from .base_vectorizer import BaseVectorizer, VectorType
 
 
 class SentenceTransformersVectorizer(BaseVectorizer[str, list[np.ndarray]]):

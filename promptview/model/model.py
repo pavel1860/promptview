@@ -1,22 +1,17 @@
 import asyncio
-from datetime import datetime
-from enum import Enum
 import inspect
-import json
 from typing import Any, Callable, Dict, List, Optional, Self, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
-from promptview.model.query import FieldComparable, QueryFilter, QueryProxy, ALL_VECS, QuerySet, FusionType
-from promptview.model.vectors.base_vectorizer import BaseVectorizer
-from promptview.model.fields import VectorSpaceMetrics, get_model_indices
-from promptview.utils.function_utils import call_function
-from promptview.utils.model_utils import unpack_list_model, is_list_model
-from promptview.utils.datetime_utils import get_int_timestamp
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import FieldInfo
 from pydantic._internal._model_construction import ModelMetaclass
-
+from .query import QueryFilter, ALL_VECS, QuerySet, FusionType
+from .vectors.base_vectorizer import BaseVectorizer
+from .fields import VectorSpaceMetrics, get_model_indices
 from .resource_manager import VectorSpace, connection_manager
 
+def unpack_list_model(pydantic_model):
+    return get_args(pydantic_model)[0]
 
 
 def make_optional(model: BaseModel | str) -> BaseModel:

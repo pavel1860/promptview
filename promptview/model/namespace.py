@@ -4,8 +4,8 @@ from typing import Type
 
 from qdrant_client import QdrantClient
 from pydantic import BaseModel, Field
-from promptview.model.fields import VectorSpaceMetrics
-from promptview.model.vectors.base_vectorizer import BaseVectorizer
+from .fields import VectorSpaceMetrics
+from .vectors.base_vectorizer import BaseVectorizer
 
 
 

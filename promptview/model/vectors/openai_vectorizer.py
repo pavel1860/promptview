@@ -1,7 +1,7 @@
-from promptview.model.vectors.base_vectorizer import BaseVectorizer, VectorType
 import openai
 import numpy as np
 from pydantic import BaseModel, Field
+from .base_vectorizer import BaseVectorizer, VectorType
 
 
 

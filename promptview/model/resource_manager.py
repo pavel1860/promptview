@@ -2,15 +2,12 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Type, TypeVar, Generic, Union
 from uuid import uuid4
-
-from promptview import RagDocuments
-from pydantic import create_model, ConfigDict, BaseModel, Field
+from pydantic import BaseModel
 from qdrant_client.http.exceptions import UnexpectedResponse
 import grpc
-from promptview.model.fields import VectorSpaceMetrics
-# from promptview.model.namespace import NamespaceParams, VectorSpace
-from promptview.model.qdrant_client import QdrantClient
-from promptview.model.vectors.base_vectorizer import BaseVectorizer
+from .fields import VectorSpaceMetrics
+from .qdrant_client import QdrantClient
+from .vectors.base_vectorizer import BaseVectorizer
 
 
 

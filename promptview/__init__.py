@@ -18,6 +18,9 @@ from promptview.state.context import Context
 from promptview.state.history import History
 from promptview.vectors.rag_documents import RagDocuments, RagSearchResult
 from promptview import parsers
+from promptview.model.model import Model
+from promptview.model.fields import ModelField, IndexType
+import promptview.model.vectors as vectors
 
 __all__ = [
     "ChatPrompt", 
@@ -40,4 +43,8 @@ __all__ = [
     "AnthropicLLM",
     "AzureOpenAiLLM",
     "parsers",
+    "Model",
+    "ModelField",
+    "IndexType",
+    "vectors",
 ]

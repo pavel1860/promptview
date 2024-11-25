@@ -9,14 +9,15 @@ from qdrant_client.models import (DatetimeRange, Distance, FieldCondition,
                                   SparseIndexParams, SparseVector,
                                   SparseVectorParams, VectorParams)
 from qdrant_client.http.exceptions import UnexpectedResponse
+from qdrant_client import models
 import grpc
 import os
 import itertools
 
-from promptview.model.fields import VectorSpaceMetrics
-from promptview.model.namespace import VectorSpace
+from .fields import VectorSpaceMetrics
+from .namespace import VectorSpace
 
-from qdrant_client import models
+
 
 # if TYPE_CHECKING:
 from promptview.model.query import QueryFilter, FieldComparable, FieldOp, QueryOp, QuerySet
