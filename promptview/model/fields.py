@@ -1,15 +1,15 @@
 import datetime as dt
 from enum import Enum
 import inspect
-from typing import Any
+from typing import Any, List
 import typing
 import typing_extensions
 import annotated_types
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 from pydantic_core import PydanticUndefined
 from pydantic import types
-from pydantic.fields import _Unset, AliasPath, AliasChoices, FieldInfo, JsonDict, Unpack, _EmptyKwargs, Deprecated
+from pydantic.fields import _Unset, AliasPath, AliasChoices, FieldInfo, JsonDict, Unpack, _EmptyKwargs, Deprecated # type: ignore
 
 from typing_extensions import Literal, TypeAlias, Unpack, deprecated
 
@@ -30,7 +30,7 @@ class IndexType(Enum):
 
 
 
-class VectorSpaceMetrics:
+class VectorSpaceMetrics(str, Enum):
     """Supported metrics for vector similarity"""
     COSINE = "cosine"
     EUCLIDEAN = "euclidean"
@@ -110,15 +110,23 @@ def ModelField(
             index = IndexType.Datetime
         elif index != IndexType.Datetime:
             raise ValueError("auto_now_add must have index type of Datetime")
-       
+    #  vec if vec is None or type(vec) == list else [vec]
+    vec_list: list[JsonValue] | None = None
+    if type(vec) == str:
+        vec_list = [vec]
+    elif type(vec) == list:
+        vec_list = vec# type: ignore
+    elif vec is not None:
+        raise ValueError(f"vec must be a string or list of strings, {vec}")    
+    
     json_schema_extra={
-            "partition": partition,
+            # "partition": partition,
             "is_relation": True if partition else False,
             "index": index.value if index else None,
             "is_tenent": is_tenent,
             "auto_now_add": auto_now_add,
             "auto_now": auto_now,
-            "vec": vec if vec is None or type(vec) == list else [vec]
+            "vec": vec_list,
         }
     
     return Field(
@@ -193,51 +201,10 @@ def get_model_indices(cls_, prefix=""):
         extra = get_field_extra(info)        
         if extra:
             if extra.get("index", None):
-                # print("found index:", field, extra["index"])
                 indexs_to_create.append({
                     "field": prefix+field,
-                    "schema": extra["index"]
+                    "schema": extra.get("index")
                 })
     return indexs_to_create
-
-
-
-
-# def AssetField(
-#     *args,
-#     partition: str | None = None,
-#     index: IndexType | None = None,
-#     is_tenent: bool = False,
-#     auto_now_add: bool = False,
-#     auto_now: bool = False,
-#     **kwargs
-# ):
-#     if auto_now_add and auto_now:
-#         raise ValueError("auto_now_add and auto_now cannot be True at the same time")
-#     if auto_now_add:
-#         if "default_factory" in kwargs:
-#             raise ValueError("default_factory cannot be set when auto_now_add is True")
-#         kwargs["default_factory"] = dt.datetime.now
-    
-#     if auto_now:
-#         if "default_factory" in kwargs:
-#             raise ValueError("default_factory cannot be set when auto_now is True")
-#         kwargs["default_factory"] = dt.datetime.now
-    
-#     return Field(
-#         *args,
-#         json_schema_extra={
-#             "partition": partition,
-#             "index": index.value if index else None,
-#             "is_tenent": is_tenent,
-#             "auto_now_add": auto_now_add,
-#             "auto_now": auto_now
-#         },
-#         **kwargs
-#     )
-
-
-
-
 
 

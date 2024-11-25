@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, TypedDict
 from uuid import uuid4
-from qdrant_client import AsyncQdrantClient, QdrantClient, models
+from qdrant_client import AsyncQdrantClient, models
 from qdrant_client.http.exceptions import ResponseHandlingException
 from qdrant_client.models import (DatetimeRange, Distance, FieldCondition,
                                   Filter, NamedSparseVector, NamedVector,
@@ -15,12 +15,12 @@ import os
 import itertools
 
 from .fields import VectorSpaceMetrics
-from .namespace import VectorSpace
 
 
 
-# if TYPE_CHECKING:
-from promptview.model.query import QueryFilter, FieldComparable, FieldOp, QueryOp, QuerySet
+if TYPE_CHECKING:
+    from .resource_manager import VectorSpace
+from .query import QueryFilter, FieldComparable, FieldOp, QueryOp, QuerySet
 
 
 def chunks(iterable, batch_size=100):
@@ -92,7 +92,7 @@ def metrics_to_qdrant(metric: VectorSpaceMetrics):
     if metric == VectorSpaceMetrics.COSINE:
         return models.Distance.COSINE
     elif metric == VectorSpaceMetrics.EUCLIDEAN:
-        return Distance.EUCLIDEAN
+        return Distance.EUCLID
     elif metric == VectorSpaceMetrics.MANHATTAN:
         return Distance.MANHATTAN
     else:
@@ -156,59 +156,70 @@ class QdrantClient:
         return results     
     
     
-    async def scroll(
-            self,
-            collection_name: str, 
-            filters: Any,  
-            ids: List[str | int] | None=None, 
-            top_k: int=10, 
-            offset: int=0,
-            with_payload=False, 
-            with_vectors=False, 
-            order_by: OrderBy | str | None=None,
-        ):
-        filter_ = None
-        if ids is not None:
-            # top_k: int | None = None
-            filter_ = models.Filter(
-                must=[
-                    models.HasIdCondition(has_id=ids)
-                ],
-            )
-        query = Query()
-        if filters:
-            must_not, must = query.parse_filter(filters)
-            filter_ = models.Filter(
-                must_not=must_not,
-                must=must
-            )
-        if order_by:
-            if type(order_by) == str:
-                pass                
-            elif type(order_by) == dict:
-                order_by = models.OrderBy(
-                    key=order_by.get("key"),
-                    direction=order_by.get("direction", "desc"), # type: ignore
-                    start_from=order_by.get("start_from", None),  # start from this value
-                )
-                offset = None
-            else:
-                raise ValueError("order_by must be a string or a dict.")
+    # async def scroll(
+    #         self,
+    #         collection_name: str, 
+    #         filters: Any,  
+    #         ids: List[str | int] | None=None, 
+    #         top_k: int=10, 
+    #         offset: int=0,
+    #         with_payload=False, 
+    #         with_vectors=False, 
+    #         order_by: OrderBy | str | None=None,
+    #     ):
+    #     filter_ = None
+    #     if ids is not None:
+    #         # top_k: int | None = None
+    #         filter_ = models.Filter(
+    #             must=[
+    #                 models.HasIdCondition(has_id=ids)
+    #             ],
+    #         )
+    #     query = Query()
+    #     if filters:
+    #         must_not, must = query.parse_filter(filters)
+    #         filter_ = models.Filter(
+    #             must_not=must_not,
+    #             must=must
+    #         )
+    #     if order_by:
+    #         if type(order_by) == str:
+    #             pass                
+    #         elif type(order_by) == dict:
+    #             order_by = models.OrderBy(
+    #                 key=order_by.get("key"),
+    #                 direction=order_by.get("direction", "desc"), # type: ignore
+    #                 start_from=order_by.get("start_from", None),  # start from this value
+    #             )
+    #             offset = None
+    #         else:
+    #             raise ValueError("order_by must be a string or a dict.")
         
             
-        recs, _ = await self.client.scroll(
+    #     recs, _ = await self.client.scroll(
+    #         collection_name=collection_name,
+    #         # scroll_filter=filter_,
+    #         limit=top_k,
+    #         offset=offset,
+    #         with_payload=with_payload,
+    #         with_vectors=with_vectors,
+    #         # order_by=order_by # type: ignore
+    #     )
+    #     return recs
+    
+    async def retrieve(
+        self,
+        collection_name: str,
+        ids: List[str] | List[int],
+    ):
+        recs = await self.client.retrieve(
             collection_name=collection_name,
-            # scroll_filter=filter_,
-            limit=top_k,
-            offset=offset,
-            with_payload=with_payload,
-            with_vectors=with_vectors,
-            # order_by=order_by # type: ignore
+            ids=ids
         )
         return recs
     
     
-    async def scroll2(
+    async def scroll(
             self,
             collection_name: str, 
             filters: Any,  
@@ -228,7 +239,6 @@ class QdrantClient:
                 ],
             )        
         if filters:
-            # filter_ = Query().parse_filter(filters)
             filter_ = self.transform_filters(filters)
         if order_by:
             if type(order_by) == str:
@@ -251,7 +261,7 @@ class QdrantClient:
             offset=offset,
             with_payload=with_payload,
             with_vectors=with_vectors,
-            # order_by=order_by # type: ignore
+            order_by=order_by # type: ignore
         )
         return recs
     
@@ -262,7 +272,7 @@ class QdrantClient:
         vectors: dict[str, Any],
         filters: Any,  
         ids: List[str | int] | None=None, 
-        limit: int=10, 
+        limit: int =10, 
         offset: int=0,
         with_payload=False, 
         with_vectors=False, 
@@ -389,28 +399,28 @@ class QdrantClient:
         
     
     
-    async def delete(self, filters):
-        if not filters:
-            raise ValueError("filters must be provided. to delete all documents, use delete_collection method.")
-        if filters is not None:
-            must_not, must = self.parse_filter(filters)
-            filter_ = models.Filter(
-                must_not=must_not,
-                must=must
+    async def delete(self, collection_name: str, ids: List[str] | List[int] | None = None, filters: Any | None = None):
+        if ids:        
+            return await self.client.delete(
+                collection_name=collection_name,
+                points_selector=models.PointIdsList(
+                    points=ids, # type: ignore
+                ),
             )
-        
-        res = await self.client.delete(
-            collection_name=self.collection_name,
-            points_selector=models.FilterSelector(
-                filter=filter_
+        elif filters:
+            query_filter = self.transform_filters(filters)
+            return await self.client.delete(
+                collection_name=collection_name,
+                points_selector=models.FilterSelector(
+                    filter=query_filter
+                )
             )
-        )
-        return res
+        else:
+            raise ValueError("Either ids or filters must be provided.")
 
 
 
-
-    async def create_collection(self, collection_name: str , vector_spaces: list[VectorSpace], indices: list[dict[str, str]]=None):
+    async def create_collection(self, collection_name: str , vector_spaces: list["VectorSpace"], indices: list[dict[str, str]] | None=None):
         http_client = AsyncQdrantClient(
             url=self.url,
             api_key=self.api_key,
@@ -452,8 +462,18 @@ class QdrantClient:
         else:
             return vector.tolist()
             # return models.NamedVector(name=vec_name, vector=vector)
-    
+          
+            
     async def execute_query(self, collection_name: str, query_set: QuerySet):
+        if query_set.query_type == "vector":
+            return await self.execute_vector_query(collection_name, query_set)
+        if query_set.query_type == "id":
+            return await self.execute_vector_query(collection_name, query_set)
+        elif query_set.query_type == "scroll":
+            return await self.execute_scroll(collection_name, query_set)
+    
+    
+    async def execute_vector_query(self, collection_name: str, query_set: QuerySet):
         
         query, prefetch, query_filter, using, limit, offset = self._parse_query(query_set)
         
@@ -467,17 +487,14 @@ class QdrantClient:
                     limit=limit,
                     # offset=offset,
                 )
-            order_by = models.OrderBy(
-                key=query_set._order_by.get("key"),
-                direction=query_set._order_by.get("direction", "desc"), # type: ignore
-                start_from=query_set._order_by.get("start_from", None),  # start from this value
-            )
+            order_by = self._build_order_by(query_set)
             query = models.OrderByQuery(
                 order_by=order_by,
             )
             using = None
             limit = None
             offset = None
+            
         
         recs = await self.client.query_points(
             collection_name=collection_name,
@@ -489,7 +506,38 @@ class QdrantClient:
             offset=offset,
             # order_by=order_by,
         )
+        return recs.points
+    
+    async def execute_scroll(self, collection_name: str, query_set: QuerySet):        
+        _, _, scroll_filter, _, limit, offset = self._parse_query(query_set)
+        
+        order_by = None
+        if query_set._order_by is not None:
+            order_by = self._build_order_by(query_set)
+            offset = None
+        
+        recs, a = await self.client.scroll(
+            collection_name=collection_name,
+            scroll_filter=scroll_filter,
+            limit=limit,
+            offset=offset,
+            with_payload=True,
+            with_vectors=True,
+            order_by=order_by
+        )
         return recs
+    
+    def _build_order_by(self, query_set: QuerySet, as_query=False)-> models.OrderBy | str:
+        if type(query_set._order_by) == str:
+            return query_set._order_by
+        elif type(query_set._order_by) == dict:            
+            return models.OrderBy(
+                key=query_set._order_by.get("key"),# type: ignore
+                direction=query_set._order_by.get("direction", "desc"),
+                start_from=query_set._order_by.get("start_from", None),  # start from this value
+            )
+        else:
+            raise ValueError("order_by must be a string or a dict.")
     
     def _parse_query(self, query_set: QuerySet):
         query_filter = None
@@ -497,28 +545,28 @@ class QdrantClient:
         query = None
         using = None
         order_by = None
-        if query_set._filters:
-            query_filter = self.transform_filters(query_set._filters)
-        # if filters:= query_set.get_filters():
-        #     query_filter = self.transform_filters(filters)
-        if subspace:= query_set.get_subspace():
-            if query_filter is not None:
-                query_filter.must.append(
-                    models.FieldCondition(
-                        key=subspace.field,
-                        match=models.MatchValue(value=subspace)
-                    )
-                )
-            else:
-                query_filter = models.Filter(
-                    must=[
-                        models.FieldCondition(
-                            key="_subspace",
-                            match=models.MatchValue(value=subspace)
-                        )
-                    ]
-                )
-        
+        # if query_set._filters:
+        #     query_filter = self.transform_filters(query_set._filters)
+        # if subspace:= query_set.get_subspace():
+        #     if query_filter is not None:
+        #         query_filter.must.append(
+        #             models.FieldCondition(
+        #                 key=subspace.field,
+        #                 match=models.MatchValue(value=subspace)
+        #             )
+        #         )
+        #     else:
+        #         query_filter = models.Filter(
+        #             must=[
+        #                 models.FieldCondition(
+        #                     key="_subspace",
+        #                     match=models.MatchValue(value=subspace)
+        #                 )
+        #             ]
+        #         )
+        if query_set._filters or query_set._partitions:
+            query_filter = self._parse_query_filters(query_set)
+                    
         if query_set._prefetch:
             prefetch = [self._parse_prefetch(q) for q in query_set._prefetch]        
         if query_set.query_type == "vector":
@@ -548,6 +596,8 @@ class QdrantClient:
                 query = models.FusionQuery(fusion=models.Fusion.RRF)
             elif query_set._fusion == "dbsf":
                 query = models.FusionQuery(fusion=models.Fusion.DBSF)                           
+        elif query_set.query_type == "id":
+            query = query_set._ids
                 
         # if query_set._order_by:
         return query, prefetch, query_filter, using, query_set._limit, query_set._offset
@@ -563,6 +613,27 @@ class QdrantClient:
             filter=query_filter,
             prefetch=prefetch
         )
+        
+    def _parse_query_filters(self, query_set: QuerySet):
+        query_filter = None
+        if query_set._filters is not None:
+            query_filter = self._parse_query_filter(query_set._filters)
+        
+        if query_set._partitions:
+            partition_cond = [
+                models.FieldCondition(
+                    key=field,
+                    match=models.MatchValue(value=value)
+                ) for field, value in query_set._partitions.items()
+            ]
+            if query_filter is None:
+                query_filter= Filter(
+                    must=partition_cond
+                )
+            else:
+                query_filter.must = [*query_filter.must, *partition_cond]
+        return query_filter
+    
     
     def transform_filters(self, query_filters):
         return self._parse_query_filter(query_filters)
@@ -600,14 +671,24 @@ class QdrantClient:
                     ]
                 )
             elif query_filter._operator in {FieldOp.GT, FieldOp.GE, FieldOp.LT, FieldOp.LE}:
-                return Filter(
-                    must=[
-                        FieldCondition(
-                            key=query_filter.field.name,
-                            range=Range(**{query_filter._operator.value: query_filter.value})
-                        )
-                    ]
-                )
+                if query_filter.is_datetime():
+                    return Filter(
+                        must=[
+                            FieldCondition(
+                                key=query_filter.field.name,
+                                range=DatetimeRange(**{query_filter._operator.value: query_filter.value})
+                            )
+                        ]
+                    )
+                else:
+                    return Filter(
+                        must=[
+                            FieldCondition(
+                                key=query_filter.field.name,
+                                range=Range(**{query_filter._operator.value: query_filter.value})
+                            )
+                        ]
+                    )
             elif query_filter._operator == FieldOp.IN:
                 return Filter(
                     must=[

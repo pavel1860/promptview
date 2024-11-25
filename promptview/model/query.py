@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Generic, Literal, Self, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Generator, Generic, Iterator, List, Literal, Protocol, Self, Type, TypeVar
 from pydantic.fields import FieldInfo
 import datetime as dt
 from qdrant_client import models
@@ -115,11 +116,61 @@ class FieldComparable:
     
     
     
-    
-    
+        
+MODEL = TypeVar("MODEL", bound="Model", covariant=True)   
     
 
-    
+class ModelFilterProxy(Generic[MODEL]):
+    def __init__(self, cls: Type[MODEL]):
+        """
+        Initialize the ORM object with a table name and fields (columns).
+
+        :param cls: class for the proxy
+        :param fields: Dictionary of field names and their values
+        """   
+        self._cls = cls
+        fields = cls.model_fields
+        self._fields = fields
+
+        # Dynamically add properties for each field to support Intellisense
+        for field_name in fields.keys():
+            self._add_property(field_name)
+
+    def _add_property(self, field_name):
+        """
+        Add a property dynamically for a given field name.
+        This ensures Intellisense recognizes the field.
+        """
+        def getter(self):
+            return self._fields[field_name]
+
+        def setter(self, value):
+            self._fields[field_name] = value
+
+        # Dynamically add the property to the class
+        setattr(self.__class__, field_name, property(getter, setter))
+
+    def __dir__(self):
+        """
+        Add dynamic fields to the list of available attributes for Intellisense.
+        """
+        return list(super().__dir__()) + list(self._fields.keys())
+
+    def get_metadata(self):
+        """
+        Return metadata about the fields (e.g., names, types).
+        """
+        return {
+            "fields": list(self._fields.keys()),
+            "field_values": self._fields
+        }    
+
+# def create_model_filter_proxy(cls: Type[MODEL]) -> Type[MODEL]:
+#     class Proxy(ModelFilterProxy[MODEL], cls):  # Inherit from both ModelFilterProxy and the model class
+#         def __init__(self):
+#             ModelFilterProxy.__init__(self, cls)
+#             cls.__init__(self)
+#     return Proxy
     
 
         
@@ -135,8 +186,7 @@ class FieldComparable:
 #             raise AttributeError(f"{self._cls.__name__} has no attribute {name}")
         
         
-        
-MODEL = TypeVar("MODEL", bound="Model")
+
 
 FusionType = Literal["rff", "dbsf"]
 
@@ -150,14 +200,51 @@ ALL_VECS = AllVecs()
 
 
 class QueryProxy(Generic[MODEL]):
-    model: MODEL
+    # model: Type[MODEL]
     
-    def __init__(self, model: MODEL):
+    def __init__(self, model: Type[MODEL]):
         self.model = model
+        fields = model.model_fields
+        self._fields = fields
+        # for field_name in fields.keys():
+        #     self._add_property(field_name)
+        # self.__annotations__ = model.model_fields
+        
+    # def _add_property(self, field_name):
+    #     """
+    #     Add a property dynamically for a given field name.
+    #     This ensures Intellisense recognizes the field.
+    #     """
+    #     def getter(self):
+    #         return self._fields[field_name]
+
+    #     def setter(self, value):
+    #         self._fields[field_name] = value
+
+    #     # Dynamically add the property to the class
+    #     setattr(self.__class__, field_name, property(getter, setter))
+    def _add_property(self, field_name):
+        """
+        Add a property dynamically for a given field name.
+        This ensures Intellisense recognizes the field.
+        """
+        def getter(self):
+            # return self._fields[field_name]
+            return FieldComparable(field_name, self._fields[field_name])
+
+        def setter(self, value):
+            self._fields[field_name] = value
+
+        # Dynamically add the property to the class
+        setattr(self.__class__, field_name, property(getter, setter))
+        
+    def __dir__(self) -> Iterable[str]:
+        # return list(super().__dir__()) + list(self.model.model_fields.keys())
+        return list(super().__dir__()) + list(self._fields.keys())
     
     def __getattr__(self, name):
-        if name == "model":
-            return self.model
+        # if name == "model":
+        #     return self.model        
         print("GET ATTR", name)
         if field_info:= self.model.model_fields.get(name, None):
             return FieldComparable(name, field_info)
@@ -169,9 +256,15 @@ class VectorQuerySet:
     vec: list[str] | AllVecs
     vector_lookup: dict[str, str] | None
     
-    def __init__(self, query: str, vec: str | AllVecs=ALL_VECS):
-        self.query = query        
-        self.vec = vec
+    def __init__(self, query: str, vec: list[str] | str | AllVecs=ALL_VECS):
+        self.query = query
+        if type(vec) == str:
+            self.vec = [vec]
+        elif type(vec) == list or vec == ALL_VECS:
+            self.vec = vec # type: ignore
+        else:
+            raise ValueError(f"vec must be a string or list of strings, {vec}")
+        
         self.vector_lookup = None
         
     def __repr__(self):
@@ -181,79 +274,147 @@ class VectorQuerySet:
         """
         
     def __len__(self):
-        return len(self.vector_lookup)
+        if self.vector_lookup:
+            return len(self.vector_lookup)
+        return 0
     
-    def __iter__(self)->tuple[str, Any]:
+    def __iter__(self)->Iterator[tuple[str, Any]]:
+        if not self.vector_lookup:
+            raise ValueError("No vectors found")
         return iter(self.vector_lookup.items())
+        
     
     def first(self)->tuple[str, Any]:
-        if self.vector_lookup:
-            return next(iter(self.vector_lookup.items()))
-        return None
+        if not self.vector_lookup:
+            raise ValueError("No vectors found")
+        return next(iter(self.vector_lookup.items()))
     
+    
+    
+T_co = TypeVar("T_co", covariant=True)
+
+# class QuerySetSingle(Protocol[T_co]):
+#     """
+#     Awaiting on this will resolve a single instance of the Model object, and not a sequence.
+#     """
+
+#     # pylint: disable=W0104
+#     def __await__(self) -> Generator[Any, None, T_co]: ...  # pragma: nocoverage
+
+#     # def prefetch_related(
+#     #     self, *args: Union[str, Prefetch]
+#     # ) -> "QuerySetSingle[T_co]": ...  # pragma: nocoverage
+
+#     # def select_related(self, *args: str) -> "QuerySetSingle[T_co]": ...  # pragma: nocoverage
+
+#     # def annotate(self, **kwargs: Function) -> "QuerySetSingle[T_co]": ...  # pragma: nocoverage
+
+#     # def only(self, *fields_for_select: str) -> "QuerySetSingle[T_co]": ...  # pragma: nocoverage
+
+#     # def values_list(
+#     #     self, *fields_: str, flat: bool = False
+#     # ) -> "ValuesListQuery[Literal[True]]": ...  # pragma: nocoverage
+
+#     # def values(
+#     #     self, *args: str, **kwargs: str
+#     # ) -> "ValuesQuery[Literal[True]]": ...  # pragma: nocoverage
+    
+
+class QuerySetSingleAdapter(Generic[T_co]):
+    def __init__(self, queryset: "QuerySet[T_co]"):
+        self.queryset = queryset
+
+    def __await__(self) -> Generator[Any, None, T_co]:
+        async def await_query():
+            results = await self.queryset.execute()
+            if results:
+                return results[0]
+            raise ValueError("No results found")
+            # return None
+            # raise DoesNotExist(self.queryset.model)
+        return await_query().__await__()  
 
 QueryType = Literal["vector", "fusion", "id", "order", "scroll"]
 
 class QuerySet(Generic[MODEL]):    
     model: Type[MODEL]
     query_type: QueryType
-    _limit: int
-    _offset: int
-    _order_by: str | dict
-    _filters: QueryFilter
+    _ids: list[str] | None
+    _limit: int | None
+    _offset: int | None
+    _order_by: str | dict | None
+    _filters: QueryFilter | None
     _vector_query: VectorQuerySet | None
     _unpack_result: bool = False
     _fusion: FusionType | None
     _prefetch: list[Self]
+    _partitions: dict[str, str]
     
     
-    def __init__(self, model: Type[MODEL], query_type: QueryType):
+    def __init__(self, model: Type[MODEL], query_type: QueryType, partitions: dict[str, str] | None = None):
         self.model = model
         self.query_type = query_type
         self._limit = None
         self._offset = None
         self._order_by = None
-        self._filters = []
+        self._filters = None
         self._vector_query = None
         self._prefetch = []
         self._fusion = None
+        partitions = partitions or {}
+        if subspace := self.get_subspace():
+            partitions.update({"_subspace": subspace})
+        self._partitions = partitions
         
-    def __await__(self):
+    def __await__(self) -> Generator[Any, None, List[MODEL]]:
         return self.execute().__await__()
     
     def get_filters(self):
-        if self.model._subspace.default:
-            return QueryFilter(FieldComparable("_subspace"), self.model._subspace.default, FieldOp.EQ) & self._filters
+        if subspace:= self.get_subspace():
+            return QueryFilter(FieldComparable("_subspace"), subspace, FieldOp.EQ) & self._filters
         return self._filters
     
     def get_subspace(self):
-        if self.model._subspace.default:
-            return self.model._subspace.default
+        if subspace:=self.model._subspace.default:# type: ignore
+            return subspace
         return None
     
-    async def execute(self):
+    async def execute(self) -> List[MODEL]:
         ns = await self.model.get_namespace()
         await self._recursive_vectorization()                
         result = await ns.conn.execute_query(
             ns.name,
             query_set=self
         )
-        records = [self.model.pack_search_result(r) for r in result.points]        
-        if self._unpack_result:
-            if len(records):
-                return records[0]
-            else:
-                return None
+        records = [self.model.pack_search_result(r) for r in result]        
+        # if self._unpack_result:
+        #     if len(records):
+        #         return records[0]
+        #     else:
+        #         return None
         return records
     
+    async def _get_vec_names(self)-> list[str]:
+        if self._vector_query is None:            
+            return []
+        if type(self._vector_query.vec) == AllVecs or self._vector_query.vec == ALL_VECS:
+            ns = await self.model.get_namespace()
+            return [vn for vn in ns.vector_spaces]
+        elif type(self._vector_query.vec) == list:
+            return self._vector_query.vec
+        else:
+            raise ValueError(f"Invalid vector query: {self._vector_query.vec}")
+        
     
     async def _recursive_vectorization(self):
-        if self.query_type == "vector":
-            ns = await self.model.get_namespace()
-            if self._vector_query.vec == ALL_VECS:
-                use_vectors = [vn for vn in ns.vector_spaces]
-            else:
-                use_vectors = self._vector_query.vec
+        if self.query_type == "vector" and self._vector_query is not None:
+            # ns = await self.model.get_namespace()
+            # # if self._vector_query.vec == ALL_VECS:
+            # if type(self._vector_query.vec) == AllVecs:
+            #     use_vectors = [vn for vn in ns.vector_spaces]
+            # else:
+            #     use_vectors = self._vector_query.vec
+            use_vectors = await self._get_vec_names()
             vectors = await self.model.query_embed(
                 self._vector_query.query, 
                 vec=use_vectors)
@@ -285,15 +446,19 @@ class QuerySet(Generic[MODEL]):
         return ns.conn.transform_filters(self._filters)
     
     
-    async def _execute_vector_query(self):        
+    async def _execute_vector_query(self):                
+        # if self._vector_query.vec == ALL_VECS:
+        #     use_vectors = [vn for vn in ns.vector_spaces]
+        # else:
+        #     use_vectors = self._vector_query.vec
+        if not self._vector_query:
+            raise ValueError("No vector query found")
+        use_vectors = await self._get_vec_names()
         ns = await self.model.get_namespace()
-        if self._vector_query.vec == ALL_VECS:
-            use_vectors = [vn for vn in ns.vector_spaces]
-        else:
-            use_vectors = self._vector_query.vec
-        vectors = await self.model._call_vectorize_query(
+        
+        vectors = await self.model.query_embed(
             self._vector_query.query, 
-            use_vectors=use_vectors)        
+            vec=use_vectors)        
         res = await ns.conn.query_points(
             ns.name,
             vectors=vectors,
@@ -311,24 +476,46 @@ class QuerySet(Generic[MODEL]):
             collection_name=ns.name,
             limit=self._limit,
             filters=self._filters,
-            order_by=self._order_by,
-            offset=self._offset,
+            # order_by=self._order_by,
+            # offset=self._offset,
             # ids=ids,
             with_payload=True,
             with_vectors=True
         ) 
         return res
     
-    def similar(self, query: str, vec: list[str] | str=ALL_VECS):
+    # def get(self, id: str | None = None, ids: list[str] | None=None):
+    #     if id is not None:
+    #         self._ids = id
+    #     elif ids is not None:
+    #         self._ids = ids
+    #     else:
+    #         raise ValueError("Must provide id or ids")
+    #     return self
+    
+    def similar(self, query: str, vec: list[str] | str | AllVecs=ALL_VECS):
         self._vector_query = VectorQuerySet(
             query=query,
             vec=vec
         )
         return self
     
-    def filter(self, filter_fn: Callable[[Type[MODEL]], QueryFilter]):
-        self._filters = filter_fn(QueryProxy(self.model))
+    
+    def filter(self, filter_fn: Callable[[QueryProxy[MODEL]], QueryFilter]):
+        query = QueryProxy[MODEL](self.model)
+        self._filters = filter_fn(query)
         return self
+    
+    # def filter(self, filter_fn: Callable[[ModelFilterProxy[MODEL]], Any]):
+    #     query = ModelFilterProxy[MODEL](self.model)
+    #     self._filters = filter_fn(query)
+    #     return self
+    
+    
+    #? Original
+    # def filter(self, filter_fn: Callable[[Type[MODEL]], QueryFilter]):
+    #     self._filters = filter_fn(QueryProxy(self.model))
+    #     return self
         
     def limit(self, limit: int):
         self._limit = limit
@@ -339,13 +526,29 @@ class QuerySet(Generic[MODEL]):
         self._offset = 0
         return self
     
-    def first(self):
+    def first(self) -> "QuerySetSingleAdapter[MODEL]":
         self._limit = 1
-        self._offset = 0
         self._unpack_result = True
-        return self
+        self._order_by = {
+            "key": "created_at",
+            "direction": "asc",
+            "start_from": None
+        }
+        return QuerySetSingleAdapter(self)
+    
+    def last(self):
+        self._limit = 1
+        self._unpack_result = True
+        self._order_by = {
+            "key": "created_at",
+            "direction": "desc",
+            "start_from": None
+        }
+        return QuerySetSingleAdapter(self)
     
     def offset(self, offset: int):
+        if self._order_by is not None:
+            raise ValueError("Cannot use offset with order_by. Use start_from instead")
         self._offset = offset
         return self
     
@@ -354,10 +557,11 @@ class QuerySet(Generic[MODEL]):
         self._offset = None
         return self
     
-    def last(self):
-        pass
+    
     
     def order_by(self, key, ascending: bool=False, start_from=None):
+        if self._offset is not None:
+            raise ValueError("Cannot use order_by with offset, use start_from instead")
         self._order_by = {
             "key": key,
             "direction": "asc" if ascending else "desc",
@@ -368,28 +572,13 @@ class QuerySet(Generic[MODEL]):
     def fusion(self, *args, type: FusionType="rff"):
         for arg in args:
             if isinstance(arg, QuerySet):
-                self._prefetch.append(arg)
+                self._prefetch.append(arg) # type: ignore
             else:
                 raise ValueError(f"Only QuerySet allowed in prefetch. got {arg}")
             self._fusion = type
         return self
         
     
-    
-    # def __repr__(self):
-    #     return f"""
-    #     QuerySet:
-    #         model: {self.model.__class__.__name__}
-    #         query_type: {self.query_type}
-    #         _limit: {self._limit}
-    #         _offset: {self._offset}
-    #         _order_by: {self._order_by}
-    #         _filters: {self._filters}
-    #         _vector_query: {self._vector_query}
-    #         _unpack_result: {self._unpack_result}
-    #         _fusion: {self._fusion}
-    #         _prefetch: {self._prefetch}
-    #     """
     def __repr__(self):
         def stringify_prefetch(prefetch_list, indent_level=1):
             """

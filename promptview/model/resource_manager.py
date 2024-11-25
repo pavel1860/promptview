@@ -1,5 +1,6 @@
 
 from __future__ import annotations
+import os
 from typing import Any, Dict, List, Optional, Type, TypeVar, Generic, Union
 from uuid import uuid4
 from pydantic import BaseModel
@@ -13,7 +14,11 @@ from .vectors.base_vectorizer import BaseVectorizer
 
 
 
-
+def get_qdrant_connection():
+    return QdrantClient(
+        url = os.environ.get("QDRANT_URL"),
+        api_key =os.environ.get("QDRANT_API_KEY", None)
+    )
 
 
 
@@ -90,7 +95,7 @@ class VectorizersManager:
         
     def add_vectorizer(self, vector_name: str, vectorizer_cls: Type[BaseVectorizer]) -> BaseVectorizer:
         if not vectorizer_cls.__name__ in self._vectorizers:
-            self._vectorizers[vectorizer_cls.__name__] = vectorizer_cls()        
+            self._vectorizers[vectorizer_cls.__name__] = vectorizer_cls() # type: ignore
         vectorizer = self._vectorizers[vectorizer_cls.__name__]
         self._named_vectorizers[vector_name] = vectorizer
         return vectorizer
@@ -106,16 +111,12 @@ class ConnectionManager:
     _active_namespaces: Dict[str, NamespaceParams] = {}
     
     def __init__(self):        
-        self._qdrant_connection = QdrantClient()
+        self._qdrant_connection = get_qdrant_connection()
         self._namespaces = {}
         self.vectorizers_manager = VectorizersManager()
         # self._vector_db_connections = {}
         
-    # async def get_connection(self, db_name: str):
-    #     try:
-    #         return self._db_connections[db_name]
-    #     except KeyError:
-    #         raise ValueError(f"Connection {db_name} not found")
+    
     
     
     def get_vec_db_conn(self, db_name: str):
@@ -145,7 +146,7 @@ class ConnectionManager:
             namespace_inst = self._namespaces[namespace]
             return {
                 vs.name: self.vectorizers_manager.get_vectorizer(vs.vectorizer.__name__) 
-                for vs in namespace_inst.vector_spaces
+                for vs in namespace_inst.vector_spaces.values()
             }
         except KeyError:
             raise ValueError(f"Namespace {namespace} not found")
@@ -169,13 +170,18 @@ class ConnectionManager:
             return ns
         except KeyError:
             raise ValueError(f"Collection {namespace} not found")
+    
+    def get_namespace2(self, namespace: str):
+        try:
+            ns = self._namespaces[namespace]
+            return ns
+        except KeyError:
+            raise ValueError(f"Namespace {namespace} not found")
         
         
     async def get_namespace(self, namespace: str)->NamespaceParams:
         try:
-            ns = self._active_namespaces[namespace]
-            # vectorizers = {vs.name: self.vectorizers_manager.get_vectorizer(vs.vectorizer.__name__)
-            #     for vs in namespace_inst.vector_spaces}            
+            ns = self._active_namespaces[namespace]          
             return ns
         except KeyError:
             return await self._create_namespace(namespace)
@@ -185,11 +191,6 @@ class ConnectionManager:
         ns.indices += indices        
         return ns    
         
-    # async def validate_namespace(self):
-    #     try:
-    #         await self.vector_store.info()
-    #     except (UnexpectedResponse, grpc.aio._call.AioRpcError) as e:            
-    #         await self.create_namespace()
             
     async def delete_namespace(self, namespace: str):
         try:
@@ -202,7 +203,10 @@ class ConnectionManager:
             pass
 
         
-
+    def reset_connection(self):
+        self._qdrant_connection = get_qdrant_connection()
+        
+        
 
 
 
@@ -214,32 +218,3 @@ connection_manager = ConnectionManager()
 
 
 
-
-
-
-
-
-# from typing import TYPE_CHECKING, Dict
-# from contextvars import ContextVar
-
-# if TYPE_CHECKING:
-#     from qdrant_client import QdrantClient
-
-# class ConnectionHandler:
-    
-#     _conn_storage: ContextVar[Dict[str, "QdrantClient"]] = ContextVar(
-#         "_conn_storage", default={}
-#     )
-    
-    
-#     def _create_connection(self, conn_name: str) -> "QdrantClient":
-#         conn_name: str = QdrantClient(url=conn_name)
-    
-    
-#     def get(self, conn_name: str) -> "QdrantClient":
-#         # return self._conn_storage.get().get(conn_name)
-#         storage: Dict[str, "QdrantClient"] = self._conn_storage.get()
-#         try:
-#             return storage[conn_name]
-#         except KeyError:
-#             connection: "QdrantClient" = self._create_connection(conn_name)

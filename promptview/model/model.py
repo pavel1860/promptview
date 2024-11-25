@@ -5,7 +5,7 @@ from uuid import uuid4
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import FieldInfo
 from pydantic._internal._model_construction import ModelMetaclass
-from .query import QueryFilter, ALL_VECS, QuerySet, FusionType
+from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QueryType
 from .vectors.base_vectorizer import BaseVectorizer
 from .fields import VectorSpaceMetrics, get_model_indices
 from .resource_manager import VectorSpace, connection_manager
@@ -14,16 +14,6 @@ def unpack_list_model(pydantic_model):
     return get_args(pydantic_model)[0]
 
 
-def make_optional(model: BaseModel | str) -> BaseModel:
-    if model == str:
-        return Optional[str]
-    optional_fields = {k: (Optional[v], None) for k, v in model.__annotations__.items()}
-    return create_model(
-        model.__name__, 
-        **optional_fields,         
-        __config__=ConfigDict(arbitrary_types_allowed=True)
-        # __config__=Config
-    )
 
 
 def get_model_fields(model_instance, model_class):
@@ -145,54 +135,94 @@ class ModelMeta(ModelMetaclass, type):
         default_temporal_type = None
         namespace = None
         vec_field_map = {}
+        vector_spaces = []
         if name != "Model":
             #? add model partition
             model_base = bases[0]
             if model_base == Model:
                 dct["_subspace"] = None
             else: 
-                dct["_subspace"] = name                
+                dct["_subspace"] = name
+                
+            
+            
+            for field, field_type in dct.items():
+                if inspect.isclass(field_type.__class__) and field == "VectorSpace":    
+                    #? vector space extraction                                        
+                    vectorizers = field_type.__annotations__
+                    for vec_name, vec_cls in vectorizers.items():
+                        # if not issubclass(vec_cls, BaseVectorizer):
+                            # raise ValueError(f"Vector Space {vec_name} must be of type BaseVectorizer")
+                        vector_spaces.append(
+                            VectorSpace(
+                                name=vec_name,
+                                vectorizer_cls=vec_cls,
+                                metric=VectorSpaceMetrics.COSINE                                
+                            ))
+                        # vectorizers_manager.add_vectorizer(vec_name, vec_cls)
+                    #? namespace and indices extraction
+                    namespace = name                        
+                    indices = get_model_indices(dct)
+                    connection_manager.add_namespace(
+                        namespace=namespace,
+                        # subspace=dct.get("_subspace"),
+                        vector_spaces=vector_spaces,
+                        indices=indices
+                    )
+                    break
+            else:
+                if not bases:
+                    raise ValueError(f"Vector Space not defined in {name} and no base class")
+                if not hasattr(bases[0], "_namespace"):
+                    raise ValueError(f"Namespace not defined in base class of {name}")
+                namespace = bases[0]._namespace.default
+                ns = connection_manager.get_namespace2(namespace)
+                vector_spaces = list(ns.vector_spaces.values())
+                # raise NotImplementedError("Vector Space not defined")                
             
             for field, field_type in dct.items():
                 #? temporal field extraction
                 if inspect.isclass(field_type.__class__):
-                    if isinstance(field_type, FieldInfo):
+                    if isinstance(field_type, FieldInfo) and field_type.json_schema_extra:
                         if field_type.json_schema_extra.get("auto_now_add", None):
                             default_temporal_field = field
                             default_temporal_type = field_type
-                    #? vector space extraction
-                    
-                    if field == "VectorSpace":
-                        vector_spaces = []
-                        vectorizers = field_type.__annotations__
-                        for vec_name, vec_cls in vectorizers.items():
-                            if not issubclass(vec_cls, BaseVectorizer):
-                                raise ValueError(f"Vector Space {vec_name} must be of type BaseVectorizer")
-                            vector_spaces.append(
-                                VectorSpace(
-                                    name=vec_name,
-                                    vectorizer_cls=vec_cls,
-                                    metric=VectorSpaceMetrics.COSINE                                
-                                ))
-                            # vectorizers_manager.add_vectorizer(vec_name, vec_cls)
-                        #? namespace and indices extraction
-                        namespace = name                        
-                        indices = get_model_indices(dct)
-                        connection_manager.add_namespace(
-                            namespace=namespace,
-                            # subspace=dct.get("_subspace"),
-                            vector_spaces=vector_spaces,
-                            indices=indices
-                        )
+                    # #? vector space extraction                    
+                    # if field == "VectorSpace":
+                    #     vector_spaces = []
+                    #     vectorizers = field_type.__annotations__
+                    #     for vec_name, vec_cls in vectorizers.items():
+                    #         # if not issubclass(vec_cls, BaseVectorizer):
+                    #             # raise ValueError(f"Vector Space {vec_name} must be of type BaseVectorizer")
+                    #         vector_spaces.append(
+                    #             VectorSpace(
+                    #                 name=vec_name,
+                    #                 vectorizer_cls=vec_cls,
+                    #                 metric=VectorSpaceMetrics.COSINE                                
+                    #             ))
+                    #         # vectorizers_manager.add_vectorizer(vec_name, vec_cls)
+                    #     #? namespace and indices extraction
+                    #     namespace = name                        
+                    #     indices = get_model_indices(dct)
+                    #     connection_manager.add_namespace(
+                    #         namespace=namespace,
+                    #         # subspace=dct.get("_subspace"),
+                    #         vector_spaces=vector_spaces,
+                    #         indices=indices
+                    #     )
                         
                     #? vector field extraction. the vector has to be a field of type VectorSpace
                     if type(field_type) == FieldInfo:
                         if vec:= field_type.json_schema_extra.get("vec"):                            
-                            for v in vec: 
+                            for v in vec: # type: ignore
                                 if v not in vec_field_map:
                                     vec_field_map[v] = []
                                 vec_field_map[v] += [field]
                         #TODO validate that the vector exists in the vector space
+            if vec_field_map:
+                for vs in vector_spaces:
+                    if vs.name not in vec_field_map:
+                        raise ValueError(f"Vector Space '{vs.name}' not defined in model fields. if you are using explicit vector field mapping, ensure that all vectorizers are defined in the model fields")
 
             if dct.get("_subspace", None):
                 if not hasattr(bases[0], "_namespace"):
@@ -233,7 +263,7 @@ class ModelMeta(ModelMetaclass, type):
             # dct["_vectorizers"] = connection_manager.get_vectorizers(namespace)
         asset_inst = super().__new__(cls, name, bases, dct)
         if name != "Model":
-            model_manager.add_asset(asset_inst)
+            model_manager.add_asset(asset_inst)# type: ignore
         return asset_inst
     
     
@@ -252,30 +282,31 @@ class Model(BaseModel, metaclass=ModelMeta):
     _score: float = PrivateAttr(default=-1)
     _partitions: dict[str, str] = PrivateAttr(default_factory=dict)
     _default_temporal_field: str = PrivateAttr(default=None)
-    _namespace: str = PrivateAttr(default=None)
-    # _vectorizers: dict[str, BaseVectorizer] = PrivateAttr(default_factory=dict)
+    _namespace: str | None = PrivateAttr(default=None)
+    _subspace: str | None = PrivateAttr(default=None)
+    _vec_field_map: dict[str, list[str]] = PrivateAttr(default_factory=dict)
+    # _partitions: dict[str, str] = {}
+    # _default_temporal_field: str | None = None
+    # _namespace: str | None = None
+    # _subspace: str | None = None
+    # _vec_field_map: dict[str, list[str]] = {}
     
     class Config:
         arbitrary_types_allowed = True
     
     
-    def __init__(self,_id=None, _score=None, **data):
+    def __init__(
+            self,
+            _id=None, 
+            _score=None, 
+            **data
+        ):
         super().__init__(**data)
         if _id:
             self._id = _id
         if _score:
-            self._score = _score
-    # def __init__(self,**data):
-    #     super().__init__(**data)
-    #     if data.get("_id"):
-    #         self._id = data.get("_id")
-    #     if data.get("_score"):
-    #         self._score = data.get("_score")
-    # def model_post_init(self, __context: Any):
-    #     if __context.get("_id"):
-    #             self._id = __context.get("_id")
-    #     if __context.get("_score"):
-    #             self._score = __context.get("_score")
+            self._score = _score        
+        
         
     @property
     def id(self):
@@ -286,10 +317,11 @@ class Model(BaseModel, metaclass=ModelMeta):
         return self._score
     
     
-    
     @classmethod
-    async def get_client(cls):
-        ns = await connection_manager.get_namespace(cls._namespace.default)
+    async def get_client(cls: Type["Model"]):
+        if not cls._namespace:
+            raise ValueError("Namespace not defined")
+        ns = await connection_manager.get_namespace(cls._namespace)
         return ns.conn
         
     
@@ -301,52 +333,31 @@ class Model(BaseModel, metaclass=ModelMeta):
     # async def verify_namespace(self):
         # await self.rag_documents.verify_namespace()
     
-    @classmethod
-    async def _vectorize(cls, obj):
-        key = obj.model_dump_json()
-        vector_list = await asyncio.gather([
-            vec.embed([key]) for vec in cls._vectorizers.values()
-        ])
-        return {vec_name: vec for vec_name, vec in zip(cls._vectorizers.keys(), vector_list)}
     
     @classmethod
     async def get_namespace(cls):
-        namespace = cls._namespace.default
+        if not cls._namespace:
+            raise ValueError("Namespace not defined")
+        namespace = cls._namespace.default # type: ignore
         return await connection_manager.get_namespace(namespace)
     
-    # async def vectorize(self, key: str):
-    #     ns = await connection_manager.get_namespace(self._namespace)        
-    #     key = self.model_dump_json()
-    #     vector_list = await asyncio.gather(*[
-    #         vs.vectorizer.embed_documents([key]) for _, vs in ns.vector_spaces.items()
-    #     ])        
-    #     return {vec_name: vec[0] for vec_name, vec in zip(ns.vector_spaces.keys(), vector_list)}
-    
-    
+    @classmethod
+    def _get_vec_field_map(cls: Type[MODEL]):
+        return cls._vec_field_map.default# type: ignore
 
-    
-    # @classmethod
-    # def stringify_model(cls: Type[MODEL], obj: Self):
-    #     if not cls._vec_field_map:
-    #         return obj.model_dump_json()
-    #     vec_strings = {}
-    #     for vec, fields in cls._vec_field_map.default.items():
-    #         fields_str = [getattr(obj, field) for field in fields]            
-    #         vec_strings[vec] = "\n".join([str(f) for f in fields_str])
-    #     return vec_strings
-
-    def model_chunk(self):
-        if not self._vec_field_map:
-            return self.model_dump_json()
+    def model_chunk(self, vectorizers: dict[str, BaseVectorizer])-> dict[str, str]:
+        if not self._get_vec_field_map():
+            model_dump = self.model_dump_json()
+            return {vec_name: model_dump for vec_name in vectorizers}
         vec_strings = {}
-        for vec, fields in self._vec_field_map.items():
+        for vec, fields in self._get_vec_field_map().items():
             fields_str = [getattr(self, field) for field in fields]            
             vec_strings[vec] = "\n".join([str(f) for f in fields_str])
         return vec_strings
     
     
     @classmethod 
-    async def query_embed(cls: Type[MODEL], query: str, vec: list[str] | str = ALL_VECS):
+    async def query_embed(cls: Type[MODEL], query: str, vec: list[str]):
         ns = await cls.get_namespace()                
         vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items() if name in vec}
         tasks = [vectorizer.embed_documents([query]) for _, vectorizer in vectorizers.items()]
@@ -355,10 +366,10 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     @classmethod
-    async def model_batch_embed(cls: Type[MODEL], objs: List[Self]):
+    async def model_batch_embed(cls: Type[MODEL], objs: List[MODEL]):
         ns = await cls.get_namespace()
         vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items()}
-        chunks = [obj.model_chunk() for obj in objs]
+        chunks = [obj.model_chunk(vectorizers=vectorizers) for obj in objs]
         vector_list = await asyncio.gather(*[
             vectorizer.embed_documents([c[vec_name] for c in chunks])
             for vec_name, vectorizer in vectorizers.items()
@@ -369,39 +380,12 @@ class Model(BaseModel, metaclass=ModelMeta):
             embeddings.append({vec_names[i]: vec for i, vec in enumerate(vecs)})
         return embeddings
         
-    
-        
-            
-    # async def vectorize(self, vectorizers: dict[str, BaseVectorizer]):        
-    #     vector_keys = self.stringify_model(self)
-    #     vector_list = await asyncio.gather(*[
-    #         vectorizer.embed_documents([vector_keys[vec]]) for vec, vectorizer in vectorizers.items()
-    #     ])        
-    #     return {vec_name: vec[0] for vec_name, vec in zip(vectorizers.keys(), vector_list)}    
-        
-        
-
-    # async def _call_vectorize(self):
-    #     ns = await connection_manager.get_namespace(self._namespace)
-    #     vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items()}
-    #     return await call_function(self.vectorize, vectorizers=vectorizers)
-    
-
-    
-    # @classmethod
-    # async def _call_vectorize_query(cls, query: str, use_vectors: list[str]):
-    #     namespace = cls._namespace.default
-    #     ns = await connection_manager.get_namespace(namespace)
-    #     vectorizers = {name: vs.vectorizer for name, vs in  ns.vector_spaces.items() if name in use_vectors}
-    #     vector_list = await asyncio.gather(*[
-    #         vectorizer.embed_documents([query]) for _, vectorizer in vectorizers.items()
-    #     ])
-    #     return {vec_name: vec[0] for vec_name, vec in zip(vectorizers.keys(), vector_list)}
         
     async def save(self):
-        # if not self._namespace:
-            # raise ValueError("Namespace not defined")
+        if not self._namespace:
+            raise ValueError("Namespace not defined")
         # namespace = await connection_manager.get_namespace(self._namespace)
+        
         ns = await self.get_namespace()
         vectors = await self.__class__.model_batch_embed([self])
         metadata = self._payload_dump()
@@ -414,18 +398,26 @@ class Model(BaseModel, metaclass=ModelMeta):
         return self
     
     async def delete(self):
-        db_conn = await connection_manager.get_collection_conn(self.__class__)
-        return await db_conn.delete_documents(ids=[self._id])
-    
+        ns = await self.get_namespace()
+        return await ns.conn.delete(ns.name, ids=[self._id])
     
     @classmethod
-    async def batch_upsert(cls: Type[MODEL], points: List["Model"]):
+    async def batch_delete(cls: Type[MODEL], ids: List[str] | None = None, filters: Callable[[QueryProxy[MODEL]], QueryFilter] | None = None):
+        ns = await cls.get_namespace()
+        if filters:
+            query_proxy = QueryProxy[MODEL](cls)
+            query_filter = filters(query_proxy)
+        return await ns.conn.delete(ns.name, ids=ids, filters=query_filter)
+        
+        
+    @classmethod
+    async def batch_upsert(cls: Type[MODEL], points: List[MODEL]):
         vectors = await cls.model_batch_embed(points)
         metadata = [point._payload_dump() for point in points]
-        ids = [point._id for point in points]
-        namespace = await connection_manager.get_namespace(cls._namespace.default)
-        res = await namespace.conn.upsert(
-            namespace=cls._namespace.default,
+        ids = [point._id for point in points]        
+        ns = await cls.get_namespace()
+        res = await ns.conn.upsert(
+            namespace=cls._namespace.default,# type: ignore
             vectors=vectors,
             metadata=metadata,
             ids=ids
@@ -443,15 +435,15 @@ class Model(BaseModel, metaclass=ModelMeta):
         
     @classmethod
     def _get_default_temporal_field(cls):
-        if cls._default_temporal_field.default is not None:
-            return cls._default_temporal_field.default
+        if cls._default_temporal_field.default is not None: # type: ignore
+            return cls._default_temporal_field.default # type: ignore
         else:
             parent_field = cls.__bases__[0]._get_default_temporal_field()            
             return parent_field
     
     
     @classmethod
-    async def get_assets(cls, limit: int=10, filters=None, start_from=None, offset=0, ascending=False, ids=None):
+    async def get_assets(cls: Type[MODEL], limit: int=10, filters=None, start_from=None, offset=0, ascending=False, ids=None):
         sort_key = cls._get_default_temporal_field()
         if not sort_key:
             raise ValueError("Temporal Field not defined")
@@ -460,9 +452,9 @@ class Model(BaseModel, metaclass=ModelMeta):
             "direction": "asc" if ascending else "desc",
             "start_from": start_from
         }
-        namespace = cls._namespace.default
+        namespace = cls._namespace.default# type: ignore
         ns = await connection_manager.get_namespace(namespace)
-        res = await ns.conn.scroll2(
+        res = await ns.conn.scroll(
             collection_name=namespace,
             limit=limit,
             filters=filters,
@@ -473,38 +465,70 @@ class Model(BaseModel, metaclass=ModelMeta):
             with_vectors=True
         )
         # res = await rag_documents.get_documents(top_k=top_k, filters=filters, order_by=order_by, offset=offset, ids=ids, with_vectors=True)
-        return [cls._pack_search_result(r) for r in res]
+        return [cls.pack_search_result(r) for r in res]
     
     @classmethod
-    def similar(cls: Type[MODEL], query: str, vec: list[str] | str=ALL_VECS, fusion: FusionType="rff"):        
-        return QuerySet(cls, query_type="vector").similar(query, vec)    
+    async def get(cls: Type[MODEL], id: str) -> MODEL | None:
+        ns = await cls.get_namespace()
+        res = await ns.conn.retrieve(
+            collection_name=ns.name,
+            ids=[id]
+        )
+        if not res:
+            return None
+        return cls.pack_search_result(res[0])
     
     @classmethod
-    def filter(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter]):
-        return QuerySet(cls, query_type="scroll").filter(filters)
+    async def get_many(cls: Type[MODEL], ids: List[str] | List[int]) -> List[MODEL]:
+        ns = await cls.get_namespace()
+        res = await ns.conn.retrieve(
+            collection_name=ns.name,
+            ids=ids
+        )
+        return [cls.pack_search_result(r) for r in res]
+    
+    @classmethod
+    def build_query(cls: Type[MODEL], query_type: QueryType):
+        partitions = {}
+        if cls._subspace:
+            partitions["_subspace"] = cls._subspace.default# type: ignore
+        return QuerySet(cls, query_type=query_type, partitions=partitions)
+        
+    
+    @classmethod
+    def similar(cls: Type[MODEL], query: str, vec: list[str] | str | AllVecs = ALL_VECS, fusion: FusionType="rff"):        
+        return cls.build_query("vector").similar(query, vec)
+        # return QuerySet(cls, query_type="vector").similar(query, vec)    
+    
+    # @classmethod
+    # def filter(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter]):
+    #     return QuerySet(cls, query_type="scroll").filter(filters)
+    @classmethod
+    def filter(cls: Type[MODEL], filters: Callable[[QueryProxy[MODEL]], QueryFilter]):
+        return cls.build_query("scroll").filter(filters)
+        # return QuerySet(cls, query_type="scroll").filter(filters)
     
     @classmethod
     def fusion(cls: Type[MODEL], *args, type: FusionType="rff"):
-        return QuerySet(cls, query_type="fusion").fusion(*args, type=type)
+        return cls.build_query("vector").fusion(*args, type=type)
+        # return QuerySet(cls, query_type="vector").fusion(*args, type=type)
     
     @classmethod
-    def first(cls: Type[MODEL]):
-        return QuerySet(cls, query_type="scroll").first()
+    def first(cls: Type[MODEL]):        
+        return cls.build_query("scroll").first()
+        # return QuerySet(cls, query_type="scroll").first()
+    
+    @classmethod
+    def last(cls: Type[MODEL]):
+        return cls.build_query("scroll").last()
+        # return QuerySet(cls, query_type="scroll").last()
 
     
     @classmethod
     def all(cls: Type[MODEL]):
-        return QuerySet(cls, query_type="scroll").all()
+        return cls.build_query("scroll").all()
+        # return QuerySet(cls, query_type="scroll").all()
     
-    # @classmethod
-    # def order_by(cls: Type[MODEL], field: str, ascending: bool=False, start_from: Any=None):        
-    #     return QuerySet(cls, query_type="scroll").order(ascending)
-        
-    # @classmethod
-    # async def all(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter] | None = None, limit: int=10, offset: int=0, ascending: bool=False):
-    #     query_filters = filters(QueryProxy(cls))
-    #     recs = await cls.get_assets(limit=limit, filters=query_filters, offset=offset, ascending=ascending)
-    #     return recs
     
     @classmethod
     async def add(cls: Type[MODEL]):
@@ -523,192 +547,9 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def create(cls: Type[MODEL]):
         pass
     
-    # @classmethod
-    # async def first(cls: Type[MODEL], partitions=None):
-    #     partitions = partitions or {}
-    #     res = await cls.get_assets(top_k=1, filters=partitions, ascending=True)
-    #     if len(res) == 0:
-    #         return None
-    #     return res[0]
-    
-    # @classmethod
-    # async def last(cls: Type[MODEL], partitions=None):
-    #     partitions = partitions or {}
-    #     res = await cls.get_assets(top_k=1, filters=partitions, ascending=False)
-    #     if len(res) == 0:
-    #         return None
-    #     return res[0]
-    #     # partitions.update(self.partitions) #TODO need to understand how to get partitions
-    
     
     @classmethod
     async def delete_namespace(cls):
-        await connection_manager.delete_namespace(cls._namespace.default)
-    
-    # async def get(self, partitions=None, limit=1, start_from=None, ascending=False, with_metadata=False):
-    #     partitions = partitions or {}
-    #     partitions.update(self.partitions)
-    #     res = await self.get_assets(top_k=limit, filters=partitions, start_from=start_from, ascending=ascending)
-    #     if limit == 1:
-    #         if len(res) == 0:
-    #             return None                
-    #         return res[0] if with_metadata else res[0].output
-    #     return res if with_metadata else [r.output for r in res]
-    
-        
-    # async def get_or_create(self, partitions=None, default=None, limit=1):
-    #     partitions = partitions or {}
-    #     partitions.update(self.partitions)
-    #     default = default or self.output_class()
-    #     res = await self.get_assets(top_k=limit, filters=partitions)
-    #     if len(res) == 0:
-    #         res = await self.add(default)
-    #         return self._pack_record(res)
-            
-    #     return self._pack_record(res[0])
+        await connection_manager.delete_namespace(cls._namespace.default)# type: ignore
     
     
-    # async def last(self, partitions=None):
-    #     partitions = partitions or {}
-    #     partitions.update(self.partitions)
-    #     res = await self.get_assets(top_k=1, filters=partitions, ascending=False)
-    #     if len(res) == 0:
-    #         return None
-    #     return self._pack_record(res[0])
-    
-    
-    # async def one(self, partitions=None, start_from=None, ascending=False):
-    #     partitions = partitions or {}
-    #     partitions.update(self.partitions)
-    #     res = await self.get_assets(top_k=1, filters=partitions, start_from=start_from, ascending=ascending)
-    #     if len(res) == 0:
-    #         return None
-    #     return self._pack_record(res[0])
-    
-    
-    # async def get_many(self, partitions=None, limit=10, start_from=None, ascending=False):
-    #     partitions = partitions or {}
-    #     partitions.update(self.partitions)
-    #     res = await self.get_assets(top_k=limit, filters=partitions, start_from=start_from, ascending=ascending)
-    #     return [self._pack_record(r) for r in res]
-    
-    
-    # def from_json(self, data: dict):
-    #     return self._search_result_class(
-    #         # id=data["id"],
-    #         # vector=data["vector"],
-    #         # created_at=data["created_at"],
-    #         # updated_at=data["created_at"],
-    #         input_class=self.input_class,
-    #         metadata_class=self.output_class,
-    #         namespace=self.rag_documents.namespace,
-    #         **data
-    #     )
-    
-    # async def update_output(self, output: dict, ids: list[str] | None=None):
-    #     vs = self.rag_documents.vector_store.client
-    #     points = ids or None
-    #     res = await vs.set_payload(
-    #         collection_name="SessionAsset",
-    #         key="output",
-    #         payload=output,
-    #         points=points
-    #     )
-    #     return res 
-    
-    # async def delete(self, assets=None, partitions=None, ids=None):
-    #     if assets:
-    #         if not isinstance(assets, List):
-    #             assets = [assets]
-    #         ids = []
-    #         for a in assets:
-    #             if not isinstance(a, AssetSearchResult):
-    #                 raise ValueError("Asset must be of type AssetSearchResult")
-    #             ids.append(a.id)
-    #     partitions = partitions or {}
-    #     partitions.update(self.partitions)
-    #     return await self.rag_documents.delete_documents(ids=ids, filters=partitions)
-    
-    
-    # def _pack_result(self, r):
-    #     if self.input_class is None:
-    #         return AssetSearchResult[None, self.output_class, self.metadata_class](
-    #             id=r.id, 
-    #             vector=r.vector,
-    #             # input=r.metadata.input,
-    #             output=r.metadata.output,
-    #             metadata=r.metadata.metadata,                
-    #             # asset_input_date=r.metadata.asset_input_date,   
-    #             asset_output_date=r.metadata.asset_output_date,  
-    #             asset_update_ts=r.metadata.asset_update_ts,                    
-    #         )
-
-        # return AssetSearchResult[self.input_class, self.output_class, self.metadata_class](
-        #         id=r.id, 
-        #         vector=r.vector,
-        #         input=r.metadata.input,
-        #         output=r.metadata.output,
-        #         metadata=r.metadata.metadata,                
-        #         asset_input_date=r.metadata.asset_input_date,   
-        #         asset_output_date=r.metadata.asset_output_date,  
-        #         asset_update_ts=r.metadata.asset_update_ts,                    
-        #     ) 
-
-    # async def copy_assets(self, assets: List[AssetSearchResult], with_ids=True, with_dates=True, metadata=None):
-    #     vector_store = self.rag_documents.vector_store
-        
-    #     recs = await vector_store.add_documents(
-    #             vectors=[a.vector for a in assets], 
-    #             metadata=[self.asset_class(
-    #                 # output=state.model_dump() if isinstance(state, BaseModel) else state,
-    #                 # metadata=metadata.model_dump() if isinstance(metadata, BaseModel) else metadata,                    
-    #                 output=a.output,
-    #                 metadata=metadata or a.metadata,
-    #                 asset_output_date=a.asset_output_date if with_dates else datetime.now(),
-    #                 asset_update_ts=a.asset_update_ts if with_dates else get_int_timestamp()
-    #             ) for a in assets], 
-    #             ids=[a.id for a in assets] if with_ids else None,
-    #             namespace=self.rag_documents.namespace
-    #         )
-    #     # return recs
-    #     for r in recs:
-    #         r.metadata = self.asset_class(
-    #             id=r.id,
-    #             input= r.metadata.get('input', None), 
-    #             metadata=r.metadata.get('metadata', None), 
-    #             output=r.metadata.get('output', None),
-    #             asset_input_date=r.metadata.get('asset_input_date', None),
-    #             asset_output_date=r.metadata['asset_output_date'],
-    #             asset_update_ts=r.metadata['asset_update_ts']
-    #         )
-        
-    #     return [self._pack_result(r) for r in recs]
-    
-    # async def get_asset(self, asset_id):
-    #     assets = await self.get_assets(ids=[asset_id])
-    #     if len(assets) == 0:
-    #         return None
-    #     return assets[0]
-
-    # async def similar(self, input: BaseModel | str, partitions=None, top_k=10):
-    #     partitions = partitions or {}
-    #     partitions.update(self.partitions)
-    #     output = await self.rag_documents.similarity(input, filters=partitions, top_k=top_k)
-    #     return [self._pack_result(r) for r in output]
-    #     # return self._pack_results(output)
-
-    
-
-    # async def delete_all(self):
-    #     await self.rag_documents.delete_namespace()
-    #     await self.rag_documents.verify_namespace()
-
-
-    # def bind(self, metadata: BaseModel):
-    #     self.curr_metadata = metadata
-    #     return self
-    
-
-
-    # def to_dict(self):
-    #     return self.dict()
