@@ -1,12 +1,10 @@
-from enum import Enum
 import inspect
 import json
 import jsonref
 from types import UnionType
 from typing import Any, Literal, Optional, Union, get_args, get_origin
-
 from promptview.llms.utils.completion_parsing import (is_list_model,
-                                                    unpack_list_model)
+                                                      unpack_list_model)
 from pydantic import BaseModel, create_model
 
 
@@ -53,9 +51,40 @@ def _schema_to_ts(value_type, indent: int = 2, depth: int = 0) -> str:
         return 'number'
     if value_type == bool:
         return 'boolean'
+    if value_type == type(None):
+        return 'null'
+    if value_type == None:
+        return 'any'
+    
+    origin = get_origin(value_type)
+    # Handle Literal types
+    if origin == Literal:
+        literal_args = get_args(value_type)
+        # Convert each literal value to a string representation
+        literal_values = []
+        for arg in literal_args:
+            if isinstance(arg, str):
+                literal_values.append(f"'{arg}'")
+            elif isinstance(arg, (int, float, bool)):
+                literal_values.append(str(arg))
+            else:
+                literal_values.append(f"'{str(arg)}'")
+        return ' | '.join(literal_values)
+    
+    # Handle Enum types
+    if isinstance(value_type, type) and issubclass(value_type, Enum):
+        # Convert enum values to TypeScript union type
+        enum_values = []
+        for v in value_type:
+            if isinstance(v.value, str):
+                enum_values.append(f"'{v.value}'")
+            elif isinstance(v.value, (int, float, bool)):
+                enum_values.append(str(v.value))
+            else:
+                enum_values.append(f"'{str(v.value)}'")
+        return ' | '.join(enum_values)
     
     # Handle list types
-    origin = get_origin(value_type)
     if origin == list:
         list_type_args = get_args(value_type)
         if list_type_args:
@@ -63,10 +92,29 @@ def _schema_to_ts(value_type, indent: int = 2, depth: int = 0) -> str:
             return f'{item_ts_type}[]'
         return 'any[]'
     
+    # Handle dict types
+    if origin == dict:
+        dict_type_args = get_args(value_type)
+        if len(dict_type_args) == 2:
+            key_type = _schema_to_ts(dict_type_args[0], indent, depth)
+            value_type = _schema_to_ts(dict_type_args[1], indent, depth)
+            # In TypeScript, only string, number, and symbol can be used as index types
+            if key_type not in ['string', 'number']:
+                key_type = 'string'
+            return f'{{ [key: {key_type}]: {value_type} }}'
+        return '{ [key: string]: any }'
+    
+    # Handle Union types
+    if origin == Union:
+        union_args = get_args(value_type)
+        ts_types = [_schema_to_ts(arg, indent, depth) for arg in union_args]
+        return ' | '.join(ts_types)
+    
     # If not a Pydantic model, return any
     if not hasattr(value_type, 'model_fields'):
         return 'any'
     
+    # Handle Pydantic models
     indent_str = ' ' * indent * depth
     fields_indent_str = indent_str + ' ' * indent
     fields = []
@@ -160,6 +208,7 @@ def serialize_class(cls_: Any):
         "schema": schema,
         "pydantic_version": version
     }
+
 
 
 
