@@ -138,17 +138,23 @@ class ModelMeta(ModelMetaclass, type):
         vector_spaces = []
         if name != "Model":
             #? add model partition
+            if not bases:
+                raise ValueError(f"Vector Space not defined in {name} and no base class")
             model_base = bases[0]
             if model_base == Model:
+                namespace = name
                 dct["_subspace"] = None
-            else: 
+            else:
+                if not hasattr(model_base, "_namespace"):
+                    raise ValueError(f"Namespace not defined in base class of {name}")
+                namespace = model_base._namespace.default
                 dct["_subspace"] = name
                 
             
             
             for field, field_type in dct.items():
                 if inspect.isclass(field_type.__class__) and field == "VectorSpace":    
-                    #? vector space extraction                                        
+                    #? vector space extraction
                     vectorizers = field_type.__annotations__
                     for vec_name, vec_cls in vectorizers.items():
                         # if not issubclass(vec_cls, BaseVectorizer):
@@ -156,12 +162,13 @@ class ModelMeta(ModelMetaclass, type):
                         vector_spaces.append(
                             VectorSpace(
                                 name=vec_name,
+                                namespace=namespace,
                                 vectorizer_cls=vec_cls,
                                 metric=VectorSpaceMetrics.COSINE                                
                             ))
                         # vectorizers_manager.add_vectorizer(vec_name, vec_cls)
                     #? namespace and indices extraction
-                    namespace = name                        
+                    # namespace = name                        
                     indices = get_model_indices(dct)
                     connection_manager.add_namespace(
                         namespace=namespace,
@@ -171,11 +178,11 @@ class ModelMeta(ModelMetaclass, type):
                     )
                     break
             else:
-                if not bases:
-                    raise ValueError(f"Vector Space not defined in {name} and no base class")
-                if not hasattr(bases[0], "_namespace"):
-                    raise ValueError(f"Namespace not defined in base class of {name}")
-                namespace = bases[0]._namespace.default
+                # if not bases:
+                #     raise ValueError(f"Vector Space not defined in {name} and no base class")
+                # if not hasattr(bases[0], "_namespace"):
+                #     raise ValueError(f"Namespace not defined in base class of {name}")
+                # namespace = bases[0]._namespace.default
                 ns = connection_manager.get_namespace2(namespace)
                 vector_spaces = list(ns.vector_spaces.values())
                 # raise NotImplementedError("Vector Space not defined")                
@@ -213,6 +220,8 @@ class ModelMeta(ModelMetaclass, type):
                         
                     #? vector field extraction. the vector has to be a field of type VectorSpace
                     if type(field_type) == FieldInfo:
+                        if not field_type.json_schema_extra:
+                            raise ValueError(f"You should use ModelField instead of pydantic Field for {field}")
                         if vec:= field_type.json_schema_extra.get("vec"):                            
                             for v in vec: # type: ignore
                                 if v not in vec_field_map:
@@ -408,6 +417,11 @@ class Model(BaseModel, metaclass=ModelMeta):
             query_proxy = QueryProxy[MODEL](cls)
             query_filter = filters(query_proxy)
         return await ns.conn.delete(ns.name, ids=ids, filters=query_filter)
+    
+    @classmethod
+    async def delete(cls: Type[MODEL], id: str):
+        ns = await cls.get_namespace()
+        return await ns.conn.delete(ns.name, ids=[id])
         
         
     @classmethod
@@ -488,15 +502,15 @@ class Model(BaseModel, metaclass=ModelMeta):
         return [cls.pack_search_result(r) for r in res]
     
     @classmethod
-    def build_query(cls: Type[MODEL], query_type: QueryType):
-        partitions = {}
+    def build_query(cls: Type[MODEL], query_type: QueryType, partitions: dict[str, str] | None = None):
+        partitions = partitions or {}
         if cls._subspace:
             partitions["_subspace"] = cls._subspace.default# type: ignore
         return QuerySet(cls, query_type=query_type, partitions=partitions)
         
     
     @classmethod
-    def similar(cls: Type[MODEL], query: str, vec: list[str] | str | AllVecs = ALL_VECS, fusion: FusionType="rff"):        
+    def similar(cls: Type[MODEL], query: str, vec: list[str] | str | AllVecs = ALL_VECS, partitions: dict[str, str] | None = None, fusion: FusionType="rff"):        
         return cls.build_query("vector").similar(query, vec)
         # return QuerySet(cls, query_type="vector").similar(query, vec)    
     
@@ -504,29 +518,29 @@ class Model(BaseModel, metaclass=ModelMeta):
     # def filter(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter]):
     #     return QuerySet(cls, query_type="scroll").filter(filters)
     @classmethod
-    def filter(cls: Type[MODEL], filters: Callable[[QueryProxy[MODEL]], QueryFilter]):
-        return cls.build_query("scroll").filter(filters)
+    def filter(cls: Type[MODEL], filters: Callable[[QueryProxy[MODEL]], QueryFilter], partitions: dict[str, str] | None = None):
+        return cls.build_query("scroll", partitions).filter(filters)
         # return QuerySet(cls, query_type="scroll").filter(filters)
     
     @classmethod
-    def fusion(cls: Type[MODEL], *args, type: FusionType="rff"):
-        return cls.build_query("vector").fusion(*args, type=type)
+    def fusion(cls: Type[MODEL], *args, type: FusionType="rff", partitions: dict[str, str] | None = None):
+        return cls.build_query("vector", partitions).fusion(*args, type=type)
         # return QuerySet(cls, query_type="vector").fusion(*args, type=type)
     
     @classmethod
-    def first(cls: Type[MODEL]):        
-        return cls.build_query("scroll").first()
+    def first(cls: Type[MODEL], partitions: dict[str, str] | None = None):        
+        return cls.build_query("scroll", partitions).first()
         # return QuerySet(cls, query_type="scroll").first()
     
     @classmethod
-    def last(cls: Type[MODEL]):
-        return cls.build_query("scroll").last()
+    def last(cls: Type[MODEL], partitions: dict[str, str] | None = None):
+        return cls.build_query("scroll", partitions).last()
         # return QuerySet(cls, query_type="scroll").last()
 
     
     @classmethod
-    def all(cls: Type[MODEL]):
-        return cls.build_query("scroll").all()
+    def all(cls: Type[MODEL], partitions: dict[str, str] | None = None):
+        return cls.build_query("scroll", partitions).all()
         # return QuerySet(cls, query_type="scroll").all()
     
     

@@ -329,7 +329,8 @@ class QuerySetSingleAdapter(Generic[T_co]):
             results = await self.queryset.execute()
             if results:
                 return results[0]
-            raise ValueError("No results found")
+            return None
+            # raise ValueError("No results found")
             # return None
             # raise DoesNotExist(self.queryset.model)
         return await_query().__await__()  

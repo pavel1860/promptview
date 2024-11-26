@@ -24,17 +24,19 @@ def get_qdrant_connection():
 
 class VectorSpace:
     name: str
+    namespace: str
     vectorizer_cls: Type[BaseVectorizer]
     metric: VectorSpaceMetrics
     
-    def __init__(self, name: str, vectorizer_cls: Type[BaseVectorizer], metric: VectorSpaceMetrics):
+    def __init__(self, namespace: str, name: str, vectorizer_cls: Type[BaseVectorizer], metric: VectorSpaceMetrics):
         self.name = name
+        self.namespace = namespace
         self.vectorizer_cls = vectorizer_cls
         self.metric = metric
     
     @property
     def vectorizer(self):
-        return connection_manager.vectorizers_manager.get_vectorizer(self.name)
+        return connection_manager.vectorizers_manager.get_vectorizer(self.namespace, self.name)
 
     
 class NamespaceParams:
@@ -81,9 +83,10 @@ class VectorizersManager:
         self._vectorizers = {}
         self._named_vectorizers = {}
         
-    def get_vectorizer(self, vector_name: str) -> BaseVectorizer:
+    def get_vectorizer(self, namespace: str, vector_name: str) -> BaseVectorizer:
+        name = f"{namespace}_{vector_name}"
         try:
-            return self._named_vectorizers[vector_name]
+            return self._named_vectorizers[name]
         except KeyError:
             raise ValueError(f"Vectorizer {vector_name} not found")
         
@@ -93,11 +96,12 @@ class VectorizersManager:
         except KeyError:
             raise ValueError(f"Vectorizer {vectorizer_model.__name__} not found")
         
-    def add_vectorizer(self, vector_name: str, vectorizer_cls: Type[BaseVectorizer]) -> BaseVectorizer:
+    def add_vectorizer(self, namespace: str, vector_name: str, vectorizer_cls: Type[BaseVectorizer]) -> BaseVectorizer:
+        name = f"{namespace}_{vector_name}"
         if not vectorizer_cls.__name__ in self._vectorizers:
             self._vectorizers[vectorizer_cls.__name__] = vectorizer_cls() # type: ignore
         vectorizer = self._vectorizers[vectorizer_cls.__name__]
-        self._named_vectorizers[vector_name] = vectorizer
+        self._named_vectorizers[name] = vectorizer
         return vectorizer
 
 
@@ -133,7 +137,7 @@ class ConnectionManager:
             indices=indices or []
         )
         for vs in vector_spaces:
-            self.vectorizers_manager.add_vectorizer(vs.name, vs.vectorizer_cls)
+            self.vectorizers_manager.add_vectorizer(namespace, vs.name, vs.vectorizer_cls)
         return self._namespaces[namespace]
     
     def add_subspace(self, namespace: str, subspace: str, indices: list[dict[str, str]]):
@@ -141,15 +145,15 @@ class ConnectionManager:
             raise ValueError(f"Namespace {namespace} not found while adding subspace {subspace}")
         self._namespaces[namespace].add_subspace(subspace, indices)
         
-    async def get_vectorizers(self, namespace: str):
-        try:
-            namespace_inst = self._namespaces[namespace]
-            return {
-                vs.name: self.vectorizers_manager.get_vectorizer(vs.vectorizer.__name__) 
-                for vs in namespace_inst.vector_spaces.values()
-            }
-        except KeyError:
-            raise ValueError(f"Namespace {namespace} not found")
+    # async def get_vectorizers(self, namespace: str):
+    #     try:
+    #         namespace_inst = self._namespaces[namespace]
+    #         return {
+    #             vs.name: self.vectorizers_manager.get_vectorizer(vs.vectorizer.__name__) 
+    #             for vs in namespace_inst.vector_spaces.values()
+    #         }
+    #     except KeyError:
+    #         raise ValueError(f"Namespace {namespace} not found")
         
     async def _create_namespace(self, namespace: str):
         try:

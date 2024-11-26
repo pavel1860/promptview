@@ -624,7 +624,10 @@ class QdrantClient:
                 models.FieldCondition(
                     key=field,
                     match=models.MatchValue(value=value)
-                ) for field, value in query_set._partitions.items()
+                ) if value is not None else models.IsNullCondition(
+                        is_null=models.PayloadField(key=field)
+                    )
+                for field, value in query_set._partitions.items()
             ]
             if query_filter is None:
                 query_filter= Filter(
