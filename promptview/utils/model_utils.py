@@ -105,7 +105,7 @@ def _schema_to_ts(value_type, indent: int = 2, depth: int = 0) -> str:
         return '{ [key: string]: any }'
     
     # Handle Union types
-    if origin == Union:
+    if origin == UnionType or origin == Union:
         union_args = get_args(value_type)
         ts_types = [_schema_to_ts(arg, indent, depth) for arg in union_args]
         return ' | '.join(ts_types)
@@ -120,15 +120,18 @@ def _schema_to_ts(value_type, indent: int = 2, depth: int = 0) -> str:
     fields = []
     for field_name, field in value_type.model_fields.items():
         field_type = field.annotation
-
         ts_type = _schema_to_ts(field_type, indent, depth + 1)
+            
+        # Add question mark for optional fields (those with default values or None default)
+        is_optional = field.default is not None or field.default_factory is not None
+        optional_marker = '?' if is_optional else ''
             
         # Add field description if available
         description = field.description or ''
         if description:
-            fields.append(f'{fields_indent_str}{field_name}: {ts_type}, // {description}')
+            fields.append(f'{fields_indent_str}{field_name}{optional_marker}: {ts_type}, // {description}')
         else:
-            fields.append(f'{fields_indent_str}{field_name}: {ts_type},')
+            fields.append(f'{fields_indent_str}{field_name}{optional_marker}: {ts_type},')
             
     return '{\n' + '\n'.join(fields) + f'\n{indent_str}}}'
 
