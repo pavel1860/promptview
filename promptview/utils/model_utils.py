@@ -6,6 +6,7 @@ from typing import Any, Literal, Optional, Union, get_args, get_origin
 from promptview.llms.utils.completion_parsing import (is_list_model,
                                                       unpack_list_model)
 from pydantic import BaseModel, create_model
+from enum import Enum
 
 
 class Config:
