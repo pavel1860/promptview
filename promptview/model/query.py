@@ -131,7 +131,7 @@ class FieldComparable:
     # def any(self, other):
     #     return QueryFilter(self, other, FieldOp.IN)
     
-    def any(self, *args):        
+    def isin(self, *args):        
         if type(args[0]) == list:
             other = args[0]
         elif type(args) == tuple:
@@ -146,7 +146,7 @@ class FieldComparable:
     
     
         
-MODEL = TypeVar("MODEL", bound="Model", covariant=True)   
+MODEL = TypeVar("MODEL", bound="Model")   
     
 
 class ModelFilterProxy(Generic[MODEL]):
@@ -370,7 +370,7 @@ class QuerySet(Generic[MODEL]):
     model: Type[MODEL]
     query_type: QueryType
     _ids: list[str] | None
-    _limit: int | None
+    _limit: int
     _offset: int | None
     _order_by: str | dict | None
     _filters: QueryFilter | None
@@ -384,7 +384,7 @@ class QuerySet(Generic[MODEL]):
     def __init__(self, model: Type[MODEL], query_type: QueryType, partitions: dict[str, str] | None = None):
         self.model = model
         self.query_type = query_type
-        self._limit = None
+        self._limit = 10
         self._offset = None
         self._order_by = None
         self._filters = None
@@ -502,7 +502,7 @@ class QuerySet(Generic[MODEL]):
     
     async def _execute_fetch(self):
         ns = await self.model.get_namespace()
-        res = await ns.conn.scroll2(
+        res = await ns.conn.scroll(
             collection_name=ns.name,
             limit=self._limit,
             filters=self._filters,
@@ -523,7 +523,7 @@ class QuerySet(Generic[MODEL]):
     #         raise ValueError("Must provide id or ids")
     #     return self
     
-    def similar(self, query: str, vec: list[str] | str | AllVecs=ALL_VECS):
+    def similar(self, query: str, vec: list[str] | str | AllVecs=ALL_VECS) -> "QuerySet[MODEL]":
         self._vector_query = VectorQuerySet(
             query=query,
             vec=vec
@@ -531,7 +531,7 @@ class QuerySet(Generic[MODEL]):
         return self
     
     
-    def filter(self, filter_fn: Callable[[QueryProxy[MODEL]], QueryFilter]):
+    def filter(self, filter_fn: Callable[[QueryProxy[MODEL]], QueryFilter]) -> "QuerySet[MODEL]":
         query = QueryProxy[MODEL](self.model)
         if not self._filters:
             self._filters = filter_fn(query)
@@ -569,7 +569,7 @@ class QuerySet(Generic[MODEL]):
         }
         return QuerySetSingleAdapter(self)
     
-    def last(self):
+    def last(self) -> "QuerySetSingleAdapter[MODEL]":
         self._limit = 1
         self._unpack_result = True
         self._order_by = {
@@ -579,20 +579,20 @@ class QuerySet(Generic[MODEL]):
         }
         return QuerySetSingleAdapter(self)
     
-    def offset(self, offset: int):
+    def offset(self, offset: int) -> "QuerySet[MODEL]":
         if self._order_by is not None:
             raise ValueError("Cannot use offset with order_by. Use start_from instead")
         self._offset = offset
         return self
     
-    def all(self):
-        self._limit = None
-        self._offset = None
-        return self
+    # def all(self):
+    #     self._limit = None
+    #     self._offset = None
+    #     return self
     
     
     
-    def order_by(self, key, ascending: bool=False, start_from=None):
+    def order_by(self, key, ascending: bool=False, start_from=None) -> "QuerySet[MODEL]":
         if self._offset is not None:
             raise ValueError("Cannot use order_by with offset, use start_from instead")
         self._order_by = {
@@ -602,7 +602,7 @@ class QuerySet(Generic[MODEL]):
         }
         return self
     
-    def fusion(self, *args, type: FusionType="rff"):
+    def fusion(self, *args, type: FusionType="rff") -> "QuerySet[MODEL]":
         for arg in args:
             if isinstance(arg, QuerySet):
                 self._prefetch.append(arg) # type: ignore
@@ -650,3 +650,5 @@ class QuerySet(Generic[MODEL]):
 QuerySet({self.model.__name__})[{self.query_type}]:
 {formatted_fields}
         """
+        
+        

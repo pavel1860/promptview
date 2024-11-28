@@ -9,6 +9,7 @@ from promptview.llms.prompt_tracer import PromptTracer
 from promptview.llms.tracer_api import get_run_messages
 from promptview.vectors.rag_documents import RagDocuments
 from promptview.vectors.stores.base import OrderBy
+from promptview.model.resource_manager import connection_manager
 from fastapi import FastAPI
 from fastapi.concurrency import asynccontextmanager
 from pydantic import BaseModel
@@ -136,10 +137,16 @@ def add_promptboard(app, rag_namespaces=None, assets=None, profiles=None, prompt
     
     @app.get('/promptboard/get_asset_partition')
     async def get_asset_partition(asset: str, field: str, partition: str):
-        asset_cls = app_manager.assets[asset]
-        asset_instance = asset_cls()
-        assets = await asset_instance.get_assets(filters={ field: partition })        
-        return [a.to_json() for a in assets]
+        # asset_cls = app_manager.assets[asset]
+        # asset_instance = asset_cls()
+        # assets = await asset_instance.get_assets(filters={ field: partition })        
+        # return [a.to_json() for a in assets]
+        model_cls = connection_manager.get_model(asset)
+        if not model_cls:
+            raise ValueError("Model class not found for asset")
+        recs = await model_cls.partition({field: partition}).limit(30)
+        return recs
+        
 
 
     @app.get('/promptboard/get_profile_partition')

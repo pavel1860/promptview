@@ -5,7 +5,7 @@ from uuid import uuid4
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import FieldInfo
 from pydantic._internal._model_construction import ModelMetaclass
-from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QueryType
+from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QuerySetSingleAdapter, QueryType
 from .vectors.base_vectorizer import BaseVectorizer
 from .fields import VectorSpaceMetrics, get_model_indices
 from .resource_manager import VectorSpace, connection_manager
@@ -270,10 +270,13 @@ class ModelMeta(ModelMetaclass, type):
             if namespace:
                 dct["_namespace"] = namespace
             # dct["_vectorizers"] = connection_manager.get_vectorizers(namespace)
-        asset_inst = super().__new__(cls, name, bases, dct)
+        model_cls_inst = super().__new__(cls, name, bases, dct)
         if name != "Model":
-            model_manager.add_asset(asset_inst)# type: ignore
-        return asset_inst
+            if not namespace:
+                raise ValueError("Namespace not defined")
+            connection_manager.add_model(model_cls_inst)
+            model_manager.add_asset(model_cls_inst)# type: ignore
+        return model_cls_inst
     
     
     # def __getattr__(cls, name):
@@ -502,7 +505,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         return [cls.pack_search_result(r) for r in res]
     
     @classmethod
-    def build_query(cls: Type[MODEL], query_type: QueryType, partitions: dict[str, str] | None = None):
+    def build_query(cls: Type[MODEL], query_type: QueryType, partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
         partitions = partitions or {}
         if cls._subspace:
             partitions["_subspace"] = cls._subspace.default# type: ignore
@@ -510,7 +513,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         
     
     @classmethod
-    def similar(cls: Type[MODEL], query: str, vec: list[str] | str | AllVecs = ALL_VECS, partitions: dict[str, str] | None = None, fusion: FusionType="rff"):        
+    def similar(cls: Type[MODEL], query: str, vec: list[str] | str | AllVecs = ALL_VECS, partitions: dict[str, str] | None = None, fusion: FusionType="rff") -> QuerySet[MODEL]:
         return cls.build_query("vector").similar(query, vec)
         # return QuerySet(cls, query_type="vector").similar(query, vec)    
     
@@ -518,35 +521,39 @@ class Model(BaseModel, metaclass=ModelMeta):
     # def filter(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter]):
     #     return QuerySet(cls, query_type="scroll").filter(filters)
     @classmethod
-    def filter(cls: Type[MODEL], filters: Callable[[QueryProxy[MODEL]], QueryFilter], partitions: dict[str, str] | None = None):
+    def filter(cls: Type[MODEL], filters: Callable[[QueryProxy[MODEL]], QueryFilter], partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
         return cls.build_query("scroll", partitions).filter(filters)
         # return QuerySet(cls, query_type="scroll").filter(filters)
     
     @classmethod
-    def fusion(cls: Type[MODEL], *args, type: FusionType="rff", partitions: dict[str, str] | None = None):
+    def fusion(cls: Type[MODEL], *args, type: FusionType="rff", partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
         return cls.build_query("vector", partitions).fusion(*args, type=type)
         # return QuerySet(cls, query_type="vector").fusion(*args, type=type)
     
     @classmethod
-    def first(cls: Type[MODEL], partitions: dict[str, str] | None = None):        
+    def first(cls: Type[MODEL], partitions: dict[str, str] | None = None) -> QuerySetSingleAdapter[MODEL]:
         return cls.build_query("scroll", partitions).first()
         # return QuerySet(cls, query_type="scroll").first()
     
     @classmethod
-    def last(cls: Type[MODEL], partitions: dict[str, str] | None = None):
+    def last(cls: Type[MODEL], partitions: dict[str, str] | None = None)  -> QuerySetSingleAdapter[MODEL]:
         return cls.build_query("scroll", partitions).last()
         # return QuerySet(cls, query_type="scroll").last()
 
     
-    @classmethod
-    def all(cls: Type[MODEL], partitions: dict[str, str] | None = None):
-        return cls.build_query("scroll", partitions).all()
+    # @classmethod
+    # def all(cls: Type[MODEL], partitions: dict[str, str] | None = None):
+        # return cls.build_query("scroll", partitions).all()
         # return QuerySet(cls, query_type="scroll").all()
         
     @classmethod
-    def limit(cls: Type[MODEL], limit: int, partitions: dict[str, str] | None = None):
+    def limit(cls: Type[MODEL], limit: int, partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
         return cls.build_query("scroll", partitions).limit(limit)
-        
+     
+    
+    @classmethod
+    def partition(cls: Type[MODEL], partitions: dict[str, str]) -> QuerySet[MODEL]:
+        return cls.build_query("scroll", partitions)
     
     
     @classmethod

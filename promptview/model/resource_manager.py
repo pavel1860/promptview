@@ -1,15 +1,18 @@
 
 from __future__ import annotations
 import os
-from typing import Any, Dict, List, Optional, Type, TypeVar, Generic, Union
+from typing import Any, Dict, List, Optional, Type, TypeVar, Generic, Union, TYPE_CHECKING
 from uuid import uuid4
 from pydantic import BaseModel
 from qdrant_client.http.exceptions import UnexpectedResponse
 import grpc
+
+
 from .fields import VectorSpaceMetrics
 from .qdrant_client import QdrantClient
 from .vectors.base_vectorizer import BaseVectorizer
-
+if TYPE_CHECKING:
+    from promptview.model.model import Model
 
 
 
@@ -52,7 +55,7 @@ class NamespaceParams:
             vector_spaces: list[VectorSpace], 
             connection: QdrantClient, 
             indices: list[dict[str, str]] | None = None,
-            subspaces: list[str] | None = None
+            subspaces: list[str] | None = None,
         ):
         self.name = name
         self.vector_spaces = {vs.name: vs for vs in vector_spaces}
@@ -113,6 +116,7 @@ class ConnectionManager:
     _qdrant_connection: QdrantClient 
     _namespaces: Dict[str, NamespaceParams] = {}
     _active_namespaces: Dict[str, NamespaceParams] = {}
+    _models: Dict[str, Type[Model]] = {}
     
     def __init__(self):        
         self._qdrant_connection = get_qdrant_connection()
@@ -141,6 +145,15 @@ class ConnectionManager:
         for vs in vector_spaces:
             self.vectorizers_manager.add_vectorizer(namespace, vs.name, vs.vectorizer_cls)
         return self._namespaces[namespace]
+    
+    def add_model(self, model_cls: Type[Model]):
+        self._models[model_cls.__name__] = model_cls
+        
+    def get_model(self, model_name: str) -> Type[Model]:
+        try:
+            return self._models[model_name]
+        except KeyError:
+            raise ValueError(f"Model {model_name} not found")
     
     def add_subspace(self, namespace: str, subspace: str, indices: list[dict[str, str]]):
         if namespace not in self._namespaces:
