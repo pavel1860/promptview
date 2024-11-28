@@ -10,9 +10,10 @@ from pydantic import BaseModel, Field, validator
 class BaseMessage(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     content: str | None
+    content_type: ContentType = 'text'
     content_blocks: List[Dict[str, Any]] | None = None
     name: str | None = None
-    
+
     is_example: Optional[bool] = False
     is_history: Optional[bool] = False
     is_output: Optional[bool] = False
@@ -30,10 +31,41 @@ class BaseMessage(BaseModel):
             oai_msg["name"] = self.name
         return oai_msg
     
-    def to_anthropic(self):            
+    def to_anthropic(self):
+        def typed_content(content: str, content_type: ContentType):
+            match content_type:
+                case 'pdf':
+                    return {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": content
+                        }
+                    }
+                case 'image':
+                    return {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": content
+                        }
+                    }
+                case 'jpeg' | 'png':
+                    return {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": f"image/{content_type}",
+                            "data": content
+                        }
+                    }
+                case _:
+                    return content
         return {
             "role": "user",
-            "content": self.content_blocks or self.content,
+            "content": self.content_blocks or typed_content(self.content, self.content_type)
         }
 
 

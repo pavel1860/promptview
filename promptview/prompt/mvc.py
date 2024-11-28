@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 ViewWrapperType = Literal["xml", "markdown", None]
 BaseModelRenderType =  Literal['model_dump', 'json']
 ListModelRender = Literal['list', 'view_node']
+ContentType = Literal['text', 'image', 'pdf', 'png', 'jpeg']
 
 # class ContentBlock(BaseModel):
 #     vn_id: str = Field(default_factory=lambda: str(uuid4()), description="id of the view node")
@@ -119,7 +120,8 @@ class ViewBlock(BaseModel):
     strip: StripType = Field(default=None, description="if the content should be stripped")
     base_model: BaseModelRenderType = 'json'
     base_model_indent: int = 2
-    wrap: ViewWrapperType = None    
+    wrap: ViewWrapperType = None
+    content_type: ContentType = 'text'
     role_name: str | None = None    
     index: int | None = None
     
@@ -368,6 +370,7 @@ def create_view_block(
     name: str | None=None,
     title: str | None = None,
     wrap: ViewWrapperType = None,
+    content_type: ContentType = 'text',
     actions: List[BaseModel] | BaseModel | None = None,
     role: Literal["assistant", "user", "system"] | None = None,
     bullet: Literal["number" , "astrix" , "dash" , "none", None] | str = None,
@@ -425,6 +428,7 @@ def create_view_block(
         bullet=bullet,
         strip=strip,
         wrap=wrap,
+        content_type=content_type,
         role=role,
         indent=indent,        
         tag=tag,
@@ -444,9 +448,10 @@ def view(
     base_model: BaseModelRenderType = 'json',
     base_model_indent: int = 2,
     wrap: ViewWrapperType = None,
+    content_type: ContentType = 'text',
     indent: int = 0,
     class_: str | None = None,
-    tag: str | None = None,
+    tag: str | None = None
     ):
 
     def decorator(func):
@@ -460,7 +465,8 @@ def view(
                 view_name=func.__name__, 
                 name=name, 
                 title=title, 
-                wrap=wrap, 
+                wrap=wrap,
+                content_type=content_type,
                 actions=actions, 
                 role=role, 
                 bullet=bullet,

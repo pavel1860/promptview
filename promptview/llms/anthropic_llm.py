@@ -11,9 +11,15 @@ from promptview.templates.action_template import system_action_view
 class AnthropicLLM(LLM):
     model: str = "claude-3-5-sonnet-20240620"
     name: str = "AnthropicLLM"
+    beta: list[str] | None = None
     client: AnthropicLlmClient = Field(default_factory=AnthropicLlmClient)
 
-    
+    def get_llm_args(self, actions=None, **kwargs):
+        model_kwargs = super().get_llm_args(actions, **kwargs)
+        if self.beta:
+            model_kwargs['beta'] = self.beta
+        return model_kwargs
+
     def transform(self, root_block: ViewBlock, actions: Actions | List[BaseModel] | None = None, **kwargs) -> Tuple[List[BaseMessage], Actions]:
         messages = []
         system_content = ""
@@ -26,7 +32,7 @@ class AnthropicLLM(LLM):
         for block in root_block.find(depth=1): 
             content = self.render_block(block, **kwargs)
             if block.role == 'user':
-                messages.append(HumanMessage(id=block.uuid, content=content))
+                messages.append(HumanMessage(id=block.uuid, content=content, content_type=block.content_type))
             elif block.role == 'assistant':
                 messages.append(AIMessage(id=block.uuid, content=content, action_calls=block.action_calls))
             elif block.role == 'system':
@@ -48,7 +54,7 @@ class AnthropicLLM(LLM):
         for block in root_block.find(depth=1):
             content = self.render_block(block) # need to replace with render
             if block.role == 'user':
-                messages.append(HumanMessage(id=block.uuid, content=content))
+                messages.append(HumanMessage(id=block.uuid, content=content, content_type=block.content_type))
             elif block.role == 'assistant':                
                 if block.action_calls:
                     content_blocks = [

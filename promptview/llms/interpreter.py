@@ -265,6 +265,9 @@ class LlmInterpreter:
 
 
     def render_block(self, block: ViewBlock, depth=0, index: int | None=None, bullet: BulletType=None, **kwargs):
+        if block.content_type is not None and block.content_type != 'text':
+            return block.content
+        
         results = []
         depth += block.indent
         if block.has_wrap():
@@ -280,7 +283,7 @@ class LlmInterpreter:
             if issubclass(block.get_type(), str):
                 results.insert(0, self.render_string(block, depth, index, bullet, **kwargs))
             elif issubclass(block.get_type(), BaseModel):
-                results.insert(0, self.render_model(block, depth))    
+                results.insert(0, self.render_model(block, depth))
             else:
                 raise ValueError(f"Unsupported block type: {block.get_type()}")    
         if block.has_wrap():
@@ -328,7 +331,7 @@ class LlmInterpreter:
         for block in root_block.find(depth=1): 
             content = self.render_block(block, **kwargs)
             if block.role == 'user':
-                messages.append(HumanMessage(id=block.uuid, content=content))
+                messages.append(HumanMessage(id=block.uuid, content=content, content_type=block.content_type))
             elif block.role == 'assistant':
                 messages.append(AIMessage(id=block.uuid, content=content, action_calls=block.action_calls))
             elif block.role == 'system':
