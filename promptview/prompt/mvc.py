@@ -7,7 +7,7 @@ from functools import wraps
 from typing import Any, Callable, Generator, List, Literal, Tuple, Type, Union
 from uuid import uuid4
 
-from promptview.llms.messages import AIMessage, ActionCall, ActionMessage, BaseMessage
+from promptview.llms.messages import AIMessage, ActionCall, ActionMessage, BaseMessage, ContentType
 from promptview.llms.utils.action_manager import Actions
 from promptview.utils.string_utils import convert_camel_to_snake
 from pydantic import BaseModel, Field
@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 ViewWrapperType = Literal["xml", "markdown", None]
 BaseModelRenderType =  Literal['model_dump', 'json']
 ListModelRender = Literal['list', 'view_node']
-ContentType = Literal['text', 'image', 'pdf', 'png', 'jpeg']
 
 # class ContentBlock(BaseModel):
 #     vn_id: str = Field(default_factory=lambda: str(uuid4()), description="id of the view node")

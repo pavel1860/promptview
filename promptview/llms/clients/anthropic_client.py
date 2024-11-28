@@ -90,12 +90,12 @@ class AnthropicLlmClient(BaseLlmClient):
             max_retries=10, 
             base_delay=1, 
             max_delay=32,
-            beta: list[str] | None = None,
+            betas: list[str] | None = None,
             **kwargs
         ):
         for attempt in range(max_retries):
             try:
-                if beta:
+                if betas:
                     anthropic_completion = await self.client.beta.messages.create(
                         model=model,
                         temperature=temperature,
@@ -104,7 +104,7 @@ class AnthropicLlmClient(BaseLlmClient):
                         messages=messages,
                         tools=tools,
                         tool_choice=tool_choice,
-                        beta=beta,
+                        betas=betas,
                         **kwargs
                     )
                 else:

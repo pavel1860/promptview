@@ -5,13 +5,17 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, validator
 
 
-    
+ContentType = Literal['text', 'image', 'pdf', 'png', 'jpeg']
+
+class TypedContentBlock(BaseModel):
+    type: ContentType
+    content: str
 
 class BaseMessage(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     content: str | None
     content_type: ContentType = 'text'
-    content_blocks: List[Dict[str, Any]] | None = None
+    content_blocks: List[Dict[str, Any]] | List[TypedContentBlock] | None = None
     name: str | None = None
 
     is_example: Optional[bool] = False
@@ -62,11 +66,25 @@ class BaseMessage(BaseModel):
                         }
                     }
                 case _:
-                    return content
-        return {
-            "role": "user",
-            "content": self.content_blocks or typed_content(self.content, self.content_type)
-        }
+                    return {
+                        "type": "text",
+                        "text": content
+                    }
+
+        if self.content_blocks:
+            content_blocks = [
+                typed_content(c.content, c.type) if isinstance(c, TypedContentBlock) else c
+                for c in self.content_blocks
+            ]
+            return {    
+                "role": "user",
+                "content": content_blocks
+            }
+        else:
+            return {
+                "role": "user",
+                "content": typed_content(self.content, self.content_type)
+            }
 
 
 class SystemMessage(BaseMessage):
@@ -388,7 +406,7 @@ def validate_first_message(messages: List[BaseMessage]) -> List[BaseMessage]:
 
     
 def filter_action_calls(messages: List[BaseMessage], user_first: bool=False, check_alternation=False, should_merge=False) -> List[BaseMessage]:
-    messages = [m.model_copy() for m in messages if m.content]
+    messages = [m.model_copy() for m in messages if (m.content or m.content_blocks)]
     if user_first:
         messages = validate_first_message(messages)
     if should_merge:

@@ -17,7 +17,7 @@ class AnthropicLLM(LLM):
     def get_llm_args(self, actions=None, **kwargs):
         model_kwargs = super().get_llm_args(actions, **kwargs)
         if self.beta:
-            model_kwargs['beta'] = self.beta
+            model_kwargs['betas'] = self.beta
         return model_kwargs
 
     def transform(self, root_block: ViewBlock, actions: Actions | List[BaseModel] | None = None, **kwargs) -> Tuple[List[BaseMessage], Actions]:
@@ -31,15 +31,20 @@ class AnthropicLLM(LLM):
             system_block.push(system_action_view(actions))
         for block in root_block.find(depth=1): 
             content = self.render_block(block, **kwargs)
+            if isinstance(content, list):
+                content, content_blocks = None, content
+            else:
+                content, content_blocks = content, None
+
             if block.role == 'user':
-                messages.append(HumanMessage(id=block.uuid, content=content, content_type=block.content_type))
+                messages.append(HumanMessage(id=block.uuid, content=content, content_blocks=content_blocks, content_type=block.content_type))
             elif block.role == 'assistant':
-                messages.append(AIMessage(id=block.uuid, content=content, action_calls=block.action_calls))
+                messages.append(AIMessage(id=block.uuid, content=content, content_blocks=content_blocks, action_calls=block.action_calls))
             elif block.role == 'system':
                 system_content += content + "\n"
                 # messages.append(SystemMessage(id=block.uuid, content=content))
             elif block.role == 'tool':
-                messages.append(ActionMessage(id=block.uuid, content=content))
+                messages.append(ActionMessage(id=block.uuid, content=content, content_blocks=content_blocks))
             else:
                 raise ValueError(f"Unsupported role: {block.role}")
         if system_content:
