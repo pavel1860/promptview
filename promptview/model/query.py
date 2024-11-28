@@ -10,9 +10,9 @@ if TYPE_CHECKING:  # pragma: nocoverage
 
 class FieldOp(Enum):
     GT = "gt"
-    GE = "ge"
+    GTE = "gte"
     LT = "lt"
-    LE = "le"
+    LTE = "lte"
     EQ = "eq"
     NE = "ne"
     IN = "in"
@@ -26,11 +26,11 @@ class QueryOp(Enum):
 
 class QueryFilter:
     
-    def __init__(self, left, right, operator):
+    def __init__(self, left, operator, right):
         self._left = left
         self._right = right
         self._operator = operator
-        print("INIT", left, right, operator)
+        # print("INIT", left, right, operator)
         if operator not in [QueryOp.AND, QueryOp.OR]:
             if isinstance(self._left, FieldComparable):
                 self.field = self._left
@@ -46,11 +46,14 @@ class QueryFilter:
     
         
     def __and__(self, other):
-        return QueryFilter(self, other, QueryOp.AND)
+        if other is None:
+            return self
+        return QueryFilter(self, QueryOp.AND, other)
     
     def __or__(self, other):
-        print("OR", self, other)
-        return QueryFilter(self, other, QueryOp.OR)
+        if other is None:
+            return self
+        return QueryFilter(self, QueryOp.OR, other)
     
     
     
@@ -64,6 +67,18 @@ class QueryFilter:
         else:
             raise ValueError("No FieldComparable found")     
         
+    def __repr__(self):
+        def recurse(obj):
+            if isinstance(obj, QueryFilter):
+                return repr(obj)
+            return repr(obj)
+
+        left_repr = recurse(self._left)
+        right_repr = recurse(self._right)
+
+        return f"({left_repr} {self._operator.value.upper()} {right_repr})"
+
+
         
     
         
@@ -80,40 +95,54 @@ class FieldComparable:
         
     def _validate_type(self, other):
         if self.type != type(other):
-            raise ValueError(f"Cannot compare {self.name} with {other}")
+            raise ValueError(f"Cannot compare {self.name} with {other}. Expected {self.type}")
         # if not isinstance(other, FieldComparable):
             # raise ValueError(f"Cannot compare {self._field_name} with {other}")
 
     def __gt__(self, other):
         self._validate_type(other)
-        return QueryFilter(self, other, FieldOp.GT)
+        return QueryFilter(self, FieldOp.GT, other)
 
     def __ge__(self, other):
+        print(self.name, "GE", other)
         self._validate_type(other)
-        return QueryFilter(self, other, FieldOp.GE)
+        return QueryFilter(self, FieldOp.GTE, other)
 
     def __lt__(self, other):
         self._validate_type(other)
-        return QueryFilter(self, other, FieldOp.LT)
+        return QueryFilter(self, FieldOp.LT, other)
 
     def __le__(self, other):
+        print(self.name, "LE", other)
         self._validate_type(other)
-        return QueryFilter(self, other, FieldOp.LE)
-        
+        return QueryFilter(self, FieldOp.LTE, other)        
     
     def __eq__(self, other):
         self._validate_type(other)
-        return QueryFilter(self, other, FieldOp.EQ)
-    
+        return QueryFilter(self, FieldOp.EQ, other)    
     
     def __ne__(self, other):
         self._validate_type(other)
-        return QueryFilter(self, other, FieldOp.NE)
-
+        return QueryFilter(self, FieldOp.NE, other)
     
-    def contains(self, other):
-        return QueryFilter(self, other, FieldOp.IN)
+    # def contains(self, other):
+    #     return QueryFilter(self, other, FieldOp.IN)
     
+    # def any(self, other):
+    #     return QueryFilter(self, other, FieldOp.IN)
+    
+    def any(self, *args):        
+        if type(args[0]) == list:
+            other = args[0]
+        elif type(args) == tuple:
+            other = list(args)
+        else:
+            raise ValueError(f"Invalid value for any: {args}")
+        return QueryFilter(self, FieldOp.IN, other)
+    
+    
+    def __repr__(self):
+        return f"Field({self.name})"
     
     
         
@@ -245,7 +274,7 @@ class QueryProxy(Generic[MODEL]):
     def __getattr__(self, name):
         # if name == "model":
         #     return self.model        
-        print("GET ATTR", name)
+        # print("GET ATTR", name)
         if field_info:= self.model.model_fields.get(name, None):
             return FieldComparable(name, field_info)
         else:
@@ -372,7 +401,7 @@ class QuerySet(Generic[MODEL]):
     
     def get_filters(self):
         if subspace:= self.get_subspace():
-            return QueryFilter(FieldComparable("_subspace"), subspace, FieldOp.EQ) & self._filters
+            return QueryFilter(FieldComparable("_subspace"), FieldOp.EQ, subspace) & self._filters
         return self._filters
     
     def get_subspace(self):
@@ -504,7 +533,10 @@ class QuerySet(Generic[MODEL]):
     
     def filter(self, filter_fn: Callable[[QueryProxy[MODEL]], QueryFilter]):
         query = QueryProxy[MODEL](self.model)
-        self._filters = filter_fn(query)
+        if not self._filters:
+            self._filters = filter_fn(query)
+        else:
+            self._filters = self._filters & filter_fn(query)
         return self
     
     # def filter(self, filter_fn: Callable[[ModelFilterProxy[MODEL]], Any]):

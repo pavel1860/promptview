@@ -542,6 +542,11 @@ class Model(BaseModel, metaclass=ModelMeta):
     def all(cls: Type[MODEL], partitions: dict[str, str] | None = None):
         return cls.build_query("scroll", partitions).all()
         # return QuerySet(cls, query_type="scroll").all()
+        
+    @classmethod
+    def limit(cls: Type[MODEL], limit: int, partitions: dict[str, str] | None = None):
+        return cls.build_query("scroll", partitions).limit(limit)
+        
     
     
     @classmethod

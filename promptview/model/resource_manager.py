@@ -130,6 +130,8 @@ class ConnectionManager:
             raise ValueError(f"Connection {db_name} not found")
                 
     def add_namespace(self, namespace: str, vector_spaces: list[VectorSpace], indices: list[dict[str, str]] | None=None):        
+        if namespace in self._namespaces:
+            raise ValueError(f"Namespace {namespace} already exists. seems you have multiple Model classes with the same name")
         self._namespaces[namespace] = NamespaceParams(
             name=namespace,
             vector_spaces=vector_spaces,

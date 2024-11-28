@@ -634,7 +634,10 @@ class QdrantClient:
                     must=partition_cond
                 )
             else:
-                query_filter.must = [*query_filter.must, *partition_cond]
+                if query_filter.must is None:
+                    query_filter.must = partition_cond
+                else:
+                    query_filter.must = [*query_filter.must, *partition_cond]
         return query_filter
     
     
@@ -673,7 +676,7 @@ class QdrantClient:
                         FieldCondition(key=query_filter.field.name, match=models.MatchValue(value=query_filter.value))
                     ]
                 )
-            elif query_filter._operator in {FieldOp.GT, FieldOp.GE, FieldOp.LT, FieldOp.LE}:
+            elif query_filter._operator in {FieldOp.GT, FieldOp.GTE, FieldOp.LT, FieldOp.LTE}:
                 if query_filter.is_datetime():
                     return Filter(
                         must=[
@@ -695,7 +698,7 @@ class QdrantClient:
             elif query_filter._operator == FieldOp.IN:
                 return Filter(
                     must=[
-                        FieldCondition(key=query_filter.field.name, match=models.MatchValue(values=query_filter.value))
+                        FieldCondition(key=query_filter.field.name, match=models.MatchAny(any=query_filter.value))
                     ]
                 )
         else:
@@ -729,7 +732,7 @@ class QdrantClient:
                 #     raise ValueError("No FieldComparable found")
                 field, value = query.field, query.value
                 
-                if query._operator in [FieldOp.GT, FieldOp.GE, FieldOp.LT, FieldOp.LE]:
+                if query._operator in [FieldOp.GT, FieldOp.GTE, FieldOp.LT, FieldOp.LTE]:
                     range_filter = range_filters.get(field.name)
                     if not range_filter:
                         range_filter = models.FieldCondition(
@@ -739,11 +742,11 @@ class QdrantClient:
                         range_filters[field.name] = range_filter
                     if query._operator == FieldOp.GT:
                         range_filter.range.gt = value
-                    elif query._operator == FieldOp.GE:
+                    elif query._operator == FieldOp.GTE:
                         range_filter.range.gte = value
                     elif query._operator == FieldOp.LT:
                         range_filter.range.lt = value
-                    elif query._operator == FieldOp.LE:
+                    elif query._operator == FieldOp.LTE:
                         range_filter.range.lte = value
                     # print("Range", field.name, query._operator, value)
                 elif query._operator in [FieldOp.EQ]:
