@@ -1,6 +1,6 @@
 import asyncio
 import inspect
-from typing import Any, Callable, Dict, List, Optional, Self, Type, TypeVar,  get_args, get_origin
+from typing import Any, Callable, Dict, List, Literal, Optional, Self, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import FieldInfo
@@ -9,6 +9,8 @@ from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy,
 from .vectors.base_vectorizer import BaseVectorizer
 from .fields import VectorSpaceMetrics, get_model_indices
 from .resource_manager import VectorSpace, connection_manager
+import copy
+
 
 def unpack_list_model(pydantic_model):
     return get_args(pydantic_model)[0]
@@ -297,6 +299,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     _namespace: str | None = PrivateAttr(default=None)
     _subspace: str | None = PrivateAttr(default=None)
     _vec_field_map: dict[str, list[str]] = PrivateAttr(default_factory=dict)
+    _vector: dict[str, Any] = PrivateAttr(default_factory=dict)
     # _partitions: dict[str, str] = {}
     # _default_temporal_field: str | None = None
     # _namespace: str | None = None
@@ -310,14 +313,17 @@ class Model(BaseModel, metaclass=ModelMeta):
     def __init__(
             self,
             _id=None, 
-            _score=None, 
+            _score=None,
+            _vector=None, 
             **data
         ):
         super().__init__(**data)
         if _id:
             self._id = _id
         if _score:
-            self._score = _score        
+            self._score = _score 
+        if _vector:
+            self._vector = _vector
         
         
     @property
@@ -327,6 +333,45 @@ class Model(BaseModel, metaclass=ModelMeta):
     @property
     def score(self):
         return self._score
+    
+    @property
+    def vector(self):
+        return self._vector
+    
+    
+    def model_dump(
+        self,
+        *,
+        mode: Literal['json', 'python'] | str = 'python',
+        include: Any = None,
+        exclude: Any = None,
+        context: Any | None = None,
+        by_alias: bool = False,
+        exclude_unset: bool = False,
+        exclude_defaults: bool = False,
+        exclude_none: bool = False,
+        round_trip: bool = False,
+        warnings: bool | Literal['none', 'warn', 'error'] = True,
+        serialize_as_any: bool = False,
+    ):
+        dump = super().model_dump(
+            mode=mode,
+            include=include,
+            exclude=exclude,
+            context=context,
+            by_alias=by_alias,
+            exclude_unset=exclude_unset,
+            exclude_defaults=exclude_defaults,
+            exclude_none=exclude_none,
+            round_trip=round_trip,
+            warnings=warnings,
+            serialize_as_any=serialize_as_any            
+        )
+        dump["id"] = self._id
+        dump["_id"] = self._id
+        dump["score"] = self._score
+        print("##", dump)
+        return dump
     
     
     @classmethod
@@ -408,10 +453,12 @@ class Model(BaseModel, metaclass=ModelMeta):
                 ids=[self._id]
             )
         return self
+
+        
     
-    async def delete(self):
-        ns = await self.get_namespace()
-        return await ns.conn.delete(ns.name, ids=[self._id])
+    # async def delete(self):
+    #     ns = await self.get_namespace()
+    #     return await ns.conn.delete(ns.name, ids=[self._id])
     
     @classmethod
     async def batch_delete(cls: Type[MODEL], ids: List[str] | None = None, filters: Callable[[QueryProxy[MODEL]], QueryFilter] | None = None):
@@ -425,6 +472,8 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def delete(cls: Type[MODEL], id: str):
         ns = await cls.get_namespace()
         return await ns.conn.delete(ns.name, ids=[id])
+    
+    
         
         
     @classmethod
@@ -447,6 +496,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         return cls(
             _id=search_result.id,
             _score=search_result.score if hasattr(search_result, "score") else -1,
+            _vector=search_result.vector if hasattr(search_result, "vector") else {},
             **search_result.payload
         )
         
@@ -570,9 +620,26 @@ class Model(BaseModel, metaclass=ModelMeta):
         pass
     
     @classmethod
-    async def create(cls: Type[MODEL]):
-        pass
+    async def create(cls: Type[MODEL], **kwargs: Any) -> MODEL:
+        obj = await cls(**kwargs).save()
+        return obj
     
+    # @classmethod
+    # async def update_payload(cls: Type[MODEL], id: str, update: dict):
+    #     pass
+        
+    def copy(self):
+        obj = self.__class__(**self._payload_dump())
+        if self._vector:
+            obj._vector = copy.deepcopy(self._vector)
+        return obj
+    
+    @classmethod
+    async def batch_copy(cls: Type[MODEL], objs: List[MODEL]) -> List[MODEL]:
+        new_objs = [obj.copy() for obj in objs]
+        return await cls.batch_upsert(new_objs)
+        
+        
     
     @classmethod
     async def delete_namespace(cls):

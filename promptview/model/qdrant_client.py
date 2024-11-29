@@ -10,6 +10,7 @@ from qdrant_client.models import (DatetimeRange, Distance, FieldCondition,
                                   SparseVectorParams, VectorParams)
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client import models
+from qdrant_client import grpc as qdrant_grpc
 import grpc
 import os
 import itertools
@@ -211,6 +212,7 @@ class QdrantClient:
         self,
         collection_name: str,
         ids: List[str] | List[int],
+        partitions: dict[str, str] | None = None
     ):
         recs = await self.client.retrieve(
             collection_name=collection_name,
@@ -396,7 +398,26 @@ class QdrantClient:
             score_threshold=threshold,
         )
         return recs
-        
+    
+    
+    async def update_payload(self, collection_name: str, ids: List[str] | List[int], payload: Dict[str, Any]):
+        if ids:
+            points = ids
+        else:
+            raise ValueError("ids must be provided.")
+        await self.client.set_payload(
+            collection_name=collection_name,
+            payload=payload,
+            points=points,
+            # points=models.Filter(
+            #     must=[
+            #         models.FieldCondition(
+            #             key="color",
+            #             match=models.MatchValue(value="red"),
+            #         ),
+            #     ],
+            # ),
+        )    
     
     
     async def delete(self, collection_name: str, ids: List[str] | List[int] | None = None, filters: Any | None = None):
