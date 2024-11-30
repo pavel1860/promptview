@@ -30,14 +30,19 @@ class OpenAiLLM(LLM):
             system_block.push(system_action_view(actions))
         for block in root_block.find(depth=1): 
             content = self.render_block(block, **kwargs)
+            if isinstance(content, list):
+                content, content_blocks = None, content
+            else:
+                content, content_blocks = content, None
+
             if block.role == 'user':
-                messages.append(HumanMessage(id=block.uuid, content=content))
+                messages.append(HumanMessage(id=block.uuid, content=content, content_blocks=content_blocks, content_type=block.content_type))
             elif block.role == 'assistant':
-                messages.append(AIMessage(id=block.uuid, content=content, action_calls=block.action_calls))
+                messages.append(AIMessage(id=block.uuid, content=content, content_blocks=content_blocks, action_calls=block.action_calls))
             elif block.role == 'system':
-                messages.append(SystemMessage(id=block.uuid, content=content))
+                messages.append(SystemMessage(id=block.uuid, content=content, content_blocks=content_blocks))
             elif block.role == 'tool':
-                messages.append(ActionMessage(id=block.uuid, content=content))
+                messages.append(ActionMessage(id=block.uuid, content=content, content_blocks=content_blocks))
             else:
                 raise ValueError(f"Unsupported role: {block.role}")
         

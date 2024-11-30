@@ -1,6 +1,7 @@
 
+import inspect
 from functools import wraps
-from typing import Dict, Generic, List, Optional, Type, TypeVar, Union
+from typing import Dict, Generic, List, Optional, Type, TypeVar, Union, Callable
 from pydantic import BaseModel
 from promptview.prompt.base_prompt import Prompt
 from promptview.state.context import Context
@@ -8,8 +9,11 @@ from promptview.llms.messages import AIMessage, ActionCall, ActionMessage, Human
 from promptview.utils.function_utils import call_function, filter_func_args
 from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.llms.tracer import Tracer
-import inspect
+from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.decorator import prompt
+from promptview.state.context import Context
+from promptview.utils.function_utils import call_function, filter_func_args
+from pydantic import BaseModel
 
 
 
@@ -26,9 +30,8 @@ class AgentRouter(BaseModel):
     is_router: bool = False
 
     _action_handlers: Dict[str, callable] = {}    
-        
-
-    def handle(self, action: BaseModel, handler: callable):
+       
+    def handle(self, action: BaseModel, handler: Callable):
         self._action_handlers[action.__name__] =  handler
         
     
@@ -188,7 +191,6 @@ class AgentRouter(BaseModel):
                 # message = None                  
             # tracer_run.end()
 
-
     # def prompt(
     #     self,
     #     model: str = "gpt-3.5-turbo-0125",
@@ -239,4 +241,4 @@ class AgentRouter(BaseModel):
     
     
     
-AgentRouter.prompt = prompt
+AgentRouter.prompt = prompt # type: ignore
