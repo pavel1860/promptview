@@ -83,7 +83,7 @@ class BaseMessage(BaseModel):
         else:
             return {
                 "role": "user",
-                "content": typed_content(self.content, self.content_type)
+                "content": [typed_content(self.content, self.content_type)]
             }
 
 
