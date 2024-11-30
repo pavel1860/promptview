@@ -90,20 +90,34 @@ class AnthropicLlmClient(BaseLlmClient):
             max_retries=10, 
             base_delay=1, 
             max_delay=32,
+            betas: list[str] | None = None,
             **kwargs
         ):
         for attempt in range(max_retries):
             try:
-                anthropic_completion = await self.client.messages.create(
-                    model=model,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    system=system,
-                    messages=messages,
-                    tools=tools,
-                    tool_choice=tool_choice,
-                    **kwargs
-                )
+                if betas:
+                    anthropic_completion = await self.client.beta.messages.create(
+                        model=model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        system=system,
+                        messages=messages,
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        betas=betas,
+                        **kwargs
+                    )
+                else:
+                    anthropic_completion = await self.client.messages.create(
+                        model=model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        system=system,
+                        messages=messages,
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        **kwargs
+                    )
                 return anthropic_completion
             except anthropic.InternalServerError as e:
                 if e.status_code == 529:
