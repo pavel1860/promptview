@@ -292,8 +292,10 @@ class ModelMeta(ModelMetaclass, type):
 
 
 class Model(BaseModel, metaclass=ModelMeta):
-    _id: str = PrivateAttr(default_factory=lambda: str(uuid4()))
-    _score: float = PrivateAttr(default=-1)
+    # _id: str = PrivateAttr(default_factory=lambda: str(uuid4()))
+    # _score: float = PrivateAttr(default=-1)
+    id: str = Field(default_factory=lambda: str(uuid4()), description="Unique Identifier")
+    score: float = Field(default=-1, description="Score of the document. Default is -1")
     _partitions: dict[str, str] = PrivateAttr(default_factory=dict)
     _default_temporal_field: str = PrivateAttr(default=None)
     _namespace: str | None = PrivateAttr(default=None)
@@ -326,52 +328,52 @@ class Model(BaseModel, metaclass=ModelMeta):
             self._vector = _vector
         
         
-    @property
-    def id(self):
-        return self._id
+    # @property
+    # def id(self):
+    #     return self._id
     
-    @property
-    def score(self):
-        return self._score
+    # @property
+    # def score(self):
+    #     return self._score
     
     @property
     def vector(self):
         return self._vector
     
     
-    def model_dump(
-        self,
-        *,
-        mode: Literal['json', 'python'] | str = 'python',
-        include: Any = None,
-        exclude: Any = None,
-        context: Any | None = None,
-        by_alias: bool = False,
-        exclude_unset: bool = False,
-        exclude_defaults: bool = False,
-        exclude_none: bool = False,
-        round_trip: bool = False,
-        warnings: bool | Literal['none', 'warn', 'error'] = True,
-        serialize_as_any: bool = False,
-    ):
-        dump = super().model_dump(
-            mode=mode,
-            include=include,
-            exclude=exclude,
-            context=context,
-            by_alias=by_alias,
-            exclude_unset=exclude_unset,
-            exclude_defaults=exclude_defaults,
-            exclude_none=exclude_none,
-            round_trip=round_trip,
-            warnings=warnings,
-            serialize_as_any=serialize_as_any            
-        )
-        dump["id"] = self._id
-        dump["_id"] = self._id
-        dump["score"] = self._score
-        print("##", dump)
-        return dump
+    # def model_dump(
+    #     self,
+    #     *,
+    #     mode: Literal['json', 'python'] | str = 'python',
+    #     include: Any = None,
+    #     exclude: Any = None,
+    #     context: Any | None = None,
+    #     by_alias: bool = False,
+    #     exclude_unset: bool = False,
+    #     exclude_defaults: bool = False,
+    #     exclude_none: bool = False,
+    #     round_trip: bool = False,
+    #     warnings: bool | Literal['none', 'warn', 'error'] = True,
+    #     serialize_as_any: bool = False,
+    # ):
+    #     dump = super().model_dump(
+    #         mode=mode,
+    #         include=include,
+    #         exclude=exclude,
+    #         context=context,
+    #         by_alias=by_alias,
+    #         exclude_unset=exclude_unset,
+    #         exclude_defaults=exclude_defaults,
+    #         exclude_none=exclude_none,
+    #         round_trip=round_trip,
+    #         warnings=warnings,
+    #         serialize_as_any=serialize_as_any            
+    #     )
+    #     dump["id"] = self._id
+    #     dump["_id"] = self._id
+    #     dump["score"] = self._score
+    #     print("##", dump)
+    #     return dump
     
     
     @classmethod
@@ -383,7 +385,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         
     
     def _payload_dump(self):
-        dump = self.model_dump()
+        dump = self.model_dump(exclude={"id", "score", "_vector"})
         dump["_subspace"] = self._subspace
         return dump
         
@@ -450,7 +452,8 @@ class Model(BaseModel, metaclass=ModelMeta):
                 namespace=self._namespace,
                 vectors=vectors,
                 metadata=[metadata],
-                ids=[self._id]
+                # ids=[self._id]
+                ids=[self.id]
             )
         return self
 
@@ -463,6 +466,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     @classmethod
     async def batch_delete(cls: Type[MODEL], ids: List[str] | None = None, filters: Callable[[QueryProxy[MODEL]], QueryFilter] | None = None):
         ns = await cls.get_namespace()
+        query_filter = None
         if filters:
             query_proxy = QueryProxy[MODEL](cls)
             query_filter = filters(query_proxy)
@@ -480,7 +484,8 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def batch_upsert(cls: Type[MODEL], points: List[MODEL]):
         vectors = await cls.model_batch_embed(points)
         metadata = [point._payload_dump() for point in points]
-        ids = [point._id for point in points]        
+        # ids = [point._id for point in points]        
+        ids = [point.id for point in points]
         ns = await cls.get_namespace()
         res = await ns.conn.upsert(
             namespace=cls._namespace.default,# type: ignore
@@ -494,8 +499,10 @@ class Model(BaseModel, metaclass=ModelMeta):
     @classmethod
     def pack_search_result(cls, search_result):
         return cls(
-            _id=search_result.id,
-            _score=search_result.score if hasattr(search_result, "score") else -1,
+            # _id=search_result.id,
+            # _score=search_result.score if hasattr(search_result, "score") else -1,
+            id=search_result.id,
+            score=search_result.score if hasattr(search_result, "score") else -1,
             _vector=search_result.vector if hasattr(search_result, "vector") else {},
             **search_result.payload
         )

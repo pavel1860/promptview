@@ -95,7 +95,7 @@ class FieldComparable:
         
     def _validate_type(self, other):
         if self.type != type(other):
-            raise ValueError(f"Cannot compare {self.name} with {other}. Expected {self.type}")
+            raise ValueError(f"Cannot compare {self.name} with {other}. Expected {self.type} got {type(other)}")
         # if not isinstance(other, FieldComparable):
             # raise ValueError(f"Cannot compare {self._field_name} with {other}")
 
