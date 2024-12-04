@@ -17,7 +17,7 @@ setup(
         "scipy==1.11.4",
         "boto3==1.24.47",
         "openai==1.56.2",
-        "anthropic==0.34.2",
+        "anthropic==0.39.0",
         "langdetect==1.0.9",
         "qdrant-client==1.10.1",
         "docstring_parser==0.16",
