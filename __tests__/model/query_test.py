@@ -27,8 +27,8 @@ class BasicQueryModel(Model):
 async def seeded_database():
     conn = connection_manager._qdrant_connection
     try:
-        _ = await conn.get_collection("BasicModel")
-        await conn.delete_collection("BasicModel")
+        _ = await conn.get_collection("BasicQueryModel")
+        await conn.delete_collection("BasicQueryModel")
     except Exception as e:
         pass
     points = [
@@ -80,9 +80,9 @@ async def seeded_database():
 
     yield connection_manager
     
-    # await conn.delete_collection("BasicModel")
-    # connection_manager._namespaces = {}
-    # connection_manager._active_namespaces = {}
+    await conn.delete_collection("BasicModel")
+    connection_manager._namespaces = {}
+    connection_manager._active_namespaces = {}
 
 
 @pytest.mark.asyncio
@@ -216,7 +216,7 @@ async def test_temporal_query(seeded_database):
     assert len(recs) == 3
     for rec in recs:
         assert rec.created_at >= dt.datetime(2021, 1, 1) and rec.created_at < dt.datetime(2024, 1, 1)        
-        rec.topic in ["physics", "movies"]
+        assert rec.topic in ["physics", "movies"]
     
     recs = await BasicQueryModel.filter(lambda x: (x.created_at >= dt.datetime(2021, 1, 1)) & (x.created_at < dt.datetime(2024, 1, 1))).order_by("created_at", ascending=True)
     assert [r.topic for r in recs] == ['physics', 'physics', 'movies']
@@ -235,3 +235,29 @@ async def test_query_building():
     rec = recs[0]
     assert rec.topic == "animals"
     assert rec.content == "turtles are slow"
+    
+    
+    
+    
+@pytest.mark.asyncio
+async def test_query_date_range(seeded_database):
+    recs = await BasicQueryModel.filter(lambda x: dt.datetime(2023, 1, 1) >= x.created_at >= dt.datetime(2021, 1, 1))
+    assert len(recs) == 3
+    recs = await BasicQueryModel.filter(lambda x: dt.datetime(2023, 1, 1) > x.created_at >= dt.datetime(2021, 1, 1))
+    assert len(recs) == 2
+    recs = await BasicQueryModel.filter(lambda x: dt.datetime(2023, 1, 1) > x.created_at > dt.datetime(2021, 1, 1))
+    assert len(recs) == 1
+    
+    
+    
+@pytest.mark.asyncio
+async def test_query_date_range_ordering(seeded_database):
+    recs = await BasicQueryModel.filter(lambda x: dt.datetime(2023, 1, 1) >= x.created_at >= dt.datetime(2021, 1, 1)).order_by("created_at", ascending=True)
+    assert len(recs) == 3
+    for prv, nxt in zip(recs[:-1], recs[1:]):
+        assert prv.created_at <= nxt.created_at
+        
+    recs = await BasicQueryModel.filter(lambda x: dt.datetime(2023, 1, 1) >= x.created_at >= dt.datetime(2021, 1, 1)).order_by("created_at", ascending=False)
+    for prv, nxt in zip(recs[:-1], recs[1:]):
+        assert prv.created_at >= nxt.created_at
+    

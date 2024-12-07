@@ -544,7 +544,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     #     return QuerySet(cls, query_type="scroll").filter(filters)
     @classmethod
     # def filter(cls: Type[MODEL], filters: Callable[[QueryProxy[MODEL]], QueryFilter], partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
-    def filter(cls: Type[MODEL], filters: Callable[[MODEL], QueryFilter], partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
+    def filter(cls: Type[MODEL], filters: Callable[[MODEL], bool], partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
         return cls.build_query("scroll", partitions).filter(filters)
         # return QuerySet(cls, query_type="scroll").filter(filters)
     

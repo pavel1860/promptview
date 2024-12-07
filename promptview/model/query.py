@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Generator, Generic, Iterator, List, Literal, Protocol, Self, Type, TypeVar
 from pydantic.fields import FieldInfo
@@ -9,10 +10,7 @@ if TYPE_CHECKING:  # pragma: nocoverage
 
 
 class FieldOp(Enum):
-    GT = "gt"
-    GTE = "gte"
-    LT = "lt"
-    LTE = "lte"
+    RANGE = "range"
     EQ = "eq"
     NE = "ne"
     IN = "in"
@@ -80,10 +78,36 @@ class QueryFilter:
 
 
         
-    
-        
-    
+# @dataclass    
+# class RangeFilter:
+#     ge: Any = None
+#     le: Any = None
+#     gt: Any = None
+#     lt: Any = None
 
+class RangeFilter:
+    def __init__(self, ge=None, le=None, gt=None, lt=None):
+        types = [type(v) for v in [ge, le, gt, lt] if v is not None]
+        if not types:
+            raise ValueError("At least one value must be provided")
+        for t in types:
+            if t != types[0]:
+                raise ValueError("All values must be of the same type")
+        self.value = types[0]
+        self.ge = ge
+        self.le = le
+        self.gt = gt
+        self.lt = lt        
+        
+        
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in ["ge", "le", "gt", "lt"]:            
+            if value is not None and type(value) != self.value:
+                raise ValueError(f"Value must be of type {self.value}")
+        super().__setattr__(name, value)
+        
+    def __repr__(self):
+        return f"RangeFilter(ge={self.ge}, le={self.le}, gt={self.gt}, lt={self.lt})"
 
 class FieldComparable:
     
@@ -92,6 +116,7 @@ class FieldComparable:
         self.name = field_name
         self._field_info = field_info
         self.type = field_info.annotation
+        self._query_filter = None
         
     def _validate_type(self, other):
         if self.type != type(other):
@@ -101,21 +126,47 @@ class FieldComparable:
 
     def __gt__(self, other):
         self._validate_type(other)
-        return QueryFilter(self, FieldOp.GT, other)
+        if self._query_filter is None:
+            self._query_filter = QueryFilter(self, FieldOp.RANGE, RangeFilter(gt=other))
+        elif self._query_filter._operator == FieldOp.RANGE:
+            self._query_filter._right.gt = other
+        else:
+            raise ValueError(f"Cannot compare {self.name} with {other}")
+        return self._query_filter
+            
 
     def __ge__(self, other):
         print(self.name, "GE", other)
         self._validate_type(other)
-        return QueryFilter(self, FieldOp.GTE, other)
+        if self._query_filter is None:
+            self._query_filter = QueryFilter(self, FieldOp.RANGE, RangeFilter(ge=other))
+        elif self._query_filter._operator == FieldOp.RANGE:
+            self._query_filter._right.ge = other
+        else:
+            raise ValueError(f"Cannot compare {self.name} with {other}")
+        return self._query_filter
+        
 
     def __lt__(self, other):
         self._validate_type(other)
-        return QueryFilter(self, FieldOp.LT, other)
+        if self._query_filter is None:
+            self._query_filter = QueryFilter(self, FieldOp.RANGE, RangeFilter(lt=other))
+        elif self._query_filter._operator == FieldOp.RANGE:
+            self._query_filter._right.lt = other
+        else:
+            raise ValueError(f"Cannot compare {self.name} with {other}")
+        return self._query_filter
 
     def __le__(self, other):
         print(self.name, "LE", other)
         self._validate_type(other)
-        return QueryFilter(self, FieldOp.LTE, other)        
+        if self._query_filter is None:
+            self._query_filter = QueryFilter(self, FieldOp.RANGE, RangeFilter(le=other))        
+        elif self._query_filter._operator == FieldOp.RANGE:
+            self._query_filter._right.le = other
+        else:
+            raise ValueError(f"Cannot compare {self.name} with {other}")
+        return self._query_filter
     
     def __eq__(self, other):
         self._validate_type(other)

@@ -703,13 +703,13 @@ class QdrantClient:
                         FieldCondition(key=query_filter.field.name, match=models.MatchValue(value=query_filter.value))
                     ]
                 )
-            elif query_filter._operator in {FieldOp.GT, FieldOp.GTE, FieldOp.LT, FieldOp.LTE}:
+            elif query_filter._operator == FieldOp.RANGE:
                 if query_filter.is_datetime():
                     return Filter(
                         must=[
                             FieldCondition(
                                 key=query_filter.field.name,
-                                range=DatetimeRange(**{query_filter._operator.value: query_filter.value})
+                                range=DatetimeRange(lt=query_filter.value.lt, lte=query_filter.value.le, gt=query_filter.value.gt, gte=query_filter.value.ge)
                             )
                         ]
                     )
@@ -718,7 +718,7 @@ class QdrantClient:
                         must=[
                             FieldCondition(
                                 key=query_filter.field.name,
-                                range=Range(**{query_filter._operator.value: query_filter.value})
+                                range=Range(lt=query_filter.value.lt, lte=query_filter.value.le, gt=query_filter.value.gt, gte=query_filter.value.ge)
                             )
                         ]
                     )
@@ -734,75 +734,75 @@ class QdrantClient:
     
     
     
-    def transform_filters2(self, query_filters):
+    # def transform_filters2(self, query_filters):
 
-        match_filters = {}
+    #     match_filters = {}
 
-        not_match_filters = {}
+    #     not_match_filters = {}
 
-        range_filters = {} 
+    #     range_filters = {} 
 
 
-        def traverse(query):
-            if isinstance(query._operator, QueryOp):
-                traverse(query._left)
-                traverse( query._right)
-                print(traverse)
-            elif isinstance(query._operator, FieldOp):
-                # if isinstance(query._left, FieldComparable):
-                #     field = query._left
-                #     value = query._right
-                # elif isinstance(query._right, FieldComparable):
-                #     field = query._right
-                #     value = query._left
-                # else:
-                #     raise ValueError("No FieldComparable found")
-                field, value = query.field, query.value
+    #     def traverse(query):
+    #         if isinstance(query._operator, QueryOp):
+    #             traverse(query._left)
+    #             traverse( query._right)
+    #             print(traverse)
+    #         elif isinstance(query._operator, FieldOp):
+    #             # if isinstance(query._left, FieldComparable):
+    #             #     field = query._left
+    #             #     value = query._right
+    #             # elif isinstance(query._right, FieldComparable):
+    #             #     field = query._right
+    #             #     value = query._left
+    #             # else:
+    #             #     raise ValueError("No FieldComparable found")
+    #             field, value = query.field, query.value
                 
-                if query._operator in [FieldOp.GT, FieldOp.GTE, FieldOp.LT, FieldOp.LTE]:
-                    range_filter = range_filters.get(field.name)
-                    if not range_filter:
-                        range_filter = models.FieldCondition(
-                            key=field.name,
-                            range=models.DatetimeRange() if query.is_datetime() else models.Range()
-                        )
-                        range_filters[field.name] = range_filter
-                    if query._operator == FieldOp.GT:
-                        range_filter.range.gt = value
-                    elif query._operator == FieldOp.GTE:
-                        range_filter.range.gte = value
-                    elif query._operator == FieldOp.LT:
-                        range_filter.range.lt = value
-                    elif query._operator == FieldOp.LTE:
-                        range_filter.range.lte = value
-                    # print("Range", field.name, query._operator, value)
-                elif query._operator in [FieldOp.EQ]:
-                    match_filter = range_filters.get(field.name)
-                    if match_filter:
-                        raise ValueError(f"Match filter already exists for field {field.name}")
-                    match_filters[field.name] = models.FieldCondition(
-                        key=field.name,
-                        match=models.MatchValue(value=value)
-                    )
-                    print("Match", field.name, query._operator, value)
-                elif query._operator in [FieldOp.NE]:
-                    not_match_filters[field.name] = models.FieldCondition(
-                        key=field.name,
-                        match=models.MatchValue(value=value)
+    #             if query._operator in [FieldOp.GT, FieldOp.GTE, FieldOp.LT, FieldOp.LTE]:
+    #                 range_filter = range_filters.get(field.name)
+    #                 if not range_filter:
+    #                     range_filter = models.FieldCondition(
+    #                         key=field.name,
+    #                         range=models.DatetimeRange() if query.is_datetime() else models.Range()
+    #                     )
+    #                     range_filters[field.name] = range_filter
+    #                 if query._operator == FieldOp.GT:
+    #                     range_filter.range.gt = value
+    #                 elif query._operator == FieldOp.GTE:
+    #                     range_filter.range.gte = value
+    #                 elif query._operator == FieldOp.LT:
+    #                     range_filter.range.lt = value
+    #                 elif query._operator == FieldOp.LTE:
+    #                     range_filter.range.lte = value
+    #                 # print("Range", field.name, query._operator, value)
+    #             elif query._operator in [FieldOp.EQ]:
+    #                 match_filter = range_filters.get(field.name)
+    #                 if match_filter:
+    #                     raise ValueError(f"Match filter already exists for field {field.name}")
+    #                 match_filters[field.name] = models.FieldCondition(
+    #                     key=field.name,
+    #                     match=models.MatchValue(value=value)
+    #                 )
+    #                 print("Match", field.name, query._operator, value)
+    #             elif query._operator in [FieldOp.NE]:
+    #                 not_match_filters[field.name] = models.FieldCondition(
+    #                     key=field.name,
+    #                     match=models.MatchValue(value=value)
                         
-                    )
-                    print("Not Match", field.name, query._operator, value)
+    #                 )
+    #                 print("Not Match", field.name, query._operator, value)
                     
-            else:
-                raise ValueError("Unknown operator")
+    #         else:
+    #             raise ValueError("Unknown operator")
 
-        traverse(query_filters)
+    #     traverse(query_filters)
 
-        model_filters = models.Filter(
-                must=[f for f in match_filters.values()] + [ f for f in range_filters.values()],
-                must_not=[ f for f in not_match_filters.values() ],        
-            )
-        return model_filters
+    #     model_filters = models.Filter(
+    #             must=[f for f in match_filters.values()] + [ f for f in range_filters.values()],
+    #             must_not=[ f for f in not_match_filters.values() ],        
+    #         )
+    #     return model_filters
 
 
 
