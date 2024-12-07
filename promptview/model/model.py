@@ -1,6 +1,7 @@
 import asyncio
 import inspect
-from typing import Any, Callable, Dict, List, Literal, Optional, Self, Type, TypeVar,  get_args, get_origin
+import copy
+from typing import Any, Callable, Dict, List, Optional, Self, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import FieldInfo
@@ -9,8 +10,6 @@ from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy,
 from .vectors.base_vectorizer import BaseVectorizer
 from .fields import VectorSpaceMetrics, get_model_indices
 from .resource_manager import VectorSpace, connection_manager
-import copy
-
 
 def unpack_list_model(pydantic_model):
     return get_args(pydantic_model)[0]
@@ -341,40 +340,6 @@ class Model(BaseModel, metaclass=ModelMeta):
         return self._vector
     
     
-    # def model_dump(
-    #     self,
-    #     *,
-    #     mode: Literal['json', 'python'] | str = 'python',
-    #     include: Any = None,
-    #     exclude: Any = None,
-    #     context: Any | None = None,
-    #     by_alias: bool = False,
-    #     exclude_unset: bool = False,
-    #     exclude_defaults: bool = False,
-    #     exclude_none: bool = False,
-    #     round_trip: bool = False,
-    #     warnings: bool | Literal['none', 'warn', 'error'] = True,
-    #     serialize_as_any: bool = False,
-    # ):
-    #     dump = super().model_dump(
-    #         mode=mode,
-    #         include=include,
-    #         exclude=exclude,
-    #         context=context,
-    #         by_alias=by_alias,
-    #         exclude_unset=exclude_unset,
-    #         exclude_defaults=exclude_defaults,
-    #         exclude_none=exclude_none,
-    #         round_trip=round_trip,
-    #         warnings=warnings,
-    #         serialize_as_any=serialize_as_any            
-    #     )
-    #     dump["id"] = self._id
-    #     dump["_id"] = self._id
-    #     dump["score"] = self._score
-    #     print("##", dump)
-    #     return dump
-    
     
     @classmethod
     async def get_client(cls: Type["Model"]):
@@ -570,15 +535,16 @@ class Model(BaseModel, metaclass=ModelMeta):
         
     
     @classmethod
-    def similar(cls: Type[MODEL], query: str, vec: list[str] | str | AllVecs = ALL_VECS, partitions: dict[str, str] | None = None, fusion: FusionType="rff") -> QuerySet[MODEL]:
-        return cls.build_query("vector").similar(query, vec)
+    def similar(cls: Type[MODEL], query: str, threshold: float | None = None, vec: list[str] | str | AllVecs = ALL_VECS, partitions: dict[str, str] | None = None, fusion: FusionType="rff") -> QuerySet[MODEL]:
+        return cls.build_query("vector").similar(query, threshold, vec)
         # return QuerySet(cls, query_type="vector").similar(query, vec)    
     
     # @classmethod
     # def filter(cls: Type[MODEL], filters: Callable[[Type[MODEL]], QueryFilter]):
     #     return QuerySet(cls, query_type="scroll").filter(filters)
     @classmethod
-    def filter(cls: Type[MODEL], filters: Callable[[QueryProxy[MODEL]], QueryFilter], partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
+    # def filter(cls: Type[MODEL], filters: Callable[[QueryProxy[MODEL]], QueryFilter], partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
+    def filter(cls: Type[MODEL], filters: Callable[[MODEL], QueryFilter], partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
         return cls.build_query("scroll", partitions).filter(filters)
         # return QuerySet(cls, query_type="scroll").filter(filters)
     

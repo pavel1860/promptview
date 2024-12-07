@@ -284,8 +284,9 @@ class VectorQuerySet:
     query: Any
     vec: list[str] | AllVecs
     vector_lookup: dict[str, str] | None
+    threshold: float | None
     
-    def __init__(self, query: str, vec: list[str] | str | AllVecs=ALL_VECS):
+    def __init__(self, query: str, threshold: float | None = None, vec: list[str] | str | AllVecs=ALL_VECS):
         self.query = query
         if type(vec) == str:
             self.vec = [vec]
@@ -293,7 +294,7 @@ class VectorQuerySet:
             self.vec = vec # type: ignore
         else:
             raise ValueError(f"vec must be a string or list of strings, {vec}")
-        
+        self.threshold = threshold
         self.vector_lookup = None
         
     def __repr__(self):
@@ -523,21 +524,26 @@ class QuerySet(Generic[MODEL]):
     #         raise ValueError("Must provide id or ids")
     #     return self
     
-    def similar(self, query: str, vec: list[str] | str | AllVecs=ALL_VECS) -> "QuerySet[MODEL]":
+    def similar(self, query: str, threshold: float | None = None, vec: list[str] | str | AllVecs=ALL_VECS) -> "QuerySet[MODEL]":
         self._vector_query = VectorQuerySet(
             query=query,
-            vec=vec
+            threshold=threshold,
+            vec=vec,
         )
         return self
     
     
-    def filter(self, filter_fn: Callable[[QueryProxy[MODEL]], QueryFilter]) -> "QuerySet[MODEL]":
+    # def filter(self, filter_fn: Callable[[QueryProxy[MODEL]], QueryFilter]) -> "QuerySet[MODEL]":
+    def filter(self, filter_fn: Callable[[MODEL], bool]) -> "QuerySet[MODEL]":
         query = QueryProxy[MODEL](self.model)
         if not self._filters:
-            self._filters = filter_fn(query)
+            self._filters = filter_fn(query)#type: ignore
         else:
-            self._filters = self._filters & filter_fn(query)
+            self._filters = self._filters & filter_fn(query)#type: ignore
         return self
+    
+    
+    
     
     # def filter(self, filter_fn: Callable[[ModelFilterProxy[MODEL]], Any]):
     #     query = ModelFilterProxy[MODEL](self.model)

@@ -10,7 +10,6 @@ from qdrant_client.models import (DatetimeRange, Distance, FieldCondition,
                                   SparseVectorParams, VectorParams)
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client import models
-from qdrant_client import grpc as qdrant_grpc
 import grpc
 import os
 import itertools
@@ -496,7 +495,7 @@ class QdrantClient:
     
     async def execute_vector_query(self, collection_name: str, query_set: QuerySet):
         
-        query, prefetch, query_filter, using, limit, offset = self._parse_query(query_set)
+        query, prefetch, query_filter, using, limit, offset, threshold = self._parse_query(query_set)
         
         order_by = None
         if query_set._order_by:
@@ -515,6 +514,7 @@ class QdrantClient:
             using = None
             limit = None
             offset = None
+            threshold=None
             
         
         recs = await self.client.query_points(
@@ -525,12 +525,13 @@ class QdrantClient:
             query_filter=query_filter,
             limit=limit,
             offset=offset,
+            score_threshold=threshold,
             # order_by=order_by,
         )
         return recs.points
     
     async def execute_scroll(self, collection_name: str, query_set: QuerySet):        
-        _, _, scroll_filter, _, limit, offset = self._parse_query(query_set)
+        _, _, scroll_filter, _, limit, offset, _ = self._parse_query(query_set)
         
         order_by = None
         if query_set._order_by is not None:
@@ -566,6 +567,7 @@ class QdrantClient:
         query = None
         using = None
         order_by = None
+        threshold = None
         # if query_set._filters:
         #     query_filter = self.transform_filters(query_set._filters)
         # if subspace:= query_set.get_subspace():
@@ -590,7 +592,10 @@ class QdrantClient:
                     
         if query_set._prefetch:
             prefetch = [self._parse_prefetch(q) for q in query_set._prefetch]        
-        if query_set.query_type == "vector":
+        if query_set.query_type == "vector":            
+            if not query_set._vector_query:
+                raise ValueError("Vector query not provided.")
+            threshold = query_set._vector_query.threshold
             if len(query_set._vector_query) == 1:
                 # for vec_name, vector in query_set._vector_query.vector_lookup.items():
                 vec_name, vector = query_set._vector_query.first()
@@ -621,18 +626,19 @@ class QdrantClient:
             query = query_set._ids
                 
         # if query_set._order_by:
-        return query, prefetch, query_filter, using, query_set._limit, query_set._offset
+        return query, prefetch, query_filter, using, query_set._limit, query_set._offset, threshold
     
     
     def _parse_prefetch(self, query_set: QuerySet):
-        query, prefetch, query_filter, using = self._parse_query(query_set)
+        query, prefetch, query_filter, using, limit, offset, threshold = self._parse_query(query_set)
         # vec_name, _ = query_set._vector_query.first()
         return models.Prefetch(
             query=query,
             using=using,
-            limit=query_set._limit,
+            limit=limit,
             filter=query_filter,
-            prefetch=prefetch
+            prefetch=prefetch,
+            score_threshold=threshold,
         )
         
     def _parse_query_filters(self, query_set: QuerySet):
