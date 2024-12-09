@@ -21,6 +21,7 @@ from promptview import parsers
 from promptview.model.model import Model
 from promptview.model.fields import ModelField, IndexType
 import promptview.model.vectors as vectors
+import promptview.platforms as platforms
 
 __all__ = [
     "ChatPrompt", 
@@ -47,4 +48,5 @@ __all__ = [
     "ModelField",
     "IndexType",
     "vectors",
+    "platforms",
 ]
