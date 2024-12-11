@@ -282,6 +282,8 @@ class LlmInterpreter:
         if block.get_type() != type(None):
             if issubclass(block.get_type(), str):
                 results.insert(0, self.render_string(block, depth, index, bullet, **kwargs))
+            elif issubclass(block.get_type(), dict):
+                results.insert(0, self.render_dict(block, depth))
             elif issubclass(block.get_type(), BaseModel):
                 results.insert(0, self.render_model(block, depth))
             else:

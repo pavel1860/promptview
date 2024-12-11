@@ -106,7 +106,7 @@ class ViewBlock(BaseModel):
     name: str | None = Field(None, description="name of the person who created the view")
     view_name: str
     title: str | None = None
-    content: str | BaseModel | dict | None = None
+    content: str | dict | BaseModel | None = None
     view_blocks: list[ViewBlock] = Field(default_factory=list, description="list of view blocks that are children of this view block")
     role: RoleType | None = None
     actions: list[Type[BaseModel]] | Type[BaseModel] | None = None
@@ -146,6 +146,8 @@ class ViewBlock(BaseModel):
     
     @property
     def action_call_uuids(self):
+        if not self.action_calls:
+            return []
         return [a.id for a in self.action_calls]
     
     def find_actions(self) -> Actions:

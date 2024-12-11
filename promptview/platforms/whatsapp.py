@@ -276,11 +276,11 @@ class WhatsAppClient:
     
     
     
-    async def get_app_subscriptions(self, app_id: str):
+    async def get_app_subscriptions(self, waba_id: str):
         """
             get the list of pages that are subscribed to the app.
         """
-        return await self.graph_request.get(f"{app_id}/subscriptions", wa_exception_cls=WhatsAppSubscribedAppException)
+        return await self.graph_request.get(f"{waba_id}/subscriptions", wa_exception_cls=WhatsAppSubscribedAppException)
     
     
     async def subscribe_app_to_page(self, app_id: str, page_id: str, subscribed_fields: list[str]):
