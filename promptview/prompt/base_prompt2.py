@@ -58,6 +58,7 @@ class PromptExecutionContext(BaseModel):
             for view in views:
                 if isinstance(view, list):
                     raise ValueError("Nested lists are not supported")
+                view = view.to_view_block() if hasattr(view, "to_view_block") else view
                 if not isinstance(view, ViewBlock):
                     valid_views.append(create_view_block(view, view_name="render_" + (self.name or self.__class__.__name__), role='user'))
                 else:
