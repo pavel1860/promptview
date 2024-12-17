@@ -5,13 +5,16 @@ from typing import Literal
 import json
 from typing import Protocol, runtime_checkable
 
+from promptview.utils.string_utils import int_to_roman
 
 
+BulletType = Literal["number", "alpha", "roman", "roman_lower", "*", "-"]
+TitleType = Literal["xml", "md", "html"]
 
 class Style(BaseModel):
     bclass: str | None = Field(default=None, description="The class for the block")
-    ttype: Literal["xml", "md", "html"] | None = Field(default=None, description="The style of the title")
-    bullet: Literal["number", "*", "-"] | None = Field(default=None, description="The bullet style for the list")
+    ttype: TitleType  | None = Field(default=None, description="The style of the title")
+    bullet: BulletType | None = Field(default=None, description="The bullet style for the list")
     prefix: str | None = Field(default=None, description="prefix to add to the block title")
     postfix: str | None = Field(default=None, description="postfix to add to the block title")
     tabs: int = Field(default=0, description="number of tabs to add to the block content")
@@ -19,23 +22,24 @@ class Style(BaseModel):
     dropout: float = Field(default=0.0, description="dropout probability for the block")
 
 
-
 class StyleManager():
     
     def __init__(self, styles: dict):
         self.styles = styles
         
-    def get(self, block_id):
+    def get(self, block_id, style: Style | None = None):
         style_dict = self.styles.get(block_id, None)
         if style_dict is None:
-            return None
-        return Style(**style_dict)
+            return style
+        if style is None:
+            return Style(**style_dict)
+        return Style(**(style_dict | style.model_dump()))
     
     def add(self, style_dict: dict):
         self.styles.update(style_dict)
     
-    def get_style(self, block: "BaseBlock"):
-        style = block.get_style(style=self.get(block.id))
+    def get_style(self, block: "BaseBlock", style: Style | None = None):
+        style = block.get_style(style=self.get(block.id, style))
         return style
     
     
@@ -53,7 +57,10 @@ class Renderable(Protocol):
         """
         ...
         
-        
+
+def tabs_str(style: Style):
+    return "  " * style.tabs
+       
 
 class strblk(str, Renderable):
     
@@ -64,7 +71,7 @@ class strblk(str, Renderable):
         if style.postfix:
             content = content + style.postfix
         if style.tabs or style.indent:
-            content = " " * (style.tabs or style.indent) + content
+            content = "  " * (style.tabs or style.indent) + content
         return content
     
     
@@ -104,6 +111,12 @@ class BaseBlock(BaseModel):
         self._items.append(item)
         return item
     
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+    
     def __call__(self, *args):
         for arg in args:
             self.append(arg)
@@ -134,7 +147,7 @@ class BaseBlock(BaseModel):
     
     
 class TitleBlock(BaseBlock):
-    ttype: Literal["xml", "md", "html"] = Field(default="md", description="The style of the title")
+    ttype: TitleType = Field(default="md", description="The style of the title")
     title: str | None = Field(default=None, description="The title of the block")
     
     def _render_md(self):
@@ -157,55 +170,98 @@ class TitleBlock(BaseBlock):
     
     def _render_title(self, content: str, style: Style):
         if style.ttype == "md":
-            content = f"## {self.title}\n{content}"
+            content = f"{tabs_str(style)}## {self.title}\n{content}"
         elif style.ttype == "html":
-            content = f"<h2>{self.title}</h2>\n{content}"
+            content = f"{tabs_str(style)}<h2>{self.title}</h2>\n{content}"
         elif style.ttype == "xml":
-            content = f"<{self.title}>\n{content}\n</{self.title}>"
+            content = f"{tabs_str(style)}<{self.title}>\n{content}\n</{self.title}>"
         else:
-            raise ValueError(f"Invalid title style: {self.ttype}")
+            raise ValueError(f"Invalid title style: {style.ttype}")
         return content
 
     def render(self, style: Style | None = None):
         # style = self.get_style(style)
-        style = style_manager.get_style(self)
+        style = style_manager.get_style(self, style)
         content = super().render(style=style)
         if self.title:
             content = self._render_title(content, style)        
         return content
     
     
-class Block(TitleBlock):
-    ...
+# class Block(TitleBlock):
+#     ...
     
     
     
 class ListBlock(TitleBlock):
-    bullet: Literal["number", "*", "-"] = Field(default="-", description="The bullet style for the list")
-    
-    def _get_list_item(self, idx, item):
-        if self.bullet == "number":
-            return f"{idx+1}. {item}"        
-        return f"{self.bullet} {item}"
+    bullet: BulletType = Field(default="-", description="The bullet style for the list")
+
     
     def _get_prefix(self, idx: int):
         if self.bullet == "number":
             return f"{idx+1}. "
+        elif self.bullet == "alpha":
+            return f"{chr(97+idx)}. "
+        elif self.bullet == "roman":
+            return int_to_roman(idx+1) + ". "
+        elif self.bullet == "roman_lower":
+            return int_to_roman(idx+1, upper=False) + ". "
         return f"{self.bullet} "
     
+    def _get_list_item(self, idx, item):
+        bullet = self._get_prefix(idx)
+        return f"{bullet} {item}"
+    
     def get_style(self, style: Style | None = None) -> Style:        
-        curr_style = Style(bullet=self.bullet)
+        curr_style = Style(bullet=self.bullet, ttype=self.ttype)
         if style is not None:
             curr_style = curr_style.model_copy(update=style.model_dump())
         return curr_style
     
     def render(self, style: Style | None = None):
         # new_style = self.get_style(style)
-        new_style = style_manager.get_style(self)
+        new_style = style_manager.get_style(self, style)
         new_style.tabs += 1
-        content = "\n".join([self._get_list_item(idx, item.render(style=new_style)) for idx, item in enumerate(self._items)])
+        content = "\n".join([item.render(style=new_style.model_copy(update={"prefix": self._get_prefix(idx)})) for idx, item in enumerate(self._items)])
+        # content = "\n".join([self._get_list_item(idx, item.render(style=new_style)) for idx, item in enumerate(self._items)])
         if self.title:
             content = self._render_title(content, new_style)                    
         return content
     # def render(self, prefix: str | None = None, postfix: str | None = None, tabs: int = 0, indent: int = 0):
     #     return "\n".join([item.render(prefix=self._get_prefix(idx), tabs=tabs, indent=indent) for idx, item in enumerate(self._items)])
+
+
+
+
+class listblock(ListBlock):
+    @staticmethod
+    def list(title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):        
+        return listblock(title=title, ttype=ttype, bullet=bullet, id=id)
+    
+    def li(self, title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):
+        b = listblock(title=title, ttype=ttype, bullet=bullet, id=id)
+        self.append(b)
+        return b
+        
+    def block(self, title=None, ttype: TitleType="md", id: str | None = None):
+        b = block(title=title, ttype=ttype, id=id)
+        self.append(b)
+        return b
+    
+    
+
+class block(TitleBlock):
+    @staticmethod
+    def list(title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):        
+        return listblock(title=title, ttype=ttype, bullet=bullet, id=id)
+    
+    def li(self, title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):
+        b = listblock(title=title, ttype=ttype, bullet=bullet, id=id)
+        self.append(b)
+        return b
+        
+    def block(self, title=None, ttype: TitleType="md", id: str | None = None):
+        b = block(title=title, ttype=ttype, id=id)
+        self.append(b)
+        return b
+
