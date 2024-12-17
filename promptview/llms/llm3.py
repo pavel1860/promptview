@@ -4,7 +4,7 @@ from promptview.llms.clients.base import BaseLlmClient
 from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.interpreter import LlmInterpreter
 # from promptview.llms.llm import ToolChoice
-from promptview.llms.messages import BaseMessage, HumanMessage
+from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.block import BaseBlock
@@ -111,7 +111,7 @@ class LlmExecution(BaseModel):
     async def run_complete(
         self, 
         **kwargs
-    ):
+    ) -> AIMessage:
         
         llm_kwargs = self.config.get_llm_args(**kwargs)
         # metadata["model"] = llm_kwargs.get("model", self.model)
@@ -148,7 +148,7 @@ class LlmExecution(BaseModel):
         smart_retry=False,
         config: LlmConfig | None = None,
         **kwargs
-    ):
+    ) -> AIMessage:
         for try_num in range(retries):
             try:
                 response = await self.run_complete(
@@ -165,6 +165,8 @@ class LlmExecution(BaseModel):
                     raise e
                 if smart_retry:
                     self.messages.append(HumanMessage(content=f"there is a validation error for the tool:\n{str(e)}"))
+            except Exception as e:
+                raise e
     
     
     
