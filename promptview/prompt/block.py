@@ -20,6 +20,22 @@ class Style(BaseModel):
     tabs: int = Field(default=0, description="number of tabs to add to the block content")
     indent: int = Field(default=0, description="number of spaces to indent the block content")
     dropout: float = Field(default=0.0, description="dropout probability for the block")
+    
+    def copy_tabs(self, eq: int | None = None, inc: int | None = None, dec: int | None = None):
+        if eq is not None:
+            return self.model_copy(update={"tabs": eq})
+        elif inc is not None:
+            return self.model_copy(update={"tabs": self.tabs + inc})
+        elif dec is not None:
+            return self.model_copy(update={"tabs": self.tabs - dec})
+        else:
+            raise ValueError("Must provide one of eq, inc, or dec")
+        
+    def copy_prefix(self, prefix: str):
+        return self.model_copy(update={"prefix": prefix})
+    
+    def copy_postfix(self, postfix: str):
+        return self.model_copy(update={"postfix": postfix})
 
 
 class StyleManager():
@@ -138,7 +154,7 @@ class BaseBlock(BaseModel):
     
     def render(self, style: Style | None = None):        
         new_style = self.get_style(style)
-        new_style.tabs += 1
+        # new_style.tabs += 1
         return "\n".join([item.render(style=new_style) for item in self._items])
     
     def __repr__(self) -> str:
@@ -181,10 +197,12 @@ class TitleBlock(BaseBlock):
 
     def render(self, style: Style | None = None):
         # style = self.get_style(style)
-        style = style_manager.get_style(self, style)
-        content = super().render(style=style)
+        style = style_manager.get_style(self, style)        
         if self.title:
+            content = super().render(style=style.copy_tabs(inc=1))
             content = self._render_title(content, style)        
+        else:
+            content = super().render(style=style)
         return content
     
     
@@ -219,17 +237,13 @@ class ListBlock(TitleBlock):
         return curr_style
     
     def render(self, style: Style | None = None):
-        # new_style = self.get_style(style)
         new_style = style_manager.get_style(self, style)
         new_style.tabs += 1
         content = "\n".join([item.render(style=new_style.model_copy(update={"prefix": self._get_prefix(idx)})) for idx, item in enumerate(self._items)])
-        # content = "\n".join([self._get_list_item(idx, item.render(style=new_style)) for idx, item in enumerate(self._items)])
         if self.title:
             content = self._render_title(content, new_style)                    
         return content
-    # def render(self, prefix: str | None = None, postfix: str | None = None, tabs: int = 0, indent: int = 0):
-    #     return "\n".join([item.render(prefix=self._get_prefix(idx), tabs=tabs, indent=indent) for idx, item in enumerate(self._items)])
-
+    
 
 
 
