@@ -14,6 +14,8 @@ class FieldOp(Enum):
     EQ = "eq"
     NE = "ne"
     IN = "in"
+    NOTIN = "notin"
+    NULL = "null"
     
     
 
@@ -77,13 +79,7 @@ class QueryFilter:
         return f"({left_repr} {self._operator.value.upper()} {right_repr})"
 
 
-        
-# @dataclass    
-# class RangeFilter:
-#     ge: Any = None
-#     le: Any = None
-#     gt: Any = None
-#     lt: Any = None
+
 
 class RangeFilter:
     def __init__(self, ge=None, le=None, gt=None, lt=None):
@@ -191,6 +187,18 @@ class FieldComparable:
             raise ValueError(f"Invalid value for any: {args}")
         return QueryFilter(self, FieldOp.IN, other)
     
+    def notin(self, *args):
+        if type(args[0]) == list:
+            other = args[0]
+        elif type(args) == tuple:
+            other = list(args)
+        else:
+            raise ValueError(f"Invalid value for any: {args}")
+        return QueryFilter(self, FieldOp.NOTIN, other)
+
+    def isnull(self):
+        return QueryFilter(self, FieldOp.NULL, None)
+    
     
     def __repr__(self):
         return f"Field({self.name})"
@@ -245,25 +253,6 @@ class ModelFilterProxy(Generic[MODEL]):
             "field_values": self._fields
         }    
 
-# def create_model_filter_proxy(cls: Type[MODEL]) -> Type[MODEL]:
-#     class Proxy(ModelFilterProxy[MODEL], cls):  # Inherit from both ModelFilterProxy and the model class
-#         def __init__(self):
-#             ModelFilterProxy.__init__(self, cls)
-#             cls.__init__(self)
-#     return Proxy
-    
-
-        
-# G = TypeVar("G")   
-    
-    
-# class QueryProxy(Generic[G]):
-    
-#     def __getattr__(self, name):
-#         if field_info:= self._cls.model_fields.get(name, None):
-#             return FieldComparable(name, field_info)
-#         else:
-#             raise AttributeError(f"{self._cls.__name__} has no attribute {name}")
         
         
 
@@ -373,33 +362,6 @@ class VectorQuerySet:
     
     
 T_co = TypeVar("T_co", covariant=True)
-
-# class QuerySetSingle(Protocol[T_co]):
-#     """
-#     Awaiting on this will resolve a single instance of the Model object, and not a sequence.
-#     """
-
-#     # pylint: disable=W0104
-#     def __await__(self) -> Generator[Any, None, T_co]: ...  # pragma: nocoverage
-
-#     # def prefetch_related(
-#     #     self, *args: Union[str, Prefetch]
-#     # ) -> "QuerySetSingle[T_co]": ...  # pragma: nocoverage
-
-#     # def select_related(self, *args: str) -> "QuerySetSingle[T_co]": ...  # pragma: nocoverage
-
-#     # def annotate(self, **kwargs: Function) -> "QuerySetSingle[T_co]": ...  # pragma: nocoverage
-
-#     # def only(self, *fields_for_select: str) -> "QuerySetSingle[T_co]": ...  # pragma: nocoverage
-
-#     # def values_list(
-#     #     self, *fields_: str, flat: bool = False
-#     # ) -> "ValuesListQuery[Literal[True]]": ...  # pragma: nocoverage
-
-#     # def values(
-#     #     self, *args: str, **kwargs: str
-#     # ) -> "ValuesQuery[Literal[True]]": ...  # pragma: nocoverage
-    
 
 class QuerySetSingleAdapter(Generic[T_co]):
     def __init__(self, queryset: "QuerySet[T_co]"):

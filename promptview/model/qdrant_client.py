@@ -588,7 +588,7 @@ class QdrantClient:
         #             ]
         #         )
         if query_set._filters or query_set._partitions:
-            query_filter = self._parse_query_filters(query_set)
+            query_filter = self._parse_partition_query_filters(query_set)
                     
         if query_set._prefetch:
             prefetch = [self._parse_prefetch(q) for q in query_set._prefetch]        
@@ -641,7 +641,7 @@ class QdrantClient:
             score_threshold=threshold,
         )
         
-    def _parse_query_filters(self, query_set: QuerySet):
+    def _parse_partition_query_filters(self, query_set: QuerySet):
         query_filter = None
         if query_set._filters is not None:
             query_filter = self._parse_query_filter(query_set._filters)
