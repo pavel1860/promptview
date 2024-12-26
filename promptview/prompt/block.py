@@ -191,16 +191,16 @@ class TitleBlock(BaseBlock):
         elif style.ttype == "html":
             content = f"{tabs_str(style)}<h2>{self.title}</h2>\n{content}"
         elif style.ttype == "xml":
-            content = f"{tabs_str(style)}<{self.title}>\n{content}\n</{self.title}>"
+            content = f"{tabs_str(style)}<{self.title}>\n{content}\n{tabs_str(style)}</{self.title}>"
         else:
             raise ValueError(f"Invalid title style: {style.ttype}")
         return content
 
     def render(self, style: Style | None = None):
-        # style = self.get_style(style)
         style = style_manager.get_style(self, style)        
         if self.title:
             content = super().render(style=style.copy_tabs(inc=1))
+            # print(self.__class__.__name__, self.uuid, content)
             content = self._render_title(content, style)        
         else:
             content = super().render(style=style)
@@ -274,8 +274,8 @@ class FunctionBlock(Generic[P, R]):
 
 
 
-def decorator(title=None, ttype: TitleType="md", id: str | None = None):        
-    def subdecorator(func):
+def block_decorator(title=None, ttype: TitleType="md", id: str | None = None):        
+    def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):                
             block = TitleBlock(title=title, ttype=ttype, id=id)
@@ -283,17 +283,41 @@ def decorator(title=None, ttype: TitleType="md", id: str | None = None):
             block.append(output)
             return block
         return wrapper
-    return subdecorator
+    return decorator
   
 
-class block(Generic[P, R]):
+# class block(Generic[P, R]):
+        
+    
+#     def __init__(self, title=None, ttype: TitleType="md", id: str | None = None):
+#         self.block = TitleBlock(title=title, ttype=ttype, id=id)
+    
+#     def __enter__(self):
+#         return self.block
+    
+#     def __exit__(self, exc_type, exc_value, traceback):
+#         pass   
+    
+#     @staticmethod
+#     def list(title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):        
+#         return ListBlock(title=title, ttype=ttype, bullet=bullet, id=id)
+
+    
+#     def __call__(self, func: Callable[P, R]) -> Callable[P, R]:        
+#         @wraps(func)
+#         def wrapper(*args, **kwargs) -> TitleBlock:                
+#             output = func(*args, **kwargs)
+#             self.block.append(output)
+#             return self.block
+#         return wrapper
+class block:
         
     
     def __init__(self, title=None, ttype: TitleType="md", id: str | None = None):
-        self.block = TitleBlock(title=title, ttype=ttype, id=id)
+        self.block_args = {"title": title, "ttype": ttype, "id": id}
     
     def __enter__(self):
-        return self.block
+        return TitleBlock(**self.block_args)
     
     def __exit__(self, exc_type, exc_value, traceback):
         pass   
@@ -301,16 +325,22 @@ class block(Generic[P, R]):
     @staticmethod
     def list(title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):        
         return ListBlock(title=title, ttype=ttype, bullet=bullet, id=id)
+
+    
+    def __call__(self, func: Callable[P, TitleBlock]) -> Callable[P, TitleBlock]:
+        @wraps(func)
+        def wrapper(*args, **kwargs) -> TitleBlock:
+            output = func(*args, **kwargs)
+            block = TitleBlock(**self.block_args)
+            block.append(output)
+            return block            
+        return wrapper
     
     
-    # def __call__(self, func: Callable[P, R]) -> Callable[P, TitleBlock]:        
-    #     @wraps(func)
-    #     def wrapper(*args, **kwargs) -> TitleBlock:                
-    #         # block = TitleBlock(title=title, ttype=ttype, id=id)
-    #         output = func(*args, **kwargs)
-    #         self.block.append(output)
-    #         return self.block
-    #     return wrapper
+        
+    # def __call__(self, func: Callable[P, R]):
+    #     # return func
+    #     return block_decorator(title=self.block.title, ttype=self.block.ttype, id=self.block.id)
     
     # @staticmethod
     # def decorator(cls, title=None, ttype: TitleType="md", id: str | None = None):        
@@ -328,8 +358,9 @@ class block(Generic[P, R]):
     # def wrap(title=None, ttype: TitleType="md", id: str | None = None):        
     #     return decorator(title=title, ttype=ttype, id=id)
     
-    def __call__(self, title=None, ttype: TitleType="md", id: str | None = None):
-        return decorator(title=title, ttype=ttype, id=id)
+    # def __call__(self, title=None, ttype: TitleType="md", id: str | None = None):
+    #     return block_decorator(title=title, ttype=ttype, id=id)
+    
     
     
     
