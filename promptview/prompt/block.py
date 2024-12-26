@@ -1,7 +1,8 @@
 from abc import abstractmethod
+from functools import wraps
 from uuid import uuid4
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Callable, Generic, Literal, ParamSpec, TypeVar
 import json
 from typing import Protocol, runtime_checkable
 
@@ -206,6 +207,12 @@ class TitleBlock(BaseBlock):
         return content
     
     
+    def list(self, title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):        
+        lb = ListBlock(title=title, ttype=ttype, bullet=bullet, id=id)
+        self.append(lb)
+        return lb
+    
+    
 # class Block(TitleBlock):
 #     ...
     
@@ -246,36 +253,86 @@ class ListBlock(TitleBlock):
     
 
 
+P = ParamSpec("P")
+R = TypeVar("R")
 
-class listblock(ListBlock):
+
+class FunctionBlock(Generic[P, R]):
+    block: TitleBlock
+    func: Callable[P, R]
+    
+    # def __init__(self, func: Callable[P,R], block_args, *args, **kwargs):
+    #     self.func = func
+    #     self.block_args = block_args
+    #     self.args = args
+    #     self.kwargs = kwargs
+        
+        
+    def __call__(self, *args, **kwargs):
+        output = self.func(*args, **kwargs)
+
+
+
+
+def decorator(title=None, ttype: TitleType="md", id: str | None = None):        
+    def subdecorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):                
+            block = TitleBlock(title=title, ttype=ttype, id=id)
+            output = func(*args, **kwargs)
+            block.append(output)
+            return block
+        return wrapper
+    return subdecorator
+  
+
+class block(Generic[P, R]):
+        
+    
+    def __init__(self, title=None, ttype: TitleType="md", id: str | None = None):
+        self.block = TitleBlock(title=title, ttype=ttype, id=id)
+    
+    def __enter__(self):
+        return self.block
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass   
+    
     @staticmethod
     def list(title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):        
-        return listblock(title=title, ttype=ttype, bullet=bullet, id=id)
+        return ListBlock(title=title, ttype=ttype, bullet=bullet, id=id)
     
-    def li(self, title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):
-        b = listblock(title=title, ttype=ttype, bullet=bullet, id=id)
-        self.append(b)
-        return b
-        
-    def block(self, title=None, ttype: TitleType="md", id: str | None = None):
-        b = block(title=title, ttype=ttype, id=id)
-        self.append(b)
-        return b
+    
+    # def __call__(self, func: Callable[P, R]) -> Callable[P, TitleBlock]:        
+    #     @wraps(func)
+    #     def wrapper(*args, **kwargs) -> TitleBlock:                
+    #         # block = TitleBlock(title=title, ttype=ttype, id=id)
+    #         output = func(*args, **kwargs)
+    #         self.block.append(output)
+    #         return self.block
+    #     return wrapper
+    
+    # @staticmethod
+    # def decorator(cls, title=None, ttype: TitleType="md", id: str | None = None):        
+    #     def subdecorator(func: Callable[P, BaseBlock]) -> Callable[P, TitleBlock]:
+    #         @wraps(func)
+    #         def wrapper(*args, **kwargs):                
+    #             block = TitleBlock(title=title, ttype=ttype, id=id)
+    #             output = func(*args, **kwargs)
+    #             block.append(output)
+    #             return block
+    #         return wrapper
+    #     return subdecorator
+    
+    # @staticmethod
+    # def wrap(title=None, ttype: TitleType="md", id: str | None = None):        
+    #     return decorator(title=title, ttype=ttype, id=id)
+    
+    def __call__(self, title=None, ttype: TitleType="md", id: str | None = None):
+        return decorator(title=title, ttype=ttype, id=id)
+    
+    
     
     
 
-class block(TitleBlock):
-    @staticmethod
-    def list(title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):        
-        return listblock(title=title, ttype=ttype, bullet=bullet, id=id)
-    
-    def li(self, title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):
-        b = listblock(title=title, ttype=ttype, bullet=bullet, id=id)
-        self.append(b)
-        return b
-        
-    def block(self, title=None, ttype: TitleType="md", id: str | None = None):
-        b = block(title=title, ttype=ttype, id=id)
-        self.append(b)
-        return b
 
