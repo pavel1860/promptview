@@ -493,3 +493,11 @@ class Prompt(BaseModel, Generic[T]):
             
             return decorator
         return prompt_decorator
+
+
+
+
+
+
+
+prompt = Prompt.decorator_factory()

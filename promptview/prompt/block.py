@@ -104,10 +104,13 @@ class dictblk(dict, Renderable):
 #     def render(self, indent=4):
 #         return json.dumps(self, indent=indent)
 
+BlockRole = Literal["assistant", "user", "system", "tool"]
 
 
 class BaseBlock(BaseModel):
     uuid: str = Field(default_factory=lambda: str(uuid4()))
+    role: str = Field(default="user", description="The role of the block")
+    name: str | None = Field(default=None, description="The name of the block")
     id: str | None = Field(default=None, description="The id for the block")
     tag: str | None = Field(default=None, description="The tag for the block")
     bclass: str = Field(default="block", description="The class for the block")
@@ -207,8 +210,13 @@ class TitleBlock(BaseBlock):
         return content
     
     
-    def list(self, title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):        
-        lb = ListBlock(title=title, ttype=ttype, bullet=bullet, id=id)
+    def list(self, title=None, ttype: TitleType="md", bullet: BulletType = "-", role: BlockRole = "user", name: str | None = None, id: str | None = None):        
+        lb = ListBlock(title=title, ttype=ttype, bullet=bullet, id=id, role=role, name=name)
+        self.append(lb)
+        return lb
+    
+    def block(self, title=None, ttype: TitleType="md", role: BlockRole = "user", name: str | None = None, id: str | None = None):        
+        lb = TitleBlock(title=title, ttype=ttype, id=id, role=role, name=name)
         self.append(lb)
         return lb
     
@@ -313,8 +321,8 @@ def block_decorator(title=None, ttype: TitleType="md", id: str | None = None):
 class block:
         
     
-    def __init__(self, title=None, ttype: TitleType="md", id: str | None = None):
-        self.block_args = {"title": title, "ttype": ttype, "id": id}
+    def __init__(self, title=None, ttype: TitleType="md", role: BlockRole = "user", name: str | None = None, id: str | None = None):
+        self.block_args = {"title": title, "ttype": ttype, "id": id, "role": role, "name": name}
     
     def __enter__(self):
         return TitleBlock(**self.block_args)
@@ -323,8 +331,8 @@ class block:
         pass   
     
     @staticmethod
-    def list(title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):        
-        return ListBlock(title=title, ttype=ttype, bullet=bullet, id=id)
+    def list(title=None, ttype: TitleType="md", bullet: BulletType = "-", role: BlockRole = "user", name: str | None = None, id: str | None = None):        
+        return ListBlock(title=title, ttype=ttype, bullet=bullet, id=id, role=role, name=name)
 
     
     def __call__(self, func: Callable[P, TitleBlock]) -> Callable[P, TitleBlock]:

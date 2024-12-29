@@ -170,15 +170,9 @@ class FieldComparable:
     
     def __ne__(self, other):
         self._validate_type(other)
-        return QueryFilter(self, FieldOp.NE, other)
+        return QueryFilter(self, FieldOp.NE, other)    
     
-    # def contains(self, other):
-    #     return QueryFilter(self, other, FieldOp.IN)
-    
-    # def any(self, other):
-    #     return QueryFilter(self, other, FieldOp.IN)
-    
-    def isin(self, *args):        
+    def isin(self, *args):
         if type(args[0]) == list:
             other = args[0]
         elif type(args) == tuple:
@@ -199,10 +193,8 @@ class FieldComparable:
     def isnull(self):
         return QueryFilter(self, FieldOp.NULL, None)
     
-    
     def __repr__(self):
         return f"Field({self.name})"
-    
     
         
 MODEL = TypeVar("MODEL", bound="Model")   
@@ -385,12 +377,14 @@ class QuerySet(Generic[MODEL]):
     query_type: QueryType
     _ids: list[str] | None
     _limit: int
+    _sub_limit_scale: int
     _offset: int | None
     _order_by: str | dict | None
     _filters: QueryFilter | None
     _vector_query: VectorQuerySet | None
     _unpack_result: bool = False
     _fusion: FusionType | None
+    _fusion_treshold: float | None
     _prefetch: list[Self]
     _partitions: dict[str, str]
     
@@ -430,14 +424,26 @@ class QuerySet(Generic[MODEL]):
             ns.name,
             query_set=self
         )
-        records = [self.model.pack_search_result(r) for r in result]        
-        # if self._unpack_result:
-        #     if len(records):
-        #         return records[0]
-        #     else:
-        #         return None
+        records = [self.model.pack_search_result(r) for r in result]
         return records
     
+    async def to_client_filters(self):
+        """
+        Convert the QuerySet filters to the format expected by the Qdrant client.
+        """
+        ns = await self.model.get_namespace()
+        await self._recursive_vectorization()
+        client_query = ns.conn.build_query(ns.name, query_set=self)
+        return client_query
+    
+    async def print_client_filters(self):
+        """
+        Print the client query that will be sent to the Qdrant server.
+        """
+        client_query = await self.to_client_filters()
+        print_query(client_query)
+        
+        
     async def _get_vec_names(self)-> list[str]:
         if self._vector_query is None:            
             return []
@@ -452,12 +458,6 @@ class QuerySet(Generic[MODEL]):
     
     async def _recursive_vectorization(self):
         if self.query_type == "vector" and self._vector_query is not None:
-            # ns = await self.model.get_namespace()
-            # # if self._vector_query.vec == ALL_VECS:
-            # if type(self._vector_query.vec) == AllVecs:
-            #     use_vectors = [vn for vn in ns.vector_spaces]
-            # else:
-            #     use_vectors = self._vector_query.vec
             use_vectors = await self._get_vec_names()
             vectors = await self.model.query_embed(
                 self._vector_query.query, 
@@ -467,24 +467,7 @@ class QuerySet(Generic[MODEL]):
             for p in self._prefetch:
                 await p._recursive_vectorization()
         return True
-    
-    
-    async def execute2(self):        
-        if self._vector_query:
-            result = await self._execute_vector_query()
-            records = [self.model.pack_search_result(r) for r in result.points]
-        else:
-            result = await self._execute_fetch()
-            records = [self.model.pack_search_result(r) for r in result]        
-        
-        if self._unpack_result:
-            if len(records):
-                return records[0]
-            else:
-                return None
-        return records
-    
-    
+
     async def to_db_filters(self):
         ns = await self.model.get_namespace()        
         return ns.conn.transform_filters(self._filters)
@@ -629,7 +612,14 @@ class QuerySet(Generic[MODEL]):
                 raise ValueError(f"Only QuerySet allowed in prefetch. got {arg}")
             self._fusion = type
         return self
-        
+    
+    
+    def score_threshold(self, threshold: float):
+        if self.query_type == "vector":
+            self._vector_query.threshold = threshold
+        elif self.query_type == "fusion":
+            self._fusion_treshold = threshold
+        return self
     
     def __repr__(self):
         def stringify_prefetch(prefetch_list, indent_level=1):
@@ -670,4 +660,68 @@ QuerySet({self.model.__name__})[{self.query_type}]:
 {formatted_fields}
         """
         
+def print_query(query):
+    import textwrap
+
+    def print_filter(target, indent=0):
+        filter_str = f"Filter(\n"    
+        field_list = ["should", "must", "must_not"]
+        for field in field_list:
+            value = getattr(target, field)
+            if value is None:
+                continue
+            filter_str += f"  {field}: "
+            if isinstance(value, models.Filter):
+                filter_str += print_filter(value, indent + 1)
+            elif isinstance(value, list):
+                filter_str += print_list(value, indent + 1)
+            else:
+                filter_str += print_condition(value, indent + 1)
+        filter_str += ")\n"
+        filter_str = textwrap.indent(filter_str, ' ' * indent)
+        return filter_str
+
+    def print_list(filter_list, indent=0):
+        list_str = "[\n"
+        for value in filter_list:
+            if isinstance(value, models.Filter):
+                list_str += print_filter(value, indent + 1)
+            else:
+                list_str += print_condition(value, indent + 1)
+        list_str += "]\n"
+        list_str = textwrap.indent(list_str, ' ' * indent)
+        return list_str
+
+    def print_condition(condition, indent=0):
+        condition_str = f"{condition.__class__.__name__}({str(condition)})\n"
+        condition_str = textwrap.indent(condition_str, ' ' * indent)
+        return condition_str
+    
+    def print_prefetch(prefetch, indent=0):
+        prefetch_str = "Prefetch(\n"
+        if prefetch.score_threshold:
+            prefetch_str += f"  score_threshold: {prefetch.score_threshold}\n"
+        if prefetch.limit:
+            prefetch_str += f"  limit: {prefetch.limit}\n"
+        if prefetch.lookup_from:
+            prefetch_str += f"  lookup_from: {prefetch.lookup_from}\n"
+        if prefetch.using:
+            prefetch_str += f"  using: {prefetch.using}\n"
+        if prefetch.filter:
+            prefetch_str += print_filter(prefetch.filter, indent + 1)    
+        prefetch_str += ")"
+        prefetch_str = textwrap.indent(prefetch_str, ' ' * indent)
+        return prefetch_str
+    
+    if query["prefetch"]:
+        for p in query["prefetch"]:
+            print(print_prefetch(p, 1))
+    
+    # print(query)
+    for key, value in query.items():
+        if key not in ["query_filter", "prefetch"]:
+            print(f"{key}: {value}")
+        
+    
+    print(print_filter(query["query_filter"]))
         
