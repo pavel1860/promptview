@@ -1,11 +1,13 @@
 
 from __future__ import annotations
+import contextlib
 import os
 from typing import Any, Dict, List, Optional, Type, TypeVar, Generic, Union, TYPE_CHECKING
 from uuid import uuid4
 from pydantic import BaseModel
 from qdrant_client.http.exceptions import UnexpectedResponse
 import grpc
+from contextvars import ContextVar
 
 
 from .fields import VectorSpaceMetrics
@@ -43,25 +45,33 @@ class VectorSpace:
 
     
 class NamespaceParams:
-    name: str
+    _name: str
     subspaces: list[str]
     vector_spaces: dict[str, VectorSpace]
     conn: QdrantClient
     indices: list[dict[str, str]]
+    envs: dict[str, dict[str, str]]
     
     def __init__(
             self, 
             name: str, 
+            envs: dict[str, dict[str, str]],
             vector_spaces: list[VectorSpace], 
             connection: QdrantClient, 
             indices: list[dict[str, str]] | None = None,
             subspaces: list[str] | None = None,
+            
         ):
-        self.name = name
+        self._name = name
         self.vector_spaces = {vs.name: vs for vs in vector_spaces}
         self.conn = connection
         self.indices = indices or []
         self.subspaces = subspaces or []
+        self.envs = envs
+        
+    @property
+    def name(self):
+        return self.envs[ENV_CONTEXT.get()][self._name]
 
     def get(self, vector_space: str):
         return self.vector_spaces[vector_space]
@@ -108,6 +118,8 @@ class VectorizersManager:
         return vectorizer
 
 
+ENV_CONTEXT = ContextVar("ENV_CONTEXT", default="default")
+
     
         
 class ConnectionManager:
@@ -122,6 +134,7 @@ class ConnectionManager:
         self._qdrant_connection = get_qdrant_connection()
         self._namespaces = {}
         self.vectorizers_manager = VectorizersManager()
+        self._envs = {"default": {}}
         # self._vector_db_connections = {}
         
     
@@ -132,19 +145,41 @@ class ConnectionManager:
             return self._qdrant_connection
         except KeyError:
             raise ValueError(f"Connection {db_name} not found")
+        
                 
     def add_namespace(self, namespace: str, vector_spaces: list[VectorSpace], indices: list[dict[str, str]] | None=None):        
         if namespace in self._namespaces:
             raise ValueError(f"Namespace {namespace} already exists. seems you have multiple Model classes with the same name")
+        self._envs["default"][namespace] = namespace
         self._namespaces[namespace] = NamespaceParams(
             name=namespace,
+            envs=self._envs,
             vector_spaces=vector_spaces,
             connection=self._qdrant_connection,
-            indices=indices or []
-        )
+            indices=indices or []            
+        )        
         for vs in vector_spaces:
             self.vectorizers_manager.add_vectorizer(namespace, vs.name, vs.vectorizer_cls)
         return self._namespaces[namespace]
+    
+    def add_env(self, env_name: str, env: dict[str, str]):
+        self._envs[env_name] = env
+        
+    def get_env_names(self):
+        return list(self._envs.keys())
+        
+        
+    @contextlib.contextmanager
+    def set_env(self, env_name: str):
+        token = ENV_CONTEXT.set(env_name)
+        try:
+            yield
+        finally:
+            ENV_CONTEXT.reset(token)
+            
+    def get_env(self):
+        return ENV_CONTEXT.get()
+    
     
     def add_model(self, model_cls: Type[Model]):
         self._models[model_cls.__name__] = model_cls
