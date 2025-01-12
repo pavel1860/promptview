@@ -81,7 +81,7 @@ class AnthropicLlmClient(BaseLlmClient):
     async def create(
             self,
             model: str,
-            temperature: int,
+            temperature: float,
             max_tokens: int,
             system: str,
             messages: List[dict],
