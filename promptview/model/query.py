@@ -32,14 +32,14 @@ class QueryFilter:
         self._operator = operator
         # print("INIT", left, right, operator)
         if operator not in [QueryOp.AND, QueryOp.OR]:
-            if isinstance(self._left, FieldComparable):
+            if isinstance(self._left, PropertyComparable):
                 self.field = self._left
                 self.value = self._right
-            elif isinstance(self._right, FieldComparable):
+            elif isinstance(self._right, PropertyComparable):
                 self.field = self._right
                 self.value = self._left
             else:
-                raise ValueError("No FieldComparable found")        
+                raise ValueError("No PropertyComparable found")        
     
     def is_datetime(self):
         return self.field.type == dt.datetime   
@@ -104,18 +104,18 @@ class RangeFilter:
         
     def __repr__(self):
         return f"RangeFilter(ge={self.ge}, le={self.le}, gt={self.gt}, lt={self.lt})"
-
-class FieldComparable:
     
-    def __init__(self, field_name: str, field_info: FieldInfo):
+
+class PropertyComparable:
+    
+    def __init__(self, field_name: str, type: Type[Any] | None = None):
         self._filters = {}
         self.name = field_name
-        self._field_info = field_info
-        self.type = field_info.annotation
+        self.type = type
         self._query_filter = None
         
-    def _validate_type(self, other):
-        if self.type != type(other):
+    def _validate_type(self, other):        
+        if self.type is not None and self.type != type(other):
             raise ValueError(f"Cannot compare {self.name} with {other}. Expected {self.type} got {type(other)}")
         # if not isinstance(other, FieldComparable):
             # raise ValueError(f"Cannot compare {self._field_name} with {other}")
@@ -195,7 +195,16 @@ class FieldComparable:
     
     def __repr__(self):
         return f"Field({self.name})"
+
+
+class FieldComparable(PropertyComparable):
     
+    def __init__(self, field_name: str, field_info: FieldInfo):
+        self._field_info = field_info
+        super().__init__(field_name, field_info.annotation) 
+
+
+  
         
 MODEL = TypeVar("MODEL", bound="Model")   
     
@@ -258,6 +267,14 @@ class AllVecs:
         return True
     
 ALL_VECS = AllVecs()
+
+
+class QueryProxyAny:
+    
+    def __getattr__(self, name):  
+        return PropertyComparable(name)
+        
+    
 
 
 class QueryProxy(Generic[MODEL]):
@@ -387,6 +404,7 @@ class QuerySet(Generic[MODEL]):
     _fusion_treshold: float | None
     _prefetch: list[Self]
     _partitions: dict[str, str]
+    _namespace: str | None = None
     
     
     def __init__(self, model: Type[MODEL], query_type: QueryType, partitions: dict[str, str] | None = None):
@@ -399,6 +417,7 @@ class QuerySet(Generic[MODEL]):
         self._vector_query = None
         self._prefetch = []
         self._fusion = None
+        self._namespace = None
         partitions = partitions or {}
         if subspace := self.get_subspace():
             partitions.update({"_subspace": subspace})
@@ -419,9 +438,10 @@ class QuerySet(Generic[MODEL]):
     
     async def execute(self) -> List[MODEL]:
         ns = await self.model.get_namespace()
-        await self._recursive_vectorization()                
+        await self._recursive_vectorization()
+        namespace = self._namespace or ns.name
         result = await ns.conn.execute_query(
-            ns.name,
+            namespace,
             query_set=self
         )
         records = [self.model.pack_search_result(r) for r in result]
@@ -611,6 +631,11 @@ class QuerySet(Generic[MODEL]):
             else:
                 raise ValueError(f"Only QuerySet allowed in prefetch. got {arg}")
             self._fusion = type
+        return self
+    
+    
+    def namespace(self, namespace: str) -> "QuerySet[MODEL]":
+        self._namespace = namespace
         return self
     
     

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, TypedDict
 from uuid import uuid4
 from qdrant_client import AsyncQdrantClient, models
 from qdrant_client.http.exceptions import ResponseHandlingException
@@ -8,6 +8,7 @@ from qdrant_client.models import (DatetimeRange, Distance, FieldCondition,
                                   PointStruct, Range, SearchRequest,
                                   SparseIndexParams, SparseVector,
                                   SparseVectorParams, VectorParams)
+from qdrant_client.conversions.common_types import PointId
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client import models
 import grpc
@@ -20,7 +21,7 @@ from .fields import VectorSpaceMetrics
 
 if TYPE_CHECKING:
     from .resource_manager import VectorSpace
-from .query import QueryFilter, FieldComparable, FieldOp, QueryOp, QuerySet
+from .query import QueryFilter, QueryProxy, FieldComparable, FieldOp, QueryOp, QueryProxyAny, QuerySet
 
 
 def chunks(iterable, batch_size=100):
@@ -187,11 +188,45 @@ class QdrantClient:
         )
         return recs
     
+
+    
+    
+    async def page_scroll(
+            self,
+            collection_name: str, 
+            page_size: int=10,
+            filters: Callable[[Any], bool] | None = None,
+            ids: List[str | int] | None=None,             
+            limit: int=10, 
+            offset: int=0,
+            with_payload=False, 
+            with_vectors=False, 
+            order_by: OrderBy | str | None=None,
+        ):        
+        next_id = offset
+        curr_limit = limit
+        
+        while next_id is not None:
+            if curr_limit <= 0:
+                break
+            points, next_id = await self.scroll(
+                collection_name=collection_name,
+                filters=filters,
+                ids=ids,
+                limit=min(curr_limit, page_size),
+                offset=next_id,
+                with_payload=with_payload,
+                with_vectors=with_vectors,
+                order_by=order_by
+            )
+            curr_limit -= len(points)
+            yield points
+           
     
     async def scroll(
             self,
             collection_name: str, 
-            filters: Any,  
+            filters: Callable[[Any], bool] | None = None,
             ids: List[str | int] | None=None, 
             limit: int=10, 
             offset: int=0,
@@ -207,7 +242,8 @@ class QdrantClient:
                     models.HasIdCondition(has_id=ids)
                 ],
             )        
-        if filters:
+        if filters is not None:
+            filters = self._parse_filter_lambda(filters) # type: ignore
             filter_ = self.transform_filters(filters)
         if order_by:
             if type(order_by) == str:
@@ -223,7 +259,7 @@ class QdrantClient:
                 raise ValueError("order_by must be a string or a dict.")
         
             
-        recs, a = await self.client.scroll(
+        recs, next_id = await self.client.scroll(
             collection_name=collection_name,
             scroll_filter=filter_,
             limit=limit,
@@ -232,7 +268,7 @@ class QdrantClient:
             with_vectors=with_vectors,
             order_by=order_by # type: ignore
         )
-        return recs
+        return recs, next_id
     
     
     async def query_points(
@@ -367,24 +403,28 @@ class QdrantClient:
         return recs
     
     
-    async def update_payload(self, collection_name: str, ids: List[str] | List[int], payload: Dict[str, Any]):
+    async def set_payload(
+        self, 
+        collection_name: str,
+        payload: Dict[str, Any], 
+        filters: Callable[[Any], bool] | None = None,
+        ids: List[PointId] | None = None
+    ):
+        points = None
         if ids:
             points = ids
+        elif filters:
+            filters = self._parse_filter_lambda(filters) # type: ignore
+            points = self.transform_filters(filters)             
         else:
-            raise ValueError("ids must be provided.")
-        await self.client.set_payload(
+            raise ValueError("Either ids or filters must be provided.")
+                        
+        return await self.client.set_payload(
             collection_name=collection_name,
             payload=payload,
-            points=points,
-            # points=models.Filter(
-            #     must=[
-            #         models.FieldCondition(
-            #             key="color",
-            #             match=models.MatchValue(value="red"),
-            #         ),
-            #     ],
-            # ),
+            points=points,            
         )    
+        
     
     
     async def delete(self, collection_name: str, ids: List[str] | List[int] | None = None, filters: Any | None = None):
@@ -560,6 +600,8 @@ class QdrantClient:
             )
         else:
             raise ValueError("order_by must be a string or a dict.")
+        
+    
     
     def _parse_query(self, query_set: QuerySet):
         query_filter = None
@@ -652,6 +694,11 @@ class QdrantClient:
     
     def transform_filters(self, query_filters):
         return self._parse_query_filter(query_filters)
+    
+    def _parse_filter_lambda(self, filter_fn: Callable[[Any], bool]):
+        query = QueryProxyAny()
+        filters = filter_fn(query)
+        return filters
     
     def _parse_query_filter(self, query_filter: QueryFilter) -> Filter:
         """Recursively parse QueryFilter into Qdrant Filter object."""

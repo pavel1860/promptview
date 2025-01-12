@@ -592,6 +592,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def upsert(cls: Type[MODEL]):
         pass
     
+    
     @classmethod
     async def create(cls: Type[MODEL], **kwargs: Any) -> MODEL:
         obj = await cls(**kwargs).save()
@@ -601,10 +602,14 @@ class Model(BaseModel, metaclass=ModelMeta):
     # async def update_payload(cls: Type[MODEL], id: str, update: dict):
     #     pass
         
-    def copy(self):
-        obj = self.__class__(**self._payload_dump())
+    def copy(self, with_ids: bool = True):
+        payload = self._payload_dump()
+        if not with_ids:
+            payload.pop("id")
+        obj = self.__class__(**payload)
         if self._vector:
             obj._vector = copy.deepcopy(self._vector)
+        
         return obj
     
     @classmethod
