@@ -1,7 +1,8 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Generator, Generic, Iterator, List, Literal, Protocol, Self, Type, TypeVar
+from types import UnionType
+from typing import TYPE_CHECKING, Any, Callable, Generator, Generic, Iterator, List, Literal, Protocol, Self, Type, TypeVar, Union, get_origin, get_args
 from pydantic.fields import FieldInfo
 import datetime as dt
 from qdrant_client import models
@@ -42,7 +43,14 @@ class QueryFilter:
                 raise ValueError("No PropertyComparable found")        
     
     def is_datetime(self):
-        return self.field.type == dt.datetime   
+        if self.field.type == dt.datetime:
+            return True
+        elif get_origin(self.field.type) == UnionType or get_origin(self.field.type) == Union:
+            # Optional[datetime]
+            union_args = get_args(self.field.type)
+            if len(union_args) == 2 and dt.datetime in union_args and type(None) in union_args:
+                return True
+        return False
     
         
     def __and__(self, other):
@@ -116,7 +124,13 @@ class PropertyComparable:
         
     def _validate_type(self, other):        
         if self.type is not None and self.type != type(other):
-            raise ValueError(f"Cannot compare {self.name} with {other}. Expected {self.type} got {type(other)}")
+            origin = get_origin(self.type)
+            if origin == UnionType or origin == Union:
+                union_args = get_args(self.type)
+                if type(other) not in union_args:
+                    raise ValueError(f"Cannot compare {self.name} with {other}. Expected one of {union_args} got {type(other)}")
+            else:
+                raise ValueError(f"Cannot compare {self.name} with {other}. Expected {self.type} got {type(other)}")
         # if not isinstance(other, FieldComparable):
             # raise ValueError(f"Cannot compare {self._field_name} with {other}")
 
