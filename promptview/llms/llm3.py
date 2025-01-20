@@ -102,11 +102,13 @@ class LlmExecution(BaseModel):
         self.tool_choice = "required"
         self.parallel_tool_calls = False
         self.actions = Actions(actions)
+        return self
     
     def many_of(self, actions: List[Type[BaseModel]]):
         self.tool_choice = "required"
         self.parallel_tool_calls = True
         self.actions = Actions(actions)
+        return self
     
     async def run_complete(
         self, 

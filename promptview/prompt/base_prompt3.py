@@ -1,8 +1,11 @@
+import enum
+import functools
 import inspect
 from functools import wraps
-from typing import (Any, Awaitable, Callable, Generic, List, Literal, Type,
+from typing import (Any, Awaitable, Callable, Concatenate, Generic, List, Literal, Type,
                     TypedDict, TypeVar, ParamSpec)
 
+from promptview.conversation.history import History
 from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.llm2 import LLM
@@ -21,14 +24,60 @@ P = ParamSpec('P')
 R = TypeVar('R')
 
 
+class FunctionType(enum.Enum):
+    FUNCTION = 0
+    ASYNC_FUNCTION = 1
+    GENERATOR = 2
+    ASYNC_GENERATOR = 3
+    
 
 
-class Prompt(Generic[P, R]):
+def check_function_type(func):    
+    if inspect.isfunction(func):
+        return FunctionType.FUNCTION
+    elif inspect.iscoroutinefunction(func):
+        return FunctionType.ASYNC_FUNCTION
+    elif inspect.isgeneratorfunction(func):
+        return FunctionType.GENERATOR
+    elif inspect.isasyncgenfunction(func):
+        return FunctionType.ASYNC_GENERATOR
+        
+
+
+
+class FunctionDescription:
+    """
+    container for function type and parameters
+    """
+    def __init__(self, func) -> None:
+        self.type = check_function_type(func)
+        self.params = [a for a in inspect.signature(func).parameters.values() if a.name != 'self']
+
+    def merge_args_kwargs(self, args, kwargs):
+        log_args = {}
+        for i, arg in enumerate(args):
+            log_args[self.params[i].name] = arg
+        log_args.update(kwargs)
+        return log_args
+    
+    # def filter_args(self, args, kwargs):
+        
+        # return log_args, log_kwargs
+
+
+
+
+class Controller(Generic[P, R]):
     _name: str
     _complete: Callable[P, R]
     
     
-    async def _call_with_dependencies(self, *args, **kwargs):
+    def _set_history(self, history: History):
+        history.init_main()
+        return history
+    
+    
+    async def _inject_dependencies(self, *args, **kwargs):
         signature = inspect.signature(self._complete)
         injection_kwargs = {}
         for param_name, param in signature.parameters.items():
@@ -36,8 +85,23 @@ class Prompt(Generic[P, R]):
             if isinstance(default_val, DependsContainer):
                 dependency_func = default_val.dependency
                 resolved_val = await resolve_dependency(dependency_func,  *args, **kwargs)
-                injection_kwargs[param_name] = resolved_val
+                if isinstance(resolved_val, History):
+                    resolved_val = self._set_history(resolved_val)
+                injection_kwargs[param_name] = resolved_val            
                 
+        return injection_kwargs
+    
+    
+    
+    
+
+
+
+class Prompt(Controller[P, R]):   
+    
+    
+    async def _call_with_dependencies(self, *args, **kwargs):
+        injection_kwargs = await self._inject_dependencies(*args, **kwargs)                      
         res = await call_function(self._complete, *args, **kwargs, **injection_kwargs)
         return res
     
@@ -55,7 +119,10 @@ class Prompt(Generic[P, R]):
             res = await self._call_with_dependencies(*args, **kwargs)
             run.add_outputs({"response":res})
             return res
-    
+        
+
+class Agent(Controller[P, R]):   
+    pass
 
         
 def prompt(
@@ -71,3 +138,4 @@ def prompt(
         prompt._complete = func
         return prompt        
     return decorator
+
