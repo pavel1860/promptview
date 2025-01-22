@@ -406,7 +406,7 @@ def validate_first_message(messages: List[BaseMessage]) -> List[BaseMessage]:
 
     
 def filter_action_calls(messages: List[BaseMessage], user_first: bool=False, check_alternation=False, should_merge=False) -> List[BaseMessage]:
-    messages = [m.model_copy() for m in messages if (m.content or m.content_blocks)]
+    messages = [m.model_copy() for m in messages if (m.content or m.content_blocks or m.action_calls)]
     if user_first:
         messages = validate_first_message(messages)
     if should_merge:

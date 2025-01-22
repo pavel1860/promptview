@@ -89,6 +89,9 @@ class ActionAgent(BaseModel):
             ex_ctx = self.router_prompt.build_execution_context(context=context, message= message, tracer_run=tracer_run, **kwargs)
             ex_ctx = await self.router_prompt.run_steps(ex_ctx)
             response = ex_ctx.output
+            if response.action_calls:
+                response.content = None
+
             if not self.is_router:
                 await context.history.add(context, message, str(tracer_run.id), self.name)                
             #? action handling loop
@@ -126,7 +129,7 @@ class ActionAgent(BaseModel):
 
                     # actions_views = render([response] + action_output_views)
                     # prev_views.extend(actions_views)
-                    # complete(prev_views)                    
+                    # complete(prev_views)
                     action_views = await self.router_prompt.process_render_output([response] + action_output_views)
                     ex_ctx = ex_ctx.copy_ctx(with_views=True)
                     ex_ctx.extend_views(action_views)
