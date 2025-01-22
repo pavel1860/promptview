@@ -103,6 +103,10 @@ class ActionCall(BaseModel):
     name: str
     action: dict | BaseModel
     
+    @property
+    def type(self):
+        return type(self.action)
+    
     
     
 class LlmUsage(BaseModel):

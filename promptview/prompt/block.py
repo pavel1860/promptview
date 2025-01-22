@@ -111,7 +111,7 @@ class BaseBlock(BaseModel):
     uuid: str = Field(default_factory=lambda: str(uuid4()))
     role: str = Field(default="user", description="The role of the block")
     name: str | None = Field(default=None, description="The name of the block")
-    id: str | None = Field(default=None, description="The id for the block")
+    id: int | str | None = Field(default=None, description="The id for the block")
     tag: str | None = Field(default=None, description="The tag for the block")
     bclass: str = Field(default="block", description="The class for the block")
     # style: Style = Field(default_factory=lambda: Style())
@@ -119,6 +119,27 @@ class BaseBlock(BaseModel):
     
     # class Config:
     #     arbitrary_types_allowed = True
+    def __init__(
+        self,
+        content: str | None = None,
+        role: BlockRole = "user", 
+        name: str | None = None,
+        uuid: str | None = None,        
+        id: int | str | None = None,
+        tag: str | None = None,
+        bclass: str = "block",
+    ):
+        super().__init__()
+        self.uuid = uuid or str(uuid4())
+        self.role = role
+        self.name = name
+        self.id = id
+        self.tag = tag
+        self.bclass = bclass
+        self._items = []
+        if content is not None:
+            self.append(content)
+        
     
     def append(self, item):        
         if not isinstance(item, Renderable):
@@ -169,6 +190,26 @@ class BaseBlock(BaseModel):
 class TitleBlock(BaseBlock):
     ttype: TitleType = Field(default="md", description="The style of the title")
     title: str | None = Field(default=None, description="The title of the block")
+    
+    def __init__(
+        self,
+        title: str | None = None,
+        content: str | None = None,
+        ttype: TitleType = "md",    
+        role: BlockRole = "user", 
+        name: str | None = None,
+        uuid: str | None = None,        
+        id: int | str | None = None,
+        tag: str | None = None,
+        bclass: str = "block",
+    ):
+        super().__init__(content=content, role=role, name=name, uuid=uuid, id=id, tag=tag, bclass=bclass)
+        self.title = title
+        self.ttype = ttype
+        self._items = []
+        if content is not None:
+            self.append(content)
+
     
     def _render_md(self):
         content = super().render()
@@ -265,19 +306,6 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-class FunctionBlock(Generic[P, R]):
-    block: TitleBlock
-    func: Callable[P, R]
-    
-    # def __init__(self, func: Callable[P,R], block_args, *args, **kwargs):
-    #     self.func = func
-    #     self.block_args = block_args
-    #     self.args = args
-    #     self.kwargs = kwargs
-        
-        
-    def __call__(self, *args, **kwargs):
-        output = self.func(*args, **kwargs)
 
 
 
@@ -294,30 +322,6 @@ def block_decorator(title=None, ttype: TitleType="md", id: str | None = None):
     return decorator
   
 
-# class block(Generic[P, R]):
-        
-    
-#     def __init__(self, title=None, ttype: TitleType="md", id: str | None = None):
-#         self.block = TitleBlock(title=title, ttype=ttype, id=id)
-    
-#     def __enter__(self):
-#         return self.block
-    
-#     def __exit__(self, exc_type, exc_value, traceback):
-#         pass   
-    
-#     @staticmethod
-#     def list(title=None, ttype: TitleType="md", bullet: BulletType = "-", id: str | None = None):        
-#         return ListBlock(title=title, ttype=ttype, bullet=bullet, id=id)
-
-    
-#     def __call__(self, func: Callable[P, R]) -> Callable[P, R]:        
-#         @wraps(func)
-#         def wrapper(*args, **kwargs) -> TitleBlock:                
-#             output = func(*args, **kwargs)
-#             self.block.append(output)
-#             return self.block
-#         return wrapper
 class block:
         
     

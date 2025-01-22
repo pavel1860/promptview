@@ -1,5 +1,4 @@
-
-from typing import Literal
+from typing import Literal, Union
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, func, literal_column, create_engine
 import os
@@ -14,7 +13,7 @@ class MessageList(list):
     
     def render_html(self):
         html_str = f"""<html>
-<div style="display: flex; flex-direction: column; width: 400px;">
+<div style="display: flex; flex-direction: column; width: 400px; margin: 0;">
     {"".join([m.render_html() for m in self])}
 </div>
 </html>"""
@@ -211,11 +210,83 @@ class History:
         return None    
     
     
-    def delete_message(self, message_id: int):
-        message = self._query(Message).filter_by(id=message_id).first()
-        if message:
-            self._conn_session.delete(message)
+    def delete(self, item: Union[Message, MessageSession, Branch, None] = None, id: int | None = None):
+        if item is None and id is None:
+            raise ValueError("Item or id must be set")
+        if item is None:
+            raise ValueError("Must provide item when id is None")
+
+        if isinstance(item, Message):
+            return self.delete_message(item, id)
+        elif isinstance(item, MessageSession):
+            return self.delete_session(item, id)
+        elif isinstance(item, Branch):
+            return self.delete_branch(item, id)
+        else:
+            raise ValueError(f"Unsupported item type: {type(item)}")
+
+    def delete_message(self, message: Message | None = None, id: int | None = None):
+        if message is None and id is None:
+            raise ValueError("Message or id must be set")
+        if message is None:
+            message = self._query(Message).filter_by(id=id).first()
+            if not message:
+                raise ValueError("Message not found")
+        else:
+            # Use the passed message object's id
+            message = self._query(Message).filter_by(id=message.id).first()
+            if not message:
+                raise ValueError("Message not found")
+            
+        self._conn_session.delete(message)
+        self._conn_session.commit()
+        return message
+
+
+    def delete_session(self, session: MessageSession | None = None, id: int | None = None):
+        if session is None and id is None:
+            raise ValueError("Session or id must be set")
+        
+        if session is None:
+            session = self._query(MessageSession).filter_by(id=id).first()
+            if not session:
+                raise ValueError("Session not found")
+        else:
+            # Use the passed session object's id
+            session = self._query(MessageSession).filter_by(id=session.id).first()
+            if not session:
+                raise ValueError("Session not found")
+        
+        # First delete all branches associated with this session
+        for branch in session.branches:
+            self._conn_session.delete(branch)
+        
+        # Then delete the session
+        self._conn_session.delete(session)
+        
+        try:
             self._conn_session.commit()
-            return message
-        return None
+        except Exception as e:
+            self._conn_session.rollback()
+            raise e
+        
+        return session
+    
+    
+    def delete_branch(self, branch: Branch | None = None, id: int | None = None):
+        if branch is None and id is None:
+            raise ValueError("Branch or id must be set")
+        if branch is None:
+            branch = self._query(Branch).filter_by(id=id).first()
+            if not branch:
+                raise ValueError("Branch not found")
+        else:
+            # Use the passed branch object's id
+            branch = self._query(Branch).filter_by(id=branch.id).first()
+            if not branch:
+                raise ValueError("Branch not found")
+            
+        self._conn_session.delete(branch)
+        self._conn_session.commit()
+        return branch
     

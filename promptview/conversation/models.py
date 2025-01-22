@@ -111,21 +111,78 @@ class Message(Base):
     def render_html(self):
         def role_chip(role):
             if role == "user":
-                return '<span style="color: blue; font-weight: bold;">User</span>'
-            elif role == "assistant":
-                return '<div style="color: red; font-weight: bold;">Assistant</span>'
-            return '<span style="color: green; font-weight: bold;">Tool</span>:'                        
+                return '<div class="role-chip user">User</div>'
+            elif role == "assistant": 
+                return '<div class="role-chip assistant">Assistant</div>'
+            return '<div class="role-chip tool">Tool</div>'
+                        
         return f"""
-<div style="width: 400px; border: 1px solid gray; padding: 5px; margin: 5px">
-    <div style="display: flex; align-items: start;">
-        <div>
-            <span style="padding-right: 2px; font-size: 10px;">{self.id}</span>
-            {role_chip(self.role)}                
-            <div style="color: gray; font-size: 10px;">{self.created_at.strftime('%m-%d %H:%M:%S')}</div>
-        </div>
-        <p>          
+<style>
+.message-container {{
+    max-width: 800px;
+    margin: 2px;
+    padding: 4px;
+    border-radius: 4px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}}
+
+.message-header {{
+    display: flex;
+    align-items: center;
+    margin-bottom: 1px;
+}}
+
+.message-id {{
+    font-size: 10px;
+    color: #666;
+    margin-right: 4px;
+}}
+
+.role-chip {{
+    padding: 2px 6px;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 500;
+    margin-right: 4px;
+}}
+
+.role-chip.user {{
+    background: #E3F2FD;
+    color: #1976D2;
+}}
+
+.role-chip.assistant {{
+    background: #ffebee;
+    color: #c62828;
+}}
+
+.role-chip.tool {{
+    background: #FFF3E0;
+    color: #F57C00;
+}}
+
+.message-time {{
+    font-size: 10px;
+    color: #999;
+}}
+
+.message-content {{
+    font-size: 12px;
+    line-height: 0.6;
+    color: #333;
+    white-space: pre-wrap;
+}}
+</style>
+
+<div class="message-container">
+    <div class="message-header">
+        <span class="message-id">#{self.id}</span>
+        {role_chip(self.role)}
+        <span class="message-time">{self.created_at.strftime('%m-%d %H:%M:%S')}</span>
+    </div>
+    <div class="message-content">
         {self.content}
-        </p>
     </div>
 </div>
 """

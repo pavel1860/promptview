@@ -13,6 +13,7 @@ from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
+from promptview.prompt.controller import Controller
 from promptview.prompt.depends import Depends, DependsContainer, resolve_dependency
 from promptview.prompt.mvc import ViewBlock, create_view_block
 from promptview.state.context import Context
@@ -24,72 +25,49 @@ P = ParamSpec('P')
 R = TypeVar('R')
 
 
-class FunctionType(enum.Enum):
-    FUNCTION = 0
-    ASYNC_FUNCTION = 1
-    GENERATOR = 2
-    ASYNC_GENERATOR = 3
+# class FunctionType(enum.Enum):
+#     FUNCTION = 0
+#     ASYNC_FUNCTION = 1
+#     GENERATOR = 2
+#     ASYNC_GENERATOR = 3
     
 
 
-def check_function_type(func):    
-    if inspect.isfunction(func):
-        return FunctionType.FUNCTION
-    elif inspect.iscoroutinefunction(func):
-        return FunctionType.ASYNC_FUNCTION
-    elif inspect.isgeneratorfunction(func):
-        return FunctionType.GENERATOR
-    elif inspect.isasyncgenfunction(func):
-        return FunctionType.ASYNC_GENERATOR
+# def check_function_type(func):    
+#     if inspect.isfunction(func):
+#         return FunctionType.FUNCTION
+#     elif inspect.iscoroutinefunction(func):
+#         return FunctionType.ASYNC_FUNCTION
+#     elif inspect.isgeneratorfunction(func):
+#         return FunctionType.GENERATOR
+#     elif inspect.isasyncgenfunction(func):
+#         return FunctionType.ASYNC_GENERATOR
         
 
 
 
-class FunctionDescription:
-    """
-    container for function type and parameters
-    """
-    def __init__(self, func) -> None:
-        self.type = check_function_type(func)
-        self.params = [a for a in inspect.signature(func).parameters.values() if a.name != 'self']
+# class FunctionDescription:
+#     """
+#     container for function type and parameters
+#     """
+#     def __init__(self, func) -> None:
+#         self.type = check_function_type(func)
+#         self.params = [a for a in inspect.signature(func).parameters.values() if a.name != 'self']
 
-    def merge_args_kwargs(self, args, kwargs):
-        log_args = {}
-        for i, arg in enumerate(args):
-            log_args[self.params[i].name] = arg
-        log_args.update(kwargs)
-        return log_args
+#     def merge_args_kwargs(self, args, kwargs):
+#         log_args = {}
+#         for i, arg in enumerate(args):
+#             log_args[self.params[i].name] = arg
+#         log_args.update(kwargs)
+#         return log_args
     
-    # def filter_args(self, args, kwargs):
+#     # def filter_args(self, args, kwargs):
         
         # return log_args, log_kwargs
 
 
 
 
-class Controller(Generic[P, R]):
-    _name: str
-    _complete: Callable[P, R]
-    
-    
-    def _set_history(self, history: History):
-        history.init_main()
-        return history
-    
-    
-    async def _inject_dependencies(self, *args, **kwargs):
-        signature = inspect.signature(self._complete)
-        injection_kwargs = {}
-        for param_name, param in signature.parameters.items():
-            default_val = param.default
-            if isinstance(default_val, DependsContainer):
-                dependency_func = default_val.dependency
-                resolved_val = await resolve_dependency(dependency_func,  *args, **kwargs)
-                if isinstance(resolved_val, History):
-                    resolved_val = self._set_history(resolved_val)
-                injection_kwargs[param_name] = resolved_val            
-                
-        return injection_kwargs
     
     
     
@@ -121,8 +99,6 @@ class Prompt(Controller[P, R]):
             return res
         
 
-class Agent(Controller[P, R]):   
-    pass
 
         
 def prompt(
