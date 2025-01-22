@@ -2,11 +2,12 @@ from abc import abstractmethod
 from functools import wraps
 from uuid import uuid4
 from pydantic import BaseModel, Field
-from typing import Callable, Generic, Literal, ParamSpec, TypeVar
+from typing import Any, Callable, Generic, List, Literal, ParamSpec, TypeVar, Optional
 import json
 from typing import Protocol, runtime_checkable
 
 from promptview.utils.string_utils import int_to_roman
+from promptview.llms.messages import ActionCall, LlmUsage
 
 
 BulletType = Literal["number", "alpha", "roman", "roman_lower", "*", "-"]
@@ -108,7 +109,8 @@ BlockRole = Literal["assistant", "user", "system", "tool"]
 
 
 class BaseBlock(BaseModel):
-    uuid: str = Field(default_factory=lambda: str(uuid4()))
+    uuid: str = Field(default_factory=lambda: str(uuid4()), description="The uuid for the block. links to database.")
+    platform_uuid: str | None = Field(default=None, description="The platform uuid for the block. links to platform.")
     role: str = Field(default="user", description="The role of the block")
     name: str | None = Field(default=None, description="The name of the block")
     id: int | str | None = Field(default=None, description="The id for the block")
@@ -124,9 +126,10 @@ class BaseBlock(BaseModel):
         content: str | None = None,
         role: BlockRole = "user", 
         name: str | None = None,
-        uuid: str | None = None,        
         id: int | str | None = None,
+        uuid: str | None = None,                
         tag: str | None = None,
+        platform_uuid: str | None = None,
         bclass: str = "block",
     ):
         super().__init__()
@@ -136,6 +139,7 @@ class BaseBlock(BaseModel):
         self.id = id
         self.tag = tag
         self.bclass = bclass
+        self.platform_uuid = platform_uuid
         self._items = []
         if content is not None:
             self.append(content)
@@ -198,12 +202,13 @@ class TitleBlock(BaseBlock):
         ttype: TitleType = "md",    
         role: BlockRole = "user", 
         name: str | None = None,
-        uuid: str | None = None,        
+        uuid: str | None = None,  
+        platform_uuid: str | None = None,
         id: int | str | None = None,
         tag: str | None = None,
         bclass: str = "block",
     ):
-        super().__init__(content=content, role=role, name=name, uuid=uuid, id=id, tag=tag, bclass=bclass)
+        super().__init__(content=content, role=role, name=name, uuid=uuid, platform_uuid=platform_uuid, id=id, tag=tag, bclass=bclass)
         self.title = title
         self.ttype = ttype
         self._items = []
@@ -269,6 +274,20 @@ class TitleBlock(BaseBlock):
     
 class ListBlock(TitleBlock):
     bullet: BulletType = Field(default="-", description="The bullet style for the list")
+    
+    def __init__(
+        self,
+        title: str | None = None,
+        ttype: TitleType = "md",
+        bullet: BulletType = "-",
+        id: str | None = None,
+        role: BlockRole = "user",
+        name: str | None = None,
+        platform_uuid: str | None = None,
+        bclass: str = "block",
+    ):
+        super().__init__(title=title, ttype=ttype, id=id, role=role, name=name, platform_uuid=platform_uuid, bclass=bclass)
+        self.bullet = bullet    
 
     
     def _get_prefix(self, idx: int):
@@ -300,6 +319,11 @@ class ListBlock(TitleBlock):
             content = self._render_title(content, new_style)                    
         return content
     
+
+
+
+
+
 
 
 P = ParamSpec("P")
@@ -348,7 +372,7 @@ class block:
             return block            
         return wrapper
     
-    
+  
         
     # def __call__(self, func: Callable[P, R]):
     #     # return func
@@ -377,5 +401,118 @@ class block:
     
     
     
+
+
+
+class ResponseBlock(TitleBlock):
+    model: str | None = Field(default=None, description="The model used to generate the response")
+    did_finish: bool = Field(default=True, description="Whether the response generation finished")
+    run_id: str | None = Field(default=None, description="The run ID for this response")
+    action_calls: List[ActionCall] | None = Field(default=None, description="List of action calls made by the response")
+    usage: LlmUsage | None = Field(default=None, description="Token usage information")
+    raw: Any = Field(default=None, description="Raw response data")
+    block_role: Literal["assistant"] = Field(default="assistant", alias="role")
+    
+    def __init__(
+        self,
+        content: str | None = None,
+        model: str | None = None,
+        did_finish: bool = True,
+        run_id: str | None = None,
+        action_calls: List[ActionCall] | None = None,
+        usage: LlmUsage | None = None,
+        raw: Any = None,
+        title: str | None = None,
+        ttype: TitleType = "md",    
+        name: str | None = None,
+        uuid: str | None = None, 
+        platform_uuid: str | None = None,
+        id: int | str | None = None,
+        tag: str | None = None,
+        bclass: str = "block",
+    ):
+        super().__init__(
+            content=content, 
+            title=title, 
+            ttype=ttype, 
+            role="assistant", 
+            name=name, 
+            uuid=uuid, 
+            platform_uuid=platform_uuid,
+            id=id, 
+            tag=tag, 
+            bclass=bclass
+        )
+        self.model = model
+        self.did_finish = did_finish
+        self.run_id = run_id
+        self.action_calls = action_calls or []
+        self.usage = usage
+        self.raw = raw
+        self._tool_responses: dict[str, Any] = {}
+        self._tools: dict[str, BaseModel] = {}
+
+    @property
+    def actions(self) -> List[BaseModel]:
+        return list(self._tools.values())
+    
+    @property
+    def output(self) -> BaseModel | None:
+        if not self.action_calls:
+            return None
+        action = self.action_calls[0].action
+        if isinstance(action, BaseModel):
+            return action
+        return None
+    
+    def set_actions(self, value: List[BaseModel]) -> None:
+        self._tools = {str(i): action for i, action in enumerate(value)}
+        self.action_calls = [
+            ActionCall(id=str(i), name=action.__class__.__name__, action=action)
+            for i, action in enumerate(value)
+        ]
+    
+    def add_action_output(self, tool_id: str, output: BaseModel | str | dict) -> None:
+        self._tool_responses[tool_id] = output
+        
+    def add_action(self, tool_id: str, action: BaseModel) -> None:
+        self._tools[tool_id] = action
+
+
+class ActionBlock(TitleBlock):
+    block_role: Literal["tool"] = Field(default="tool", alias="role")
+    tool_call_id: str | None = Field(default=None, description="The ID of the tool call this action is responding to")
+    
+    def __init__(
+        self,
+        content: str | None = None,
+        tool_call_id: str | None = None,
+        title: str | None = None,
+        ttype: TitleType = "md",    
+        name: str | None = None,
+        uuid: str | None = None,   
+        platform_uuid: str | None = None,
+        id: int | str | None = None,
+        tag: str | None = None,
+        bclass: str = "block",
+    ):
+        super().__init__(
+            content=content, 
+            title=title, 
+            ttype=ttype, 
+            role="tool", 
+            name=name, 
+            uuid=uuid, 
+            platform_uuid=platform_uuid,
+            id=id or tool_call_id, 
+            tag=tag, 
+            bclass=bclass
+        )
+        self.tool_call_id = tool_call_id
+
+
+
+
+
 
 

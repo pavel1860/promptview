@@ -1,19 +1,46 @@
-from typing import Dict, List, Literal, Type
+from abc import abstractmethod
+from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar, Union
+import anthropic
+import openai
 from pydantic import BaseModel, ValidationError, Field
-from promptview.llms.clients.base import BaseLlmClient
+from promptview.llms.clients.anthropic_client import AnthropicLlmClient
+# from promptview.llms.clients.base import BaseLlmClient
+from promptview.llms.clients.openai_client import OpenAiLlmClient
 from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.interpreter import LlmInterpreter
 # from promptview.llms.llm import ToolChoice
 from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.block import BaseBlock
+from promptview.prompt.block import BaseBlock, ResponseBlock
+from promptview.prompt.context import CtxBlocks
 from promptview.prompt.mvc import ViewBlock
 
 
 
 
 ToolChoice = Literal['auto', 'required', 'none']
+
+LLM_CLIENT = TypeVar('LLM_CLIENT')
+CLIENT_PARAMS = ParamSpec('CLIENT_PARAMS')
+CLIENT_RESPONSE = TypeVar('CLIENT_RESPONSE')
+
+
+
+class BaseLlmClient(BaseModel, Generic[LLM_CLIENT, CLIENT_RESPONSE]):
+    client: LLM_CLIENT
+    
+    @abstractmethod
+    async def complete(
+        self, 
+        messages: List[dict], 
+        tools: List[dict], 
+        model: str, 
+        tool_choice: str, 
+        **kwargs
+    ) -> CLIENT_RESPONSE:
+        ...
+
 
 class LlmConfig(BaseModel):
     temperature: float | None = None
@@ -79,67 +106,97 @@ class LlmConfig(BaseModel):
 
 
 
-class LlmExecution(BaseModel):
-    blocks: List[BaseBlock] = []
-    messages: List[BaseMessage] = []
-    actions: Actions = Actions()
+class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
+    # blocks: List[BaseBlock] = []
+    ctx_blocks: CtxBlocks 
+    # messages: List[BaseMessage] = []
+    messages: List[dict] = []
+    # actions: Actions = Actions()
+    actions: List[Type[BaseModel]] = []
+    tools: List[dict] | None = None
     model: str
-    client: BaseLlmClient
+    # client: BaseLlmClient
     name: str
     tool_choice: ToolChoice | None = None
     parallel_tool_calls: bool = False
     config: LlmConfig = LlmConfig()
     is_traceable: bool | None = True
     tracer_run: Tracer | None = None
+    _to_tools: Callable[[list[Type[BaseModel]]], List[dict] | None] | None = None
+    _complete: Callable[CLIENT_PARAMS, CLIENT_RESPONSE] | None = None
+    _parse_response: Callable[[CLIENT_RESPONSE, Actions], ResponseBlock] | None = None
     
     class Config:
         arbitrary_types_allowed = True   
     
     def __await__(self):
-        return self.complete().__await__()    
+        return self.run_complete().__await__()
+        
     
     def one_of(self, actions: List[Type[BaseModel]]):
         self.tool_choice = "required"
         self.parallel_tool_calls = False
-        self.actions = Actions(actions)
+        self.actions = actions
+        # self.actions = Actions(actions)
         return self
     
     def many_of(self, actions: List[Type[BaseModel]]):
         self.tool_choice = "required"
         self.parallel_tool_calls = True
-        self.actions = Actions(actions)
+        self.actions = actions
+        # self.actions = Actions(actions)
         return self
     
+    # async def run_complete(
+    #     self, 
+    #     **kwargs
+    # ) -> AIMessage:
+        
+    #     llm_kwargs = self.config.get_llm_args(**kwargs)
+    #     # metadata["model"] = llm_kwargs.get("model", self.model)
+    #     with Tracer(
+    #         is_traceable=self.is_traceable,
+    #         tracer_run=self.tracer_run,
+    #         run_type="llm",
+    #         name=self.name,
+    #         inputs={"messages": [msg.to_openai() for msg in self.messages]},
+    #         # metadata=metadata,
+    #     ) as llm_run:
+    #         try:
+    #             response = await self.client.complete(
+    #                 self.messages, 
+    #                 actions=self.actions,
+    #                 tool_choice=self.tool_choice,
+    #                 run_id=str(llm_run.id),
+    #                 **llm_kwargs
+    #             )
+    #             llm_run.end(outputs=response.raw)
+    #             return response  
+    #         except Exception as e:
+    #             llm_run.end(errors=str(e))
+    #             raise e
     async def run_complete(
         self, 
-        **kwargs
-    ) -> AIMessage:
+    ) -> ResponseBlock:
+        if self._complete is None:
+            raise ValueError("complete method is not set")
+        if self._parse_response is None:
+            raise ValueError("parse_response method is not set")
+        if self._to_tools is None:
+            raise ValueError("to_tools method is not set")
+        tools = self._to_tools(self.actions)
+        response = await self._complete(
+            messages=self.messages,
+            tools=tools,
+            model=self.model,
+            tool_choice=self.tool_choice,
+            **self.config.get_llm_args()
+        )
+        return self._parse_response(response, self.actions)
         
-        llm_kwargs = self.config.get_llm_args(**kwargs)
-        # metadata["model"] = llm_kwargs.get("model", self.model)
-        with Tracer(
-            is_traceable=self.is_traceable,
-            tracer_run=self.tracer_run,
-            run_type="llm",
-            name=self.name,
-            inputs={"messages": [msg.to_openai() for msg in self.messages]},
-            # metadata=metadata,
-        ) as llm_run:
-            try:
-                response = await self.client.complete(
-                    self.messages, 
-                    actions=self.actions,
-                    tool_choice=self.tool_choice,
-                    run_id=str(llm_run.id),
-                    **llm_kwargs
-                )
-                llm_run.end(outputs=response.raw)
-                return response  
-            except Exception as e:
-                llm_run.end(errors=str(e))
-                raise e
+                
     
-    async def complete(
+    async def smart_complete(
         self, 
         # messages: List[BaseMessage], 
         # actions: Actions=None,
@@ -171,51 +228,74 @@ class LlmExecution(BaseModel):
                 raise e
     
     
-    
-    
-    
+ 
+
+# LlmClientType = Union[openai.AsyncClient, anthropic.AsyncAnthropic, BaseLlmClient]
+  
 
 
-class LLM(BaseModel):
+class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     model: str
     name: str
     
     is_traceable: bool | None = True
-    client: BaseLlmClient
-    # client: Union[OpenAiLlmClient, PhiLlmClient, AzureOpenAiLlmClient]    
-    
+    # client: BaseLlmClient[LLM_CLIENT, CLIENT_RESPONSE]    
+    client: LLM_CLIENT  
     
     class Config:
         arbitrary_types_allowed = True   
         
         
-    def transform(self, blocks: List[BaseBlock] | BaseBlock) -> List[BaseMessage]:
+    def transform(self, ctx_blocks: CtxBlocks) -> List[BaseMessage]:
         if not isinstance(blocks, list):
             blocks = [blocks]
         messages = []
         for block in blocks:
             messages.append(HumanMessage(content=block.render()))
         return messages
-       
+    
+    
+    @abstractmethod
+    def to_message(self, block: BaseBlock) -> dict:
+        ...
+    
+    @abstractmethod
+    def to_chat(self, ctx: CtxBlocks) -> List[BaseBlock]:
+        ...
+    
+    @abstractmethod
+    def parse_response(self, response: CLIENT_RESPONSE, actions: List[Type[BaseModel]] | None) -> ResponseBlock:
+        ...
         
+    @abstractmethod
+    def complete(self, *args: CLIENT_PARAMS.args, **kwargs: CLIENT_PARAMS.kwargs) -> CLIENT_RESPONSE:
+        ...
+        
+    @abstractmethod
+    def to_tools(self, actions: List[Type[BaseModel]]) -> List[dict] | None:
+        ...
+    
     def __call__(
         self, 
-        blocks: List[BaseBlock] | BaseBlock,
-        # tool_choice: ToolChoice | BaseModel | None = None,
-        # metadata: Dict[str, str] | None = None,
+        ctx_blocks: CtxBlocks,
         retries: int = 3,
         smart_retry: bool = True,
         config: LlmConfig | None = None,
         is_traceable: bool | None = True,
-    ):
-        messages = self.transform(blocks)
+    ):  
+        chat_blocks = self.to_chat(ctx_blocks)
+        messages = [self.to_message(b) for b in chat_blocks]
+                
         llm_execution = LlmExecution(
-            blocks=blocks if isinstance(blocks, list) else [blocks],
+            ctx_blocks=ctx_blocks,
             messages=messages,
             model=self.model,
-            client=self.client,
+            # client=self.client,
             name=self.name,
             # config=config,
             is_traceable=is_traceable
         )
+        llm_execution._complete = self.complete
+        llm_execution._parse_response = self.parse_response
+        llm_execution._to_tools = self.to_tools
         return llm_execution
