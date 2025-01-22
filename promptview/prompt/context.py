@@ -6,6 +6,14 @@ from promptview.conversation.history import History
 from collections import defaultdict
 
 
+from typing import TypedDict, List
+
+class MessageView(TypedDict):
+    content: List[str]
+    role: str
+
+
+
 class CtxBlocks:
     
     def __init__(self, input: str | None = None):
@@ -23,15 +31,30 @@ class CtxBlocks:
         self._blocks.append(block)
         self._block_lookup[block.id].append(block)
         
-    def get_blocks(self, key: str | list[str]):
-        _key: list[str]
-        if type(key) == str:
+    def get_blocks(self, key: str | MessageView | list[str | MessageView] ):
+        _key: list[str | MessageView]
+        if type(key) == str or type(key) == MessageView:
             _key = [key]
         elif type(key) == list:
             _key = key
         else:
             raise ValueError(f"Invalid key type: {type(key)}")
-        return [b for k in _key for b in self._block_lookup[k]]
+        chat_blocks = []
+        for k in _key:            
+            if type(k) == str:
+                if k not in self._block_lookup:
+                    raise ValueError(f"Block with id {k} not found")
+                target = self._block_lookup[k]
+                chat_blocks.extend(target)
+            elif type(k) == dict:                                
+                chat_blocks.append(
+                    TitleBlock(
+                        content=self.get_blocks(k["content"]),
+                        role=k.get("role", "user")
+                    )
+                )
+                
+        return chat_blocks
         
         
     def block(self, title=None, ttype: TitleType="md", role: BlockRole = "user", name: str | None = None, id: str | None = None):        

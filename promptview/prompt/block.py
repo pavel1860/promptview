@@ -123,7 +123,7 @@ class BaseBlock(BaseModel):
     #     arbitrary_types_allowed = True
     def __init__(
         self,
-        content: str | None = None,
+        content: str | list[str] | list["BaseBlock"] | None = None,
         role: BlockRole = "user", 
         name: str | None = None,
         id: int | str | None = None,
@@ -141,16 +141,25 @@ class BaseBlock(BaseModel):
         self.bclass = bclass
         self.platform_uuid = platform_uuid
         self._items = []
-        if content is not None:
-            self.append(content)
-        
+        self.set_content(content)
     
+    def set_content(self, content: str | list[str] | list["BaseBlock"] | None):
+        if content is not None:            
+            if type(content) == list:
+                for item in content:
+                    self.append(item)
+            else:
+                self.append(content)
+            
+                
     def append(self, item):        
         if not isinstance(item, Renderable):
             if isinstance(item, str):
                 item = strblk(item)
             elif isinstance(item, dict):
                 item = dictblk(item)                
+            elif isinstance(item, BaseBlock):
+                item = item
             else:
                 raise ValueError(f"Invalid item type: {type(item)}. Must be str, dict, or Renderable")
         self._items.append(item)
@@ -198,7 +207,7 @@ class TitleBlock(BaseBlock):
     def __init__(
         self,
         title: str | None = None,
-        content: str | None = None,
+        content: str | list[str] | list["BaseBlock"] | None = None,
         ttype: TitleType = "md",    
         role: BlockRole = "user", 
         name: str | None = None,
@@ -211,9 +220,8 @@ class TitleBlock(BaseBlock):
         super().__init__(content=content, role=role, name=name, uuid=uuid, platform_uuid=platform_uuid, id=id, tag=tag, bclass=bclass)
         self.title = title
         self.ttype = ttype
-        self._items = []
-        if content is not None:
-            self.append(content)
+        # self._items = []
+        
 
     
     def _render_md(self):
