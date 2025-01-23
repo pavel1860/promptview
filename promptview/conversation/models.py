@@ -115,6 +115,16 @@ class Message(Base):
             elif role == "assistant": 
                 return '<div class="role-chip assistant">Assistant</div>'
             return '<div class="role-chip tool">Tool</div>'
+        
+        def action_calls_html(action_calls):
+            def action_call_html(action_call):
+                return f"""<div class="action-call">
+                    <div class="action-call-id">{action_call["id"].split("_")[-1][:8]}</div>
+                    <div class="action-call-name">{action_call["name"]}</div>                    
+                </div>"""
+            if action_calls is None:
+                return ''
+            return '<div class="action-calls">' + ', '.join([action_call_html(action_call) for action_call in action_calls]) + '</div>'
                         
         return f"""
 <style>
@@ -173,6 +183,34 @@ class Message(Base):
     color: #333;
     white-space: pre-wrap;
 }}
+
+.action-call {{
+    display: flex;
+    align-items: center;
+    background: #f5f5f5;
+    border-radius: 4px;
+    padding: 8px;
+    margin: 4px 0;
+    border-left: 3px solid #F57C00;
+}}
+
+.action-call-id {{
+    font-size: 10px;
+    color: #666;
+    margin-right: 8px;
+    padding: 2px 6px;
+    background: #FFF3E0;
+    border-radius: 4px;
+}}
+
+.action-call-name {{
+    font-size: 11px;
+    font-weight: 500;
+    color: #F57C00;
+    margin-right: 8px;
+    text-transform: uppercase;
+}}
+
 </style>
 
 <div class="message-container">
@@ -184,6 +222,7 @@ class Message(Base):
     <div class="message-content">
         {self.content}
     </div>
+    {action_calls_html(self.action_calls)}
 </div>
 """
 

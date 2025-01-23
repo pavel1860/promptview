@@ -25,15 +25,20 @@ class MessageList(list):
         return HTML(self.render_html())
 
 
+CommitStrategy = Literal["auto", "manual"]
+
+
 class History:
     
-    def __init__(self, db_url: str | None = None) -> None:
+    def __init__(self, db_url: str | None = None, commit_strategy: CommitStrategy="auto") -> None:
         DB_URL = os.getenv("DB_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
         self._engine = create_engine(db_url or DB_URL)
         SessionLocal = sessionmaker(bind=self._engine)
         self._conn_session = SessionLocal()        
         self._branch: Branch | None = None
         self._session: MessageSession | None = None
+        self._uncommited_messages: list[Message] = []
+        self._commit_strategy = commit_strategy
         # self.context = HistoryContext(self.conn_session)
     
     
@@ -66,11 +71,11 @@ class History:
     def _query(self, _entity):
         return self._conn_session.query(_entity)
     
-    def _add(self, _entity):
+    def _add_commit(self, _entity):
         self._conn_session.add(_entity)
         self._conn_session.commit()
         
-    def _add_all(self, _entities):
+    def _add_all_commit(self, _entities):
         self._conn_session.add_all(_entities)
         self._conn_session.commit()
         
@@ -97,7 +102,7 @@ class History:
         if checkout:
             self._session = new_session
             self._branch = branch
-        self._add_all([branch, new_session])   
+        self._add_all_commit([branch, new_session])   
         return new_session
     
     def set_session(self, session: MessageSession | None = None, id: int | None = None):
@@ -119,7 +124,16 @@ class History:
         self._branch = branch
         return branch
     
-    def create_message(self, content, role: MsgRole="user", prompt: str | None=None, run_id=None, action_calls=None, platform_uuid=None, branch_id=None):
+    def create_message(
+        self, 
+        content, 
+        role: MsgRole="user", 
+        prompt: str | None=None, 
+        run_id=None, 
+        action_calls=None, 
+        platform_id=None, 
+        branch_id=None
+    ):
         last_message = None
         if branch_id is None:
             if self._branch is None:
@@ -136,23 +150,55 @@ class History:
             prompt=prompt,
             run_id=run_id,
             action_calls=action_calls,
-            platform_uuid=platform_uuid,
+            platform_uuid=platform_id,
             branch_id=branch_id,
             parent_message = last_message
         )
-        self._add(message)
+        if self._commit_strategy == "auto":
+            self._add_commit(message)
+        else:
+            self._uncommited_messages.append(message)
         return message
     
     
-    def create_branch(self, from_message: Message, checkout: bool=True):
+    def create_branch(self, from_message: Message | None = None, from_first: bool = True, checkout: bool=True, on_error_use_default: bool=True):
         if self._session is None:
             raise ValueError("Session not set")
-        branch = Branch(forked_from_message=from_message)
+            
+        branch = None
+        if from_message is not None:
+            # Create branch from specific message
+            branch = Branch(forked_from_message=from_message)
+        elif self._branch is not None:
+            # Create branch from first/last message of current branch
+            if len(self._branch.messages) > 0:
+                if from_first:
+                    # Fork from first message
+                    branch = Branch(forked_from_message=self._branch.messages[0])
+                else:
+                    # Fork from last message
+                    branch = Branch(forked_from_message=self._branch.messages[-1])
+            else:
+                # No messages in current branch, fork from forked_from_message if exists
+                raise ValueError("No messages in current branch")
+                # branch = Branch(forked_from_message=self._branch.forked_from_message)
+        
+        if branch is None:
+            # Create new empty branch if no fork point specified
+            # branch = Branch()
+            raise ValueError("Branch not found")
         self._session.branches.append(branch)
-        self._add(branch)
+        self._add_commit(branch)
+        
         if checkout:
             self._branch = branch
+            
         return branch
+    
+    def commit_turn(self):
+        if self._commit_strategy == "manual":
+            self._add_all_commit(self._uncommited_messages)
+            self._uncommited_messages = []
         
     def _message_cte(self,message_id: int, limit: int=1):
         m = Message.__table__        
@@ -184,11 +230,30 @@ class History:
     def last(self, limit: int=10):
         if not self._branch:
             raise ValueError("Branch not set")
-        if not self._branch.messages:
-            return MessageList([])
-        message_id = self._branch.messages[-1].id
-        messages = self._message_cte(message_id, limit)
-        return MessageList([m[0] for m in messages])
+            
+        # Calculate adjusted limit for committed messages
+        uncommitted_count = len(self._uncommited_messages)
+        committed_limit = max(0, limit - uncommitted_count)
+        
+        # Get committed messages if needed
+        committed_messages = []
+        if committed_limit > 0 and self._branch.messages:
+            message_id = self._branch.messages[-1].id
+            committed_results = self._message_cte(message_id, committed_limit)
+            committed_messages = [m[0] for m in committed_results]
+        
+        # Combine with uncommitted messages
+        all_messages = committed_messages + self._uncommited_messages
+        
+        # Sort by creation time and limit
+        sorted_messages = sorted(all_messages, key=lambda m: m.created_at)
+        return MessageList(sorted_messages[-limit:])
+    
+    
+    def first(self, limit: int=10):
+        if not self._branch:
+            raise ValueError("Branch not set")
+        return MessageList(self._branch.messages[:limit])
         
     def show_last(self, limit: int=10):
         messages = self.last(limit)
@@ -259,6 +324,8 @@ class History:
         
         # First delete all branches associated with this session
         for branch in session.branches:
+            for message in branch.messages:
+                self._conn_session.delete(message)
             self._conn_session.delete(branch)
         
         # Then delete the session

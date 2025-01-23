@@ -6,6 +6,7 @@ from typing import Any, Callable, Generic, List, Literal, ParamSpec, TypeVar, Op
 import json
 from typing import Protocol, runtime_checkable
 
+from promptview.conversation.models import Message
 from promptview.utils.string_utils import int_to_roman
 from promptview.llms.messages import ActionCall, LlmUsage
 
@@ -109,13 +110,15 @@ BlockRole = Literal["assistant", "user", "system", "tool"]
 
 
 class BaseBlock(BaseModel):
-    uuid: str = Field(default_factory=lambda: str(uuid4()), description="The uuid for the block. links to database.")
-    platform_uuid: str | None = Field(default=None, description="The platform uuid for the block. links to platform.")
+    db_msg_id: str | int = Field(default_factory=lambda: str(uuid4()), description="The uuid for the block. links to database.")
+    platform_id: str | None = Field(default=None, description="The platform uuid for the block. links to platform.")
     role: str = Field(default="user", description="The role of the block")
     name: str | None = Field(default=None, description="The name of the block")
     id: int | str | None = Field(default=None, description="The id for the block")
     tag: str | None = Field(default=None, description="The tag for the block")
     bclass: str = Field(default="block", description="The class for the block")
+    # message: Message | None = Field(default=None, description="The message for the block")
+    _message: Message | None = None
     # style: Style = Field(default_factory=lambda: Style())
     _items: list[Renderable] = []
     
@@ -127,19 +130,19 @@ class BaseBlock(BaseModel):
         role: BlockRole = "user", 
         name: str | None = None,
         id: int | str | None = None,
-        uuid: str | None = None,                
+        db_msg_id: str | None = None,                
         tag: str | None = None,
-        platform_uuid: str | None = None,
+        platform_id: str | None = None,
         bclass: str = "block",
     ):
         super().__init__()
-        self.uuid = uuid or str(uuid4())
+        self.db_msg_id = db_msg_id or str(uuid4())
         self.role = role
         self.name = name
         self.id = id
         self.tag = tag
         self.bclass = bclass
-        self.platform_uuid = platform_uuid
+        self.platform_id = platform_id
         self._items = []
         self.set_content(content)
     
@@ -150,7 +153,19 @@ class BaseBlock(BaseModel):
                     self.append(item)
             else:
                 self.append(content)
-            
+    
+    
+    @property
+    def content(self):
+        return "\n".join([item.render(style=style_manager.get_style(self)) for item in self._items])
+    
+    @property
+    def message(self):
+        return self._message
+    
+    @message.setter
+    def message(self, value: Message):
+        self._message = value
                 
     def append(self, item):        
         if not isinstance(item, Renderable):
@@ -211,13 +226,13 @@ class TitleBlock(BaseBlock):
         ttype: TitleType = "md",    
         role: BlockRole = "user", 
         name: str | None = None,
-        uuid: str | None = None,  
-        platform_uuid: str | None = None,
+        db_msg_id: str | None = None,  
+        platform_id: str | None = None,
         id: int | str | None = None,
         tag: str | None = None,
         bclass: str = "block",
     ):
-        super().__init__(content=content, role=role, name=name, uuid=uuid, platform_uuid=platform_uuid, id=id, tag=tag, bclass=bclass)
+        super().__init__(content=content, role=role, name=name, db_msg_id=db_msg_id, platform_id=platform_id, id=id, tag=tag, bclass=bclass)
         self.title = title
         self.ttype = ttype
         # self._items = []
@@ -291,10 +306,11 @@ class ListBlock(TitleBlock):
         id: str | None = None,
         role: BlockRole = "user",
         name: str | None = None,
-        platform_uuid: str | None = None,
+        platform_id: str | None = None,
+        db_msg_id: str | None = None,
         bclass: str = "block",
     ):
-        super().__init__(title=title, ttype=ttype, id=id, role=role, name=name, platform_uuid=platform_uuid, bclass=bclass)
+        super().__init__(title=title, ttype=ttype, id=id, role=role, name=name, platform_id=platform_id, db_msg_id=db_msg_id, bclass=bclass)
         self.bullet = bullet    
 
     
@@ -433,8 +449,8 @@ class ResponseBlock(TitleBlock):
         title: str | None = None,
         ttype: TitleType = "md",    
         name: str | None = None,
-        uuid: str | None = None, 
-        platform_uuid: str | None = None,
+        db_msg_id: str | None = None, 
+        platform_id: str | None = None,
         id: int | str | None = None,
         tag: str | None = None,
         bclass: str = "block",
@@ -445,8 +461,8 @@ class ResponseBlock(TitleBlock):
             ttype=ttype, 
             role="assistant", 
             name=name, 
-            uuid=uuid, 
-            platform_uuid=platform_uuid,
+            db_msg_id=db_msg_id, 
+            platform_id=platform_id,
             id=id, 
             tag=tag, 
             bclass=bclass
@@ -498,8 +514,8 @@ class ActionBlock(TitleBlock):
         title: str | None = None,
         ttype: TitleType = "md",    
         name: str | None = None,
-        uuid: str | None = None,   
-        platform_uuid: str | None = None,
+        db_msg_id: str | None = None,   
+        platform_id: str | None = None,
         id: int | str | None = None,
         tag: str | None = None,
         bclass: str = "block",
@@ -510,8 +526,8 @@ class ActionBlock(TitleBlock):
             ttype=ttype, 
             role="tool", 
             name=name, 
-            uuid=uuid, 
-            platform_uuid=platform_uuid,
+            db_msg_id=db_msg_id, 
+            platform_id=platform_id,
             id=id or tool_call_id, 
             tag=tag, 
             bclass=bclass

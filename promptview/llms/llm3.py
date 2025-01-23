@@ -178,6 +178,7 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     async def run_complete(
         self, 
     ) -> ResponseBlock:
+        # TODO: add tracer
         if self._complete is None:
             raise ValueError("complete method is not set")
         if self._parse_response is None:

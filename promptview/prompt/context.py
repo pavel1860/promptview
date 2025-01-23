@@ -1,6 +1,7 @@
 from typing import List
 from promptview.conversation.models import Message
-from promptview.prompt.block import ActionBlock, BulletType, ListBlock, ResponseBlock, TitleBlock, TitleType, BlockRole
+from promptview.llms.messages import ActionCall
+from promptview.prompt.block import ActionBlock, BaseBlock, BulletType, ListBlock, ResponseBlock, TitleBlock, TitleType, BlockRole
 from pydantic import BaseModel
 from promptview.conversation.history import History
 from collections import defaultdict
@@ -26,6 +27,27 @@ class CtxBlocks:
         
     def init(self):
         self.history.init_main()
+    
+    
+    @staticmethod
+    def new_session():
+        ctx = CtxBlocks()
+        ctx.history.create_session()
+        return ctx
+
+    @staticmethod
+    def new_branch():
+        ctx = CtxBlocks()
+        ctx.history.create_branch()
+        return ctx
+        
+    async def __aenter__(self):
+        self.init()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        self.commit_turn()
+        
 
     def append(self, block):
         self._blocks.append(block)
@@ -43,7 +65,8 @@ class CtxBlocks:
         for k in _key:            
             if type(k) == str:
                 if k not in self._block_lookup:
-                    raise ValueError(f"Block with id {k} not found")
+                    continue
+                    # raise ValueError(f"Block with id {k} not found")
                 target = self._block_lookup[k]
                 chat_blocks.extend(target)
             elif type(k) == dict:                                
@@ -67,56 +90,122 @@ class CtxBlocks:
         self.append(lb)
         return lb
     
-    def push(self, block, action: BaseModel | None = None):
-        self.append(block)
-        if action:
-            self.append(action)
+    def push(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None):
+        if isinstance(block, str) or isinstance(block, dict):
+            if action:
+                block = ActionBlock(content=block, tool_call_id=action.id)
+                self.push_action(block)
+            else:
+                block = TitleBlock(content=block, role=role or "user")
+                self.push_message(block)
+            
+        elif isinstance(block, ResponseBlock):
+            self.push_response(block)
+        elif isinstance(block, ActionBlock):
+            self.push_action(block)
+        return block
+        
 
     def push_action(self, action):
         self.append(action)
+        message = self.history.create_message(
+            content=action.content,
+            role="tool",
+            platform_id=action.id
+        )
+        action.message = message
+        return action
 
     def push_response(self, response):
-        self.response = response
+        # self.response = response
         self.append(response)
+        message = self.history.create_message(
+            content=response.content,
+            role="assistant",
+            action_calls=[a.model_dump() for a in response.action_calls],
+            platform_id=response.platform_id
+        )
+        response.message = message
+        return response
 
     def push_message(self, message):
-        self.append(message)
+        self.append(message)        
+        if isinstance(message, str):
+            message = self.history.create_message(
+                content=message,
+                role="user",            
+            )
+        elif isinstance(message, BaseBlock):
+            message = self.history.create_message(
+                content=message.content,
+                role="user",            
+            )
+        else:
+            raise ValueError(f"Invalid message type: {type(message)}")
+        message.block = message
+        return message
+        
+    def commit_turn(self):
+        self.history.commit_turn()
+        
+    def delete(self, block: BaseBlock):
+        self.history.delete_message(id=block.db_msg_id)
+        self._blocks.remove(block)
+        self._block_lookup[block.id].remove(block)
         
     def messages_to_blocks(self, messages: List[Message]):
         for message in messages:
             if message.role == "assistant":
                 self.append(
                     ResponseBlock(
+                        db_msg_id=message.id,
                         content=message.content, 
                         action_calls=message.action_calls ,
                         id="history",
                         # name=message.name, 
-                        platform_uuid=message.platform_uuid
+                        platform_id=message.platform_uuid
                     ))
             elif message.role == "tool":
                 self.append(
                     ActionBlock(
+                        db_msg_id=message.id,
                         content=message.content, 
                         # tool_call_id=message.platform_uuid, 
                         id="history",
                         # name=message.name, 
-                        platform_uuid=message.platform_uuid
+                        platform_id=message.platform_uuid
                     ))
             else:
                 self.append(TitleBlock(
+                    db_msg_id=message.id,
                     content=message.content, 
                     role=message.role, 
                     # name=message.name, 
                     id="history",
-                    platform_uuid=message.platform_uuid
+                    platform_id=message.platform_uuid
                 ))
         
         return self._blocks
-            
-        
+    
+    def blocks_to_messages(self, blocks: List[BaseBlock]):
+        messages = []
+        for block in blocks:
+            if isinstance(block, ResponseBlock):
+                messages.append(Message(role="assistant", content=block.render(), platform_uuid=block.platform_id, action_calls=[a.model_dump() for a in block.action_calls]))
+            elif block.role == "tool":
+                messages.append(Message(role="tool", content=block.render(), platform_uuid=block.platform_id))
+            else:
+                messages.append(Message(role="user", content=block.render(), platform_uuid=block.platform_id))
+        return messages
+    
     def last(self, limit=10):
-        blocks = self.history.last(limit)
-        return self.messages_to_blocks(blocks)  
+        messages = self.history.last(limit)
+        return self.messages_to_blocks(messages)  
+    
+    def last_messages(self, limit=10):
+        messages = self.history.last(limit)
+        return messages
+    
     
     def __getitem__(self, key):
         # if self._dirty:
