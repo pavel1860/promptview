@@ -70,7 +70,8 @@ class OpenAiLLM(LLM):
                 ],
                 "role": "system"
             },            
-            "history"
+            "history",
+            "user_message"
         ])
         
         

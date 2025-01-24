@@ -10,7 +10,7 @@ from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.interpreter import LlmInterpreter
 # from promptview.llms.llm import ToolChoice
 from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
-from promptview.llms.tracer import Tracer
+from promptview.llms.tracer2 import Tracer
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.block import BaseBlock, ResponseBlock
 from promptview.prompt.context import CtxBlocks
@@ -124,7 +124,7 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     tracer_run: Tracer | None = None
     _to_tools: Callable[[list[Type[BaseModel]]], List[dict] | None] | None = None
     _complete: Callable[CLIENT_PARAMS, CLIENT_RESPONSE] | None = None
-    _parse_response: Callable[[CLIENT_RESPONSE, Actions], ResponseBlock] | None = None
+    _parse_response: Callable[[CLIENT_RESPONSE, list[Type[BaseModel]]], ResponseBlock] | None = None
     
     class Config:
         arbitrary_types_allowed = True   
@@ -178,22 +178,32 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     async def run_complete(
         self, 
     ) -> ResponseBlock:
-        # TODO: add tracer
-        if self._complete is None:
-            raise ValueError("complete method is not set")
-        if self._parse_response is None:
-            raise ValueError("parse_response method is not set")
-        if self._to_tools is None:
-            raise ValueError("to_tools method is not set")
-        tools = self._to_tools(self.actions)
-        response = await self._complete(
-            messages=self.messages,
-            tools=tools,
-            model=self.model,
-            tool_choice=self.tool_choice,
-            **self.config.get_llm_args()
-        )
-        return self._parse_response(response, self.actions)
+        with Tracer(
+            run_type="llm",
+            name=self.name,
+            inputs={"messages": self.messages},
+            # metadata=metadata,
+        ) as llm_run:
+            try:
+                if self._complete is None:
+                    raise ValueError("complete method is not set")
+                if self._parse_response is None:
+                    raise ValueError("parse_response method is not set")
+                if self._to_tools is None:
+                    raise ValueError("to_tools method is not set")
+                tools = self._to_tools(self.actions)
+                response = await self._complete(
+                    messages=self.messages,
+                    tools=tools,
+                    model=self.model,
+                    tool_choice=self.tool_choice,
+                    **self.config.get_llm_args()
+                )
+                llm_run.end(outputs=response)
+                return self._parse_response(response, self.actions)
+            except Exception as e:
+                llm_run.end(errors=str(e))
+                raise e
         
                 
     

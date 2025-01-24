@@ -11,7 +11,7 @@ from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.llm2 import LLM
 from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
-from promptview.llms.tracer import Tracer
+from promptview.llms.tracer2 import Tracer
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.controller import Controller
 from promptview.prompt.depends import Depends, DependsContainer, resolve_dependency
@@ -85,18 +85,24 @@ class Prompt(Controller[P, R]):
     
     
     async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
+        inspect.signature(self._complete).bind(*args, **kwargs)
+            # res = await self._call_with_dependencies(*args, **kwargs)
+        injection_kwargs = await self._inject_dependencies(*args, **kwargs)        
         with Tracer(
                 name=self._complete.__name__,
-                # is_traceable=is_traceable,
-                is_traceable=True,
-                inputs=kwargs,
-                # session_id=context.session_id,
-                # tracer_run=tracer_run
+                inputs={
+                    "args": args,
+                    "kwargs": kwargs,                    
+                },
             ) as run:
-            inspect.signature(self._complete).bind(*args, **kwargs)
-            res = await self._call_with_dependencies(*args, **kwargs)
-            run.add_outputs({"response":res})
-            return res
+            kwargs.update(injection_kwargs)
+            try:
+                res = await call_function(self._complete, *args, **kwargs)
+                run.add_outputs({"response":res})
+                return res
+            except Exception as e:
+                run.end(errors=str(e))
+                raise e
         
 
 
