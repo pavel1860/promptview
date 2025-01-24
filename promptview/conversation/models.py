@@ -134,7 +134,7 @@ class Message(Base):
     prompt = Column(String, nullable=False, default="main")
     run_id = Column(UUID(as_uuid=True), default=uuid.uuid4)
     action_calls = Column(json_type, nullable=True)
-    platform_uuid = Column(String, nullable=True)
+    platform_id = Column(String, nullable=True)
     
     # The turn this message belongs to
     turn_id = Column(Integer, 

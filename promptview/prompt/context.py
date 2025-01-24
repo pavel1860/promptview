@@ -15,45 +15,29 @@ class MessageView(TypedDict):
 
 
 
-class CtxBlocks:
+
+
+
+
+
+
+class BlockStream:
     
-    def __init__(self, input: str | None = None):
-        self.history = History()
+    def __init__(self, history: History, messages: List[Message] | None = None):
+        self.history = history
         self._blocks = []
+        self._block_lookup = defaultdict(list)
+        if messages:
+            self.messages_to_blocks(messages)                    
         self._dirty = True
         self.response = None
-        self.input = input
-        self._block_lookup = defaultdict(list)
-        
-    def init(self):
-        self.history.init_main()
-    
-    
-    @staticmethod
-    def new_session():
-        ctx = CtxBlocks()
-        ctx.history.create_session()
-        return ctx
-
-    @staticmethod
-    def new_branch():
-        ctx = CtxBlocks()
-        ctx.history.create_branch()
-        return ctx
-        
-    async def __aenter__(self):
-        self.init()
-        return self
-    
-    async def __aexit__(self, exc_type, exc_value, traceback):
-        self.commit_turn()
         
 
     def append(self, block):
         self._blocks.append(block)
         self._block_lookup[block.id].append(block)
         
-    def get_blocks(self, key: str | MessageView | list[str | MessageView] ):
+    def get(self, key: str | MessageView | list[str | MessageView] ):
         _key: list[str | MessageView]
         if type(key) == str or type(key) == MessageView:
             _key = [key]
@@ -72,7 +56,7 @@ class CtxBlocks:
             elif type(k) == dict:                                
                 chat_blocks.append(
                     TitleBlock(
-                        content=self.get_blocks(k["content"]),
+                        content=self.get(k["content"]),
                         role=k.get("role", "user")
                     )
                 )
@@ -108,7 +92,7 @@ class CtxBlocks:
 
     def push_action(self, action):
         self.append(action)
-        message = self.history.create_message(
+        message = self.history.add_message(
             content=action.content,
             role="tool",
             platform_id=action.id
@@ -119,7 +103,7 @@ class CtxBlocks:
     def push_response(self, response):
         # self.response = response
         self.append(response)
-        message = self.history.create_message(
+        message = self.history.add_message(
             content=response.content,
             role="assistant",
             action_calls=[a.model_dump() for a in response.action_calls],
@@ -131,12 +115,12 @@ class CtxBlocks:
     def push_message(self, message):
         self.append(message)        
         if isinstance(message, str):
-            message = self.history.create_message(
+            message = self.history.add_message(
                 content=message,
                 role="user",            
             )
         elif isinstance(message, BaseBlock):
-            message = self.history.create_message(
+            message = self.history.add_message(
                 content=message.content,
                 role="user",            
             )
@@ -146,7 +130,7 @@ class CtxBlocks:
         return message
         
     def commit_turn(self):
-        self.history.commit_turn()
+        self.history.commit()
         
     def delete(self, block: BaseBlock):
         self.history.delete_message(id=block.db_msg_id)
@@ -163,7 +147,7 @@ class CtxBlocks:
                         action_calls=message.action_calls ,
                         id="history",
                         # name=message.name, 
-                        platform_id=message.platform_uuid
+                        platform_id=message.platform_id
                     ))
             elif message.role == "tool":
                 self.append(
@@ -173,17 +157,18 @@ class CtxBlocks:
                         # tool_call_id=message.platform_uuid, 
                         id="history",
                         # name=message.name, 
-                        platform_id=message.platform_uuid
+                        platform_id=message.platform_id
                     ))
             else:
-                self.append(TitleBlock(
-                    db_msg_id=message.id,
-                    content=message.content, 
-                    role=message.role, 
-                    # name=message.name, 
-                    id="history",
-                    platform_id=message.platform_uuid
-                ))
+                self.append(
+                    TitleBlock(
+                        db_msg_id=message.id,
+                        content=message.content, 
+                        role=message.role, 
+                        # name=message.name, 
+                        id="history",
+                        platform_id=message.platform_id
+                    ))
         
         return self._blocks
     
@@ -198,13 +183,13 @@ class CtxBlocks:
                 messages.append(Message(role="user", content=block.render(), platform_uuid=block.platform_id))
         return messages
     
-    def last(self, limit=10):
-        messages = self.history.last(limit)
-        return self.messages_to_blocks(messages)  
+    # def last(self, limit=10):
+    #     messages = self.history.last(limit)
+    #     return self.messages_to_blocks(messages)  
     
-    def last_messages(self, limit=10):
-        messages = self.history.last(limit)
-        return messages
+    # def last_messages(self, limit=10):
+    #     messages = self.history.last(limit)
+    #     return messages
     
     
     def __getitem__(self, key):
@@ -212,4 +197,32 @@ class CtxBlocks:
         #     self._dirty = False
         #     self._blocks = self.history.last()            
         return self._blocks[key]
+    
+
+
+
+
+
+
+class Context:
+    
+    def __init__(self, branch_id: int | None = None):
+        self.history = History()
+        self.branch_id = branch_id        
+            
+    async def __aenter__(self):
+        self.history.init_last_session()
+        if self.branch_id:
+            self.history.switch_to(self.branch_id)
+        return self
+    
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        self.history.commit()
+        
+        
+    def last(self, limit=10):
+        messages = self.history.get_last_messages(limit)
+        blocks = BlockStream(self.history, messages)
+        return blocks
+    
     

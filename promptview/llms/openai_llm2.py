@@ -8,7 +8,7 @@ from pydantic import Field, BaseModel
 from promptview.llms.messages import ActionCall, LlmUsage
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.block import BaseBlock, ResponseBlock
-from promptview.prompt.context import CtxBlocks
+from promptview.prompt.context import BlockStream, Context
 import openai
 import os
 
@@ -60,8 +60,8 @@ class OpenAiLLM(LLM):
                 oai_msg["name"] = block.name
             return oai_msg
         
-    def to_chat(self, ctx: CtxBlocks) -> List[BaseBlock]:
-        return ctx.get_blocks([
+    def to_chat(self, blocks: BlockStream) -> List[BaseBlock]:
+        return blocks.get([
             {
                 "content": [
                     "background",

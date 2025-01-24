@@ -55,6 +55,15 @@ class History:
         self._current_session = session
         self._current_branch = branch
         
+    def init_last_session(self):
+        """Initialize the last session."""
+        session = self._db.query(MessageSession).order_by(MessageSession.created_at.desc()).first()
+        if not session:
+            self.init()
+            return
+        self._current_session = session
+        self._current_branch = session.branches[0]  
+        
     @property
     def turn(self) -> Turn:
         return self._current_turn
@@ -109,8 +118,9 @@ class History:
                 **kwargs
             )
             self._db.add(message)
-            self._db.flush()
+            self._db.flush()  # Ensure message has an ID
             
+            # Now that message exists, set it as turn's start message if needed
             if self._current_turn.start_message_id is None:
                 self._current_turn.start_message_id = message.id
                 self._db.add(self._current_turn)
@@ -150,35 +160,42 @@ class History:
         self._db.commit()
         return branch
     
-    def switch_to(self, branch: Branch):
+    def get_branch_by_id(self, branch_id: int) -> Branch:
+        return self._db.query(Branch).filter(Branch.id == branch_id).first()
+    
+    def switch_to(self, branch: Branch| int):
         """
         Switch to a different branch.
         
         Args:
             branch: The branch to switch to
         """
+        if isinstance(branch, int):
+            branch = self.get_branch_by_id(branch)
         self.commit()  # Commit any pending changes
         self._current_branch = branch
         self._current_turn = None
+        return branch
     
-    def get_last_messages(self, limit: int = 10) -> List[Message]:
-        """
-        Get the last N messages from the current branch.
+    
+    # def get_last_messages(self, limit: int = 10) -> List[Message]:
+    #     """
+    #     Get the last N messages from the current branch.
         
-        Args:
-            limit: Maximum number of messages to return
-        """
-        # Include uncommitted messages in the result
-        committed = (
-            self._db.query(Message)
-            .filter(Message.branch_id == self._current_branch.id)
-            .order_by(Message.created_at.desc())
-            .limit(limit)
-            .all()
-        )
+    #     Args:
+    #         limit: Maximum number of messages to return
+    #     """
+    #     # Include uncommitted messages in the result
+    #     committed = (
+    #         self._db.query(Message)
+    #         .filter(Message.branch_id == self._current_branch.id)
+    #         .order_by(Message.created_at.desc())
+    #         .limit(limit)
+    #         .all()
+    #     )
         
-        all_messages = self._uncommitted_messages + committed
-        return sorted(all_messages, key=lambda m: m.created_at)[-limit:]
+    #     all_messages = self._uncommitted_messages + committed
+    #     return sorted(all_messages, key=lambda m: m.created_at)[-limit:]
     
     def get_branches(self) -> List[Branch]:
         """Get all branches in the current session."""
@@ -262,7 +279,7 @@ class History:
     def get_last_messages(self, limit: int = 10):
         if not self._current_branch:
             raise ValueError("No current branch")
-        last_turn =self._current_branch.turns[-1]
+        last_turn =self._current_branch.turns[-1] if self._current_branch.turns else None
         if not last_turn:
             return []
         turn_id = last_turn.id

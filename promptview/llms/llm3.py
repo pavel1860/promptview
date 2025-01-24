@@ -13,7 +13,7 @@ from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.tracer2 import Tracer
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.block import BaseBlock, ResponseBlock
-from promptview.prompt.context import CtxBlocks
+from promptview.prompt.context import BlockStream, Context
 from promptview.prompt.mvc import ViewBlock
 
 
@@ -108,7 +108,7 @@ class LlmConfig(BaseModel):
 
 class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     # blocks: List[BaseBlock] = []
-    ctx_blocks: CtxBlocks 
+    ctx_blocks: BlockStream 
     # messages: List[BaseMessage] = []
     messages: List[dict] = []
     # actions: Actions = Actions()
@@ -257,13 +257,13 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
         arbitrary_types_allowed = True   
         
         
-    def transform(self, ctx_blocks: CtxBlocks) -> List[BaseMessage]:
-        if not isinstance(blocks, list):
-            blocks = [blocks]
-        messages = []
-        for block in blocks:
-            messages.append(HumanMessage(content=block.render()))
-        return messages
+    # def transform(self, ctx_blocks: Context) -> List[BaseMessage]:
+    #     if not isinstance(blocks, list):
+    #         blocks = [blocks]
+    #     messages = []
+    #     for block in blocks:
+    #         messages.append(HumanMessage(content=block.render()))
+    #     return messages
     
     
     @abstractmethod
@@ -271,7 +271,7 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
         ...
     
     @abstractmethod
-    def to_chat(self, ctx: CtxBlocks) -> List[BaseBlock]:
+    def to_chat(self, blocks: BlockStream) -> List[BaseBlock]:
         ...
     
     @abstractmethod
@@ -288,17 +288,17 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     
     def __call__(
         self, 
-        ctx_blocks: CtxBlocks,
+        blocks: BlockStream,
         retries: int = 3,
         smart_retry: bool = True,
         config: LlmConfig | None = None,
         is_traceable: bool | None = True,
     ):  
-        chat_blocks = self.to_chat(ctx_blocks)
+        chat_blocks = self.to_chat(blocks)
         messages = [self.to_message(b) for b in chat_blocks]
                 
         llm_execution = LlmExecution(
-            ctx_blocks=ctx_blocks,
+            ctx_blocks=blocks,
             messages=messages,
             model=self.model,
             # client=self.client,
