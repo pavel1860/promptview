@@ -1,6 +1,6 @@
 import uuid
-from sqlalchemy import UUID, create_engine, Column, Integer, String, JSON, ForeignKey, DateTime, Text
-from sqlalchemy.orm import declarative_base, relationship, Session
+from sqlalchemy import UUID, create_engine, Column, Integer, String, JSON, ForeignKey, DateTime, Text, Boolean, inspect
+from sqlalchemy.orm import declarative_base, relationship, Session, validates
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 import os
@@ -27,7 +27,9 @@ Base = declarative_base()
 class MessageSession(Base):
     __tablename__ = "message_sessions"
     id = Column(Integer, primary_key=True)    
-    branches = relationship("Branch", back_populates="session")
+    branches = relationship("Branch", 
+                          back_populates="session",
+                          cascade="all, delete-orphan")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # main_branch_id = Column(Integer, ForeignKey("branches.id", name="fk_main_branch_id", ondelete="SET NULL"), nullable=True)
     # main_branch = relationship("Branch", foreign_keys=[main_branch_id])
@@ -40,36 +42,87 @@ class Branch(Base):
     id = Column(Integer, primary_key=True)
     # name = Column(String(255), nullable=False, unique=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_test = Column(Boolean, default=False)  # Indicates if this is a test branch
     
+    # The turn from which this branch was created
+    forked_from_turn_id = Column(Integer, 
+                                ForeignKey('turns.id',
+                                         name='fk_branch_forked_from_turn_id',
+                                         ondelete="SET NULL"), 
+                                nullable=True)
+    forked_from_turn = relationship("Turn", 
+                                  back_populates="forked_branches",
+                                  foreign_keys=[forked_from_turn_id])
     
-    # The message from which this branch was created
-    forked_from_message_id = Column(
-        Integer, 
-        ForeignKey(
-            'messages.id',
-            name='fk_forked_from_message_id', 
-            # ondelete='CASCADE'
-            ondelete='SET NULL'
-        ), 
-        nullable=True
-    )
-    forked_from_message = relationship("Message", foreign_keys=[forked_from_message_id])
+    # All turns in this branch
+    turns = relationship("Turn", 
+                        back_populates="branch",
+                        foreign_keys="Turn.branch_id",
+                        cascade="all, delete-orphan")
     
-    # All messages in this branch
-    messages = relationship("Message", back_populates="branch", foreign_keys="Message.branch_id")
+    # All messages in this branch (denormalized for query performance)
+    messages = relationship("Message", 
+                          back_populates="branch",
+                          foreign_keys="Message.branch_id",
+                          cascade="all, delete-orphan")
     
-    
-    session_id = Column(
-        Integer,
-        ForeignKey(
-            "message_sessions.id", 
-            name="fk_message_session_id",
-            ondelete="CASCADE"
-        ),
-        nullable=False
-    )
+    session_id = Column(Integer, 
+                       ForeignKey("message_sessions.id",
+                                name='fk_branch_session_id',
+                                ondelete="CASCADE"), 
+                       nullable=False)
     session = relationship("MessageSession", back_populates="branches")
     
+
+class Turn(Base):
+    __tablename__ = 'turns'
+    
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    branch_id = Column(Integer, 
+                      ForeignKey('branches.id', 
+                                name='fk_turn_branch_id',
+                                ondelete="CASCADE"), 
+                      nullable=False)
+    
+    # Parent Turn (the Turn this one was based on)
+    parent_turn_id = Column(Integer, 
+                          ForeignKey('turns.id',
+                                   name='fk_turn_parent_id',
+                                   ondelete="SET NULL"), 
+                          nullable=True)
+    parent_turn = relationship("Turn", remote_side=[id],
+                             backref="child_turns")
+    
+    # The first message of this turn
+    start_message_id = Column(Integer, 
+                            ForeignKey('messages.id',
+                                     name='fk_turn_start_message_id',
+                                     ondelete="SET NULL"), 
+                            nullable=True)
+    
+    # All messages in this turn
+    messages = relationship("Message", 
+                          back_populates="turn",
+                          foreign_keys="Message.turn_id",
+                          cascade="all, delete-orphan")
+    
+    # The branch this turn belongs to
+    branch = relationship("Branch", back_populates="turns", foreign_keys=[branch_id])
+    
+    # Branches that were forked from this turn
+    forked_branches = relationship("Branch", 
+                                 back_populates="forked_from_turn",
+                                 foreign_keys="Branch.forked_from_turn_id")
+    
+    def get_turn_history(self):
+        """Get the history of turns leading to this one."""
+        history = []
+        current = self
+        while current is not None:
+            history.append(current)
+            current = current.parent_turn
+        return history
 
 class Message(Base):
     __tablename__ = 'messages'
@@ -83,31 +136,45 @@ class Message(Base):
     action_calls = Column(json_type, nullable=True)
     platform_uuid = Column(String, nullable=True)
     
-    # The branch this Message belongs to
-    branch_id = Column(
-        Integer, 
-        ForeignKey(
-            'branches.id',
-            name="fk_branch_id", 
-            ondelete="CASCADE"
-        ), 
-        nullable=False
-    )
+    # The turn this message belongs to
+    turn_id = Column(Integer, 
+                    ForeignKey('turns.id',
+                             name='fk_message_turn_id',
+                             ondelete="CASCADE"), 
+                    nullable=False)
+    turn = relationship("Turn", back_populates="messages", foreign_keys=[turn_id])
     
-    branch = relationship("Branch", back_populates="messages",
-                        foreign_keys=[branch_id])    
-    folked_branches = relationship("Branch", back_populates="forked_from_message",
-                               foreign_keys="Branch.forked_from_message_id")
+    # The branch this Message belongs to (denormalized for query performance)
+    branch_id = Column(Integer, 
+                      ForeignKey('branches.id',
+                               name='fk_message_branch_id',
+                               ondelete="CASCADE"), 
+                      nullable=False)
+    branch = relationship("Branch", back_populates="messages", foreign_keys=[branch_id])
     
-    # Parent Message (the Message this one was based on)
-    parent_message_id = Column(Integer, ForeignKey('messages.id', ondelete="CASCADE"), nullable=True)
-    parent_message = relationship("Message", remote_side=[id],
-                               backref="child_messages")
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # If turn_id is provided but branch_id isn't, set branch_id from turn
+        session = inspect(self).session if hasattr(self, '_sa_instance_state') else None
+        if session and kwargs.get('turn_id') and not kwargs.get('branch_id'):
+            turn = session.query(Turn).get(kwargs['turn_id'])
+            if turn:
+                self.branch_id = turn.branch_id
     
-    # def __repr__(self):
-        # return f"Message(id={self.id}, content={self.content}, role={self.role}, prompt={self.prompt}, run_id={self.run_id}, action_calls={self.action_calls}, platform_uuid={self.platform_uuid})"
-        # return f"Message(id={self.id}, content={self.content}, role={self.role}, prompt={self.prompt}, run_id={self.run_id}, action_calls={self.action_calls}, platform_uuid={self.platform_uuid}) forked_branches={self.folked_branches}"
-        
+    @validates('branch_id', 'turn_id')
+    def validate_branch_consistency(self, key, value):
+        session = inspect(self).session if hasattr(self, '_sa_instance_state') else None
+        if session:
+            if key == 'turn_id' and value and self.branch_id:
+                turn = session.query(Turn).get(value)
+                if turn and turn.branch_id != self.branch_id:
+                    raise ValueError(f"Message branch_id {self.branch_id} does not match turn's branch_id {turn.branch_id}")
+            elif key == 'branch_id' and value and self.turn_id:
+                turn = session.query(Turn).get(self.turn_id)
+                if turn and turn.branch_id != value:
+                    raise ValueError(f"Message branch_id {value} does not match turn's branch_id {turn.branch_id}")
+        return value
+
     def render_html(self):
         def role_chip(role):
             if role == "user":
@@ -231,12 +298,8 @@ class Message(Base):
         return display(HTML(self.render_html()))
 
     def get_message_history(self):
-        history = []
-        current = self
-        while current is not None:
-            history.append(current)
-            current = current.parent_message
-        return history
+        """Get the history of messages in this turn."""
+        return self.turn.messages
 
 # Create a new database or connect to existing one
 def init_db(db_path="postgresql://snack:Aa123456@localhost:5432/snackbot"):

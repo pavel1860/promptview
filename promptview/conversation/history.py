@@ -1,359 +1,426 @@
-from typing import Literal, Union
+from typing import Literal, Union, Optional, List
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import select, func, literal_column, create_engine
+from sqlalchemy import literal_column, select, func, create_engine
 import os
 
-from promptview.conversation.models import Branch, MessageSession, Base, Message
+from promptview.conversation.models import Branch, MessageSession, Message, Turn, Base
 
 MsgRole = Literal["user", "assistant", "tool"]
 
-
-class MessageList(list):
-    
-    
-    def render_html(self):
-        html_str = f"""<html>
-<div style="display: flex; flex-direction: column; width: 400px; margin: 0;">
-    {"".join([m.render_html() for m in self])}
-</div>
-</html>"""
-        return html_str
-    
-    def show(self):
-        from IPython.display import display, HTML        
-        # display()
-        return HTML(self.render_html())
-
-
-CommitStrategy = Literal["auto", "manual"]
-
-
 class History:
+    """
+    History manages conversation data, providing easy access to message history,
+    branching, and session management.
     
-    def __init__(self, db_url: str | None = None, commit_strategy: CommitStrategy="auto") -> None:
+    Basic usage:
+    ```python
+    # Create and initialize
+    history = History()
+    history.init()
+    
+    # Add messages
+    history.add_message("Hello!", role="user")
+    history.add_message("Hi there!", role="assistant")
+    history.commit()  # Commits the current turn
+    
+    # Branch from current point
+    new_branch = history.create_branch("Try different response")
+    history.switch_to(new_branch)
+    
+    # Get conversation context
+    messages = history.get_last_messages(limit=10)
+    ```
+    """
+    
+    def __init__(self, db_url: Optional[str] = None):
+        """Initialize History with optional database URL."""
         DB_URL = os.getenv("DB_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
         self._engine = create_engine(db_url or DB_URL)
         SessionLocal = sessionmaker(bind=self._engine)
-        self._conn_session = SessionLocal()        
-        self._branch: Branch | None = None
-        self._session: MessageSession | None = None
-        self._uncommited_messages: list[Message] = []
-        self._commit_strategy = commit_strategy
-        # self.context = HistoryContext(self.conn_session)
-    
-    
-    def init_main(self):
-        session = self.last_session()    
-        if session is None:
-            session = self.create_session()
-        self._session = session
-        self._branch = self.first_branch()
+        self._db = SessionLocal()
         
-    def init_last(self):
-        self._session = self.last_session()
-        self._branch = self.last_branch()
-            
+        self._current_session: Optional[MessageSession] = None
+        self._current_branch: Optional[Branch] = None
+        self._current_turn: Optional[Turn] = None
+        self._uncommitted_messages: List[Message] = []
+        
+    def init(self):
+        """Initialize a new session and main branch."""
+        Base.metadata.create_all(self._engine)
+        session = MessageSession()
+        branch = Branch(session=session)
+        self._db.add_all([session, branch])
+        self._db.commit()
+        
+        self._current_session = session
+        self._current_branch = branch
+        
+    @property
+    def turn(self) -> Turn:
+        return self._current_turn
     
-    def last_session(self):
-        return self._query(MessageSession).order_by(MessageSession.created_at.desc()).first()        
+    @property
+    def branch(self) -> Branch:
+        return self._current_branch
     
-    def last_branch(self):
-        if self._session is None:
-            raise ValueError("Session not set")
-        return self._session.branches[-1]
-    
-    def first_branch(self):
-        if self._session is None:
-            raise ValueError("Session not set")
-        return self._session.branches[0]
+    @property
+    def session(self) -> MessageSession:
+        return self._current_session
         
+    def add_turn(self, branch: Branch | None = None):
+        """
+        Add a new turn to the specified branch or current branch.
         
-    def _query(self, _entity):
-        return self._conn_session.query(_entity)
-    
-    def _add_commit(self, _entity):
-        self._conn_session.add(_entity)
-        self._conn_session.commit()
+        Args:
+            branch: Optional branch to add turn to (defaults to current branch)
+        """
+        if branch is None:
+            if not self._current_branch:
+                raise ValueError("No current branch")
+            branch = self._current_branch
         
-    def _add_all_commit(self, _entities):
-        self._conn_session.add_all(_entities)
-        self._conn_session.commit()
+        parent_turn = self._current_turn if self._current_turn else branch.forked_from_turn
+        turn = Turn(branch=branch, parent_turn=parent_turn)
+        self._db.add(turn)
+        self._db.flush()
+        self._current_turn = turn
+        return turn
         
-    def create_all(self):
-        Base.metadata.create_all(bind=self._engine)
+    def add_message(self, content: str, role: MsgRole = "user", **kwargs) -> Message:
+        """
+        Add a message to the current turn.
         
-    def drop_all(self):
-        Base.metadata.drop_all(bind=self._engine)
+        Args:
+            content: The message content
+            role: Message role ("user", "assistant", or "tool")
+            **kwargs: Additional message attributes (action_calls, etc.)
+        """
+        try:
+            if not self._current_turn:
+                self._current_turn = Turn(branch=self._current_branch)
+                self._db.add(self._current_turn)
+                self._db.flush()
                 
-    def list_sessions(self):
-        return self._query(MessageSession).all()
+            message = Message(
+                content=content,
+                role=role,
+                turn=self._current_turn,
+                branch_id=self._current_branch.id,
+                **kwargs
+            )
+            self._db.add(message)
+            self._db.flush()
+            
+            if self._current_turn.start_message_id is None:
+                self._current_turn.start_message_id = message.id
+                self._db.add(self._current_turn)
+                self._db.flush()
+                
+            self._uncommitted_messages.append(message)
+            return message
+            
+        except Exception as e:
+            self._db.rollback()  # Rollback on any error
+            raise e
     
-    def list_branches(self):
-        if self._session is None:
-            raise ValueError("Session not set")
-        return self._session.branches
-        # return self._query(Branch).all()
+    def commit(self):
+        """Commit the current turn and its messages."""
+        if self._uncommitted_messages:
+            self._db.add_all(self._uncommitted_messages)
+            self._db.commit()
+            self._uncommitted_messages = []
+            # self._current_turn = None
     
-    def create_session(self, checkout: bool=True):
-        branch = Branch(forked_from_message_id=None)
-        new_session = MessageSession(
-            branches=[branch]
+    def create_branch(self, name: Optional[str] = None, from_turn: Optional[Turn] = None) -> Branch:
+        """
+        Create a new branch from the current point or specified turn.
+        
+        Args:
+            name: Optional branch name
+            from_turn: Optional turn to branch from (defaults to current)
+        """
+        if from_turn is None and self._current_turn:
+            from_turn = self._current_turn
+            
+        branch = Branch(
+            session=self._current_session,
+            forked_from_turn=from_turn
         )
-        if checkout:
-            self._session = new_session
-            self._branch = branch
-        self._add_all_commit([branch, new_session])   
-        return new_session
-    
-    def set_session(self, session: MessageSession | None = None, id: int | None = None):
-        if session is None and id is None:
-            raise ValueError("Session or id must be set")
-        if session is None:
-            session = self._query(MessageSession).filter_by(id=id).first()
-            if not session:
-                raise ValueError("Session not found")
-        self._session = session        
-    
-    def set_branch(self, branch: Branch | None = None, id: int | None = None):
-        if branch is None and id is None:
-            raise ValueError("Branch or id must be set")
-        if branch is None:
-            branch = self._query(Branch).filter_by(id=id).first()
-            if not branch:
-                raise ValueError("Branch not found")
-        self._branch = branch
+        self._db.add(branch)
+        self._db.commit()
         return branch
     
-    def create_message(
-        self, 
-        content, 
-        role: MsgRole="user", 
-        prompt: str | None=None, 
-        run_id=None, 
-        action_calls=None, 
-        platform_id=None, 
-        branch_id=None
-    ):
-        last_message = None
-        if branch_id is None:
-            if self._branch is None:
-                raise ValueError("Branch not set")
-            branch_id = self._branch.id
-            if self._branch.messages:
-                last_message = self._branch.messages[-1]
-            else:
-                if self._branch.forked_from_message:
-                    last_message = self._branch.forked_from_message
-        message = Message(
-            content=content,
-            role=role,
-            prompt=prompt,
-            run_id=run_id,
-            action_calls=action_calls,
-            platform_uuid=platform_id,
-            branch_id=branch_id,
-            parent_message = last_message
+    def switch_to(self, branch: Branch):
+        """
+        Switch to a different branch.
+        
+        Args:
+            branch: The branch to switch to
+        """
+        self.commit()  # Commit any pending changes
+        self._current_branch = branch
+        self._current_turn = None
+    
+    def get_last_messages(self, limit: int = 10) -> List[Message]:
+        """
+        Get the last N messages from the current branch.
+        
+        Args:
+            limit: Maximum number of messages to return
+        """
+        # Include uncommitted messages in the result
+        committed = (
+            self._db.query(Message)
+            .filter(Message.branch_id == self._current_branch.id)
+            .order_by(Message.created_at.desc())
+            .limit(limit)
+            .all()
         )
-        if self._commit_strategy == "auto":
-            self._add_commit(message)
-        else:
-            self._uncommited_messages.append(message)
-        return message
-    
-    
-    def create_branch(self, from_message: Message | None = None, from_first: bool = True, checkout: bool=True, on_error_use_default: bool=True):
-        if self._session is None:
-            raise ValueError("Session not set")
-            
-        branch = None
-        if from_message is not None:
-            # Create branch from specific message
-            branch = Branch(forked_from_message=from_message)
-        elif self._branch is not None:
-            # Create branch from first/last message of current branch
-            if len(self._branch.messages) > 0:
-                if from_first:
-                    # Fork from first message
-                    branch = Branch(forked_from_message=self._branch.messages[0])
-                else:
-                    # Fork from last message
-                    branch = Branch(forked_from_message=self._branch.messages[-1])
-            else:
-                # No messages in current branch, fork from forked_from_message if exists
-                raise ValueError("No messages in current branch")
-                # branch = Branch(forked_from_message=self._branch.forked_from_message)
         
-        if branch is None:
-            # Create new empty branch if no fork point specified
-            # branch = Branch()
-            raise ValueError("Branch not found")
-        self._session.branches.append(branch)
-        self._add_commit(branch)
+        all_messages = self._uncommitted_messages + committed
+        return sorted(all_messages, key=lambda m: m.created_at)[-limit:]
+    
+    def get_branches(self) -> List[Branch]:
+        """Get all branches in the current session."""
+        return self._current_session.branches
+    
+    def get_branch_messages(self, branch: Branch) -> List[Message]:
+        """Get all messages in a specific branch."""
+        return (
+            self._db.query(Message)
+            .filter(Message.branch_id == branch.id)
+            .order_by(Message.created_at)
+            .all()
+        )
+    
+    def rewind_to(self, turn: Turn):
+        """
+        Rewind the current branch to a specific turn.
+        Creates a new branch from that turn.
+        """
+        branch = self.create_branch(from_turn=turn)
+        self.switch_to(branch)
         
-        if checkout:
-            self._branch = branch
-            
+    def get_turn_messages(self, turn: Turn) -> List[Message]:
+        """Get all messages in a specific turn."""
+        return (
+            self._db.query(Message)
+            .filter(Message.turn_id == turn.id)
+            .order_by(Message.created_at)
+            .all()
+        )
+    
+    def get_turns(self, branch: Optional[Branch] = None) -> List[Turn]:
+        """Get all turns in the current or specified branch."""
+        branch = branch or self._current_branch
+        return (
+            self._db.query(Turn)
+            .filter(Turn.branch_id == branch.id)
+            .order_by(Turn.created_at)
+            .all()
+        )
+    
+    def create_test_branch(self, name: Optional[str] = None) -> Branch:
+        """Create a new test branch from the current point."""
+        branch = self.create_branch(name)
+        branch.is_test = True
+        self._db.commit()
         return branch
     
-    def commit_turn(self):
-        if self._commit_strategy == "manual":
-            self._add_all_commit(self._uncommited_messages)
-            self._uncommited_messages = []
+    def get_test_branches(self) -> List[Branch]:
+        """Get all test branches in the current session."""
+        return (
+            self._db.query(Branch)
+            .filter(Branch.session_id == self._current_session.id)
+            .filter(Branch.is_test == True)
+            .all()
+        )
+    
+    def delete_branch(self, branch: Branch):
+        """Delete a branch and all its messages."""
+        if branch == self._current_branch:
+            raise ValueError("Cannot delete the current branch")
+        self._db.delete(branch)
+        self._db.commit()
+    
+    def cleanup(self):
+        """Close the database session."""
+        self._db.close()
         
-    def _message_cte(self,message_id: int, limit: int=1):
-        m = Message.__table__        
+        
+    def get_last_turns(self, limit: int = 10):
+        if not self._current_branch:
+            raise ValueError("No current branch")
+        last_turn =self._current_branch.turns[-1]
+        if not last_turn:
+            return []
+        turn_id = last_turn.id
+        cte = self._turn_cte(turn_id, limit)        
+        stmt = select(Turn).join(cte, Turn.id == cte.c.id).order_by(Turn.created_at.asc())
+        return [t[0] for t in self._db.execute(stmt).all()]
+    
+    def get_last_messages(self, limit: int = 10):
+        if not self._current_branch:
+            raise ValueError("No current branch")
+        last_turn =self._current_branch.turns[-1]
+        if not last_turn:
+            return []
+        turn_id = last_turn.id
+        cte = self._turn_cte(turn_id, limit)
+        stmt = select(Message).join(cte, Message.turn_id == cte.c.id).order_by(Message.created_at.asc())
+        return [m[0] for m in self._db.execute(stmt).all()]
+        
+    def _turn_cte(self, turn_id: int, limit: int = 10):
+        t = Turn.__table__
         cte = (
             select(
-                m.c.id.label("id"),
-                m.c.parent_message_id.label("parent_message_id"),
+                t.c.id.label("id"),
+                t.c.parent_turn_id.label("parent_turn_id"),
                 literal_column("1").label("depth")
-            )
-            .where(m.c.id == message_id)
-            .cte("parent_ids", recursive=True)
+            ).where(t.c.id == turn_id)
+            .cte("turn_hierarchy", recursive=True)
         )
-        # Recursive union: follow parent_message_id -> id
-        alias_m = m.alias("msg_parent")
         cte = cte.union_all(
             select(
-                alias_m.c.id,
-                alias_m.c.parent_message_id,
+                t.c.id,
+                t.c.parent_turn_id,
                 (cte.c.depth + 1).label("depth")
-            )
-            .where(alias_m.c.id == cte.c.parent_message_id)
+            ).where(t.c.id == cte.c.parent_turn_id)
             .where(cte.c.depth < limit)
         )
-
-        # stmt = select(cte.c.id, cte.c.depth).order_by(cte.c.depth)
-        stmt = select(Message).join(cte, Message.id == cte.c.id).order_by(Message.created_at.asc())
-        return self._conn_session.execute(stmt).all()
-    
-    def last(self, limit: int=10):
-        if not self._branch:
-            raise ValueError("Branch not set")
-            
-        # Calculate adjusted limit for committed messages
-        uncommitted_count = len(self._uncommited_messages)
-        committed_limit = max(0, limit - uncommitted_count)
+        return cte
         
-        # Get committed messages if needed
-        committed_messages = []
-        if committed_limit > 0 and self._branch.messages:
-            message_id = self._branch.messages[-1].id
-            committed_results = self._message_cte(message_id, committed_limit)
-            committed_messages = [m[0] for m in committed_results]
         
-        # Combine with uncommitted messages
-        all_messages = committed_messages + self._uncommited_messages
+    
+    def get_recent_turns_across_branches(self, limit: int = 10) -> List[Turn]:
+        """
+        Get the most recent turns across all branches using recursive CTE.
+        Follows the branch fork history to get turns from all related branches.
         
-        # Sort by creation time and limit
-        sorted_messages = sorted(all_messages, key=lambda m: m.created_at)
-        return MessageList(sorted_messages[-limit:])
-    
-    
-    def first(self, limit: int=10):
-        if not self._branch:
-            raise ValueError("Branch not set")
-        return MessageList(self._branch.messages[:limit])
+        Args:
+            limit: Maximum number of turns to return
+        """
+        # Start with all turns in the current branch
+        current_branch_turns = (
+            self._db.query(Turn)
+            .filter(Turn.branch_id == self._current_branch.id)
+            .subquery()
+        )
         
-    def show_last(self, limit: int=10):
-        messages = self.last(limit)
-        return 
-    
-    def all_last(self, limit: int=10):
-        messages = self._query(Message).order_by(Message.created_at.desc()).limit(limit).all()
-        return MessageList(messages)
-    
-    def last_one(self):
-        if not self._branch:
-            raise ValueError("Branch not set")
-        return self._branch.messages[-1]
-    
-    def all_last_one(self):
-        msgs = self.all_last(1)
-        if msgs:
-            return msgs[0]
-        return None    
-    
-    
-    def delete(self, item: Union[Message, MessageSession, Branch, None] = None, id: int | None = None):
-        if item is None and id is None:
-            raise ValueError("Item or id must be set")
-        if item is None:
-            raise ValueError("Must provide item when id is None")
-
-        if isinstance(item, Message):
-            return self.delete_message(item, id)
-        elif isinstance(item, MessageSession):
-            return self.delete_session(item, id)
-        elif isinstance(item, Branch):
-            return self.delete_branch(item, id)
-        else:
-            raise ValueError(f"Unsupported item type: {type(item)}")
-
-    def delete_message(self, message: Message | None = None, id: int | None = None):
-        if message is None and id is None:
-            raise ValueError("Message or id must be set")
-        if message is None:
-            message = self._query(Message).filter_by(id=id).first()
-            if not message:
-                raise ValueError("Message not found")
-        else:
-            # Use the passed message object's id
-            message = self._query(Message).filter_by(id=message.id).first()
-            if not message:
-                raise ValueError("Message not found")
-            
-        self._conn_session.delete(message)
-        self._conn_session.commit()
-        return message
-
-
-    def delete_session(self, session: MessageSession | None = None, id: int | None = None):
-        if session is None and id is None:
-            raise ValueError("Session or id must be set")
+        # Build recursive CTE starting from current branch's turns
+        turn_cte = (
+            select(Turn.__table__.c.id, Turn.__table__.c.created_at, Turn.__table__.c.branch_id)
+            .select_from(current_branch_turns)
+            .cte(recursive=True, name="turn_hierarchy")
+        )
         
-        if session is None:
-            session = self._query(MessageSession).filter_by(id=id).first()
-            if not session:
-                raise ValueError("Session not found")
-        else:
-            # Use the passed session object's id
-            session = self._query(MessageSession).filter_by(id=session.id).first()
-            if not session:
-                raise ValueError("Session not found")
+        # Follow the branch fork history through turns
+        branch_alias = Branch.__table__.alias()
+        turn_alias = Turn.__table__.alias()
+        turn_cte = turn_cte.union_all(
+            select(turn_alias.c.id, turn_alias.c.created_at, turn_alias.c.branch_id)
+            .select_from(branch_alias)
+            .join(turn_alias, turn_alias.c.branch_id == branch_alias.c.id)
+            .where(branch_alias.c.forked_from_turn_id.in_(
+                select(turn_cte.c.id)
+            ))
+        )
         
-        # First delete all branches associated with this session
-        for branch in session.branches:
-            for message in branch.messages:
-                self._conn_session.delete(message)
-            self._conn_session.delete(branch)
+        # Query turns using the CTE
+        turns = (
+            self._db.query(Turn)
+            .join(turn_cte, Turn.id == turn_cte.c.id)
+            .order_by(Turn.created_at.desc())
+            .limit(limit)
+            .all()
+        )
         
-        # Then delete the session
-        self._conn_session.delete(session)
-        
-        try:
-            self._conn_session.commit()
-        except Exception as e:
-            self._conn_session.rollback()
-            raise e
-        
-        return session
+        return turns
     
+    def get_recent_messages_across_branches(self, limit: int = 10) -> List[Message]:
+        """
+        Get the most recent messages across all branches using recursive CTE.
+        First gets related turns, then finds messages in those turns.
+        
+        Args:
+            limit: Maximum number of messages to return
+        """
+        # Get related turns first
+        turn_cte = (
+            select(Turn.__table__.c.id)
+            .filter(Turn.branch_id == self._current_branch.id)
+            .cte(recursive=True, name="turn_hierarchy")
+        )
+        
+        # Follow the branch fork history through turns
+        branch_alias = Branch.__table__.alias()
+        turn_alias = Turn.__table__.alias()
+        turn_cte = turn_cte.union_all(
+            select(turn_alias.c.id)
+            .select_from(branch_alias)
+            .join(turn_alias, turn_alias.c.branch_id == branch_alias.c.id)
+            .where(branch_alias.c.forked_from_turn_id.in_(
+                select(turn_cte.c.id)
+            ))
+        )
+        
+        # Query messages from related turns
+        messages = (
+            self._db.query(Message)
+            .join(Turn, Message.turn_id == Turn.id)
+            .filter(Turn.id.in_(select(turn_cte.c.id)))
+            .order_by(Message.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        
+        return messages
     
-    def delete_branch(self, branch: Branch | None = None, id: int | None = None):
-        if branch is None and id is None:
-            raise ValueError("Branch or id must be set")
-        if branch is None:
-            branch = self._query(Branch).filter_by(id=id).first()
-            if not branch:
-                raise ValueError("Branch not found")
-        else:
-            # Use the passed branch object's id
-            branch = self._query(Branch).filter_by(id=branch.id).first()
-            if not branch:
-                raise ValueError("Branch not found")
-            
-        self._conn_session.delete(branch)
-        self._conn_session.commit()
-        return branch
+    def get_branch_fork_history(self, branch: Optional[Branch] = None) -> List[Branch]:
+        """
+        Get the fork history of a branch using recursive CTE.
+        Returns list of branches in fork order (most recent first).
+        
+        Args:
+            branch: Branch to get history for (defaults to current branch)
+        """
+        branch = branch or self._current_branch
+        
+        # Get all turns in the branch
+        branch_turns = (
+            self._db.query(Turn)
+            .filter(Turn.branch_id == branch.id)
+            .subquery()
+        )
+        
+        # Build recursive CTE starting from branch's turns
+        turn_cte = (
+            select(Turn.__table__.c.id, Turn.__table__.c.branch_id)
+            .select_from(branch_turns)
+            .cte(recursive=True, name="turn_hierarchy")
+        )
+        
+        # Follow the branch fork history through turns
+        branch_alias = Branch.__table__.alias()
+        turn_alias = Turn.__table__.alias()
+        turn_cte = turn_cte.union_all(
+            select(turn_alias.c.id, turn_alias.c.branch_id)
+            .select_from(branch_alias)
+            .join(turn_alias, turn_alias.c.branch_id == branch_alias.c.id)
+            .where(branch_alias.c.forked_from_turn_id.in_(
+                select(turn_cte.c.id)
+            ))
+        )
+        
+        # Query branches using the CTE
+        branches = (
+            self._db.query(Branch)
+            .filter(Branch.id.in_(
+                select(turn_cte.c.branch_id).distinct()
+            ))
+            .order_by(Branch.created_at.desc())
+            .all()
+        )
+        
+        return branches
     
