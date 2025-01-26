@@ -1,7 +1,7 @@
 import inspect
 from typing import (Any, Awaitable, Callable, Concatenate, Generator, Generic, List, Literal, Type,
                     TypedDict, TypeVar, ParamSpec, AsyncGenerator)
-from promptview.llms.tracer import Tracer
+from promptview.llms.tracer2 import Tracer
 from promptview.prompt.controller import Controller
 
 
@@ -19,11 +19,13 @@ class Agent(Controller[P, AsyncGenerator[YieldType, None]]):
         with Tracer(
             name=self._name,
             inputs= {"args": args,"kwargs": kwargs},
-            # session_id=context.session_id,
-            # tracer_run=tracer_run
         ) as tracer_run:
-            async for msg in self._complete(*args, **kwargs, **injection_kwargs):
-                yield msg
+            async for output in self._complete(*args, **kwargs, **injection_kwargs):
+                if inspect.isasyncgen(output):
+                    async for gen_output in output:
+                        yield gen_output
+                else:
+                    yield output
 
 
 

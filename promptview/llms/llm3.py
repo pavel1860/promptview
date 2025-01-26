@@ -133,18 +133,33 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
         return self.run_complete().__await__()
         
     
-    def one_of(self, actions: List[Type[BaseModel]]):
+    def pick_one(self, actions: List[Type[BaseModel]]):
         self.tool_choice = "required"
         self.parallel_tool_calls = False
         self.actions = actions
-        # self.actions = Actions(actions)
         return self
     
-    def many_of(self, actions: List[Type[BaseModel]]):
+    def pick_many(self, actions: List[Type[BaseModel]]):
         self.tool_choice = "required"
         self.parallel_tool_calls = True
         self.actions = actions
-        # self.actions = Actions(actions)
+        return self
+    
+    def generate_or_pick_one(self, actions: List[Type[BaseModel]]):
+        self.tool_choice = "auto"
+        self.parallel_tool_calls = False
+        self.actions = actions
+        return self
+    
+    def generate_or_pick_many(self, actions: List[Type[BaseModel]]):
+        self.tool_choice = "auto"
+        self.parallel_tool_calls = True
+        self.actions = actions
+        return self
+        
+    def generate(self):
+        self.tool_choice = "none"
+        self.parallel_tool_calls = False
         return self
     
     # async def run_complete(

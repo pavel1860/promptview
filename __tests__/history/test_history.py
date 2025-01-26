@@ -16,7 +16,7 @@ def history(db_url):
     # Drop all tables and recreate them
     Base.metadata.drop_all(bind=history._engine)
     Base.metadata.create_all(bind=history._engine)
-    history.init()
+    history.init_new_session()
     return history
 
 def test_init(history):

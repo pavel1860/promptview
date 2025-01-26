@@ -9,7 +9,7 @@ from typing import Protocol, runtime_checkable
 from promptview.conversation.models import Message
 from promptview.utils.string_utils import int_to_roman
 from promptview.llms.messages import ActionCall, LlmUsage
-
+import datetime as dt
 
 BulletType = Literal["number", "alpha", "roman", "roman_lower", "*", "-"]
 TitleType = Literal["xml", "md", "html"]
@@ -117,10 +117,12 @@ class BaseBlock(BaseModel):
     id: int | str | None = Field(default=None, description="The id for the block")
     tag: str | None = Field(default=None, description="The tag for the block")
     bclass: str = Field(default="block", description="The class for the block")
+    created_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(), description="The creation time for the block")
     # message: Message | None = Field(default=None, description="The message for the block")
     _message: Message | None = None
     # style: Style = Field(default_factory=lambda: Style())
     _items: list[Renderable] = []
+    
     
     # class Config:
     #     arbitrary_types_allowed = True
@@ -134,6 +136,7 @@ class BaseBlock(BaseModel):
         tag: str | None = None,
         platform_id: str | None = None,
         bclass: str = "block",
+        created_at: dt.datetime | None = None,
     ):
         super().__init__()
         self.db_msg_id = db_msg_id or str(uuid4())
@@ -143,6 +146,7 @@ class BaseBlock(BaseModel):
         self.tag = tag
         self.bclass = bclass
         self.platform_id = platform_id
+        self.created_at = created_at or dt.datetime.now()
         self._items = []
         self.set_content(content)
     
@@ -231,8 +235,9 @@ class TitleBlock(BaseBlock):
         id: int | str | None = None,
         tag: str | None = None,
         bclass: str = "block",
+        created_at: dt.datetime | None = None,
     ):
-        super().__init__(content=content, role=role, name=name, db_msg_id=db_msg_id, platform_id=platform_id, id=id, tag=tag, bclass=bclass)
+        super().__init__(content=content, role=role, name=name, db_msg_id=db_msg_id, platform_id=platform_id, id=id, tag=tag, bclass=bclass, created_at=created_at)
         self.title = title
         self.ttype = ttype
         # self._items = []
@@ -309,8 +314,9 @@ class ListBlock(TitleBlock):
         platform_id: str | None = None,
         db_msg_id: str | None = None,
         bclass: str = "block",
+        created_at: dt.datetime | None = None,  
     ):
-        super().__init__(title=title, ttype=ttype, id=id, role=role, name=name, platform_id=platform_id, db_msg_id=db_msg_id, bclass=bclass)
+        super().__init__(title=title, ttype=ttype, id=id, role=role, name=name, platform_id=platform_id, db_msg_id=db_msg_id, bclass=bclass, created_at=created_at)
         self.bullet = bullet    
 
     
@@ -454,6 +460,7 @@ class ResponseBlock(TitleBlock):
         id: int | str | None = None,
         tag: str | None = None,
         bclass: str = "block",
+        created_at: dt.datetime | None = None,
     ):
         super().__init__(
             content=content, 
@@ -465,7 +472,8 @@ class ResponseBlock(TitleBlock):
             platform_id=platform_id,
             id=id, 
             tag=tag, 
-            bclass=bclass
+            bclass=bclass,
+            created_at=created_at
         )
         self.model = model
         self.did_finish = did_finish
@@ -519,6 +527,7 @@ class ActionBlock(TitleBlock):
         id: int | str | None = None,
         tag: str | None = None,
         bclass: str = "block",
+        created_at: dt.datetime | None = None,
     ):
         super().__init__(
             content=content, 
@@ -530,7 +539,8 @@ class ActionBlock(TitleBlock):
             platform_id=platform_id,
             id=id or tool_call_id, 
             tag=tag, 
-            bclass=bclass
+            bclass=bclass,
+            created_at=created_at
         )
         self.tool_call_id = tool_call_id
 

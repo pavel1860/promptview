@@ -2,8 +2,32 @@ from typing import Literal, Union, Optional, List
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import literal_column, select, func, create_engine
 import os
-
+import datetime as dt
 from promptview.conversation.models import Branch, MessageSession, Message, Turn, Base
+
+
+
+
+class MessageList(list):
+    
+    
+    def render_html(self):
+        html_str = f"""<html>
+<div style="display: flex; flex-direction: column; width: 400px; margin: 0;">
+    {"".join([m.render_html() for m in self])}
+</div>
+</html>"""
+        return html_str
+    
+    def show(self, display=True):
+        from IPython.display import display, HTML        
+        # display()
+        html = HTML(self.render_html())
+        if display:
+            return display(html)            
+        return html
+
+
 
 MsgRole = Literal["user", "assistant", "tool"]
 
@@ -44,7 +68,7 @@ class History:
         self._current_turn: Optional[Turn] = None
         self._uncommitted_messages: List[Message] = []
         
-    def init(self):
+    def init_new_session(self):
         """Initialize a new session and main branch."""
         Base.metadata.create_all(self._engine)
         session = MessageSession()
@@ -59,10 +83,18 @@ class History:
         """Initialize the last session."""
         session = self._db.query(MessageSession).order_by(MessageSession.created_at.desc()).first()
         if not session:
-            self.init()
+            self.init_new_session()
             return
         self._current_session = session
         self._current_branch = session.branches[0]  
+        if not self._current_branch:
+            raise ValueError("No branches found in the last session")
+        
+        if self._current_branch.turns:
+            self._current_turn = self._current_branch.turns[-1]
+        else:
+            self.add_turn()
+        
         
     @property
     def turn(self) -> Turn:
@@ -95,7 +127,16 @@ class History:
         self._current_turn = turn
         return turn
         
-    def add_message(self, content: str, role: MsgRole = "user", **kwargs) -> Message:
+    def add_message(
+        self, 
+        content: str, 
+        role: MsgRole = "user", 
+        run_id: str | None = None,
+        platform_id: str | None = None,
+        action_calls: List[dict] | None = None,
+        created_at: dt.datetime | None = None,
+        # **kwargs,
+    ) -> Message:
         """
         Add a message to the current turn.
         
@@ -105,6 +146,8 @@ class History:
             **kwargs: Additional message attributes (action_calls, etc.)
         """
         try:
+            if not self._current_branch:
+                raise ValueError("No current branch")
             if not self._current_turn:
                 self._current_turn = Turn(branch=self._current_branch)
                 self._db.add(self._current_turn)
@@ -115,7 +158,11 @@ class History:
                 role=role,
                 turn=self._current_turn,
                 branch_id=self._current_branch.id,
-                **kwargs
+                run_id=run_id,
+                platform_id=platform_id,
+                action_calls=action_calls,
+                created_at=created_at,
+                # **kwargs
             )
             self._db.add(message)
             self._db.flush()  # Ensure message has an ID
@@ -160,6 +207,8 @@ class History:
         self._db.commit()
         return branch
     
+    
+    
     def get_branch_by_id(self, branch_id: int) -> Branch:
         return self._db.query(Branch).filter(Branch.id == branch_id).first()
     
@@ -176,6 +225,7 @@ class History:
         self._current_branch = branch
         self._current_turn = None
         return branch
+    
     
     
     # def get_last_messages(self, limit: int = 10) -> List[Message]:
@@ -252,7 +302,13 @@ class History:
             .filter(Branch.is_test == True)
             .all()
         )
-    
+        
+    def clear_session(self):
+        """Clear the current session."""
+        self._db.query(MessageSession).delete()
+        self._db.commit()
+        self.init_new_session()
+        
     def delete_branch(self, branch: Branch):
         """Delete a branch and all its messages."""
         if branch == self._current_branch:
@@ -273,7 +329,7 @@ class History:
             return []
         turn_id = last_turn.id
         cte = self._turn_cte(turn_id, limit)        
-        stmt = select(Turn).join(cte, Turn.id == cte.c.id).order_by(Turn.created_at.asc())
+        stmt = select(Turn).join(cte, Turn.id == cte.c.id).order_by(Turn.created_at.desc())
         return [t[0] for t in self._db.execute(stmt).all()]
     
     def get_last_messages(self, limit: int = 10):
@@ -285,7 +341,7 @@ class History:
         turn_id = last_turn.id
         cte = self._turn_cte(turn_id, limit)
         stmt = select(Message).join(cte, Message.turn_id == cte.c.id).order_by(Message.created_at.asc())
-        return [m[0] for m in self._db.execute(stmt).all()]
+        return MessageList([m[0] for m in self._db.execute(stmt).all()])
         
     def _turn_cte(self, turn_id: int, limit: int = 10):
         t = Turn.__table__
@@ -440,4 +496,82 @@ class History:
         )
         
         return branches
+    
+    def copy_session(self, session_id: int) -> MessageSession:
+        """
+        Create a deep copy of a session including all its branches, turns, and messages.
+        
+        Args:
+            session_id: ID of the session to copy
+            
+        Returns:
+            The newly created session copy
+        """
+        # Get the source session
+        source_session = self._db.query(MessageSession).get(session_id)
+        if not source_session:
+            raise ValueError(f"Session with id {session_id} not found")
+            
+        # Create new session
+        new_session = MessageSession()
+        self._db.add(new_session)
+        self._db.flush()  # Get new session ID
+        
+        # Map of old IDs to new entities for reference
+        branch_map = {}  # old_id -> new_branch
+        turn_map = {}    # old_id -> new_turn
+        
+        # Copy branches
+        for old_branch in source_session.branches:
+            new_branch = Branch(
+                session=new_session,
+                is_test=old_branch.is_test
+            )
+            self._db.add(new_branch)
+            self._db.flush()
+            branch_map[old_branch.id] = new_branch
+            
+            # Copy turns for this branch
+            for old_turn in old_branch.turns:
+                new_turn = Turn(
+                    branch=new_branch,
+                    created_at=old_turn.created_at
+                )
+                self._db.add(new_turn)
+                self._db.flush()
+                turn_map[old_turn.id] = new_turn
+                
+                # Copy messages for this turn
+                for old_message in old_turn.messages:
+                    new_message = Message(
+                        content=old_message.content,
+                        role=old_message.role,
+                        prompt=old_message.prompt,
+                        run_id=old_message.run_id,
+                        action_calls=old_message.action_calls,
+                        turn=new_turn,
+                        branch=new_branch,
+                        created_at=old_message.created_at
+                    )
+                    self._db.add(new_message)
+                    
+                    # If this was the start message, set it on the new turn
+                    if old_turn.start_message_id == old_message.id:
+                        self._db.flush()  # Ensure new message has ID
+                        new_turn.start_message_id = new_message.id
+        
+        # Set up branch relationships
+        for old_branch in source_session.branches:
+            new_branch = branch_map[old_branch.id]
+            if old_branch.forked_from_turn_id:
+                new_branch.forked_from_turn = turn_map.get(old_branch.forked_from_turn_id)
+                
+        # Set up turn parent relationships
+        for old_turn_id, new_turn in turn_map.items():
+            old_turn = self._db.query(Turn).get(old_turn_id)
+            if old_turn.parent_turn_id:
+                new_turn.parent_turn = turn_map.get(old_turn.parent_turn_id)
+        
+        self._db.commit()
+        return new_session
     
