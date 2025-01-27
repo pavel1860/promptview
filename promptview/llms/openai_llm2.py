@@ -24,7 +24,6 @@ class OpenAiLLM(LLM):
     
     
     def to_message(self, block: BaseBlock):
-        print(block.role)
         if block.role == "user" or block.role == "system":
             return {
                 "role": block.role, # type: ignore
