@@ -1,9 +1,9 @@
 #! working
+import threading
 from typing import Callable, Coroutine, Literal, Union, Any
 from promptview.prompt.agent import Agent
 from promptview.prompt.util.block_visualization import block_to_html
 from promptview.prompt.block import TitleBlock
-from research.snackbot.agent import social_event_agent, router_agent
 from promptview.prompt.context import Context
 from abc import abstractmethod
 
@@ -33,7 +33,8 @@ class AsyncButton(widgets.Button):
 
 
 
-message_input = widgets.Text(placeholder='Type your message here...')
+
+
 
 
 
@@ -82,60 +83,164 @@ def display_assistant_message(assistant_message):
 
 class ChatOutput(widgets.Output):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, context: Context, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.context = Context()
+        self.context = context
 
+    # async def render_history(self):
+    #     async with Context() as ctx:
+    #         conv = ctx.last()        
+    #         with self:
+    #             for block in conv:
+    #                 display(HTML(block_to_html(block)))
     async def render_history(self):
-        async with Context() as ctx:
-            conv = ctx.last()        
-            with self:
-                for block in conv:
-                    display(HTML(block_to_html(block)))
+        conv = self.context.last()        
+        with self:
+            for block in conv:
+                display(HTML(block_to_html(block)))
+
+
 
 
 
 class ChatUI:
   
   
-    def __init__(self, agent: Agent):
+    def __init__(self, agent: Agent, context: Context):
         self.agent = agent
-        self.chat_output = ChatOutput()
+        self.context = context
+        self.chat_output = ChatOutput(context=context)
         self.send_button = AsyncButton(description='Send', on_click=self.run_agent_handler)
+        self.message_input = self.build_input(on_submit_handler=self.run_agent_handler)
         self.clear_session_btn = AsyncButton(description="New Session", on_click=self.clear_session, icon="plus")
         self.top_bar = widgets.HBox([self.clear_session_btn])
-        self.chat_ui = widgets.VBox([self.top_bar, self.chat_output, widgets.HBox([message_input, self.send_button])])
+        self.chat_ui = widgets.VBox([self.top_bar, self.chat_output, widgets.HBox([self.message_input, self.send_button])])
+        
+    def build_input(self, on_submit_handler):
+        message_input = widgets.Text(placeholder='Type your message here...')
+        message_input.on_submit(on_submit_handler)
+        return message_input
     
     async def run_agent_handler(self, change):
-        user_message = message_input.value.strip()
-        message_input.value = ""
+        user_message = self.message_input.value.strip()
+        self.message_input.value = ""
         with self.chat_output:
-            # print("User Message: ", user_message)        
             display_user_message(user_message)
-            async with Context() as ctx:
+            async with self.context.resume() as ctx:
                 async for res in self.agent(ctx=ctx, message=user_message):
                     if res is not None:
                         display_assistant_message(res)
-                    else:
-                        print("None")
+                else:
+                    print("None")
+            # async with Context() as ctx:
+            #     async for res in self.agent(ctx=ctx, message=user_message):
+            #         if res is not None:
+            #             display_assistant_message(res)
+            #         else:
+            #             print("None")
 
 
     async def clear_session(self, change):
         with self.chat_output:
-            async with Context() as ctx:
-                ctx.clear_session()
-                self.chat_output.clear_output(wait=True)
-                print("")    
+            self.context.clear_session()
+            self.chat_output.clear_output(wait=True)
+            print("")    
+            # async with Context() as ctx:
+            #     ctx.clear_session()
+            #     self.chat_output.clear_output(wait=True)
+            #     print("")    
+    
+    @staticmethod
+    async def display(agent: Agent, context: Context):
+        context.init()
+        chat_ui = ChatUI(agent, context)
+        await chat_ui.chat_output.render_history()
+        display(chat_ui.chat_ui)
+
+
+
+
+
+
+
+
 
     @staticmethod
-    async def display(agent: Agent):
+    async def display3(agent: Agent, context: Context):
+        # ctx = Context(inputs=inputs).resume()
+        # await ctx.__aenter__()
+        async def run_ui(agent):
+            for i in range(10):
+                print(i)
+                await asyncio.sleep(1)
+            # async with context.resume() as ctx:
+            #     chat_ui = ChatUI(agent)
+            #     await chat_ui.chat_output.render_history()
+            #     display(chat_ui.chat_ui)
+            
+        def thread_target(agent):
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(run_ui(agent))
+        
+        thread = threading.Thread(target=thread_target, args=(agent,))
+        thread.start()
+        
+        stop_event = asyncio.Event()
+        
+        # Create a background task to keep the event loop running
+        async def process_events():
+            while not stop_event.is_set():
+                # Use a very short sleep to allow other tasks to run
+                await asyncio.sleep(0.01)
+                
+        # Create multiple concurrent tasks to ensure responsiveness
+        tasks = [asyncio.create_task(process_events()) for _ in range(3)]
+        
+        try:
+            # Wait for all tasks
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            stop_event.set()
+            for task in tasks:
+                task.cancel()
+                thread.join()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        
+    
+
+    @staticmethod
+    async def display2(agent: Agent, inputs: dict | None = None):
         chat_ui = ChatUI(agent)
         await chat_ui.chat_output.render_history()
         display(chat_ui.chat_ui)
         
-    
-
+        # Create an event to control the loop
+        stop_event = asyncio.Event()
         
+        # Create a background task to keep the event loop running
+        async def process_events():
+            while not stop_event.is_set():
+                # Use a very short sleep to allow other tasks to run
+                await asyncio.sleep(0.01)
+                
+        # Create multiple concurrent tasks to ensure responsiveness
+        tasks = [asyncio.create_task(process_events()) for _ in range(3)]
+        
+        try:
+            # Wait for all tasks
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            stop_event.set()
+            for task in tasks:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass  
 
 
 

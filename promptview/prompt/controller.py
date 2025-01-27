@@ -32,10 +32,10 @@ class Controller(Generic[P, R]):
     
     
     def _set_history(self, history: History):
-        history.init_main()
+        history.init_last_session()
         return history
     
-    
+
     async def _inject_dependencies(self, *args: P.args, **kwargs: P.kwargs) -> Dict[str, Any]:
         signature = inspect.signature(self._complete)
         injection_kwargs = {}

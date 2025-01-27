@@ -91,7 +91,7 @@ async def resolve_dependency(dependency_func, *args, **kwargs):
         # If the default is a Depends(...) object, recursively resolve it
         if isinstance(default_val, DependsContainer):
             sub_dependency_func = default_val.dependency
-            dep_kwargs[param_name] = resolve_dependency(sub_dependency_func)
+            dep_kwargs[param_name] = await resolve_dependency(sub_dependency_func)
     
     # Once all sub-dependencies are resolved, call the function
     return await call_function(dependency_func, *args, **kwargs, **dep_kwargs)

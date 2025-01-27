@@ -1,3 +1,4 @@
+import contextvars
 from typing import List, Union
 from promptview.conversation.models import Message
 from promptview.llms.messages import ActionCall
@@ -265,28 +266,48 @@ class BlockStream:
 
 
 
+CURR_CONTEXT = contextvars.ContextVar("curr_context")
+
 
 
 class Context:
     
-    def __init__(self, branch_id: int | None = None):
+    def __init__(self, inputs: dict | None = None, branch_id: int | None = None):
         self.history = History()
         self.branch_id = branch_id
         self._initialized = False
+        self.inputs = inputs or {}
+        self._ctx_token = None
         
-    @staticmethod
-    def resume(branch_id: int | None = None):
-        ctx = Context(branch_id)
-        ctx.init()
-        ctx.history.add_turn()
-        return ctx
+
+    # @staticmethod
+    # def resume(branch_id: int | None = None):
+    #     ctx = Context(branch_id=branch_id)
+    #     ctx.init()
+    #     ctx.history.add_turn()
+    #     return ctx
     
-    @staticmethod
-    def start():
-        ctx = Context()
-        ctx.history.init_new_session()   
-        ctx._initialized = True
-        return ctx
+    # @staticmethod
+    # def start():
+    #     ctx = Context()
+    #     ctx.history.init_new_session()   
+    #     ctx._initialized = True
+    #     return ctx
+    @classmethod
+    def get_current(cls):
+        return CURR_CONTEXT.get()
+        
+    def resume(self):        
+        self.init()
+        self.history.add_turn()
+        return self
+    
+    def start(self):
+        self.history.init_last_session()
+        if self.branch_id:
+            self.history.switch_to(self.branch_id)
+        self._initialized = True
+        return self
     
     @property
     def turn(self):
@@ -309,12 +330,16 @@ class Context:
         
     async def __aenter__(self):
         if not self._initialized:
-            self.init()
+            raise ValueError("Context not initialized. Call start() or resume() first.") 
+        self._ctx_token = CURR_CONTEXT.set(self)
         return self
     
     async def __aexit__(self, exc_type, exc_value, traceback):
         self.history.commit()
-        
+        if self._ctx_token:
+            CURR_CONTEXT.reset(self._ctx_token)
+            self._ctx_token = None
+            
     def messages_to_blocks(self, messages: List[Message]):
         # block_stream = BlockStream(self.history)
         blocks = []
