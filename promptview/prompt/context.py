@@ -1,5 +1,5 @@
 import contextvars
-from typing import List, Union
+from typing import Any, List, Union
 from promptview.conversation.models import Message
 from promptview.llms.messages import ActionCall
 from promptview.prompt.block import ActionBlock, BaseBlock, BulletType, ListBlock, ResponseBlock, TitleBlock, TitleType, BlockRole
@@ -9,6 +9,8 @@ from collections import defaultdict
 import datetime as dt
 
 from typing import TypedDict, List
+
+from promptview.prompt.local_state import TurnHooks
 
 class MessageView(TypedDict):
     content: List[str]
@@ -278,6 +280,7 @@ class Context:
         self._initialized = False
         self.inputs = inputs or {}
         self._ctx_token = None
+        self._hooks = None
         
 
     # @staticmethod
@@ -304,6 +307,7 @@ class Context:
             self.history.switch_to(self.branch_id)
         self._initialized = True
         self.history.add_turn()
+        self._hooks = TurnHooks(self.history)
         return self
     
     def start(self):
@@ -311,6 +315,7 @@ class Context:
         # if self.branch_id:
         #     self.history.switch_to(self.branch_id)
         self._initialized = True
+        self._hooks = TurnHooks(self.history)
         return self
     
     @property
@@ -346,6 +351,11 @@ class Context:
         if self._ctx_token:
             CURR_CONTEXT.reset(self._ctx_token)
             self._ctx_token = None
+            
+    def use_state(self, key: str, initial_value: Any = None):
+        if not self._hooks:
+            raise ValueError("Turn hooks not initialized. Call resume() or start() first.")
+        return self._hooks.use_state(key, initial_value)
             
     def messages_to_blocks(self, messages: List[Message]):
         # block_stream = BlockStream(self.history)

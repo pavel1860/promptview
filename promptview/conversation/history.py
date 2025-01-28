@@ -1,4 +1,4 @@
-from typing import Literal, Union, Optional, List
+from typing import Any, Dict, Literal, Union, Optional, List
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import literal_column, select, func, create_engine
 import os
@@ -73,11 +73,13 @@ class History:
         Base.metadata.create_all(self._engine)
         session = MessageSession()
         branch = Branch(session=session)
-        self._db.add_all([session, branch])
+        turn = Turn(branch=branch)
+        self._db.add_all([session, branch, turn])
         self._db.commit()
         
         self._current_session = session
         self._current_branch = branch
+        self._current_turn = turn
         
     def init_last_session(self):
         """Initialize the last session."""
@@ -121,11 +123,32 @@ class History:
             branch = self._current_branch
         
         parent_turn = self._current_turn if self._current_turn else branch.forked_from_turn
-        turn = Turn(branch=branch, parent_turn=parent_turn)
+        turn = Turn(
+            branch=branch, 
+            parent_turn=parent_turn, 
+            local_state=parent_turn.local_state if parent_turn else {}
+        )
         self._db.add(turn)
         self._db.flush()
+        self._db.commit()
         self._current_turn = turn
         return turn
+    
+    def get_or_add_turn(self) -> Turn:
+        if not self._current_turn:
+            self._current_turn = Turn(branch=self._current_branch)
+            self._db.add(self._current_turn)
+            self._db.flush()
+            self._db.commit()
+        return self._current_turn
+    
+    def update_turn_local_state(self, local_state: Dict[str, Any]):
+        if not self._current_turn:
+            raise ValueError("No current turn")
+        self._current_turn.local_state = local_state
+        self._db.add(self._current_turn)
+        self._db.flush()
+        self._db.commit()
         
     def add_message(
         self, 
