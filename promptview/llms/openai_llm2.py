@@ -58,20 +58,20 @@ class OpenAiLLM(LLM):
             if block.name:
                 oai_msg["name"] = block.name
             return oai_msg
-        
-    def to_chat(self, blocks: BlockStream) -> List[BaseBlock]:
-        return blocks.get([
-            {
-                "content": [
-                    "background",
-                    "task",     
-                    "rules",
-                ],
-                "role": "system"
-            },            
-            "history",
-            "user_message"
-        ])
+      
+    # def to_chat(self, blocks: BlockStream) -> List[BaseBlock]:
+    #     return blocks.get([
+    #         {
+    #             "content": [
+    #                 "background",
+    #                 "task",     
+    #                 "rules",
+    #             ],
+    #             "role": "system"
+    #         },            
+    #         "history",
+    #         "user_message"
+    #     ])
         
         
     def to_tools(self, actions: List[Type[BaseModel]]) -> List[dict] | None:

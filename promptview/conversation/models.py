@@ -85,6 +85,8 @@ class Turn(Base):
                                 ondelete="CASCADE"), 
                       nullable=False)
     
+    local_state = Column(JSONB, default={})
+    
     # Parent Turn (the Turn this one was based on)
     parent_turn_id = Column(Integer, 
                           ForeignKey('turns.id',
@@ -106,6 +108,8 @@ class Turn(Base):
                           back_populates="turn",
                           foreign_keys="Message.turn_id",
                           cascade="all, delete-orphan")
+    
+    
     
     # The branch this turn belongs to
     branch = relationship("Branch", back_populates="turns", foreign_keys=[branch_id])

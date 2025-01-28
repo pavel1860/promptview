@@ -18,7 +18,7 @@ class Agent(Controller[P, AsyncGenerator[YieldType, None]]):
         injection_kwargs = await self._inject_dependencies(*args, **kwargs)
         with Tracer(
             name=self._name,
-            inputs= {"args": args,"kwargs": kwargs},
+            inputs=self._filter_args_for_trace(*args, **kwargs, **injection_kwargs),
         ) as tracer_run:
             async for output in self._complete(*args, **kwargs, **injection_kwargs):
                 if inspect.isasyncgen(output):

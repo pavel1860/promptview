@@ -285,9 +285,9 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     def to_message(self, block: BaseBlock) -> dict:
         ...
     
-    @abstractmethod
+    # @abstractmethod
     def to_chat(self, blocks: BlockStream) -> List[BaseBlock]:
-        ...
+        return blocks._blocks
     
     @abstractmethod
     def parse_response(self, response: CLIENT_RESPONSE, actions: List[Type[BaseModel]] | None) -> ResponseBlock:

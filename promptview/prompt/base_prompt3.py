@@ -90,15 +90,13 @@ class Prompt(Controller[P, R]):
         injection_kwargs = await self._inject_dependencies(*args, **kwargs)        
         with Tracer(
                 name=self._complete.__name__,
-                inputs={
-                    "args": args,
-                    "kwargs": kwargs,                    
-                },
+                run_type="prompt",
+                inputs=self._filter_args_for_trace(*args, **kwargs, **injection_kwargs),
             ) as run:
             kwargs.update(injection_kwargs)
             try:
                 res = await call_function(self._complete, *args, **kwargs)
-                run.add_outputs({"response":res})
+                run.add_outputs({"response": self._sanitize_output(res)})
                 return res
             except Exception as e:
                 run.end(errors=str(e))

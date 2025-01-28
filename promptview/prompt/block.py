@@ -100,7 +100,17 @@ class dictblk(dict, Renderable):
         content = json.dumps(self, indent=style.indent)
         return content
 
-   
+
+def to_renderable(item):
+    if isinstance(item, Renderable):
+        return item
+    elif isinstance(item, str):
+        return strblk(item)
+    elif isinstance(item, dict):
+        return dictblk(item)
+    else:
+        raise ValueError(f"Invalid item type: {type(item)}. Must be str, dict, or Renderable")
+ 
 # class listblk(list):
     
 #     def render(self, indent=4):
@@ -171,18 +181,25 @@ class BaseBlock(BaseModel):
     def message(self, value: Message):
         self._message = value
                 
-    def append(self, item):        
+    def append(self, item):
         if not isinstance(item, Renderable):
             if isinstance(item, str):
                 item = strblk(item)
             elif isinstance(item, dict):
-                item = dictblk(item)                
+                item = dictblk(item)
             elif isinstance(item, BaseBlock):
                 item = item
             else:
                 raise ValueError(f"Invalid item type: {type(item)}. Must be str, dict, or Renderable")
         self._items.append(item)
         return item
+    
+    def extend(self, items):
+        if not isinstance(items, list) and not isinstance(items, tuple):
+            raise ValueError(f"Invalid items type: {type(items)}. Must be list or tuple")
+        if isinstance(items, tuple):
+            items = list(items)
+        self._items.extend(items)
     
     def __enter__(self):
         return self
@@ -392,13 +409,32 @@ class block:
     def list(title=None, ttype: TitleType="md", bullet: BulletType = "-", role: BlockRole = "user", name: str | None = None, id: str | None = None):        
         return ListBlock(title=title, ttype=ttype, bullet=bullet, id=id, role=role, name=name)
 
+    def _process_output(self, output: str | BaseBlock | List[str] | List[BaseBlock] | None):
+        if output is None:
+            return None
+        if isinstance(output, str):
+            return strblk(output)
+        elif isinstance(output, dict):
+            return dictblk(output)
+        elif isinstance(output, list) or isinstance(output, tuple):
+            return [to_renderable(item) for item in output]
+        elif isinstance(output, BaseBlock):
+            return output
+        else:
+            raise ValueError(f"Invalid output type: {type(output)}. Must be str, list, tuple, or TitleBlock")
+        
+        return output
     
     def __call__(self, func: Callable[P, TitleBlock]) -> Callable[P, TitleBlock]:
         @wraps(func)
         def wrapper(*args, **kwargs) -> TitleBlock:
             output = func(*args, **kwargs)
+            output = self._process_output(output)            
             block = TitleBlock(**self.block_args)
-            block.append(output)
+            if isinstance(output, list) or isinstance(output, tuple):
+                block.extend(output)
+            else:
+                block.append(output)
             return block            
         return wrapper
     

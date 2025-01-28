@@ -8,15 +8,17 @@ from typing import (Any, Awaitable, Callable, Concatenate, Dict, Generic, List, 
 from promptview.conversation.history import History
 from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.exceptions import LLMToolNotFound
-from promptview.llms.llm2 import LLM
+from promptview.llms.llm3 import LLM
 from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
+from promptview.prompt.block import BaseBlock
+from promptview.prompt.context import BlockStream
 from promptview.prompt.depends import Depends, DependsContainer, resolve_dependency
 from promptview.prompt.mvc import ViewBlock, create_view_block
-from promptview.state.context import Context
-from promptview.utils.function_utils import call_function
+from promptview.prompt.context import Context
+from promptview.utils.function_utils import call_function, filter_args_by_exclude
 from pydantic import BaseModel, Field
 
 
@@ -35,6 +37,16 @@ class Controller(Generic[P, R]):
         history.init_last_session()
         return history
     
+    
+    def _filter_args_for_trace(self, *args: P.args, **kwargs: P.kwargs) -> dict[str, Any]:
+        _args, _kwargs = filter_args_by_exclude(args, kwargs, (LLM, Context, BlockStream))
+        return {"args": _args, "kwargs": _kwargs}
+    
+    
+    def _sanitize_output(self, output: Any) -> Any:
+        if isinstance(output, BaseBlock):
+            return output.content
+        return output
 
     async def _inject_dependencies(self, *args: P.args, **kwargs: P.kwargs) -> Dict[str, Any]:
         signature = inspect.signature(self._complete)

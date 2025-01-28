@@ -298,14 +298,18 @@ class Context:
         return CURR_CONTEXT.get()
         
     def resume(self):        
-        self.init()
+        # self.init()
+        self.history.init_last_session()
+        if self.branch_id:
+            self.history.switch_to(self.branch_id)
+        self._initialized = True
         self.history.add_turn()
         return self
     
     def start(self):
-        self.history.init_last_session()
-        if self.branch_id:
-            self.history.switch_to(self.branch_id)
+        self.history.init_new_session()
+        # if self.branch_id:
+        #     self.history.switch_to(self.branch_id)
         self._initialized = True
         return self
     
@@ -321,6 +325,9 @@ class Context:
     def session(self):
         return self.history.session
     
+    @property
+    def is_initialized(self):
+        return self._initialized
     
     def init(self):
         self.history.init_last_session()

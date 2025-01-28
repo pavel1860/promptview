@@ -152,7 +152,8 @@ class ChatUI:
     
     @staticmethod
     async def display(agent: Agent, context: Context):
-        context.init()
+        if not context.is_initialized:
+            context.init()
         chat_ui = ChatUI(agent, context)
         await chat_ui.chat_output.render_history()
         display(chat_ui.chat_ui)
