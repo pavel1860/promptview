@@ -9,7 +9,6 @@ from collections import defaultdict
 import datetime as dt
 
 from typing import TypedDict, List
-
 from promptview.prompt.local_state import TurnHooks
 
 class MessageView(TypedDict):
@@ -26,7 +25,13 @@ class MessageView(TypedDict):
 
 class BlockStream:
     
-    def __init__(self, history: History, blocks: List[BaseBlock] | None = None):
+    def __init__(
+        self, 
+        history: History, 
+        blocks: List[BaseBlock] | None = None, 
+        run_id: str | None = None, 
+        prompt_name: str | None = None
+    ):
         self.history = history
         self._blocks = []
         self._block_lookup = defaultdict(list)        
@@ -35,6 +40,8 @@ class BlockStream:
                 self.append(b)        
         self._dirty = True
         self.response = None
+        self.run_id = run_id
+        self.prompt_name = prompt_name
     
     
     def __add__(self, other: Union[list[BaseBlock] , "BlockStream"]):
@@ -42,9 +49,9 @@ class BlockStream:
             for i, b in enumerate(other):
                 if not isinstance(b, BaseBlock):
                     raise ValueError(f"Invalid block type: {type(b)} at index {i}")
-            return BlockStream(self.history, self._blocks + other)
+            return BlockStream(self.history, self._blocks + other, run_id=self.run_id, prompt_name=self.prompt_name)
         elif isinstance(other, BlockStream):
-            return BlockStream(self.history, self._blocks + other._blocks)
+            return BlockStream(self.history, self._blocks + other._blocks, run_id=self.run_id, prompt_name=self.prompt_name)
         else:       
             raise ValueError(f"Invalid type: {type(other)}")
         
@@ -53,9 +60,9 @@ class BlockStream:
             for i, b in enumerate(other):
                 if not isinstance(b, BaseBlock):
                     raise ValueError(f"Invalid block type: {type(b)} at index {i}")
-            return BlockStream(self.history, other + self._blocks)
+            return BlockStream(self.history, other + self._blocks, run_id=self.run_id, prompt_name=self.prompt_name)
         elif isinstance(other, BlockStream):
-            return BlockStream(self.history, other._blocks + self._blocks)
+            return BlockStream(self.history, other._blocks + self._blocks, run_id=self.run_id, prompt_name=self.prompt_name)
         else:       
             raise ValueError(f"Invalid type: {type(other)}")        
     
@@ -119,8 +126,28 @@ class BlockStream:
         self.append(lb)
         return lb
     
-    
     def push(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):        
+        if action or isinstance(block, ActionBlock):
+            if isinstance(block, str) or isinstance(block, dict):
+                block = ActionBlock(content=block, tool_call_id=action.id, id=id)
+            elif isinstance(block, TitleBlock):
+                block = ActionBlock(content=block.content, tool_call_id=action.id, id=id)
+            return self.push_action(block)
+        else:
+            if isinstance(block, str) or isinstance(block, dict): 
+                block = TitleBlock(content=block, role=role or "user", id=id)
+                return self.push_message(block)
+            elif isinstance(block, ResponseBlock):
+                block.id = id
+                return self.push_response(block)
+            elif isinstance(block, TitleBlock):
+                block.id = id
+                return self.push_message(block)
+            else:
+                raise ValueError(f"Invalid block type: {type(block)}")
+            
+    
+    def push2(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):        
         if isinstance(block, str) or isinstance(block, dict):
             if action:
                 block = ActionBlock(content=block, tool_call_id=action.id, id=id)
@@ -176,11 +203,7 @@ class BlockStream:
     #     elif isinstance(block, ActionBlock):
     #         self.push_action(block)
     #     return block
-
-
-    
-
-        
+ 
 
     def push_action(self, action, index: int | None = None):
         if index is None:
@@ -189,9 +212,10 @@ class BlockStream:
             self.insert(index, action)
         message = self.history.add_message(
             content=action.content,
-            role="tool",
             platform_id=action.id,
-            created_at=action.created_at
+            created_at=action.created_at,
+            run_id=self.run_id,
+            prompt=self.prompt_name
         )
         action.message = message
         return action
@@ -204,10 +228,11 @@ class BlockStream:
             self.insert(index, response)
         message = self.history.add_message(
             content=response.content,
-            role="assistant",
             action_calls=[a.model_dump() for a in response.action_calls],
             platform_id=response.platform_id,
-            created_at=response.created_at
+            created_at=response.created_at,
+            run_id=self.run_id,
+            prompt=self.prompt_name
         )
         response.message = message
         return response
@@ -221,7 +246,9 @@ class BlockStream:
             message = self.history.add_message(
                 content=message,
                 role="user", 
-                created_at=dt.datetime.now()
+                created_at=dt.datetime.now(),
+                run_id=self.run_id,
+                prompt=self.prompt_name
             )
         elif isinstance(message, BaseBlock):
             message = self.history.add_message(
@@ -274,31 +301,59 @@ CURR_CONTEXT = contextvars.ContextVar("curr_context")
 
 class Context:
     
-    def __init__(self, inputs: dict | None = None, branch_id: int | None = None):
-        self.history = History()
+    def __init__(
+        self, 
+        inputs: dict | None = None, 
+        branch_id: int | None = None, 
+        history: History | None = None,
+        prompt_name: str = "global",
+        run_id: str | None = None,    
+    ):
+        self.history = history or History()
         self.branch_id = branch_id
         self._initialized = False
         self.inputs = inputs or {}
         self._ctx_token = None
         self._hooks = None
+        self.tracer = None
+        self._parent_ctx = None
+        self.prompt_name = prompt_name
+        self.run_id = run_id
         
-
-    # @staticmethod
-    # def resume(branch_id: int | None = None):
-    #     ctx = Context(branch_id=branch_id)
-    #     ctx.init()
-    #     ctx.history.add_turn()
-    #     return ctx
+        
+    def build_child(self, prompt_name: str):
+        ctx = Context(
+            inputs=self.inputs, 
+            branch_id=self.branch_id, 
+            history=self.history,
+            prompt_name=prompt_name,
+            run_id=self.run_id
+        )
+        ctx._parent_ctx = self        
+        ctx._initialized = self._initialized
+        ctx._hooks = TurnHooks(self.history, prompt_name=prompt_name)
+        return ctx
     
-    # @staticmethod
-    # def start():
-    #     ctx = Context()
-    #     ctx.history.init_new_session()   
-    #     ctx._initialized = True
+    # def copy(self):
+    #     ctx = Context(
+    #         inputs=self.inputs, 
+    #         branch_id=self.branch_id, 
+    #         history=self.history,
+    #         hooks=self._hooks,
+    #         prompt_name=self.prompt_name,
+    #         run_id=self.run_id
+    #     )
     #     return ctx
-    @classmethod
-    def get_current(cls):
-        return CURR_CONTEXT.get()
+
+    @staticmethod
+    def get_current():
+        return CURR_CONTEXT.get()    
+    
+    
+    @property
+    def session_id(self):
+        return self.history.session.id
+    
         
     def resume(self):        
         # self.init()
@@ -307,7 +362,7 @@ class Context:
             self.history.switch_to(self.branch_id)
         self._initialized = True
         self.history.add_turn()
-        self._hooks = TurnHooks(self.history)
+        self._hooks = TurnHooks(self.history, prompt_name=self.prompt_name)
         return self
     
     def start(self):
@@ -315,7 +370,7 @@ class Context:
         # if self.branch_id:
         #     self.history.switch_to(self.branch_id)
         self._initialized = True
-        self._hooks = TurnHooks(self.history)
+        self._hooks = TurnHooks(self.history, prompt_name=self.prompt_name)
         return self
     
     @property
@@ -339,6 +394,7 @@ class Context:
         if self.branch_id:
             self.history.switch_to(self.branch_id)
         self._initialized = True
+        
         
     async def __aenter__(self):
         if not self._initialized:

@@ -1,9 +1,11 @@
 from typing import Any, Dict, Literal, Union, Optional, List
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import literal_column, select, func, create_engine
+from sqlalchemy.orm.attributes import flag_modified
 import os
 import datetime as dt
 from promptview.conversation.models import Branch, MessageSession, Message, Turn, Base
+
 
 
 
@@ -142,12 +144,12 @@ class History:
             self._db.commit()
         return self._current_turn
     
-    def update_turn_local_state(self, local_state: Dict[str, Any]):
+    def update_turn_local_state(self, state_key: str, local_state: Dict[str, Any]):
         if not self._current_turn:
             raise ValueError("No current turn")
-        self._current_turn.local_state = local_state
+        self._current_turn.local_state[state_key] = local_state
+        flag_modified(self._current_turn, "local_state")
         self._db.add(self._current_turn)
-        self._db.flush()
         self._db.commit()
         
     def add_message(
@@ -155,6 +157,7 @@ class History:
         content: str, 
         role: MsgRole = "user", 
         run_id: str | None = None,
+        prompt: str | None = None,
         platform_id: str | None = None,
         action_calls: List[dict] | None = None,
         created_at: dt.datetime | None = None,
@@ -182,6 +185,7 @@ class History:
                 turn=self._current_turn,
                 branch_id=self._current_branch.id,
                 run_id=run_id,
+                prompt=prompt,
                 platform_id=platform_id,
                 action_calls=action_calls,
                 created_at=created_at,

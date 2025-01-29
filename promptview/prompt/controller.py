@@ -6,13 +6,8 @@ from typing import (Any, Awaitable, Callable, Concatenate, Dict, Generic, List, 
                     TypedDict, TypeVar, ParamSpec)
 
 from promptview.conversation.history import History
-from promptview.llms.anthropic_llm import AnthropicLLM
-from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.llm3 import LLM
-from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
-from promptview.llms.openai_llm import OpenAiLLM
-from promptview.llms.tracer import Tracer
-from promptview.llms.utils.action_manager import Actions
+
 from promptview.prompt.block import BaseBlock
 from promptview.prompt.context import BlockStream
 from promptview.prompt.depends import Depends, DependsContainer, resolve_dependency
@@ -47,6 +42,11 @@ class Controller(Generic[P, R]):
         if isinstance(output, BaseBlock):
             return output.content
         return output
+    
+    def build_execution_ctx(self) -> Context:
+        curr_ctx = Context.get_current()
+        ctx = curr_ctx.build_child(self._name)
+        return ctx
 
     async def _inject_dependencies(self, *args: P.args, **kwargs: P.kwargs) -> Dict[str, Any]:
         signature = inspect.signature(self._complete)

@@ -15,17 +15,21 @@ class Agent(Controller[P, AsyncGenerator[YieldType, None]]):
     # _complete: Callable[P, AsyncGenerator[YieldType, None]]    
         
     async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[YieldType, None]:
-        injection_kwargs = await self._inject_dependencies(*args, **kwargs)
-        with Tracer(
-            name=self._name,
-            inputs=self._filter_args_for_trace(*args, **kwargs, **injection_kwargs),
-        ) as tracer_run:
-            async for output in self._complete(*args, **kwargs, **injection_kwargs):
-                if inspect.isasyncgen(output):
-                    async for gen_output in output:
-                        yield gen_output
-                else:
-                    yield output
+        execution_ctx = self.build_execution_ctx()
+        async with execution_ctx as ctx:
+            injection_kwargs = await self._inject_dependencies(*args, **kwargs)
+            with Tracer(
+                name=self._name,
+                inputs=self._filter_args_for_trace(*args, **kwargs, **injection_kwargs),
+                session_id=str(ctx.session_id)
+            ) as tracer_run:
+                ctx.run_id = str(tracer_run.id)
+                async for output in self._complete(*args, **kwargs, **injection_kwargs):
+                    if inspect.isasyncgen(output):
+                        async for gen_output in output:
+                            yield gen_output
+                    else:
+                        yield output
 
 
 

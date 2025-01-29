@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar, Union
+from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar, Union, TYPE_CHECKING
 import anthropic
 import openai
 from pydantic import BaseModel, ValidationError, Field
@@ -13,6 +13,7 @@ from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.tracer2 import Tracer
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.block import BaseBlock, ResponseBlock
+
 from promptview.prompt.context import BlockStream, Context
 from promptview.prompt.mvc import ViewBlock
 
@@ -308,7 +309,7 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
         smart_retry: bool = True,
         config: LlmConfig | None = None,
         is_traceable: bool | None = True,
-    ):  
+    ) -> LlmExecution:  
         chat_blocks = self.to_chat(blocks)
         messages = [self.to_message(b) for b in chat_blocks]
                 

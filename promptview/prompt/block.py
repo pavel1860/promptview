@@ -477,7 +477,7 @@ class ResponseBlock(TitleBlock):
     action_calls: List[ActionCall] | None = Field(default=None, description="List of action calls made by the response")
     usage: LlmUsage | None = Field(default=None, description="Token usage information")
     raw: Any = Field(default=None, description="Raw response data")
-    block_role: Literal["assistant"] = Field(default="assistant", alias="role")
+    # block_role: Literal["assistant"] = Field(default="assistant", alias="role")
     
     def __init__(
         self,
@@ -502,11 +502,11 @@ class ResponseBlock(TitleBlock):
             content=content, 
             title=title, 
             ttype=ttype, 
-            role="assistant", 
             name=name, 
             db_msg_id=db_msg_id, 
             platform_id=platform_id,
             id=id, 
+            role="assistant", 
             tag=tag, 
             bclass=bclass,
             created_at=created_at
@@ -548,7 +548,7 @@ class ResponseBlock(TitleBlock):
 
 
 class ActionBlock(TitleBlock):
-    block_role: Literal["tool"] = Field(default="tool", alias="role")
+    # block_role: Literal["tool"] = Field(default="tool", alias="role")
     tool_call_id: str | None = Field(default=None, description="The ID of the tool call this action is responding to")
     
     def __init__(

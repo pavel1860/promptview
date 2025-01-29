@@ -14,17 +14,23 @@ T = TypeVar('T')
 class LocalStore():
     
     
-    def __init__(self, history: History):
+    def __init__(self, history: History, prompt_name: str | None = None):
         self._history = history
         self.turn = history.turn        
-        self.store: Dict[str, Any] = history.turn.local_state if history.turn.local_state is not None else {}
+        self._prompt_name = prompt_name
+        if history.turn.local_state is not None:
+            self.store: Dict[str, Any] = history.turn.local_state.get(self._prompt_name, {})
+        else:
+            self.store: Dict[str, Any] = {}
         
     def get(self, key: str) -> Any:
         return self.store.get(key)
     
     def set(self, key: str, value: Any):
         self.store[key] = value
-        self._history.update_turn_local_state(self.store)
+        if not self._prompt_name:
+            raise ValueError("Prompt name is required to update local state")
+        self._history.update_turn_local_state(self._prompt_name, self.store)
     
     
 
@@ -58,8 +64,9 @@ class LocalState(Generic[T]):
 
 
 class TurnHooks:
-    def __init__(self, history: History):        
-        self._local_store: LocalStore = LocalStore(history)
+    def __init__(self, history: History, prompt_name: str | None = None):        
+        self._prompt_name = prompt_name
+        self._local_store: LocalStore = LocalStore(history, prompt_name)
 
     
     def use_state(self, key: str, initial: StateType) -> LocalState[StateType]:
