@@ -53,6 +53,7 @@ class Tracer:
         self.is_traceable = is_traceable      
         self.outputs = {}
         self.session_token = None
+        self.name = name
         if session_id is not None:
             self.session_token = SESSION_ID.set(session_id)
         if not self.is_traceable:
@@ -98,6 +99,23 @@ class Tracer:
 
     def __enter__(self):
         return self
+    
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        if self.is_traceable and self.tracer_run is not None:
+            if exc_type is not None:
+                traceback_lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
+                traceback_string = "".join(traceback_lines)
+                self.tracer_run.end(
+                    error= f"Error: {str(exc_value)}\n   Traceback:\n{traceback_string}",
+                )
+            elif not self.did_end:
+                self.tracer_run.end()
+            self.tracer_run.post()
+            self._reset_context()
+            return False
+        else:
+            self._reset_context()
+            return False
 
     def end(self, outputs: Any | None = None, errors: Optional[str]=None):
         if self.is_traceable and self.tracer_run is not None:
@@ -105,10 +123,20 @@ class Tracer:
             self.did_end = True
     
     def _reset_context(self):
+        
         if self.context_token is not None:
-            CURRENT_TRACER_RUN.reset(self.context_token)
+            try:                
+                CURRENT_TRACER_RUN.reset(self.context_token)                
+            except ValueError as e:
+                print(f"Warning: failed to reset tracer context, probably because generator was closed improperly: ({self.name},{self.tracer_run.run_type}) {self.tracer_run.id}")
+            self.context_token = None
         if self.session_token is not None:
-            SESSION_ID.reset(self.session_token)
+            try:
+                SESSION_ID.reset(self.session_token)
+                self.session_token = None
+            except ValueError as e:
+                print(f"Warning: failed to reset session id, probably because generator was closed improperly: ({self.name},{self.tracer_run.run_type}) {self.tracer_run.id}")
+        
             
     def add_outputs(self, output: Any):
         if self.is_traceable and self.tracer_run is not None:
@@ -136,21 +164,7 @@ class Tracer:
         if self.is_traceable and self.tracer_run is not None:
             self.tracer_run.end(outputs={"documents": documents}, error=errors)
 
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        if self.is_traceable and self.tracer_run is not None:
-            if exc_type is not None:
-                traceback_lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
-                traceback_string = "".join(traceback_lines)
-                self.tracer_run.end(
-                    error= f"Error: {str(exc_value)}\n   Traceback:\n{traceback_string}",
-                )
-            elif not self.did_end:
-                self.tracer_run.end()
-            self.tracer_run.post()
-            self._reset_context()
-            return False
-        else:
-            return False
+    
     
     # def create_child(self, name, inputs: Any, run_type: RunTypes="chain", extra: Dict[str, Any]={}):
     #     if not self.is_traceable:

@@ -1,10 +1,11 @@
 import contextvars
-from typing import Any, List, Union
+from enum import Enum
+from typing import Any, List, Union, Dict
 from ..conversation.models import Message
-from ..llms.messages import ActionCall
+from ..llms.interpreter.messages import ActionCall
 from .block import ActionBlock, BaseBlock, BulletType, ListBlock, ResponseBlock, TitleBlock, TitleType, BlockRole
-from pydantic import BaseModel
-from ..conversation.history import History
+from src.db.repositories.history import History
+from prisma.models import ChatbotMessageSession, ChatbotBranch, ChatbotTurn, ChatbotMessage
 from collections import defaultdict
 import datetime as dt
 
@@ -126,62 +127,59 @@ class BlockStream:
         self.append(lb)
         return lb
     
-    def push(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):        
+    async def push(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):        
         if action or isinstance(block, ActionBlock):
             if isinstance(block, str) or isinstance(block, dict):
                 block = ActionBlock(content=block, tool_call_id=action.id, id=id)
             elif isinstance(block, TitleBlock):
                 block = ActionBlock(content=block.content, tool_call_id=action.id, id=id)
-            return self.push_action(block)
+            return await self.push_action(block)
         else:
             if isinstance(block, str) or isinstance(block, dict): 
                 block = TitleBlock(content=block, role=role or "user", id=id)
-                return self.push_message(block)
+                return await self.push_message(block)
             elif isinstance(block, ResponseBlock):
                 block.id = id
-                return self.push_response(block)
+                return await self.push_response(block)
             elif isinstance(block, TitleBlock):
                 block.id = id
-                return self.push_message(block)
+                return await self.push_message(block)
             else:
                 raise ValueError(f"Invalid block type: {type(block)}")
             
-    
-    def push2(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):        
+    async def push2(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):        
         if isinstance(block, str) or isinstance(block, dict):
             if action:
                 block = ActionBlock(content=block, tool_call_id=action.id, id=id)
-                self.push_action(block)
+                await self.push_action(block)
             else:
                 block = TitleBlock(content=block, role=role or "user", id=id)
-                self.push_message(block)
+                await self.push_message(block)
         elif isinstance(block, ResponseBlock):
             block.id = id
-            self.push_response(block)
+            await self.push_response(block)
         elif isinstance(block, ActionBlock):
             block.id = id
-            self.push_action(block)
+            await self.push_action(block)
         elif isinstance(block, TitleBlock):
             block.id = id
-            self.push_message(block)             
+            await self.push_message(block)             
         return block
     
-    def pushleft(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None):
+    async def pushleft(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None):
         if isinstance(block, str) or isinstance(block, dict):
             if action:
                 block = ActionBlock(content=block, tool_call_id=action.id)
-                self.push_action(block, index=0)
+                await self.push_action(block, index=0)
             else:
                 block = TitleBlock(content=block, role=role or "user")
-                self.push_message(block, index=0)
+                await self.push_message(block, index=0)
         elif isinstance(block, ResponseBlock):
-            self.push_response(block, index=0)
+            await self.push_response(block, index=0)
         elif isinstance(block, ActionBlock):
-            self.push_action(block, index=0)
+            await self.push_action(block, index=0)
         elif isinstance(block, TitleBlock):
-            self.push_message(block, index=0)
-            
-
+            await self.push_message(block, index=0)
         return block
     
     
@@ -205,71 +203,71 @@ class BlockStream:
     #     return block
  
 
-    def push_action(self, action, index: int | None = None):
+    async def push_action(self, action, index: int | None = None):
         if index is None:
             self.append(action)
         else:
             self.insert(index, action)
-        message = self.history.add_message(
+        message = await self.history.add_message(
             content=action.content,
             platform_id=action.id,
             created_at=action.created_at,
             role=action.role,
-            run_id=self.run_id,
+            # run_id=self.run_id,
             prompt=self.prompt_name
         )
         action.message = message
         return action
 
-    def push_response(self, response, index: int | None = None):
-        # self.response = response
+    async def push_response(self, response, index: int | None = None):
         if index is None:
             self.append(response)
         else:
             self.insert(index, response)
-        message = self.history.add_message(
+        message = await self.history.add_message(
             content=response.content,
             action_calls=[a.model_dump() for a in response.action_calls],
             platform_id=response.platform_id,
             created_at=response.created_at,
             role=response.role,
-            run_id=self.run_id,
+            # run_id=self.run_id,
             prompt=self.prompt_name
         )
         response.message = message
         return response
 
-    def push_message(self, message, index: int | None = None):
+    async def push_message(self, message, index: int | None = None):
         if index is None:
             self.append(message)
         else:
             self.insert(index, message)        
         if isinstance(message, str):
-            message = self.history.add_message(
+            message = await self.history.add_message(
                 content=message,
                 role="user", 
                 created_at=dt.datetime.now(),
-                run_id=self.run_id,
+                # run_id=self.run_id,
                 prompt=self.prompt_name
             )
-        elif isinstance(message, BaseBlock):
-            message = self.history.add_message(
+        elif isinstance(message, TitleBlock):
+            message.message = await self.history.add_message(
                 content=message.content,
-                role="user", 
-                created_at=message.created_at
+                role=message.role,
+                created_at=message.created_at or dt.datetime.now(),
+                # run_id=self.run_id,
+                prompt=self.prompt_name
             )
-        else:
-            raise ValueError(f"Invalid message type: {type(message)}")
-        message.block = message
         return message
         
-    def commit_turn(self):
-        self.history.commit()
-        
-    def delete(self, block: BaseBlock):
-        self.history.delete_message(id=block.db_msg_id)
+    async def commit_turn(self):
+        await self.history.commit()
+
+    async def delete(self, block: BaseBlock):
+        if block.db_msg_id:
+            await self.history.delete_message(id=block.db_msg_id)
         self._blocks.remove(block)
-        self._block_lookup[block.id].remove(block)
+        if block.id in self._block_lookup:
+            self._block_lookup[block.id].remove(block)
         
     
     def blocks_to_messages(self, blocks: List[BaseBlock]):
@@ -291,7 +289,7 @@ class BlockStream:
         return len(self._blocks)
     
     def display(self):
-        from promptview.prompt.util.block_visualization import display_block_stream
+        from src.utils.generative.prompt.block_visualization import display_block_stream
         display_block_stream(self)
 
 
@@ -300,19 +298,20 @@ class BlockStream:
 CURR_CONTEXT = contextvars.ContextVar("curr_context")
 
 
-
+class InitMethod(Enum):
+    START = "start"
+    RESUME = "resume"
+    RESUME_SESSION = "resume_session"
 class Context:
     
     def __init__(
         self, 
         inputs: dict | None = None, 
-        branch_id: int | None = None, 
         history: History | None = None,
         prompt_name: str = "global",
         run_id: str | None = None,    
     ):
         self.history = history or History()
-        self.branch_id = branch_id
         self._initialized = False
         self.inputs = inputs or {}
         self._ctx_token = None
@@ -321,12 +320,12 @@ class Context:
         self._parent_ctx = None
         self.prompt_name = prompt_name
         self.run_id = run_id
+        self._init_method: Dict[str, Any] | None = None
         
         
     def build_child(self, prompt_name: str):
         ctx = Context(
             inputs=self.inputs, 
-            branch_id=self.branch_id, 
             history=self.history,
             prompt_name=prompt_name,
             run_id=self.run_id
@@ -349,32 +348,26 @@ class Context:
 
     @staticmethod
     def get_current():
-        return CURR_CONTEXT.get()    
+        return CURR_CONTEXT.get()
+    
+    
+    def set_context(self):
+        self._ctx_token = CURR_CONTEXT.set(self)
+    
+    def reset_context(self):
+        if self._ctx_token:
+            try: 
+                CURR_CONTEXT.reset(self._ctx_token)
+            except ValueError as e:
+                print(f"Warning: failed to reset context, probably because generator was closed improperly:")
+            self._ctx_token = None
     
     
     @property
     def session_id(self):
         return self.history.session.id
+
     
-        
-    def resume(self, new_turn: bool = True):        
-        # self.init()
-        self.history.init_last_session()
-        if self.branch_id:
-            self.history.switch_to(self.branch_id)
-        self._initialized = True
-        if new_turn:
-            self.history.add_turn()
-        self._hooks = TurnHooks(self.history, prompt_name=self.prompt_name)
-        return self
-    
-    def start(self):
-        self.history.init_new_session()
-        # if self.branch_id:
-        #     self.history.switch_to(self.branch_id)
-        self._initialized = True
-        self._hooks = TurnHooks(self.history, prompt_name=self.prompt_name)
-        return self
     
     @property
     def turn(self):
@@ -392,32 +385,102 @@ class Context:
     def is_initialized(self):
         return self._initialized
     
-    def init(self):
-        self.history.init_last_session()
-        if self.branch_id:
-            self.history.switch_to(self.branch_id)
-        self._initialized = True
+    async def init(self):
+        if not self._initialized:
+            await self.history.init_new_session()
+            self._initialized = True
+            
+    async def cleanup(self):
+        await self.history.cleanup()
         
+    async def commit(self):
+        await self.history.commit()
+        
+    async def add_turn(self):
+        await self.history.add_turn()
+        
+    async def get_last_messages(self, limit: int = 10):
+        return await self.history.get_last_messages(limit)
+    
+    def resume_session(self, session_id: str, branch_id: str | None = None, new_turn: bool = True):
+        self._init_method = {
+            "type": InitMethod.RESUME,
+            "kwargs": {"session_id": session_id, "branch_id": branch_id, "new_turn": new_turn}
+        }
+        return self
+    
+    def resume(self, new_turn: bool = True):
+        self._init_method = {
+            "type": InitMethod.RESUME,
+            "kwargs": {"new_turn": new_turn}
+        }
+        return self
+        
+    def start(self):
+        self._init_method = {
+            "type": InitMethod.START,
+            "kwargs": {}
+        }
+        return self
+    
+    async def _resume(self, new_turn: bool = True):        
+        await self.history.init_last_session()
+        if self.branch_id:
+            await self.history.switch_to(self.branch_id)
+        self._initialized = True
+        if new_turn:
+            await self.history.add_turn()
+        self._hooks = TurnHooks(self.history, prompt_name=self.prompt_name)
+        return self
+    
+    async def _start(self):
+        await self.history.init_new_session()
+        self._initialized = True
+        self._hooks = TurnHooks(self.history, prompt_name=self.prompt_name)
+        return self
+    
+    async def _resume_session(self, session_id: str, branch_id: str | None = None, new_turn: bool = True):
+        await self.history.init_session(session_id, branch_id)        
+        self._initialized = True
+        if new_turn:
+            await self.history.add_turn()
+        self._hooks = TurnHooks(self.history, prompt_name=self.prompt_name)
+        return self
         
     async def __aenter__(self):
         if not self._initialized:
-            raise ValueError("Context not initialized. Call start() or resume() first.") 
-        self._ctx_token = CURR_CONTEXT.set(self)
+            if not self._init_method:
+                raise ValueError("Init method not set. Call resume() or start() first.")
+            if self._init_method["type"] == InitMethod.RESUME:
+                await self._resume(**self._init_method["kwargs"])
+            elif self._init_method["type"] == InitMethod.START:
+                await self._start()
+            elif self._init_method["type"] == InitMethod.RESUME_SESSION:
+                await self._resume_session(**self._init_method["kwargs"])
+            
+        self.set_context()
         return self
     
     async def __aexit__(self, exc_type, exc_value, traceback):
-        self.history.commit()
-        if self._ctx_token:
-            CURR_CONTEXT.reset(self._ctx_token)
-            self._ctx_token = None
+        # await self.commit()
+        self.reset_context()
+        
+    def use_hooks(self, prompt_name: str | None = None) -> TurnHooks:
+        return TurnHooks(self.history, prompt_name or self.prompt_name)
+    
+    async def use_state(self, key: str, initial_value: Any = None):
+        hooks = self.use_hooks()
+        state, set_state = await hooks.use_state(key, initial_value)
+        return state, set_state
+    
+    async def use_var(self, key: str, initial_value: Any = None):
+        hooks = self.use_hooks()
+        return await hooks.use_var(key, initial_value)
             
-    def use_state(self, key: str, initial_value: Any = None):
-        if not self._hooks:
-            raise ValueError("Turn hooks not initialized. Call resume() or start() first.")
-        return self._hooks.use_state(key, initial_value)
-            
-    def messages_to_blocks(self, messages: List[Message]):
-        # block_stream = BlockStream(self.history)
+    async def delete_message(self, id: int):
+        await self.history.delete_message(id=id)
+        
+    def messages_to_blocks(self, messages: List[ChatbotMessage]):
         blocks = []
         for message in messages:
             if message.role == "assistant":
@@ -425,9 +488,8 @@ class Context:
                     ResponseBlock(
                         db_msg_id=message.id,
                         content=message.content, 
-                        action_calls=message.action_calls ,
+                        action_calls=message.action_calls,
                         id="history",
-                        # name=message.name, 
                         platform_id=message.platform_id,
                         created_at=message.created_at
                     ))
@@ -436,9 +498,7 @@ class Context:
                     ActionBlock(
                         db_msg_id=message.id,
                         content=message.content, 
-                        # tool_call_id=message.platform_uuid, 
                         id="history",
-                        # name=message.name, 
                         platform_id=message.platform_id,
                         created_at=message.created_at
                     ))
@@ -448,17 +508,15 @@ class Context:
                         db_msg_id=message.id,
                         content=message.content, 
                         role=message.role, 
-                        # name=message.name, 
                         id="history",
                         platform_id=message.platform_id,
                         created_at=message.created_at
                     ))
-        
         return blocks
         
         
-    def last(self, limit=10):
-        messages = self.history.get_last_messages(limit)
+    async def last(self, limit=10):
+        messages = await self.history.get_last_messages(limit)
         blocks = self.messages_to_blocks(messages)
         block_stream = BlockStream(self.history, blocks)
         return block_stream

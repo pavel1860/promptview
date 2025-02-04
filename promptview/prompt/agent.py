@@ -25,12 +25,21 @@ class Agent(Controller[P, AsyncGenerator[YieldType, None]]):
             ) as tracer_run:
                 ctx.run_id = str(tracer_run.id)
                 kwargs.update(injection_kwargs)
-                async for output in self._complete(*args, **kwargs):
-                    if inspect.isasyncgen(output):
-                        async for gen_output in output:
-                            yield gen_output
-                    else:
-                        yield output
+                try:
+                    async for output in self._complete(*args, **kwargs):
+                        if inspect.isasyncgen(output):
+                            try:
+                                async for gen_output in output:
+                                    yield gen_output
+                            except GeneratorExit:
+                                pass
+                        else:
+                            yield output
+                except GeneratorExit:
+                    print(f"GeneratorExit in {tracer_run.id}")
+                    # tracer_run._reset_context()
+                    # tracer_run.end()
+                    return
 
 
 

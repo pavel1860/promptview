@@ -1,13 +1,18 @@
 from abc import abstractmethod
+from enum import StrEnum
 from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar, Union, TYPE_CHECKING
-from pydantic import BaseModel, ValidationError, Field
-from .exceptions import LLMToolNotFound
-from .messages import AIMessage, BaseMessage, HumanMessage
+from pydantic import BaseModel, ValidationError
+from .interpreter.messages import AIMessage, HumanMessage
 from .tracer2 import Tracer
 from ..prompt.block import BaseBlock, ResponseBlock
 from ..prompt.context import BlockStream
 
 
+class LLMToolNotFound(Exception):
+    
+    def __init__(self, tool_name) -> None:
+        self.tool_name = tool_name
+        super().__init__(f"Action {tool_name} is not found")
 
 
 ToolChoice = Literal['auto', 'required', 'none']
@@ -17,6 +22,7 @@ CLIENT_PARAMS = ParamSpec('CLIENT_PARAMS')
 CLIENT_RESPONSE = TypeVar('CLIENT_RESPONSE')
 
 
+ToolReprFormat = Literal['json', 'function', 'xml']
 
 class BaseLlmClient(BaseModel, Generic[LLM_CLIENT, CLIENT_RESPONSE]):
     client: LLM_CLIENT
@@ -99,7 +105,7 @@ class LlmConfig(BaseModel):
 
 class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     # blocks: List[BaseBlock] = []
-    ctx_blocks: BlockStream 
+    ctx_blocks: BlockStream | List[BaseBlock] | str
     # messages: List[BaseMessage] = []
     messages: List[dict] = []
     # actions: Actions = Actions()
@@ -108,6 +114,7 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     model: str
     # client: BaseLlmClient
     name: str
+    tool_format: ToolReprFormat = 'function'
     tool_choice: ToolChoice | None = None
     parallel_tool_calls: bool = False
     config: LlmConfig = LlmConfig()
@@ -122,7 +129,18 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     
     def __await__(self):
         return self.run_complete().__await__()
-        
+    
+    
+    def pick(
+        self, 
+        actions: List[Type[BaseModel]], 
+        tool_choice: ToolChoice="required", 
+        parallel_tool_calls: bool=False
+    ):
+        self.tool_choice = tool_choice
+        self.parallel_tool_calls = parallel_tool_calls
+        self.actions = actions
+        return self
     
     def pick_one(self, actions: List[Type[BaseModel]]):
         self.tool_choice = "required"
@@ -152,6 +170,7 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
         self.tool_choice = "none"
         self.parallel_tool_calls = False
         return self
+    
     
     # async def run_complete(
     #     self, 
@@ -252,7 +271,7 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
 
 
 class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
-    model: str
+    model: str 
     name: str
     
     is_traceable: bool | None = True
@@ -294,14 +313,26 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     
     def __call__(
         self, 
-        blocks: BlockStream,
+        blocks: BlockStream | List[BaseBlock] | BaseBlock | str,
         retries: int = 3,
         smart_retry: bool = True,
         config: LlmConfig | None = None,
         is_traceable: bool | None = True,
-    ) -> LlmExecution:  
-        chat_blocks = self.to_chat(blocks)
-        messages = [self.to_message(b) for b in chat_blocks]
+    ) -> LlmExecution:
+        if isinstance(blocks, BaseBlock):
+            blocks = [blocks]
+        if isinstance(blocks, str):
+            messages = [{
+                "role": "user",
+                "content": blocks
+            }]
+        elif isinstance(blocks, BlockStream):
+            chat_blocks = self.to_chat(blocks)
+            messages = [self.to_message(b) for b in chat_blocks]        
+        elif isinstance(blocks, list):
+            messages = [self.to_message(b) for b in blocks]
+        else:
+            raise ValueError("Invalid blocks type")
                 
         llm_execution = LlmExecution(
             ctx_blocks=blocks,
