@@ -3,13 +3,13 @@ from functools import singledispatchmethod, wraps
 import re
 from uuid import uuid4
 from pydantic import BaseModel, Field
-from typing import Any, Callable, Generic, List, Literal, ParamSpec, TypeVar, Optional, Union
+from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, TypeVar, Optional, Union
 import json
 from typing import Protocol, runtime_checkable
-
-from promptview.conversation.models import Message
-from promptview.utils.string_utils import int_to_roman
-from promptview.llms.messages import ActionCall, LlmUsage
+import textwrap
+from src.utils.generative.conversation.models import Message
+from src.utils.generative.utils.string_utils import int_to_roman
+from src.utils.generative.llms.interpreter.messages import ActionCall, LlmUsage
 import datetime as dt
 
 BulletType = Literal["number", "alpha", "roman", "roman_lower", "*", "-"]
@@ -41,6 +41,9 @@ class Style(BaseModel):
     def copy_postfix(self, postfix: str):
         return self.model_copy(update={"postfix": postfix})
 
+    def merge(self, other: "Style"):
+        other_style = other.model_dump(exclude_none=True, exclude_defaults=True)
+        return self.model_copy(update=other_style)
 
 class StyleManager():
     
@@ -84,7 +87,9 @@ def tabs_str(style: Style):
 
 class strblk(str, Renderable):
     
-    def render(self, style: Style):
+    def render(self, style: Style | None = None):
+        if style is None:
+            style = Style()
         content = self
         if style.prefix:
             content = style.prefix + content
@@ -97,7 +102,9 @@ class strblk(str, Renderable):
     
 class dictblk(dict, Renderable):
     
-    def render(self, style: Style):
+    def render(self, style: Style | None = None):
+        if style is None:
+            style = Style()
         content = json.dumps(self, indent=style.indent)
         return content
 
@@ -182,10 +189,10 @@ class BaseBlock(BaseModel):
     def message(self, value: Message):
         self._message = value
                 
-    def append(self, item):
+    def append(self, item):        
         if not isinstance(item, Renderable):
             if isinstance(item, str):
-                item = strblk(item)
+                item = strblk(textwrap.dedent(item).strip())
             elif isinstance(item, dict):
                 item = dictblk(item)
             elif isinstance(item, BaseBlock):
@@ -228,21 +235,15 @@ class BaseBlock(BaseModel):
         # return self.style
     
     def render(self, style: Style | None = None):        
-        new_style = self.get_style(style)
-        # new_style.tabs += 1
-        return "\n".join([item.render(style=new_style) for item in self._items])
+        # new_style = self.get_style(style)
+        # return "\n".join([item.render(style=new_style) for item in self._items])
+        return "\n".join([item.render() for item in self._items])
     
     def __repr__(self) -> str:
         repr_str = super().__repr__()
         return repr_str + "\n" + self.render()
     
     
-    # def get(self, tag: str):
-    #     pattern = f'<{tag}>(.*?)</{tag}>'
-    #     match = re.search(pattern, self.content, re.DOTALL)
-    #     if match:
-    #         return match.group(1).strip()
-    #     return None
     @singledispatchmethod
     def get(self, tag: Union[str, List[str]]) -> Optional[Union[str, dict]]:
         """
@@ -250,6 +251,7 @@ class BaseBlock(BaseModel):
         if the type of tag is not supported.
         """
         raise NotImplementedError(f"Unsupported type: {type(tag)}")
+    
 
     @get.register(str)
     def _(self, tag: str) -> Optional[str]:
@@ -275,12 +277,12 @@ class BaseBlock(BaseModel):
                 results[tag] = content
         return results
     
-    
-    
+        
     
 class TitleBlock(BaseBlock):
     ttype: TitleType = Field(default="md", description="The style of the title")
     title: str | None = Field(default=None, description="The title of the block")
+    properties: Dict[str, str] | None = Field(default_factory=dict, description="Additional properties for the block")
     
     def __init__(
         self,
@@ -313,15 +315,16 @@ class TitleBlock(BaseBlock):
     
     def _render_xml(self):
         content = super().render()
-        return f"<${self.title}>\n{content}\n</{self.title}>"    
+        return f"<{self.title}>\n{content}\n</{self.title}>"    
     
     def get_style(self, style: Style | None = None) -> Style:        
         curr_style = Style(ttype=self.ttype)
         if style is not None:
-            curr_style = curr_style.model_copy(update=style.model_dump())
+            curr_style = curr_style.merge(style)
         return curr_style
     
     def _render_title(self, content: str, style: Style):
+        content = textwrap.indent(content, "  ")
         if style.ttype == "md":
             content = f"{tabs_str(style)}## {self.title}\n{content}"
         elif style.ttype == "html":
@@ -332,10 +335,20 @@ class TitleBlock(BaseBlock):
             raise ValueError(f"Invalid title style: {style.ttype}")
         return content
 
+    # def render(self, style: Style | None = None):
+    #     style = style_manager.get_style(self, style)        
+    #     if self.title:
+    #         content = super().render(style=style.copy_tabs(inc=1))
+    #         # print(self.__class__.__name__, self.uuid, content)
+    #         content = self._render_title(content, style)        
+    #     else:
+    #         content = super().render(style=style)
+    #     return content
+    
     def render(self, style: Style | None = None):
         style = style_manager.get_style(self, style)        
         if self.title:
-            content = super().render(style=style.copy_tabs(inc=1))
+            content = super().render(style=Style(tabs=style.tabs+1))
             # print(self.__class__.__name__, self.uuid, content)
             content = self._render_title(content, style)        
         else:
@@ -397,7 +410,7 @@ class ListBlock(TitleBlock):
     def get_style(self, style: Style | None = None) -> Style:        
         curr_style = Style(bullet=self.bullet, ttype=self.ttype)
         if style is not None:
-            curr_style = curr_style.model_copy(update=style.model_dump())
+            curr_style = curr_style.merge(style)
         return curr_style
     
     def render(self, style: Style | None = None):
@@ -438,7 +451,7 @@ def block_decorator(title=None, ttype: TitleType="md", id: str | None = None):
 class block:
         
     
-    def __init__(self, title=None, ttype: TitleType="md", role: BlockRole = "user", name: str | None = None, id: str | None = None):
+    def __init__(self, title: str | None = None, ttype: TitleType="md", role: BlockRole = "user", name: str | None = None, id: str | None = None):
         self.block_args = {"title": title, "ttype": ttype, "id": id, "role": role, "name": name}
     
     def __enter__(self):
@@ -448,7 +461,7 @@ class block:
         pass   
     
     @staticmethod
-    def list(title=None, ttype: TitleType="md", bullet: BulletType = "-", role: BlockRole = "user", name: str | None = None, id: str | None = None):        
+    def list(title: str | None = None, ttype: TitleType="md", bullet: BulletType = "-", role: BlockRole = "user", name: str | None = None, id: str | None = None):        
         return ListBlock(title=title, ttype=ttype, bullet=bullet, id=id, role=role, name=name)
 
     def _process_output(self, output: str | BaseBlock | List[str] | List[BaseBlock] | None):
@@ -506,7 +519,76 @@ class block:
     #     return block_decorator(title=title, ttype=ttype, id=id)
     
     
-    
+
+
+# def block(
+#     content: str | None = None,
+#     title: str | None = None, 
+#     ttype: TitleType = "md", 
+#     role: BlockRole = "user", 
+#     name: str | None = None, 
+#     id: str | None = None,
+#     func: Callable | None = None
+# ):
+#     """
+#     Multi-purpose block factory that can be used as:
+#     1. A factory function: block(title="My Title")
+#     2. A decorator: @block(title="My Title")
+#     3. A context manager: with block(title="My Title") as b:
+#     """
+#     block_args = {"content": content, "title": title, "ttype": ttype, "id": id, "role": role, "name": name}
+
+#     # Helper function to process outputs
+#     def _process_output(output: str | BaseBlock | List[str] | List[BaseBlock] | None):
+#         if output is None:
+#             return None
+#         if isinstance(output, str):
+#             return strblk(output)
+#         elif isinstance(output, dict):
+#             return dictblk(output)
+#         elif isinstance(output, list) or isinstance(output, tuple):
+#             return [to_renderable(item) for item in output]
+#         elif isinstance(output, BaseBlock):
+#             return output
+#         else:
+#             raise ValueError(f"Invalid output type: {type(output)}. Must be str, list, tuple, or TitleBlock")
+
+#     # Context manager methods
+#     class BlockContextManager:
+#         def __enter__(self):
+#             return TitleBlock(**block_args)
+        
+#         def __exit__(self, exc_type, exc_value, traceback):
+#             pass
+
+#     # Decorator wrapper
+#     def decorator(func: Callable[P, Any]) -> Callable[P, TitleBlock]:
+#         @wraps(func)
+#         def wrapper(*args, **kwargs) -> TitleBlock:
+#             output = func(*args, **kwargs)
+#             output = _process_output(output)            
+#             block = TitleBlock(**block_args)
+#             if isinstance(output, list) or isinstance(output, tuple):
+#                 block.extend(output)
+#             else:
+#                 block.append(output)
+#             return block            
+#         return wrapper
+
+#     # Handle the different use cases
+#     if func is not None:
+#         # Used as a decorator without parameters: @block
+#         return decorator(func)
+#     elif callable(content):
+#         # Used as a decorator without parentheses: @block
+#         return decorator(content)
+#     elif isinstance(content, str) or content is None:
+#         # Used as a context manager: with block(...) as b:
+#         # or as a factory function: block(...)
+#         cm = BlockContextManager()
+#         return cm if hasattr(cm, '__enter__') else TitleBlock(**block_args)
+
+#     return decorator   
     
     
 
@@ -516,7 +598,7 @@ class ResponseBlock(TitleBlock):
     model: str | None = Field(default=None, description="The model used to generate the response")
     did_finish: bool = Field(default=True, description="Whether the response generation finished")
     run_id: str | None = Field(default=None, description="The run ID for this response")
-    action_calls: List[ActionCall] | None = Field(default=None, description="List of action calls made by the response")
+    action_calls: List[ActionCall] = Field(default_factory=list, description="List of action calls made by the response")
     usage: LlmUsage | None = Field(default=None, description="Token usage information")
     raw: Any = Field(default=None, description="Raw response data")
     # block_role: Literal["assistant"] = Field(default="assistant", alias="role")

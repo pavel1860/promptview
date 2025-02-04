@@ -98,9 +98,9 @@ class Prompt(Controller[P, R]):
         
 def prompt(
     **kwargs: Any
-)-> Callable[[Callable[P, R]], Prompt[P, R]]:
+)-> Callable[[Callable[P, Awaitable[R]]], Prompt[P, R]]:
     
-    def decorator(func: Callable[P, R]) -> Prompt[P,R]:
+    def decorator(func: Callable[P, Awaitable[R]]) -> Prompt[P,R]:
         prompt = Prompt(
                 # model=model, #type: ignore                
                 **kwargs
