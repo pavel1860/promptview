@@ -4,7 +4,7 @@ from sqlalchemy import literal_column, select, func, create_engine
 from sqlalchemy.orm.attributes import flag_modified
 import os
 import datetime as dt
-from promptview.conversation.models import Branch, MessageSession, Message, Turn, Base
+from .models import Branch, MessageSession, Message, Turn, Base
 
 
 
@@ -60,8 +60,8 @@ class History:
     
     def __init__(self, db_url: Optional[str] = None):
         """Initialize History with optional database URL."""
-        DB_URL = os.getenv("DB_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
-        self._engine = create_engine(db_url or DB_URL)
+        HISTORY_DB_URL = os.getenv("HISTORY_DB_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
+        self._engine = create_engine(db_url or HISTORY_DB_URL)
         SessionLocal = sessionmaker(bind=self._engine)
         self._db = SessionLocal()
         

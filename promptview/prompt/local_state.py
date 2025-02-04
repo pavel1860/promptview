@@ -1,8 +1,8 @@
 from typing import Type, TypeVar, Generic, Any, Dict, TypeVar, Union, Callable, Tuple
 from pydantic import BaseModel
 
-from promptview.conversation.history import History
-from promptview.conversation.models import Turn
+from ..conversation.history import History
+from ..conversation.models import Turn
 
 StateType = TypeVar('StateType', bound=Union[Any, BaseModel])
 
@@ -42,12 +42,29 @@ class LocalState(Generic[T]):
         self._store = store
         self._key = key
         self._model_class = initial.__class__ if isinstance(initial, BaseModel) else None
+        self._value: T = initial
         
         # Initialize store
         if isinstance(initial, BaseModel):
             self._store.set(key, initial.model_dump())
         else:
             self._store.set(key, initial)
+    
+    @property
+    def value(self) -> T:
+        return self._value
+    
+    @property
+    def is_model(self) -> bool:
+        return self._model_class is not None
+    
+    def update(self):
+        current = self._store.get(self._key)
+        if current is not None:
+            if self._model_class:
+                self._value = self._model_class(**current)
+            else:
+                self._value = current
 
     def get(self) -> T:
         current = self._store.get(self._key)
@@ -60,7 +77,9 @@ class LocalState(Generic[T]):
             self._store.set(self._key, value.model_dump())
         else:
             self._store.set(self._key, value)
-
+        self._value = value
+        
+    
 
 
 class TurnHooks:
@@ -68,10 +87,27 @@ class TurnHooks:
         self._prompt_name = prompt_name
         self._local_store: LocalStore = LocalStore(history, prompt_name)
 
+    def use_var(self, key: str, initial: StateType) -> LocalState[StateType]:
+        state = LocalState(self._local_store, key, initial)
+        state.set(initial)        
+        return state
     
-    def use_state(self, key: str, initial: StateType) -> LocalState[StateType]:
+    def use_state(self, key: str, initial: StateType) -> Tuple[LocalState[StateType], Callable[[StateType, bool], None]]:
         state = LocalState(self._local_store, key, initial)
         state.set(initial)
-        return state
+        
+        def set_state(value: StateType, merge: bool = False):
+            if merge:
+                if state.is_model:
+                    state.set(state.value.model_copy(update=value.model_dump()))
+                elif isinstance(state.value, dict):
+                    new_value = state.value | value
+                    state.set(new_value)
+                else:
+                    state.set(value)
+            else:
+                state.set(value)
+        
+        return state, set_state
         
     

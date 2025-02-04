@@ -1,15 +1,15 @@
 import contextvars
 from typing import Any, List, Union
-from promptview.conversation.models import Message
-from promptview.llms.messages import ActionCall
-from promptview.prompt.block import ActionBlock, BaseBlock, BulletType, ListBlock, ResponseBlock, TitleBlock, TitleType, BlockRole
+from ..conversation.models import Message
+from ..llms.messages import ActionCall
+from .block import ActionBlock, BaseBlock, BulletType, ListBlock, ResponseBlock, TitleBlock, TitleType, BlockRole
 from pydantic import BaseModel
-from promptview.conversation.history import History
+from ..conversation.history import History
 from collections import defaultdict
 import datetime as dt
 
 from typing import TypedDict, List
-from promptview.prompt.local_state import TurnHooks
+from .local_state import TurnHooks
 
 class MessageView(TypedDict):
     content: List[str]
@@ -214,6 +214,7 @@ class BlockStream:
             content=action.content,
             platform_id=action.id,
             created_at=action.created_at,
+            role=action.role,
             run_id=self.run_id,
             prompt=self.prompt_name
         )
@@ -231,6 +232,7 @@ class BlockStream:
             action_calls=[a.model_dump() for a in response.action_calls],
             platform_id=response.platform_id,
             created_at=response.created_at,
+            role=response.role,
             run_id=self.run_id,
             prompt=self.prompt_name
         )
@@ -355,13 +357,14 @@ class Context:
         return self.history.session.id
     
         
-    def resume(self):        
+    def resume(self, new_turn: bool = True):        
         # self.init()
         self.history.init_last_session()
         if self.branch_id:
             self.history.switch_to(self.branch_id)
         self._initialized = True
-        self.history.add_turn()
+        if new_turn:
+            self.history.add_turn()
         self._hooks = TurnHooks(self.history, prompt_name=self.prompt_name)
         return self
     

@@ -16,9 +16,9 @@ def get_json_type(db_url):
     return JSON
 
 
-DB_URL = os.getenv("DB_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
+HISTORY_DB_URL = os.getenv("HISTORY_DB_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
         
-json_type = get_json_type(DB_URL)
+json_type = get_json_type(HISTORY_DB_URL)
 
 Base = declarative_base()
 

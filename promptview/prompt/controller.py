@@ -8,12 +8,12 @@ from typing import (Any, Awaitable, Callable, Concatenate, Dict, Generic, List, 
 from promptview.conversation.history import History
 from promptview.llms.llm3 import LLM
 
-from promptview.prompt.block import BaseBlock
-from promptview.prompt.context import BlockStream
-from promptview.prompt.depends import Depends, DependsContainer, resolve_dependency
-from promptview.prompt.mvc import ViewBlock, create_view_block
-from promptview.prompt.context import Context
-from promptview.utils.function_utils import call_function, filter_args_by_exclude
+from .block import BaseBlock
+from .context import BlockStream
+from .depends import Depends, DependsContainer, resolve_dependency
+from .mvc import ViewBlock, create_view_block
+from .context import Context
+from ..utils.function_utils import call_function, filter_args_by_exclude
 from pydantic import BaseModel, Field
 
 

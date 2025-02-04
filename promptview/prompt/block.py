@@ -1,8 +1,9 @@
 from abc import abstractmethod
-from functools import wraps
+from functools import singledispatchmethod, wraps
+import re
 from uuid import uuid4
 from pydantic import BaseModel, Field
-from typing import Any, Callable, Generic, List, Literal, ParamSpec, TypeVar, Optional
+from typing import Any, Callable, Generic, List, Literal, ParamSpec, TypeVar, Optional, Union
 import json
 from typing import Protocol, runtime_checkable
 
@@ -234,6 +235,47 @@ class BaseBlock(BaseModel):
     def __repr__(self) -> str:
         repr_str = super().__repr__()
         return repr_str + "\n" + self.render()
+    
+    
+    # def get(self, tag: str):
+    #     pattern = f'<{tag}>(.*?)</{tag}>'
+    #     match = re.search(pattern, self.content, re.DOTALL)
+    #     if match:
+    #         return match.group(1).strip()
+    #     return None
+    @singledispatchmethod
+    def get(self, tag: Union[str, List[str]]) -> Optional[Union[str, dict]]:
+        """
+        Generic get method. This will raise NotImplementedError
+        if the type of tag is not supported.
+        """
+        raise NotImplementedError(f"Unsupported type: {type(tag)}")
+
+    @get.register(str)
+    def _(self, tag: str) -> Optional[str]:
+        """
+        Get the content for a single tag.
+        """
+        pattern = f'<{re.escape(tag)}>(.*?)</{re.escape(tag)}>'
+        match = re.search(pattern, self.content, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return None
+
+    @get.register(list)
+    def _(self, tags: List[str]) -> dict:
+        """
+        Get the content for a list of tags.
+        Returns a dictionary with tags as keys and their corresponding content as values.
+        """
+        results = {}
+        for tag in tags:
+            content = self.get(tag)
+            if content is not None:
+                results[tag] = content
+        return results
+    
+    
     
     
 class TitleBlock(BaseBlock):

@@ -1,8 +1,8 @@
 import inspect
-from typing import (Any, Awaitable, Callable, Concatenate, Generator, Generic, List, Literal, Type,
-                    TypedDict, TypeVar, ParamSpec, AsyncGenerator)
-from promptview.llms.tracer2 import Tracer
-from promptview.prompt.controller import Controller
+from typing import (Any, Callable,
+                    TypeVar, ParamSpec, AsyncGenerator)
+from ..llms.tracer2 import Tracer
+from .controller import Controller
 
 
 
@@ -24,7 +24,8 @@ class Agent(Controller[P, AsyncGenerator[YieldType, None]]):
                 session_id=str(ctx.session_id)
             ) as tracer_run:
                 ctx.run_id = str(tracer_run.id)
-                async for output in self._complete(*args, **kwargs, **injection_kwargs):
+                kwargs.update(injection_kwargs)
+                async for output in self._complete(*args, **kwargs):
                     if inspect.isasyncgen(output):
                         async for gen_output in output:
                             yield gen_output
