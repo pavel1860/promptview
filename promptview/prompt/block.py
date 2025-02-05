@@ -7,9 +7,9 @@ from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, TypeV
 import json
 from typing import Protocol, runtime_checkable
 import textwrap
-from src.utils.generative.conversation.models import Message
-from src.utils.generative.utils.string_utils import int_to_roman
-from src.utils.generative.llms.interpreter.messages import ActionCall, LlmUsage
+from ..conversation.models import Message
+from ..utils.string_utils import int_to_roman
+from ..llms.messages import ActionCall, LlmUsage
 import datetime as dt
 
 BulletType = Literal["number", "alpha", "roman", "roman_lower", "*", "-"]

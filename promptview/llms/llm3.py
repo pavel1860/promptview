@@ -2,7 +2,7 @@ from abc import abstractmethod
 from enum import StrEnum
 from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar, Union, TYPE_CHECKING
 from pydantic import BaseModel, ValidationError
-from .interpreter.messages import AIMessage, HumanMessage
+from .messages import AIMessage, HumanMessage
 from .tracer2 import Tracer
 from ..prompt.block import BaseBlock, ResponseBlock
 from ..prompt.context import BlockStream

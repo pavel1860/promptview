@@ -4,7 +4,7 @@ from sqlalchemy import literal_column, select, func, create_engine
 from sqlalchemy.orm.attributes import flag_modified
 import os
 import datetime as dt
-from .models import Branch, MessageSession, Message, Turn, Base
+from .models2 import Branch, MessageSession, Message, Turn, Base
 
 
 
