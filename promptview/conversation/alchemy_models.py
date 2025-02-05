@@ -73,7 +73,7 @@ class MessageModel(Base):
     name = Column(String, nullable=True)
     content = Column(Text, nullable=False)
     blocks = Column(json_type, nullable=True)
-    run_id = Column(UUID(as_uuid=True), default=uuid.uuid4)
+    run_id = Column(UUID(as_uuid=True), nullable=True)
     platform_id = Column(String, nullable=True)
     ref_id = Column(String, nullable=True)
     branch_order = Column(Integer)

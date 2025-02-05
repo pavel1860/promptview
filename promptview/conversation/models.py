@@ -14,59 +14,68 @@ import datetime as dt
 # Context variable to store the session
 session_context = contextvars.ContextVar('session', default=None)
 
-# class SessionManager:
-#     def __init__(self, db_url: str | None = None):
-#         HISTORY_DB_URL = os.getenv("HISTORY_DB_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
-#         # Convert standard URL to async URL if needed
-#         if db_url is None:
-#             db_url = HISTORY_DB_URL
-#         if not db_url.startswith('postgresql+asyncpg://'):
-#             db_url = db_url.replace('postgresql://', 'postgresql+asyncpg://')
+class SessionManager:
+    def __init__(self, db_url: str | None = None):
+        HISTORY_DB_URL = os.getenv("HISTORY_DB_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
+        # Convert standard URL to async URL if needed
+        if db_url is None:
+            db_url = HISTORY_DB_URL
+        if not db_url.startswith('postgresql+asyncpg://'):
+            db_url = db_url.replace('postgresql://', 'postgresql+asyncpg://')
             
-#         self._engine = create_async_engine(db_url)
-#         self._session_factory = async_sessionmaker(
-#             bind=self._engine,
-#             expire_on_commit=False,
-#             class_=AsyncSession
-#         )
+        self._engine = create_async_engine(db_url)
+        self._session_factory = async_sessionmaker(
+            bind=self._engine,
+            expire_on_commit=False,
+            class_=AsyncSession
+        )
     
-#     def _get_session(self) -> AsyncSession:
-#         session = session_context.get()
-#         if session is None:
-#             raise RuntimeError("No session found in context. Use SessionManager as context manager.")
-#         return session
+    def _get_session(self) -> AsyncSession:
+        session = session_context.get()
+        if session is None:
+            raise RuntimeError("No session found in context. Use SessionManager as context manager.")
+        return session
         
-#     async def start(self) -> AsyncSession:
-#         session = self._session_factory()
-#         session_context.set(session)
-#         return session
+    async def start(self) -> AsyncSession:
+        session = self._session_factory()
+        session_context.set(session)
+        return session
     
-#     async def commit(self):
-#         session = self._get_session()
-#         await session.commit()
+    async def commit(self):
+        session = self._get_session()
+        await session.commit()
             
-#     async def rollback(self):
-#         session = self._get_session()        
-#         await session.rollback()
+    async def rollback(self):
+        session = self._get_session()        
+        await session.rollback()
             
-#     async def close(self):
-#         session = self._get_session()
-#         await session.close()
-#         session_context.set(None)
+    async def close(self):
+        session = self._get_session()
+        await session.close()
+        session_context.set(None)
+        
+    def add(self, model: "PGModel"):
+        session = self._get_session()
+        session.add(model._model)
+    
+    def add_all(self, models: list["PGModel"]):
+        session = self._get_session()
+        session.add_all([m._model for m in models])
 
-#     async def __aenter__(self) -> AsyncSession:
-#         return await self.start()
+    async def __aenter__(self) -> "SessionManager":
+        await self.start()
+        return self
 
-#     async def __aexit__(self, exc_type, exc_val, exc_tb):
-#         await self.close()
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
 
-#     @staticmethod
-#     def get_session() -> AsyncSession:
-#         """Get the current session from context"""
-#         session = session_context.get()
-#         if session is None:
-#             raise RuntimeError("No session found in context. Use SessionManager as context manager.")
-#         return session
+    @staticmethod
+    def get_session() -> AsyncSession:
+        """Get the current session from context"""
+        session = session_context.get()
+        if session is None:
+            raise RuntimeError("No session found in context. Use SessionManager as context manager.")
+        return session
     
 HISTORY_DB_URL = os.getenv("HISTORY_DB_URL", "postgresql+asyncpg://snack:Aa123456@localhost:5432/snackbot")
 
@@ -105,6 +114,9 @@ EmptyID = -1
 
 
 T = TypeVar("T")
+
+
+
 
 
 class PGModel(Generic[T]):
@@ -218,6 +230,7 @@ class Message(PGModel[MessageModel], MessageProto):
         turn: "Turn | None" = None,
         message: MessageModel | None = None,
     ):
+        created_at: dt.datetime = message.created_at if message else dt.datetime.now()
         super().__init__(
             MessageModel, 
             message,
@@ -235,7 +248,7 @@ class Message(PGModel[MessageModel], MessageProto):
         )
         # Initialize protocol attributes
         self.id: int = self._model.id if self._model.id is not None else EmptyID
-        self.created_at: dt.datetime = self._model.created_at if self._model.created_at else dt.datetime.now()
+        self.created_at: dt.datetime = created_at
         self.role: str = self._model.role or "user"
         self.name: Optional[str] = self._model.name
         self.content: str = self._model.content or ""
@@ -244,8 +257,16 @@ class Message(PGModel[MessageModel], MessageProto):
         self.platform_id: Optional[str] = self._model.platform_id
         self.ref_id: Optional[str] = self._model.ref_id
         self.branch_order: int = self._model.branch_order if self._model.branch_order is not None else 0
-        self.branch: BranchProto = cast(BranchProto, Branch(branch=self._model.branch))
-        self.turn: TurnProto = cast(TurnProto, Turn(turn=self._model.turn))
+        if message:
+            self.branch: BranchProto = Branch(branch=message.branch)
+            self.turn: TurnProto = Turn(turn=message.turn)
+        # else:
+        #     if not branch:
+        #         raise ValueError("Branch is required")
+        #     if not turn:
+        #         raise ValueError("Turn is required")
+        #     self.branch: BranchProto = branch
+        #     self.turn: TurnProto = turn
     
     @staticmethod
     async def get(id: int) -> "Message":
