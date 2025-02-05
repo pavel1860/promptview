@@ -20,12 +20,29 @@ Base = declarative_base()
 
 
 
+class SessionModel(Base):
+    __tablename__ = "sessions"
+    
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    user_id = Column(String, nullable=False)
+    
+    branches = relationship("BranchModel", back_populates="session", foreign_keys="BranchModel.session_id", cascade="all, delete-orphan")
+    
+
 
 class BranchModel(Base):
     __tablename__ = "branches"
     
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    session_id = Column(Integer, ForeignKey("sessions.id", name="fk_branch_session_id", ondelete="CASCADE"), nullable=False)
+    session = relationship("SessionModel", back_populates="branches", foreign_keys=[session_id])
+    
+    branch_order = Column(Integer, nullable=False, default=0)
+    message_counter = Column(Integer, nullable=False, default=0)
     
     # Relationship to forked message
     forked_from_message_id = Column(Integer, ForeignKey("messages.id", name="fk_branch_forked_from_message_id", ondelete="SET NULL"), nullable=True)
@@ -46,7 +63,7 @@ class TurnModel(Base):
     
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     # Branch relationship
     branch_id = Column(Integer, ForeignKey("branches.id", name="fk_turn_branch_id", ondelete="CASCADE"), nullable=False)
     branch = relationship("BranchModel", back_populates="turns", foreign_keys=[branch_id])
@@ -69,6 +86,7 @@ class MessageModel(Base):
     
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     role = Column(String, nullable=False, default="user")
     name = Column(String, nullable=True)
     content = Column(Text, nullable=False)
