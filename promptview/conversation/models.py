@@ -392,9 +392,9 @@ class Branch(BaseModel):
     updated_at: dt.datetime = Field(default_factory=dt.datetime.now)
     message_counter: int = Field(0, ge=0)
     branch_order: int = Field(0, ge=0)
-    forked_from_message_id: int | None = Field(default=None)
+    # forked_from_message_id: int | None = Field(default=None)
     forked_from_message_order: int | None = Field(default=None)    
-    
+    forked_from_branch_id: int | None = Field(default=None)
     session_id: int | None = Field(default=None)
     
     def __init__(self, id: int | None = None, **kwargs):

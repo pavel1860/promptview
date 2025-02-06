@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import UUID, create_engine, Column, Integer, String, JSON, ForeignKey, DateTime, Text, Boolean, inspect
-from sqlalchemy.orm import declarative_base, relationship, Session, validates
+from sqlalchemy.orm import declarative_base, relationship, Session, validates, backref
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 import os
@@ -44,16 +44,27 @@ class BranchModel(Base):
     branch_order = Column(Integer, nullable=False, default=0)
     message_counter = Column(Integer, nullable=False, default=0)
     
-    # Relationship to forked message
-    forked_from_message_id = Column(Integer, ForeignKey("messages.id", name="fk_branch_forked_from_message_id", ondelete="SET NULL"), nullable=True)
-    forked_from_message = relationship("MessageModel", foreign_keys=[forked_from_message_id], back_populates="forked_branches")
+
     forked_from_message_order = Column(Integer, nullable=True)
-    
+    # 
+    forked_from_branch_id = Column(Integer, 
+                                   ForeignKey("branches.id", 
+                                              name="fk_branch_forked_from_branch_id", 
+                                              ondelete="SET NULL"), nullable=True)
+    forked_from_branch = relationship("BranchModel", 
+                                      remote_side=[id], 
+                                      backref="forked_branches",
+                                      cascade="all")
+    # forked_from_branch = relationship("BranchModel", foreign_keys=[forked_from_branch_id], back_populates="forked_branches")    
+    # forked_branches = relationship("BranchModel", back_populates="forked_from_branch", foreign_keys="BranchModel.forked_from_branch_id")
+        
     # Relationships
     turns = relationship("TurnModel", back_populates="branch", foreign_keys="TurnModel.branch_id", cascade="all, delete-orphan")    
     messages = relationship("MessageModel", back_populates="branch", foreign_keys="MessageModel.branch_id", cascade="all, delete-orphan")
 
-
+    # Relationship to forked message
+    # forked_from_message_id = Column(Integer, ForeignKey("messages.id", name="fk_branch_forked_from_message_id", ondelete="SET NULL"), nullable=True)
+    # forked_from_message = relationship("MessageModel", foreign_keys=[forked_from_message_id], back_populates="forked_branches")
 
 
 
@@ -105,7 +116,7 @@ class MessageModel(Base):
     turn = relationship("TurnModel", back_populates="messages", foreign_keys=[turn_id])
     
     # Forked branches relationship
-    forked_branches = relationship("BranchModel", back_populates="forked_from_message", foreign_keys=[BranchModel.forked_from_message_id])
+    # forked_branches = relationship("BranchModel", back_populates="forked_from_message", foreign_keys=[BranchModel.forked_from_message_id])
     
     
     

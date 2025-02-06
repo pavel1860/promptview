@@ -113,13 +113,13 @@ class MessageLog:
         count += len(msgs)
         branch = self.head.branch        
         while count < limit:            
-            if branch and not branch.forked_from_message_id:
+            if not branch.forked_from_branch_id:
                 break            
-            base_message = await self._backend.get_message(branch.forked_from_message_id)
-            branch = await self._backend.get_branch_by_id(base_message.branch_id)
+            forked_from_message_order = branch.forked_from_message_order
+            branch = await self._backend.get_branch_by_id(branch.forked_from_branch_id)
             if branch is None:
                 raise MessageLogError("Branch not found")            
-            msgs = await self._backend.list_messages(branch_id=branch.id, limit=limit-count, offset=0, max_order=branch.message_counter)
+            msgs = await self._backend.list_messages(branch_id=branch.id, limit=limit-count, offset=0, max_order=forked_from_message_order)
             count += len(msgs)
             all_msgs.extend(msgs)
         return all_msgs
@@ -137,7 +137,12 @@ class MessageLog:
         if self.head.branch is None:
             raise MessageLogError("Branch is not initialized")
         
-        branch = Branch(session_id=self.head.branch.session_id, forked_from_message_id=message.id)
+        # branch = Branch(session_id=self.head.branch.session_id, forked_from_message_id=message.id)
+        branch = Branch(
+            session_id=self.head.branch.session_id, 
+            forked_from_branch_id=message.branch_id, 
+            forked_from_message_order=message.branch_order
+        )
         branch = await self._backend.add_branch(branch)
         if checkout:
             self.head.branch = branch
@@ -146,9 +151,7 @@ class MessageLog:
     
     async def commit(self, message: Message):
         pass
-    
-    
-    
+
     
     async def update(self, message: Message):
         pass
