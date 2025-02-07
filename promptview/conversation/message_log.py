@@ -24,7 +24,12 @@ class SessionManager:
         self._backend = MessageBackend()
         
         
-    async def get_session(self, user_id: str):
+    async def get_session(self, session_id: int | None = None):
+        if session_id is None:  
+            raise MessageLogError("No session_id provided")
+        return await self._backend.get_session(id=session_id)
+        
+    async def get_last_user_session(self, user_id: str):
         return await self._backend.last_session(user_id=user_id)
     
     async def list_sessions(self, user_id: str):
@@ -34,6 +39,7 @@ class SessionManager:
         session = await self._backend.add_session(Session(user_id=user_id))
         branch = await self._backend.add_branch(Branch(session_id=session.id, branch_order=0, message_counter=0))
         return session
+    
         
     
     
@@ -42,12 +48,57 @@ class SessionManager:
 class Head:
     
     def __init__(self):
-        self.branch: Branch | None = None
-        self.turn: Turn | None = None
+        self._branch: Branch | None = None
+        self._turn: Turn | None = None
         
     @property
+    def branch(self) -> Branch:
+        if self._branch is None:
+            raise MessageLogError("Branch is not initialized")
+        return self._branch
+    
+    @branch.setter
+    def branch(self, value: Branch):
+        self._branch = value
+    
+    @property
+    def turn(self) -> Turn:
+        if self._turn is None:
+            raise MessageLogError("Turn is not initialized")
+        return self._turn
+    
+    @turn.setter
+    def turn(self, value: Turn):
+        self._turn = value
+    
+    
+    @property
     def is_initialized(self) -> bool:
-        return self.branch is not None and self.turn is not None
+        return self._branch is not None and self._turn is not None
+    
+    @property
+    def session_id(self) -> int:
+        if self.branch is None:
+            raise MessageLogError("Branch is not initialized")
+        if self.branch.session_id is None:
+            raise MessageLogError("Session is not initialized")
+        return self.branch.session_id
+    
+    @property
+    def branch_id(self) -> int:
+        if self.branch is None:
+            raise MessageLogError("Branch is not initialized")
+        return self.branch.id
+    
+    @property
+    def turn_id(self) -> int:
+        if self.turn is None:
+            raise MessageLogError("Turn is not initialized")
+        return self.turn.id
+    
+    def reset(self):
+        self._branch = None
+        self._turn = None
     
     
 
@@ -59,7 +110,7 @@ class MessageLog:
         self._backend = backend
     
     @staticmethod
-    async def from_user(user_id: str):
+    async def from_user_last_session(user_id: str):
         backend = MessageBackend()
         session = await backend.last_session(user_id=user_id)
         if session is None:
@@ -73,7 +124,19 @@ class MessageLog:
         if turn is not None:
             message_log.head.turn = turn
         return message_log
-        
+    
+    @staticmethod
+    async def from_session(session_id: int):
+        backend = MessageBackend()
+        message_log = MessageLog(backend)
+        branch = await backend.get_branch(session_id=session_id, branch_order=0)
+        if branch is None:
+            raise MessageLogError("No branch found")
+        message_log.head.branch = branch
+        turn = await backend.get_last_turn(branch_id=branch.id)
+        if turn is not None:
+            message_log.head.turn = turn
+        return message_log
     
     
     async def add_turn(self):
@@ -82,6 +145,12 @@ class MessageLog:
         turn = await self._backend.add_turn(Turn(branch_id=self.head.branch.id))
         self.head.turn = turn
         return turn
+    
+    async def update_turn_local_state(self, prompt_name: str, local_state: dict):
+        if self.head.turn is None:
+            raise MessageLogError("Turn is not initialized")
+        self.head.turn.local_state[prompt_name] = local_state
+        await self._backend.update_turn(self.head.turn.id, local_state=self.head.turn.local_state)
     
     async def append(self, message: Message):
         if self.head.branch is None:
@@ -103,12 +172,12 @@ class MessageLog:
             branch = await self.storage_backend.get_branch(is_main=True)
         self.head.branch = branch
         
-    async def get_messages(self, limit: int = 10, offset: int = 0):
+    async def get_messages(self, limit: int = 10, offset: int = 0, session_id: int | None = None):
         count = 0
         if self.head.branch is None:
             raise MessageLogError("Branch is not initialized")
         all_msgs = []
-        msgs = await self._backend.list_messages(branch_id=self.head.branch.id, limit=limit, offset=offset)
+        msgs = await self._backend.list_messages(branch_id=self.head.branch.id, limit=limit, offset=offset, session_id=session_id)
         all_msgs.extend(msgs)
         count += len(msgs)
         branch = self.head.branch        
@@ -119,7 +188,7 @@ class MessageLog:
             branch = await self._backend.get_branch_by_id(branch.forked_from_branch_id)
             if branch is None:
                 raise MessageLogError("Branch not found")            
-            msgs = await self._backend.list_messages(branch_id=branch.id, limit=limit-count, offset=0, max_order=forked_from_message_order)
+            msgs = await self._backend.list_messages(branch_id=branch.id, limit=limit-count, offset=0, max_order=forked_from_message_order, session_id=session_id)
             count += len(msgs)
             all_msgs.extend(msgs)
         return all_msgs
@@ -145,8 +214,19 @@ class MessageLog:
         )
         branch = await self._backend.add_branch(branch)
         if checkout:
+            self.head.reset()
             self.head.branch = branch
-            self.head.turn = None
+            # self.head.turn = None
+        return branch
+    
+    async def switch_to(self, branch_id: int):
+        branch = await self._backend.get_branch_by_id(branch_id)
+        turn = await self._backend.get_last_turn(branch_id)
+        if branch is None:
+            raise MessageLogError("Branch not found")
+        self.head.branch = branch
+        if turn is not None:
+            self.head.turn = turn
         return branch
     
     async def commit(self, message: Message):

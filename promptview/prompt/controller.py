@@ -44,7 +44,9 @@ class Controller(Generic[P, R]):
         return output
     
     def build_execution_ctx(self) -> Context:
-        curr_ctx = Context.get_current()
+        curr_ctx: Context | None = Context.get_current()
+        if curr_ctx is None:
+            raise ValueError("Context is not set")
         ctx = curr_ctx.build_child(self._name)
         return ctx
 

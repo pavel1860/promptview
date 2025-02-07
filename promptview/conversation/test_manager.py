@@ -13,9 +13,7 @@ class TestManager:
         self.message_log = MessageLog(self._backend)
 
     async def create_test_case(self, test_case: TestCase) -> TestCase:
-        if test_case.start_message is None:
-            raise ValueError("Start message is required")
-        if not test_case.start_message.id:
+        if test_case.start_message is not None and not test_case.start_message.id:
             raise ValueError("Start message id is required. Message is not committed.")
         return await self._backend.add_test_case(test_case)
     
@@ -34,19 +32,14 @@ class TestManager:
         
         
     async def start_test_run(self, test_case: TestCase):
-        if test_case.start_message is None:
-            raise ValueError("Start message is required")
-        if not test_case.start_message.id:
-            raise ValueError("Start message id is required. Message is not committed.")
         branch = await self._backend.add_branch(Branch(
             session_id=test_case.session_id,
-            forked_from_branch_id=test_case.start_message.branch_id,
-            forked_from_message_order=test_case.start_message.branch_order,
+            forked_from_branch_id=test_case.start_message.branch_id if test_case.start_message else None,
+            forked_from_message_order=test_case.start_message.branch_order if test_case.start_message else None,
             is_test=True
         ))
         test_run = TestRun(
             test_case_id=test_case.id,
-            start_message_id=test_case.start_message.id,
             status="INITIALIZED",
             branch_id=branch.id
         )

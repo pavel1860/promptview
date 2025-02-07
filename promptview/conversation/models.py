@@ -458,6 +458,7 @@ class Message(BaseModel):
     name: str = Field(...)
     content: str = Field(...)
     blocks: list[dict] | None = Field(default=None)
+    extra: dict = Field(default={})
     run_id: str | None = Field(default=None)
     platform_id: str | None = Field(default=None)
     ref_id: str | None = Field(default=None)
@@ -510,7 +511,7 @@ class TestCase(BaseModel):
     description: str | None = Field(default=None)
     evaluation_criteria: list[EvalPrompt]
     inputs: dict = Field(default_factory=dict)
-    start_message: Message
+    start_message: Message | None = Field(default=None)
     session_id: int
     
     def __init__(self, id: int | None = None, **kwargs):
@@ -581,7 +582,8 @@ def pack_message(message: MessageModel) -> Message:
 
 def pack_test_case(test_case: TestCaseModel) -> TestCase:
     data = test_case.__dict__
-    data["start_message"] = Message(**test_case.start_message.__dict__)
+    if test_case.start_message is not None:
+        data["start_message"] = Message(**test_case.start_message.__dict__)
     obj = TestCase(**data)
     obj._id = test_case.id
     return obj
@@ -602,19 +604,16 @@ class MessageBackend:
                 await conn.commit()
                 return session
     
-    async def get_session(self, id: int | None = None, user_id: str | None = None) -> "Session":
+
+    async def get_session(self, id: int) -> "Session":
         async with AsyncSessionLocal() as session:
             async with session.begin():
-                stmt = select(SessionModel, BranchModel).join(BranchModel, SessionModel.id == BranchModel.session_id)
-                if id is not None:
-                    stmt = stmt.where(SessionModel.id == id)
-                if user_id is not None:
-                    stmt = stmt.where(SessionModel.user_id == user_id)
+                stmt = select(SessionModel).where(SessionModel.id == id)
                 res = await session.execute(stmt)
-                return Session(
-                    **res.scalar_one().__dict__,
-                    branches=[Branch(**branch.__dict__) for branch in res.scalars()]
-                )
+                session = res.scalar_one()
+                return pack_session(session)
+                
+                
                 
                 
     async def list_sessions(self, user_id: str, limit: int = 10, offset: int = 0, is_desc: bool = True) -> list[Session]:
@@ -633,7 +632,7 @@ class MessageBackend:
 
             
     async def last_session(self, user_id: str) -> Session | None:
-        sessions = await self.list_sessions(user_id, limit=1, offset=0, is_desc=False)
+        sessions = await self.list_sessions(user_id, limit=1, offset=0, is_desc=True)
         if len(sessions) == 0:
             return None
         return sessions[0]
@@ -706,6 +705,13 @@ class MessageBackend:
                 turn._id = res.inserted_primary_key[0]
                 await session.commit()
                 return turn
+            
+    async def update_turn(self, id: int, **kwargs):
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                stmt = update(TurnModel).where(TurnModel.id == id).values(**kwargs)
+                await session.execute(stmt)
+                await session.commit()
     
     async def list_turns(self, branch_id: int, limit: int = 10, offset: int = 0, is_desc: bool = True) -> list[Turn]:
         async with AsyncSessionLocal() as session:
@@ -733,20 +739,36 @@ class MessageBackend:
                 res = await session.execute(stmt)
                 return pack_message(res.scalar_one())
             
-    async def list_messages(self, branch_id: int, limit: int = 10, offset: int = 0, is_desc: bool = True, max_order: int | None = None) -> list[Message]:
+    async def list_messages(
+        self, 
+        branch_id: int, 
+        limit: int = 10, 
+        offset: int = 0, 
+        is_desc: bool = True, 
+        max_order: int | None = None,
+        session_id: int | None = None
+    ) -> list[Message]:
         async with AsyncSessionLocal() as session:
             async with session.begin():
-                stmt = (
-                    select(MessageModel)
-                    .where(MessageModel.branch_id == branch_id)
-                )
+                if session_id is not None:
+                    stmt = (
+                        select(MessageModel)
+                        .join(BranchModel, MessageModel.branch_id == BranchModel.id)
+                        .where(BranchModel.session_id == session_id, MessageModel.branch_id == branch_id)
+                    )
+                else:
+                    stmt = (
+                        select(MessageModel)
+                        .where(MessageModel.branch_id == branch_id)
+                    )
+                    
                 if max_order is not None:
                     stmt = stmt.where(MessageModel.branch_order <= max_order)
                     
                 stmt = stmt.order_by(MessageModel.created_at.desc() if is_desc else MessageModel.created_at.asc())
                 stmt = stmt.limit(limit)
                 stmt = stmt.offset(offset)
-                res = await session.execute(stmt)
+                res = await session.execute(stmt)                
                 return [pack_message(message) for message in res.scalars()]
 
                 
@@ -823,7 +845,8 @@ class MessageBackend:
             async with session.begin():
                 data = test_case.model_dump(exclude={"id"})
                 del data["start_message"]
-                data["start_message_id"] = test_case.start_message.id
+                if test_case.start_message is not None:
+                    data["start_message_id"] = test_case.start_message.id
                 stmt = insert(TestCaseModel).values(data)
                 res = await session.execute(stmt)
                 test_case._id = res.inserted_primary_key[0]
@@ -837,7 +860,7 @@ class MessageBackend:
             async with session.begin():
                 stmt = (
                     select(TestCaseModel, MessageModel)
-                    .join(MessageModel, TestCaseModel.start_message_id == MessageModel.id)
+                    .outerjoin(MessageModel, TestCaseModel.start_message_id == MessageModel.id)
                     .where(TestCaseModel.id == id)
                 )
                 res = await session.execute(stmt)                

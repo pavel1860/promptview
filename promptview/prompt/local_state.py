@@ -1,6 +1,8 @@
 from typing import Type, TypeVar, Generic, Any, Dict, TypeVar, Union, Callable, Tuple
 from pydantic import BaseModel
 
+from promptview.conversation.message_log import MessageLog
+
 from ..conversation.history import History
 from ..conversation.models import Turn
 
@@ -14,12 +16,12 @@ T = TypeVar('T')
 class LocalStore():
     
     
-    def __init__(self, history: History, prompt_name: str | None = None):
-        self._history = history
-        self.turn = history.turn        
+    def __init__(self, message_log: MessageLog, prompt_name: str | None = None):
+        self._message_log = message_log
+        self.turn = message_log.head.turn        
         self._prompt_name = prompt_name
-        if history.turn and history.turn.localState is not None:
-            local_state = history.turn.localState 
+        if message_log.head.turn and message_log.head.turn.local_state is not None:
+            local_state = message_log.head.turn.local_state 
             self.store: Dict[str, Any] = local_state.get(self._prompt_name, {})
         else:
             self.store: Dict[str, Any] = {}
@@ -31,7 +33,7 @@ class LocalStore():
         self.store[key] = value
         if not self._prompt_name:
             raise ValueError("Prompt name is required to update local state")
-        await self._history.update_turn_local_state(self._prompt_name, self.store)
+        await self._message_log.update_turn_local_state(self._prompt_name, self.store)
     
     
 
@@ -67,9 +69,9 @@ class LocalState(Generic[StateType]):
 
 
 class TurnHooks:
-    def __init__(self, history: History, prompt_name: str | None = None):        
+    def __init__(self, message_log: MessageLog, prompt_name: str | None = None):        
         self._prompt_name = prompt_name
-        self._local_store: LocalStore = LocalStore(history, prompt_name)
+        self._local_store: LocalStore = LocalStore(message_log, prompt_name)
 
     async def use_var(self, key: str, initial: StateType) -> LocalState[StateType]:
         state = LocalState(self._local_store, key, initial)
