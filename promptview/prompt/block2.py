@@ -11,7 +11,7 @@ from promptview.utils.string_utils import int_to_roman
 
 TitleType = Literal["md", "xml"]
 # ListType = Literal["list", "table"]
-BulletType = Literal["number", "alpha", "roman", "roman_lower", "*", "-"]
+BulletType = Literal["number", "alpha", "roman", "roman_upper", "*", "-"]
 
 block_ctx = contextvars.ContextVar("block_ctx")
 
@@ -105,11 +105,13 @@ class StrBlock(str):
     
 class TitleBlock(StrBlock):
     _type: TitleType
+    _sub_items_bullet: BulletType = "number"
     
-    def __new__(cls, value, type: TitleType, _auto_append: bool = True):
+    def __new__(cls, value, type: TitleType, bullet: BulletType = "number", indent: int = 0, _auto_append: bool = True):
         instance = super().__new__(cls, value, _auto_append)
         instance._type = type
-        instance._indent = 0
+        instance._sub_items_bullet = bullet
+        instance._indent = indent
         return instance
         
     
@@ -137,17 +139,24 @@ class ListBlock(StrBlock):
             instance._idx = 0
         return instance
     
+    def get_bullet_type(self):
+        if self._parent and isinstance(self._parent, TitleBlock):
+            return self._parent._sub_items_bullet
+        else:
+            return self._type
+    
     def _get_prefix(self):
         idx = self._idx
-        if self._type == "number":
+        bullet_type = self.get_bullet_type()
+        if bullet_type == "number":
             return f"{idx}. "
-        elif self._type == "alpha":
-            return f"{chr(97+idx)}. "
-        elif self._type == "roman":
-            return int_to_roman(idx) + ". "
-        elif self._type == "roman_lower":
+        elif bullet_type == "alpha":
+            return f"{chr(96+idx)}. "
+        elif bullet_type == "roman_upper":
+            return int_to_roman(idx, upper=True) + ". "
+        elif bullet_type == "roman":
             return int_to_roman(idx, upper=False) + ". "
-        return f"{self._type} "
+        return f"{bullet_type} "
 
     def render(self):
         content = self._get_prefix() + self        
@@ -158,11 +167,26 @@ class ListBlock(StrBlock):
     
     
     
+class XmlBlock(StrBlock):
+    _attributes: dict = {}
+    _sub_items_bullet: BulletType = "number"
     
+    def __new__(cls, value, bullet: BulletType = "number", _auto_append: bool = True, **kwargs):
+        instance = super().__new__(cls, value, _auto_append)
+        instance._attributes = kwargs
+        instance._sub_items_bullet = bullet
+        return instance
     
-    
-    
-    
+    def render(self):
+        content = self
+        if self._attributes:
+            content = content + " " + " ".join([f"{k}=\"{v}\"" for k, v in self._attributes.items()])
+        if self._items:
+            item_content = self.render_items()
+            content = "<" + content + ">\n" + item_content + "\n</" + content + ">"
+        else:
+            content = "<" + content + " />"
+        return content
     
     
 # class Block:
@@ -206,12 +230,24 @@ class Block:
         self.li = ListBuilder()
         
     
-    def title(self, value: str, type: TitleType, indent: int | None = None):
-        return TitleBlock(value, type)
+    def title(self, value: str, type: TitleType = "md", bullet: BulletType = "number", indent: int = 0):
+        """
+        Create a title block.
+        
+        Args:
+            value: The text of the title.
+            type: The type of the title: `md` or `xml`.
+            bullet: `number`, `alpha`, `roman`, `roman_upper`, `*`, `-`. The bullet type of underlying list items
+            indent: The indent of the sub-items.
+        Returns:
+            TitleBlock: The title block.
+        """
+        return TitleBlock(value, type, bullet, indent)
     
     # def li(self, value: str, type: BulletType = "number"):
     #     return ListBlock(value, type)
-    
+    def xml(self, value: str, bullet: BulletType = "number", **kwargs):
+        return XmlBlock(value, bullet, **kwargs)
     
     def model_dump(self, model: Type[BaseModel], format: str = "ts"):    
         if format == "ts":
