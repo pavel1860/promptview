@@ -45,7 +45,7 @@ def test_add_messages_and_commit(history):
     assert len(messages) == 2
     assert messages[0].content == "Message 1"
     assert messages[1].content == "Message 2"
-
+    
 
 def test_get_last_messages(history):
     turn1 = history.add_turn()

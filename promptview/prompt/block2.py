@@ -106,6 +106,7 @@ class StrBlock(str):
 class TitleBlock(StrBlock):
     _type: TitleType
     _sub_items_bullet: BulletType = "number"
+    _registered_models = {}
     
     def __new__(cls, value, type: TitleType, bullet: BulletType = "number", indent: int = 0, _auto_append: bool = True):
         instance = super().__new__(cls, value, _auto_append)
@@ -113,7 +114,12 @@ class TitleBlock(StrBlock):
         instance._sub_items_bullet = bullet
         instance._indent = indent
         return instance
-        
+    
+    def register_model(self, action_name: str, model_class: Type[BaseModel]):
+        """Register a model class for a specific action name."""
+        from .block_parser import ActionContent
+        ActionContent.register_model(action_name, model_class)
+        return self
     
     def render(self):
         content = self.render_items()
@@ -123,6 +129,15 @@ class TitleBlock(StrBlock):
         elif self._type == "xml":
             content = "<" + self + ">\n" + content + "\n</" + self + ">\n"
         return content
+    
+    def parse(self, text: str):
+        """
+        Parse the rendered output text into a structured object.
+        The text should be in XML format with Observation, Thought, and Actions sections.
+        Actions can contain registered model types that will be automatically instantiated.
+        """
+        from .block_parser2 import parse_blocks
+        return parse_blocks(text)
     
     
     
@@ -183,7 +198,7 @@ class XmlBlock(StrBlock):
             content = content + " " + " ".join([f"{k}=\"{v}\"" for k, v in self._attributes.items()])
         if self._items:
             item_content = self.render_items()
-            content = "<" + content + ">\n" + item_content + "\n</" + content + ">"
+            content = "<" + content + ">\n" + item_content + "\n</" + self + ">"
         else:
             content = "<" + content + " />"
         return content
@@ -244,8 +259,6 @@ class Block:
         """
         return TitleBlock(value, type, bullet, indent)
     
-    # def li(self, value: str, type: BulletType = "number"):
-    #     return ListBlock(value, type)
     def xml(self, value: str, bullet: BulletType = "number", **kwargs):
         return XmlBlock(value, bullet, **kwargs)
     
@@ -255,9 +268,6 @@ class Block:
         else:
             content = model.model_json_schema()        
         return StrBlock(content)
-    
-    # def li(self, item: str):
-    #     return StrBlock(item, _auto_append=False)
     
     def _add_item(self, target: StrBlock | List[str] | str):
         _target = None
