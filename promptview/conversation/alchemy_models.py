@@ -61,7 +61,8 @@ class BranchModel(Base):
     # Relationships
     turns = relationship("TurnModel", back_populates="branch", foreign_keys="TurnModel.branch_id", cascade="all, delete-orphan")    
     messages = relationship("MessageModel", back_populates="branch", foreign_keys="MessageModel.branch_id", cascade="all, delete-orphan")
-
+    
+    is_test = Column(Boolean, nullable=False, default=False)
     # Relationship to forked message
     # forked_from_message_id = Column(Integer, ForeignKey("messages.id", name="fk_branch_forked_from_message_id", ondelete="SET NULL"), nullable=True)
     # forked_from_message = relationship("MessageModel", foreign_keys=[forked_from_message_id], back_populates="forked_branches")
@@ -119,7 +120,78 @@ class MessageModel(Base):
     # forked_branches = relationship("BranchModel", back_populates="forked_from_message", foreign_keys=[BranchModel.forked_from_message_id])
     
     
+
+
+
+
     
+    
+    
+    
+    
+    
+    
+    
+
+class TestCaseModel(Base):
+    __tablename__ = "test_cases"
+    
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Test case details
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    evaluation_criteria = Column(json_type, nullable=False)  # JSON array of criteria
+    
+    # Test inputs
+    inputs = Column(json_type, nullable=False)
+    
+    # Starting point for the test
+    start_message_id = Column(Integer, ForeignKey("messages.id", name="fk_test_case_start_message_id", ondelete="SET NULL"), nullable=True)
+    start_message = relationship("MessageModel", foreign_keys=[start_message_id])
+    
+    # Session this test case belongs to
+    session_id = Column(Integer, ForeignKey("sessions.id", name="fk_test_case_session_id", ondelete="CASCADE"), nullable=False)
+    # session = relationship("SessionModel", back_populates="test_cases", foreign_keys=[session_id])
+    
+    # Test runs for this test case
+    test_runs = relationship("TestRunModel", back_populates="test_case", cascade="all, delete-orphan")
+
+
+class TestRunModel(Base):
+    __tablename__ = "test_runs"
+    
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Test case this run belongs to
+    test_case_id = Column(Integer, ForeignKey("test_cases.id", name="fk_test_run_test_case_id", ondelete="CASCADE"), nullable=False)
+    test_case = relationship("TestCaseModel", back_populates="test_runs")
+    
+    # Branch created for this test run
+    branch_id = Column(Integer, ForeignKey("branches.id", name="fk_test_run_branch_id", ondelete="CASCADE"), nullable=False)
+    branch = relationship("BranchModel", backref="test_runs")
+    
+    # Test results
+    status = Column(String, nullable=False, default="pending")  # pending, running, completed, failed
+    results = Column(json_type, nullable=True)  # Detailed evaluation results
+    score = Column(Integer, nullable=True)  # Overall score if applicable
+    error_message = Column(Text, nullable=True)  # Error message if test failed
+    meta = Column(json_type, nullable=True)  # Additional metadata about the test run
+    
+    @validates('status')
+    def validate_status(self, key, value):
+        valid_statuses = {'pending', 'running', 'completed', 'failed'}
+        if value not in valid_statuses:
+            raise ValueError(f"Invalid status: {value}. Must be one of {valid_statuses}")
+        return value
+
+
+
+
     
     
     

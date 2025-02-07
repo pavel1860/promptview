@@ -2,9 +2,9 @@ import os
 from typing import Generic, TypeVar, Optional, List, cast
 
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine, func, insert, select, text, update
+from sqlalchemy import create_engine, delete, func, insert, select, text, update
 from .protocols import BranchProto, TurnProto, MessageProto  
-from .alchemy_models import BranchModel, SessionModel, TurnModel, MessageModel, Base
+from .alchemy_models import BranchModel, SessionModel, TestCaseModel, TestRunModel, TurnModel, MessageModel, Base
 
 
 import contextvars
@@ -396,6 +396,7 @@ class Branch(BaseModel):
     forked_from_message_order: int | None = Field(default=None)    
     forked_from_branch_id: int | None = Field(default=None)
     session_id: int | None = Field(default=None)
+    is_test: bool = Field(default=False)
     
     def __init__(self, id: int | None = None, **kwargs):
         super().__init__(**kwargs)
@@ -486,8 +487,76 @@ class Message(BaseModel):
         if self.turn_id is None:
             raise ValueError("Message has no turn")
         return self.turn_id
-            
+           
+           
+DEFAULT_BACKGROUND = """
+You are an unbiased, thorough evaluator of LLM-generated text. Your job is to judge the quality of the provided text against a set of criteria, then provide both a rating and detailed feedback.
+"""
+          
+           
+class EvalPrompt(BaseModel):
+    background: str = Field(default=DEFAULT_BACKGROUND, description="The background of the testing prompt")
+    task: str = Field(description="The task of the prompt")
+    expected_output: str = Field(description="The expected output of the prompt")
+    model: str = Field(default="gpt-4o", description="The model to use for the prompt")
 
+
+
+class TestCase(BaseModel):
+    _id: int | None = None
+    created_at: dt.datetime = Field(default_factory=dt.datetime.now)
+    updated_at: dt.datetime = Field(default_factory=dt.datetime.now)
+    title: str = Field(..., description="The title of the test case")
+    description: str | None = Field(default=None)
+    evaluation_criteria: list[EvalPrompt]
+    inputs: dict = Field(default_factory=dict)
+    start_message: Message
+    session_id: int
+    
+    def __init__(self, id: int | None = None, **kwargs):
+        super().__init__(**kwargs)
+        if id is not None:
+            self._id = id
+            
+    @property
+    def id(self) -> int:
+        if self._id is None:
+            raise ValueError("TestCase has no id")
+        return self._id
+    
+    
+    
+class TestRun(BaseModel):
+    _id: int | None = None
+    created_at: dt.datetime = Field(default_factory=dt.datetime.now)
+    updated_at: dt.datetime = Field(default_factory=dt.datetime.now)
+    # test_case: TestCase
+    branch_id: int
+    test_case_id: int
+    
+    status: str = Field(default="INITIALIZED")
+    score: int | None = Field(default=None)
+    error_message: str | None = Field(default=None)
+    meta: dict = Field(default_factory=dict)
+    
+    def __init__(self, id: int | None = None, **kwargs):
+        super().__init__(**kwargs)
+        if id is not None:
+            self._id = id
+            
+    @property
+    def id(self) -> int:
+        if self._id is None:
+            raise ValueError("TestRun has no id")
+        return self._id
+            
+            
+    @property
+    def branch(self) -> int:
+        if self.branch_id is None:
+            raise ValueError("TestRun has no branch")
+        return self.branch_id
+            
 
 
 def pack_session(session: SessionModel) -> Session:
@@ -509,11 +578,20 @@ def pack_message(message: MessageModel) -> Message:
     obj = Message(**message.__dict__)
     obj._id = message.id
     return obj
-            
-            
+
+def pack_test_case(test_case: TestCaseModel) -> TestCase:
+    data = test_case.__dict__
+    data["start_message"] = Message(**test_case.start_message.__dict__)
+    obj = TestCase(**data)
+    obj._id = test_case.id
+    return obj
+
+def pack_test_run(test_run: TestRunModel) -> TestRun:
+    obj = TestRun(**test_run.__dict__)
+    obj._id = test_run.id
+    return obj
             
 class MessageBackend:
-    
     
     async def add_session(self, session: Session):
         async with AsyncSessionLocal() as conn:
@@ -574,10 +652,10 @@ class MessageBackend:
                 branch._id = branch.id
                 return branch
             
-    async def list_branches(self, session_id: int) -> list[Branch]:
+    async def list_branches(self, session_id: int, is_test: bool = False) -> list[Branch]:
         async with AsyncSessionLocal() as session:
             async with session.begin():
-                stmt = select(BranchModel).where(BranchModel.session_id == session_id)
+                stmt = select(BranchModel).where(BranchModel.session_id == session_id, BranchModel.is_test == is_test)
                 res = await session.execute(stmt)
                 return [pack_branch(branch) for branch in res.scalars()]
             
@@ -739,4 +817,103 @@ class MessageBackend:
     #             await session.commit()
     #             return message
                 
+    
+    async def add_test_case(self, test_case: TestCase):
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                data = test_case.model_dump(exclude={"id"})
+                del data["start_message"]
+                data["start_message_id"] = test_case.start_message.id
+                stmt = insert(TestCaseModel).values(data)
+                res = await session.execute(stmt)
+                test_case._id = res.inserted_primary_key[0]
+                await session.commit()
+                return test_case
+            
+            
+            
+    async def get_test_case(self, id: int) -> TestCase | None:
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                stmt = (
+                    select(TestCaseModel, MessageModel)
+                    .join(MessageModel, TestCaseModel.start_message_id == MessageModel.id)
+                    .where(TestCaseModel.id == id)
+                )
+                res = await session.execute(stmt)                
+                test_case = next(res.scalars())
+                return pack_test_case(test_case)
+            
+    async def update_test_case(self, id: int, **kwargs):
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                stmt = update(TestCaseModel).where(TestCaseModel.id == id).values(**kwargs)
+                await session.execute(stmt)
+                await session.commit()
+    
+    async def list_test_cases(self, limit: int = 10, offset: int = 0, is_desc: bool = True) -> list[TestCase]:
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                stmt = (
+                    select(TestCaseModel, MessageModel)
+                    .join(MessageModel, TestCaseModel.start_message_id == MessageModel.id)
+                    .order_by(TestCaseModel.created_at.desc() if is_desc else TestCaseModel.created_at.asc())
+                    .limit(limit)
+                    .offset(offset)
+                )
+                res = await session.execute(stmt)
+                test_cases = res.scalars()
+                return [pack_test_case(test_case) for test_case in test_cases]
+            
+    async def delete_test_case(self, id: int):
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                stmt = delete(TestCaseModel).where(TestCaseModel.id == id)
+                await session.execute(stmt)
+                await session.commit()
+            
+            
+    async def add_test_run(self, test_run: TestRun):
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                stmt = insert(TestRunModel).values(test_run.model_dump())
+                res = await session.execute(stmt)
+                test_run._id = res.inserted_primary_key[0]
+                await session.commit()
+                return test_run
+            
+    async def get_test_run(self, id: int) -> TestRun | None:
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                stmt = select(TestRunModel).where(TestRunModel.id == id)
+                res = await session.execute(stmt)
+                return pack_test_run(res.scalar_one())    
+            
+    async def update_test_run(self, id: int, **kwargs):
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                stmt = update(TestRunModel).where(TestRunModel.id == id).values(**kwargs)
+                await session.execute(stmt)
+                await session.commit()
+            
+    async def list_test_runs(self, test_case_id: int, limit: int = 10, offset: int = 0, is_desc: bool = True) -> list[TestRun]:
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                stmt = (
+                    select(TestRunModel)
+                    .where(TestRunModel.test_case_id == test_case_id)
+                    .order_by(TestRunModel.created_at.desc() if is_desc else TestRunModel.created_at.asc())
+                    .limit(limit)
+                    .offset(offset)
+                )
+                res = await session.execute(stmt)
+                return [pack_test_run(test_run) for test_run in res.scalars()]
+    
+    
+    async def delete_test_run(self, id: int):
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                stmt = delete(TestRunModel).where(TestRunModel.id == id)
+                await session.execute(stmt)
+                await session.commit()
     
