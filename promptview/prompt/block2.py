@@ -6,9 +6,12 @@ import uuid
 from pydantic import BaseModel
 
 from promptview.utils.model_utils import schema_to_ts
+from promptview.utils.string_utils import int_to_roman
 
 
 TitleType = Literal["md", "xml"]
+# ListType = Literal["list", "table"]
+BulletType = Literal["number", "alpha", "roman", "roman_lower", "*", "-"]
 
 block_ctx = contextvars.ContextVar("block_ctx")
 
@@ -41,44 +44,42 @@ class StrBlock(str):
     _id: str | None = None
     _style: dict | None = None
     _depth: int = 1
+    _indent: int = 3
     
     
-    # def __new__(cls, value, _auto_append: bool = True):
-    #     # Remove leading and trailing whitespace and dedent the value
-    #     value = textwrap.dedent(value).strip() 
-    #     # Create the instance using str's __new__        
-    #     instance = super().__new__(cls, value)
-    #     # Attach extra attributes to the instance
-    #     instance._items = []
-    #     instance._token = None
-    #     instance._id = str(uuid.uuid4())
-    #     if _auto_append:
-    #         try:
-    #             instance._parent = block_ctx.get()
-    #             if instance._parent is not None:            
-    #                 instance._parent.append(instance)
-    #                 instance._depth = instance._parent._depth + 1
-    #         except LookupError:
-    #             pass
-    #     return instance
     def __new__(cls, value, _auto_append: bool = True):
-        value = sanitize_value(value)
+        # Remove leading and trailing whitespace and dedent the value
+        value = textwrap.dedent(value).strip() 
+        # Create the instance using str's __new__        
         instance = super().__new__(cls, value)
-        instance = instantiate_block(instance)
+        # Attach extra attributes to the instance
+        instance._items = []
+        instance._token = None
+        instance._id = str(uuid.uuid4())
         if _auto_append:
-            instance = connect_block(instance)
+            try:
+                instance._parent = block_ctx.get()
+                if instance._parent is not None:            
+                    instance._parent.append(instance)
+                    instance._depth = instance._parent._depth + 1
+            except LookupError:
+                pass
         return instance
+
     
 
     def append(self, item: "StrBlock | str"):
-        if isinstance(item, str):
+        if isinstance(item, StrBlock):
+            self._items.append(item)
+        elif isinstance(item, str):
             self._items.append(StrBlock(item, _auto_append=False))
         else:
             self._items.append(item)
      
     def render_items(self):
-        content = "\n".join([item.render() for item in self._items])      
-        content = textwrap.indent(content, "   ")
+        content = "\n".join([item.render() for item in self._items]) 
+        if self._indent:     
+            content = textwrap.indent(content, " " * self._indent)
         return content
         
     def render(self):
@@ -90,7 +91,7 @@ class StrBlock(str):
     def show(self):
         # self is the string content
         print("Content:", self)
-        print("Extra info:", self.ttype)
+        # print("Extra info:", self._type)
         
     def __enter__(self):
         self._token = block_ctx.set(self)
@@ -105,17 +106,12 @@ class StrBlock(str):
 class TitleBlock(StrBlock):
     _type: TitleType
     
-    # def __new__(cls, value, type: TitleType, _auto_append: bool = True):
-    #     instance = super().__new__(cls, value, _auto_append)
-    #     instance._type = type
-    #     return instance
     def __new__(cls, value, type: TitleType, _auto_append: bool = True):
-        instance = super().__new__(cls, value, False)
+        instance = super().__new__(cls, value, _auto_append)
         instance._type = type
-        if _auto_append:
-            instance = connect_block(instance)
+        instance._indent = 0
         return instance
-      
+        
     
     def render(self):
         content = self.render_items()
@@ -126,13 +122,38 @@ class TitleBlock(StrBlock):
             content = "<" + self + ">\n" + content + "\n</" + self + ">\n"
         return content
     
-class ListBlock(TitleBlock):
     
-    def __new__(cls, value, type: TitleType, _auto_append: bool = True):
-        instance = super().__new__(cls, value, type, _auto_append)
-        instance._type = "list"
+    
+class ListBlock(StrBlock):
+    _type: BulletType = "number"
+    _idx: int = 0
+    
+    def __new__(cls, value, type: BulletType = "number", _auto_append: bool = True):
+        instance = super().__new__(cls, value, _auto_append)
+        instance._type = type
+        if instance._parent:
+            instance._idx = len([item for item in instance._parent._items if isinstance(item, ListBlock)])
+        else:
+            instance._idx = 0
         return instance
     
+    def _get_prefix(self):
+        idx = self._idx
+        if self._type == "number":
+            return f"{idx}. "
+        elif self._type == "alpha":
+            return f"{chr(97+idx)}. "
+        elif self._type == "roman":
+            return int_to_roman(idx) + ". "
+        elif self._type == "roman_lower":
+            return int_to_roman(idx, upper=False) + ". "
+        return f"{self._type} "
+
+    def render(self):
+        content = self._get_prefix() + self        
+        if self._items:
+            content = content + "\n" + self.render_items()
+        return content
     
     
     
@@ -168,13 +189,28 @@ class ListBlock(TitleBlock):
 #     def li(item: str):
 #         return StrBlock(item, _auto_append=False)
 
+class ListBuilder:
+    # def __init__(self, type: BulletType = "number"):
+    #     self._type = type
+    
+    def __add__(self, other: StrBlock | List[str] | str):
+        ListBlock(other)
+        return self
+        
+    def __call__(self, value: str, type: BulletType = "number"):
+        return ListBlock(value, type)
+
 class Block:
-            
-    def title(self, value: str, type: TitleType):
+    
+    def __init__(self):
+        self.li = ListBuilder()
+        
+    
+    def title(self, value: str, type: TitleType, indent: int | None = None):
         return TitleBlock(value, type)
     
-    def list(self, value: str, type: TitleType):
-        return ListBlock(value, type)
+    # def li(self, value: str, type: BulletType = "number"):
+    #     return ListBlock(value, type)
     
     
     def model_dump(self, model: Type[BaseModel], format: str = "ts"):    
@@ -184,11 +220,10 @@ class Block:
             content = model.model_json_schema()        
         return StrBlock(content)
     
-    def li(self, item: str):
-        return StrBlock(item, _auto_append=False)
+    # def li(self, item: str):
+    #     return StrBlock(item, _auto_append=False)
     
-    
-    def __call__(self, target: StrBlock | List[str] | str):
+    def _add_item(self, target: StrBlock | List[str] | str):
         _target = None
         if isinstance(target, StrBlock):
             _target = target
@@ -200,5 +235,16 @@ class Block:
             raise ValueError(f"Invalid target type: {type(target)}")
 
         return _target
+    
+    def __add__(self, other: StrBlock | List[str] | str):
+        self._add_item(other)
+        return self
+    
+    def __call__(self, target: StrBlock | List[str] | str):
+        return self._add_item(target)
+    
+    def __radd__(self, other: StrBlock | List[str] | str):
+        return self._add_item(other)
+    
     
 block = Block()
