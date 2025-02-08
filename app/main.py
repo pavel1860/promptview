@@ -4,7 +4,8 @@ import uvicorn
 from promptview.api.message_api import router as message_router
 # from promptview.api.session_api import router as session_router
 from promptview.api.admin_router import build_admin_router
-from .user_model import AppAUser, instantiate_all_models
+from promptview.conversation.models import UserBackend
+from .user_model import AppAUser, Client, instantiate_all_models
 from contextlib import asynccontextmanager
 
 
@@ -39,7 +40,8 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(build_admin_router(user_model_cls=AppAUser))
+# app.include_router(build_admin_router(user_model_cls=AppAUser))
+app.include_router(build_admin_router(user_model_cls=Client, backend=UserBackend(user_model_cls=Client, user_db_model_cls=AppAUser)))
 # app.include_router(message_router)
 # app.include_router(session_router)
 

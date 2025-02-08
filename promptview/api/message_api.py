@@ -48,10 +48,10 @@ class MessageResponse(BaseModel):
 router = APIRouter(prefix="/messages", tags=["messages"])
 
 # Dependency for MessageLog instance
-async def get_message_log() -> MessageLog:
-    USER_ID = "test1"
-    message_log = await MessageLog.from_user_last_session(user_id=USER_ID)
-    
+async def get_message_log(session_id: int) -> MessageLog:
+    # USER_ID = "test1"
+    # message_log = await MessageLog.from_user_last_session(user_id=USER_ID)
+    message_log = await MessageLog.from_session(session_id=session_id)
     # Create a test session and branch if not exists
     # session = await backend.add_session(Session(user_id=USER_ID))
     # branch = await backend.add_branch(Branch(session_id=session.id, branch_order=0, message_counter=0))

@@ -17,9 +17,9 @@ class MessageLogError(Exception):
     pass
 
 class UserManager:
-    def __init__(self, backend=None):
+    def __init__(self, backend):
         from promptview.conversation.models import UserBackend, MessageBackend
-        self._backend = backend or UserBackend()
+        self._backend = backend
         self._message_backend = MessageBackend()
     
     async def create_user(self, **user_data):
@@ -28,7 +28,7 @@ class UserManager:
     
     async def get_user(self, user_id: int):
         """Get a user by ID"""
-        return await self._backend.get_user(user_id)
+        return await self._backend.get_user(user_id=user_id)
     
     async def list_users(self, limit: int = 10, offset: int = 0):
         """List users with pagination"""
@@ -59,13 +59,13 @@ class SessionManager:
             raise MessageLogError("No session_id provided")
         return await self._backend.get_session(id=session_id)
         
-    async def get_last_user_session(self, user_id: str):
+    async def get_last_user_session(self, user_id: int):
         return await self._backend.last_session(user_id=user_id)
     
-    async def list_sessions(self, user_id: str | None = None, limit: int = 10, offset: int = 0):
+    async def list_sessions(self, user_id: int | None = None, limit: int = 10, offset: int = 0):
         return await self._backend.list_sessions(user_id=user_id, limit=limit, offset=offset)
     
-    async def create_session(self, user_id: str):
+    async def create_session(self, user_id: int):
         session = await self._backend.add_session(Session(user_id=user_id))
         branch = await self._backend.add_branch(Branch(session_id=session.id, branch_order=0, message_counter=0))
         return session
@@ -140,7 +140,7 @@ class MessageLog:
         self._backend = backend
     
     @staticmethod
-    async def from_user_last_session(user_id: str):
+    async def from_user_last_session(user_id: int):
         backend = MessageBackend()
         session = await backend.last_session(user_id=user_id)
         if session is None:

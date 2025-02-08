@@ -11,7 +11,7 @@ class SessionResponse(BaseModel):
     id: int
     created_at: dt.datetime
     updated_at: dt.datetime
-    user_id: str
+    user_id: int
 
     class Config:
         from_attributes = True
@@ -23,16 +23,30 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 async def get_session_manager() -> SessionManager:
     return SessionManager()
 
+# @router.get("/", response_model=List[SessionResponse])
+# async def list_all_sessions(
+#     limit: int = 10,
+#     offset: int = 0,
+#     session_manager: SessionManager = Depends(get_session_manager)
+# ) -> List[Session]:
+#     try:
+#         return await session_manager.list_sessions(user_id=None, limit=limit, offset=offset)
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/", response_model=List[SessionResponse])
-async def list_all_sessions(
+async def list_sessions(
+    user_id: int | None = None,
     limit: int = 10,
     offset: int = 0,
     session_manager: SessionManager = Depends(get_session_manager)
 ) -> List[Session]:
     try:
-        return await session_manager.list_sessions(user_id=None, limit=limit, offset=offset)
+        sessions = await session_manager.list_sessions(user_id=user_id, limit=limit, offset=offset)
+        return sessions
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/{session_id}", response_model=SessionResponse)
 async def get_session(

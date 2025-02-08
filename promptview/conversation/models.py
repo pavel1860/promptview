@@ -1,5 +1,5 @@
 import os
-from typing import Generic, TypeVar, Optional, List, cast
+from typing import Generic, Type, TypeVar, Optional, List, cast
 
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, delete, func, insert, select, text, update
@@ -362,7 +362,6 @@ class User(BaseModel):
     updated_at: dt.datetime = Field(default_factory=dt.datetime.now)
     type: str = Field(...)
     
-    sessions: list["Session"] = Field(default_factory=list)
     
     class Config:
         arbitrary_types_allowed = True
@@ -381,7 +380,7 @@ class Session(BaseModel):
     _id: int | None = None
     created_at: dt.datetime = Field(default_factory=dt.datetime.now)
     updated_at: dt.datetime = Field(default_factory=dt.datetime.now)
-    user_id: str = Field(...)
+    user_id: int = Field(...)
     
     branches: list["Branch"] = Field(default_factory=list)
     
@@ -581,9 +580,9 @@ class TestRun(BaseModel):
             
 
 
-def pack_user(user_model: BaseUserModel) -> User:
-    obj = User(**user_model.__dict__)
-    obj._id = user_model.id
+def pack_user(user_model_cls: Type[User], user_record) -> User:
+    obj = user_model_cls(**user_record.__dict__)
+    obj._id = user_record.id
     return obj
 
 def pack_session(session: SessionModel) -> Session:
@@ -642,7 +641,7 @@ class MessageBackend:
                 
                 
                 
-    async def list_sessions(self, user_id: str | None = None, limit: int = 10, offset: int = 0, is_desc: bool = True) -> list[Session]:
+    async def list_sessions(self, user_id: int | None = None, limit: int = 10, offset: int = 0, is_desc: bool = True) -> list[Session]:
         async with AsyncSessionLocal() as session:
             async with session.begin():
                 stmt = select(SessionModel)
@@ -656,7 +655,7 @@ class MessageBackend:
                 return [pack_session(session) for session in scalars]
 
             
-    async def last_session(self, user_id: str) -> Session | None:
+    async def last_session(self, user_id: int) -> Session | None:
         sessions = await self.list_sessions(user_id, limit=1, offset=0, is_desc=True)
         if len(sessions) == 0:
             return None
@@ -966,43 +965,44 @@ class MessageBackend:
                 await session.commit()
 
 class UserBackend:
-    def __init__(self, user_model_cls: type[BaseUserModel] = BaseUserModel):
+    def __init__(self, user_model_cls: type[BaseModel], user_db_model_cls: type[BaseUserModel] = BaseUserModel):
         self._user_model_cls = user_model_cls
+        self._user_db_model_cls = user_db_model_cls
         self._session_factory = AsyncSessionLocal
         
     async def create_user(self, **user_data) -> User:
         """Create a new user with the given data"""
         async with self._session_factory() as session:
             async with session.begin():
-                user = self._user_model_cls(**user_data)
+                user = self._user_db_model_cls(**user_data)
                 session.add(user)
                 await session.flush()
-                return pack_user(user)
+                return pack_user(self._user_model_cls, user)
     
     async def get_user(self, user_id: int) -> User | None:
         """Get a user by ID"""
         async with self._session_factory() as session:
             async with session.begin():
-                user = await session.get(self._user_model_cls, user_id)
+                user = await session.get(self._user_db_model_cls, user_id)
                 if user is None:
                     return None
-                return pack_user(user)
+                return pack_user(self._user_model_cls, user)
     
     async def list_users(self, limit: int = 10, offset: int = 0, is_desc: bool = True) -> list[User]:
         """List users with pagination"""
         async with self._session_factory() as session:
             async with session.begin():
-                stmt = select(self._user_model_cls)
-                stmt = stmt.order_by(self._user_model_cls.created_at.desc() if is_desc else self._user_model_cls.created_at.asc())
+                stmt = select(self._user_db_model_cls)
+                stmt = stmt.order_by(self._user_db_model_cls.created_at.desc() if is_desc else self._user_db_model_cls.created_at.asc())
                 stmt = stmt.limit(limit).offset(offset)
                 res = await session.execute(stmt)
-                return [pack_user(user) for user in res.scalars()]
+                return [pack_user(self._user_model_cls, user) for user in res.scalars()]
     
     async def add_session(self, user_id: int) -> Session:
         """Create a new session for a user"""
         async with self._session_factory() as session:
             async with session.begin():
-                user = await session.get(self._user_model_cls, user_id)
+                user = await session.get(self._user_db_model_cls, user_id)
                 if user is None:
                     raise ValueError(f"User with id {user_id} not found")
                 
