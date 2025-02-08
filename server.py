@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from promptview.conversation.message_api import router as message_router
-from promptview.conversation.session_api import router as session_router
+from promptview.api.message_api import router as message_router
+from promptview.api.session_api import router as session_router
 
 # Create FastAPI app
 app = FastAPI(

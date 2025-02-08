@@ -13,6 +13,7 @@ from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.components import ToolEnum
 from promptview.prompt.decorator import prompt
 from promptview.prompt.map import map_prompt
+from promptview.prompt.block2 import block
 from promptview.prompt.mvc import view
 from promptview.state.context import Context
 from promptview.state.history import History
@@ -20,8 +21,10 @@ from promptview.vectors.rag_documents import RagDocuments, RagSearchResult
 from promptview import parsers
 from promptview.model.model import Model
 from promptview.model.fields import ModelField, IndexType
+
 import promptview.model.vectors as vectors
 import promptview.platforms as platforms
+
 
 __all__ = [
     "ChatPrompt", 
@@ -49,4 +52,5 @@ __all__ = [
     "IndexType",
     "vectors",
     "platforms",
+    "block",
 ]
