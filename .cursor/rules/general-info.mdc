@@ -1,0 +1,27 @@
+---
+description: general guildlines for the prompt view application
+globs: 
+---
+
+# Description
+this application is a framework for building agents. it uses a React like components called blocks
+in the [block2.py](mdc:promptview/prompt/block2.py) file, to dynamically build prompts.
+
+# Archtecture
+## Blocks
+blocks are the basic building blocks of the prompt
+
+## execution wrappers
+there are 2 components that acts as controllers for the execution.
+prompt - the parallel of a function, executes llm calls
+agent - parallel of a generator, executes prompts in a loop until it gets the answer.
+
+both of them are used as decorators, and provide tracing capability and inject dependencies.
+
+## Message Log
+- the message log is an event source like database that stores the communication with the agent.
+- the message log is appending messages for every output of the llm or input from the user.
+- the message log can create branches, to test out alternative implementations.
+
+# API
+the application gives ability to connect external UI for interacting with the chat agent.

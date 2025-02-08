@@ -32,8 +32,8 @@ class SessionManager:
     async def get_last_user_session(self, user_id: str):
         return await self._backend.last_session(user_id=user_id)
     
-    async def list_sessions(self, user_id: str):
-        return await self._backend.list_sessions(user_id=user_id)
+    async def list_sessions(self, user_id: str | None = None, limit: int = 10, offset: int = 0):
+        return await self._backend.list_sessions(user_id=user_id, limit=limit, offset=offset)
     
     async def create_session(self, user_id: str):
         session = await self._backend.add_session(Session(user_id=user_id))

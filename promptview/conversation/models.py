@@ -616,16 +616,15 @@ class MessageBackend:
                 
                 
                 
-    async def list_sessions(self, user_id: str, limit: int = 10, offset: int = 0, is_desc: bool = True) -> list[Session]:
+    async def list_sessions(self, user_id: str | None = None, limit: int = 10, offset: int = 0, is_desc: bool = True) -> list[Session]:
         async with AsyncSessionLocal() as session:
             async with session.begin():
-                stmt = (
-                    select(SessionModel)
-                    .where(SessionModel.user_id == user_id)
-                    .order_by(SessionModel.created_at.desc() if is_desc else SessionModel.created_at.asc())
-                    .limit(limit)
-                    .offset(offset)
-                )
+                stmt = select(SessionModel)
+                if user_id is not None:
+                    stmt = stmt.where(SessionModel.user_id == user_id)
+                stmt = stmt.order_by(SessionModel.created_at.desc() if is_desc else SessionModel.created_at.asc())
+                stmt = stmt.limit(limit)
+                stmt = stmt.offset(offset)
                 res = await session.execute(stmt)
                 scalars = list(res.scalars())
                 return [pack_session(session) for session in scalars]
