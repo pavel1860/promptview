@@ -16,7 +16,37 @@ from promptview.conversation.protocols import BaseProto
 class MessageLogError(Exception):
     pass
 
-
+class UserManager:
+    def __init__(self, backend=None):
+        from promptview.conversation.models import UserBackend, MessageBackend
+        self._backend = backend or UserBackend()
+        self._message_backend = MessageBackend()
+    
+    async def create_user(self, **user_data):
+        """Create a new user with the given data"""
+        return await self._backend.create_user(**user_data)
+    
+    async def get_user(self, user_id: int):
+        """Get a user by ID"""
+        return await self._backend.get_user(user_id)
+    
+    async def list_users(self, limit: int = 10, offset: int = 0):
+        """List users with pagination"""
+        return await self._backend.list_users(limit=limit, offset=offset)
+    
+    async def add_session(self, user_id: int):
+        """Create a new session for a user"""
+        session = await self._backend.add_session(user_id)
+        branch = await self._message_backend.add_branch(Branch(session_id=session.id, branch_order=0, message_counter=0))
+        return session
+    
+    async def list_user_sessions(self, user_id: int, limit: int = 10, offset: int = 0):
+        """List sessions for a specific user"""
+        return await self._backend.list_user_sessions(user_id=user_id, limit=limit, offset=offset)
+    
+    async def get_user_messages(self, user_id: int, limit: int = 10, offset: int = 0):
+        """Get all messages from all sessions for a user"""
+        return await self._backend.get_user_messages(user_id=user_id, limit=limit, offset=offset)
 
 class SessionManager:
     

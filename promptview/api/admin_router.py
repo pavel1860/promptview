@@ -1,17 +1,30 @@
 from fastapi import APIRouter
+from typing import Type
 from promptview.api.message_api import router as message_router
 from promptview.api.session_api import router as session_router
+from promptview.api.user_api import create_user_router
+from promptview.conversation.alchemy_models import BaseUserModel
 
-admin_router = APIRouter(prefix="/api")
+def build_admin_router(*, user_model_cls: Type[BaseUserModel]) -> APIRouter:
+    admin_router = APIRouter(prefix="/api")
 
-# Include the Users router
-admin_router.include_router(
-    message_router,
-    tags=["messages"],  # Optional: used for grouping in OpenAPI docs
-)
+    # Create user router with the specific user model
+    user_router = create_user_router(user_model_cls)
 
-# Include the Items router
-admin_router.include_router(
-    session_router,
-    tags=["sessions"],  # Optional: used for grouping in OpenAPI docs
-)
+    # Include all routers
+    admin_router.include_router(
+        message_router,
+        tags=["messages"],
+    )
+
+    admin_router.include_router(
+        session_router,
+        tags=["sessions"],
+    )
+
+    admin_router.include_router(
+        user_router,
+        tags=["users"],
+    )
+
+    return admin_router

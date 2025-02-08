@@ -1,7 +1,7 @@
 
 
 from promptview.conversation.alchemy_models import BaseUserModel, Base
-from promptview.conversation.models import engine
+from promptview.conversation.models import User, engine
 from sqlalchemy import UUID, create_engine, Column, Integer, String, JSON, ForeignKey, DateTime, Text, Boolean, inspect
 import os
 
@@ -21,6 +21,10 @@ class AppAUser(BaseUserModel):
     
     
     
+class Client(User):
+    name: str
+    phone_number: str
+    email: str
     
     
     

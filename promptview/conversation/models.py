@@ -4,7 +4,7 @@ from typing import Generic, TypeVar, Optional, List, cast
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, delete, func, insert, select, text, update
 from .protocols import BranchProto, TurnProto, MessageProto  
-from .alchemy_models import BranchModel, SessionModel, TestCaseModel, TestRunModel, TurnModel, MessageModel, Base
+from .alchemy_models import BaseUserModel, BranchModel, SessionModel, TestCaseModel, TestRunModel, TurnModel, MessageModel, Base
 
 
 import contextvars
@@ -356,6 +356,27 @@ class Message2(MessageProto):
             
             
             
+class User(BaseModel):
+    _id: int | None = None
+    created_at: dt.datetime = Field(default_factory=dt.datetime.now)
+    updated_at: dt.datetime = Field(default_factory=dt.datetime.now)
+    type: str = Field(...)
+    
+    sessions: list["Session"] = Field(default_factory=list)
+    
+    class Config:
+        arbitrary_types_allowed = True
+    
+    @property
+    def id(self) -> int:
+        if self._id is None:
+            raise ValueError("User has no id")
+        return self._id
+    
+    @id.setter
+    def id(self, value: int):
+        self._id = value
+
 class Session(BaseModel):
     _id: int | None = None
     created_at: dt.datetime = Field(default_factory=dt.datetime.now)
@@ -559,6 +580,11 @@ class TestRun(BaseModel):
         return self.branch_id
             
 
+
+def pack_user(user_model: BaseUserModel) -> User:
+    obj = User(**user_model.__dict__)
+    obj._id = user_model.id
+    return obj
 
 def pack_session(session: SessionModel) -> Session:
     obj = Session(**session.__dict__)
@@ -938,4 +964,77 @@ class MessageBackend:
                 stmt = delete(TestRunModel).where(TestRunModel.id == id)
                 await session.execute(stmt)
                 await session.commit()
+
+class UserBackend:
+    def __init__(self, user_model_cls: type[BaseUserModel] = BaseUserModel):
+        self._user_model_cls = user_model_cls
+        self._session_factory = AsyncSessionLocal
+        
+    async def create_user(self, **user_data) -> User:
+        """Create a new user with the given data"""
+        async with self._session_factory() as session:
+            async with session.begin():
+                user = self._user_model_cls(**user_data)
+                session.add(user)
+                await session.flush()
+                return pack_user(user)
+    
+    async def get_user(self, user_id: int) -> User | None:
+        """Get a user by ID"""
+        async with self._session_factory() as session:
+            async with session.begin():
+                user = await session.get(self._user_model_cls, user_id)
+                if user is None:
+                    return None
+                return pack_user(user)
+    
+    async def list_users(self, limit: int = 10, offset: int = 0, is_desc: bool = True) -> list[User]:
+        """List users with pagination"""
+        async with self._session_factory() as session:
+            async with session.begin():
+                stmt = select(self._user_model_cls)
+                stmt = stmt.order_by(self._user_model_cls.created_at.desc() if is_desc else self._user_model_cls.created_at.asc())
+                stmt = stmt.limit(limit).offset(offset)
+                res = await session.execute(stmt)
+                return [pack_user(user) for user in res.scalars()]
+    
+    async def add_session(self, user_id: int) -> Session:
+        """Create a new session for a user"""
+        async with self._session_factory() as session:
+            async with session.begin():
+                user = await session.get(self._user_model_cls, user_id)
+                if user is None:
+                    raise ValueError(f"User with id {user_id} not found")
+                
+                new_session = SessionModel(user_id=user_id)
+                session.add(new_session)
+                await session.flush()
+                return pack_session(new_session)
+    
+    async def list_user_sessions(self, user_id: int, limit: int = 10, offset: int = 0, is_desc: bool = True) -> list[Session]:
+        """List sessions for a specific user"""
+        async with self._session_factory() as session:
+            async with session.begin():
+                stmt = select(SessionModel).where(SessionModel.user_id == user_id)
+                stmt = stmt.order_by(SessionModel.created_at.desc() if is_desc else SessionModel.created_at.asc())
+                stmt = stmt.limit(limit).offset(offset)
+                res = await session.execute(stmt)
+                return [pack_session(s) for s in res.scalars()]
+    
+    async def get_user_messages(self, user_id: int, limit: int = 10, offset: int = 0, is_desc: bool = True) -> list[Message]:
+        """Get all messages from all sessions for a user"""
+        async with self._session_factory() as session:
+            async with session.begin():
+                # Join through sessions and branches to get messages
+                stmt = (
+                    select(MessageModel)
+                    .join(BranchModel, MessageModel.branch_id == BranchModel.id)
+                    .join(SessionModel, BranchModel.session_id == SessionModel.id)
+                    .where(SessionModel.user_id == user_id)
+                    .order_by(MessageModel.created_at.desc() if is_desc else MessageModel.created_at.asc())
+                    .limit(limit)
+                    .offset(offset)
+                )
+                res = await session.execute(stmt)
+                return [pack_message(msg) for msg in res.scalars()]
 
