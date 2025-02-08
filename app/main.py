@@ -4,11 +4,29 @@ import uvicorn
 from promptview.api.message_api import router as message_router
 # from promptview.api.session_api import router as session_router
 from promptview.api.admin_router import admin_router
+from .user_model import instantiate_all_models
+from contextlib import asynccontextmanager
+
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # This code runs before the server starts serving
+    await instantiate_all_models()
+    
+    # Yield to hand control back to FastAPI (start serving)
+    yield
+
+
+
+
+
 # Create FastAPI app
 app = FastAPI(
     title="PromptView API",
     description="API for interacting with the PromptView message system",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Configure CORS
@@ -24,6 +42,9 @@ app.add_middleware(
 app.include_router(admin_router)
 # app.include_router(message_router)
 # app.include_router(session_router)
+
+
+
 
 # Root endpoint
 @app.get("/")

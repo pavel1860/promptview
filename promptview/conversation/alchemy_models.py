@@ -20,13 +20,39 @@ Base = declarative_base()
 
 
 
+
+
+class BaseUserModel(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # This column identifies which "subclass" a row belongs to.
+    type = Column(String(50))
+
+    # The relationship to the SessionModel (shared for all apps).
+    sessions = relationship("SessionModel", back_populates="user")
+
+    __mapper_args__ = {
+        # We'll store the subclass type in the 'type' column
+        "polymorphic_on": type,
+        # The base class identity
+        "polymorphic_identity": "base_user",
+    }
+
+
+
 class SessionModel(Base):
     __tablename__ = "sessions"
     
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    user_id = Column(String, nullable=False)
+    
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user = relationship("BaseUserModel", back_populates="sessions")
     
     branches = relationship("BranchModel", back_populates="session", foreign_keys="BranchModel.session_id", cascade="all, delete-orphan")
     
