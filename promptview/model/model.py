@@ -9,7 +9,7 @@ from pydantic._internal._model_construction import ModelMetaclass
 from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QuerySetSingleAdapter, QueryType
 from .vectors.base_vectorizer import BaseVectorizer
 from .fields import VectorSpaceMetrics, get_model_indices
-from .resource_manager import VectorSpace, connection_manager
+from .resource_manager import VectorSpace, connection_manager, DatabaseType
 
 def unpack_list_model(pydantic_model):
     return get_args(pydantic_model)[0]
@@ -171,11 +171,16 @@ class ModelMeta(ModelMetaclass, type):
                     #? namespace and indices extraction
                     # namespace = name                        
                     indices = get_model_indices(dct)
+                    # Get database type from Config class if it exists
+                    db_type = "qdrant"  # Default
+                    if "Config" in dct and hasattr(dct["Config"], "database_type"):
+                        db_type = dct["Config"].database_type
                     connection_manager.add_namespace(
                         namespace=namespace,
                         # subspace=dct.get("_subspace"),
                         vector_spaces=vector_spaces,
-                        indices=indices
+                        indices=indices,
+                        db_type=db_type
                     )
                     break
             else:
@@ -309,6 +314,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     class Config:
         arbitrary_types_allowed = True
+        database_type: DatabaseType = "qdrant"  # Default to qdrant for backward compatibility
     
     
     def __init__(
