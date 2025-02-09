@@ -6,6 +6,7 @@ import asyncpg
 import os
 import itertools
 import json
+import numpy as np
 from pydantic import BaseModel
 if TYPE_CHECKING:
     from promptview.model.model import Model
@@ -161,13 +162,14 @@ class PostgresClient:
         table_name = camel_to_snake(namespace)
 
         if not ids:
-            # ids = [str(uuid4()) for _ in range(len(next(iter(vectors.values()))))]
             ids = [str(uuid4()) for _ in range(len(metadata))]
 
         results = []
         def zip_vectors(ids, vectors, metadata):
             for id_, vec, meta in zip(ids, vectors, metadata):
                 yield {**vec, **meta, "id": id_}
+                
+
         columns = [f for f in ['id'] + list(vectors[0].keys()) + list(metadata[0].keys()) if f != "_subspace"]
         async with self.pool.acquire() as conn:
             for chunk in chunks(zip_vectors(ids, vectors, metadata), batch_size=batch_size):
@@ -175,24 +177,29 @@ class PostgresClient:
                 placeholders = []
                 values = []
                 for i, item in enumerate(chunk):
+                    # Calculate the starting placeholder index for this row
+                    start_idx = i * len(columns) + 1
                     # For each column, if it's a vector add ::vector type cast
                     col_placeholders = []
-                    item_values = []
                     
                     # Add id first
-                    col_placeholders.append(f"${len(item_values) + 1}")
-                    item_values.append(item.pop("id"))
+                    col_placeholders.append(f"${start_idx}")
+                    values.append(item.pop("id"))
                     
                     # Add remaining fields
-                    for col in columns[1:]:  # Skip id as we already added it
-                        if isinstance(item[col], list):  # Vector field
-                            col_placeholders.append(f"${len(item_values) + 1}::vector")
+                    for j, col in enumerate(columns[1:], 1):  # Skip id as we already added it
+                        placeholder_idx = start_idx + j
+                        if isinstance(item[col], np.ndarray):
+                            item[col] = '[' + ', '.join(map(str, item[col])) + ']'
+                            col_placeholders.append(f"${placeholder_idx}::vector")
+                        elif isinstance(item[col], list):  # Vector field
+                            item[col] = '[' + ', '.join(map(str, item[col])) + ']'
+                            col_placeholders.append(f"${placeholder_idx}::vector")
                         else:  # Regular field
-                            col_placeholders.append(f"${len(item_values) + 1}")
-                        item_values.append(item[col])
+                            col_placeholders.append(f"${placeholder_idx}")
+                        values.append(item[col])
                     
                     placeholders.append(f"({', '.join(col_placeholders)})")
-                    values.extend(item_values)
 
                 query = f"""
                 INSERT INTO {table_name} ({', '.join(f'"{col}"' for col in columns)})
