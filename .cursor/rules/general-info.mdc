@@ -27,5 +27,8 @@ both of them are used as decorators, and provide tracing capability and inject d
 the application gives ability to connect external UI for interacting with the chat agent.
 
 
+# Ask Questions
+you should ask me clarification if I missed something or my request is ambiguous.
+
 
 

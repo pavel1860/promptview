@@ -432,6 +432,7 @@ class QuerySet(Generic[MODEL]):
         self._prefetch = []
         self._fusion = None
         self._namespace = None
+        self._sub_limit_scale = 1
         partitions = partitions or {}
         if subspace := self.get_subspace():
             partitions.update({"_subspace": subspace})

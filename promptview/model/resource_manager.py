@@ -210,6 +210,7 @@ class ConnectionManager:
                         subspace_index = [{"field": "_subspace", "schema": "keyword"}]
                     create_result = await ns.conn.create_collection(
                         collection_name=namespace,
+                        model_cls=self.get_model(namespace),
                         vector_spaces=list(ns.vector_spaces.values()),
                         indices=ns.indices + subspace_index
                     )
@@ -218,8 +219,10 @@ class ConnectionManager:
             elif ns.db_type == "postgres":
                 await ns.conn.create_collection(  # type: ignore
                     collection_name=namespace,
+                    model_cls=self.get_model(namespace),
                     vector_spaces=list(ns.vector_spaces.values()),
-                    indices=ns.indices
+                    indices=ns.indices,
+                    
                 )
             self._active_namespaces[namespace] = ns
             return ns

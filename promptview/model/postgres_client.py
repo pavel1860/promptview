@@ -1,12 +1,17 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, TypedDict
+import datetime as dt
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, TypedDict, Type
 from uuid import uuid4
 import asyncpg
 import os
 import itertools
 import json
+from pydantic import BaseModel
+if TYPE_CHECKING:
+    from promptview.model.model import Model
 
 from .fields import VectorSpaceMetrics
+
 
 if TYPE_CHECKING:
     from .resource_manager import VectorSpace
@@ -26,6 +31,13 @@ class OrderBy(TypedDict):
     key: str
     direction: Literal["asc", "desc"]
     start_from: int | float | datetime
+
+
+def camel_to_snake(name: str) -> str:
+    """Convert CamelCase to snake_case."""
+    import re
+    name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', name).lower()
 
 
 class PostgresClient:
@@ -65,27 +77,57 @@ class PostgresClient:
             await self.connect()
         assert self.pool is not None
 
-    async def create_collection(self, collection_name: str, vector_spaces: list["VectorSpace"], indices: list[dict[str, str]] | None = None):
+    async def create_collection(self, collection_name: str, model_cls: "Type[Model]", vector_spaces: list["VectorSpace"], indices: list[dict[str, str]] | None = None):
         """Create a table for vector storage with pgvector extension."""
         await self._ensure_connected()
         assert self.pool is not None
+
+        table_name = camel_to_snake(collection_name)
 
         async with self.pool.acquire() as conn:
             # Enable pgvector extension if not enabled
             await conn.execute('CREATE EXTENSION IF NOT EXISTS vector;')
 
-            # Create table with vector columns and metadata
+            # Get model class from the collection name to inspect fields
+            
+            # Create table with proper columns for each field
             create_table_sql = f"""
-            CREATE TABLE IF NOT EXISTS {collection_name} (
-                id TEXT PRIMARY KEY,
-                payload JSONB,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                id TEXT PRIMARY KEY
             """
+
+            # Add columns for each model field
+            for field_name, field in model_cls.model_fields.items():
+                if field_name == "id":  # Skip id as it's already added
+                    continue
+                    
+                field_type = field.annotation
+                if field_type == bool:
+                    sql_type = "BOOLEAN"
+                elif field_type == int:
+                    sql_type = "INTEGER"
+                elif field_type == str:
+                    sql_type = "TEXT"
+                elif field_type == datetime or field_type == dt.datetime:
+                    sql_type = "TIMESTAMP WITH TIME ZONE"
+                elif str(field_type).startswith("list["):
+                    # Handle arrays
+                    inner_type = str(field_type).split("[")[1].rstrip("]")
+                    if inner_type == "int":
+                        sql_type = "INTEGER[]"
+                    else:
+                        sql_type = "TEXT[]"
+                elif str(field_type).startswith("dict") or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
+                    sql_type = "JSONB"
+                else:
+                    sql_type = "TEXT"  # Default to TEXT for unknown types
+                
+                create_table_sql += f',\n"{field_name}" {sql_type}'
 
             # Add vector columns for each vector space
             for vs in vector_spaces:
                 if vs.vectorizer.type == "dense":
-                    create_table_sql += f",\n{vs.name} vector({vs.vectorizer.size})"
+                    create_table_sql += f',\n"{vs.name}" vector({vs.vectorizer.size})'
 
             create_table_sql += ");"
 
@@ -98,44 +140,65 @@ class PostgresClient:
                     # Create GiST index for vector columns
                     if field in [vs.name for vs in vector_spaces]:
                         await conn.execute(f"""
-                        CREATE INDEX IF NOT EXISTS {collection_name}_{field}_idx 
-                        ON {collection_name} 
-                        USING ivfflat ({field} vector_cosine_ops)
+                        CREATE INDEX IF NOT EXISTS {table_name}_{field}_idx 
+                        ON {table_name} 
+                        USING ivfflat ("{field}" vector_cosine_ops)
                         WITH (lists = 100);
                         """)
                     else:
                         # Create B-tree index for regular columns
                         await conn.execute(f"""
-                        CREATE INDEX IF NOT EXISTS {collection_name}_{field}_idx 
-                        ON {collection_name} 
-                        USING btree ((payload->'{field}'));
+                        CREATE INDEX IF NOT EXISTS {table_name}_{field}_idx 
+                        ON {table_name} 
+                        USING btree ("{field}");
                         """)
 
-    async def upsert(self, namespace: str, vectors: dict[str, List[List[float]]], metadata: List[Dict], ids=None, batch_size=100):
+    async def upsert(self, namespace: str, vectors: List[dict[str, List[float] | Any]], metadata: List[Dict], ids=None, batch_size=100):
         """Upsert vectors and metadata into the collection."""
         await self._ensure_connected()
         assert self.pool is not None
 
+        table_name = camel_to_snake(namespace)
+
         if not ids:
-            ids = [str(uuid4()) for _ in range(len(next(iter(vectors.values()))))]
+            # ids = [str(uuid4()) for _ in range(len(next(iter(vectors.values()))))]
+            ids = [str(uuid4()) for _ in range(len(metadata))]
 
         results = []
+        def zip_vectors(ids, vectors, metadata):
+            for id_, vec, meta in zip(ids, vectors, metadata):
+                yield {**vec, **meta, "id": id_}
+        columns = [f for f in ['id'] + list(vectors[0].keys()) + list(metadata[0].keys()) if f != "_subspace"]
         async with self.pool.acquire() as conn:
-            for chunk in chunks(zip(ids, *vectors.values(), metadata), batch_size=batch_size):
+            for chunk in chunks(zip_vectors(ids, vectors, metadata), batch_size=batch_size):
                 # Prepare the SQL query
-                columns = ['id'] + list(vectors.keys()) + ['payload']
                 placeholders = []
                 values = []
                 for i, item in enumerate(chunk):
-                    id_, *vecs, meta = item
-                    placeholders.append(f"(${i*len(columns) + 1}, {', '.join(f'${i*len(columns) + j + 2}::vector' for j in range(len(vecs)))}, ${i*len(columns) + len(vecs) + 2}::jsonb)")
-                    values.extend([id_, *[vec for vec in vecs], json.dumps(meta)])
+                    # For each column, if it's a vector add ::vector type cast
+                    col_placeholders = []
+                    item_values = []
+                    
+                    # Add id first
+                    col_placeholders.append(f"${len(item_values) + 1}")
+                    item_values.append(item.pop("id"))
+                    
+                    # Add remaining fields
+                    for col in columns[1:]:  # Skip id as we already added it
+                        if isinstance(item[col], list):  # Vector field
+                            col_placeholders.append(f"${len(item_values) + 1}::vector")
+                        else:  # Regular field
+                            col_placeholders.append(f"${len(item_values) + 1}")
+                        item_values.append(item[col])
+                    
+                    placeholders.append(f"({', '.join(col_placeholders)})")
+                    values.extend(item_values)
 
                 query = f"""
-                INSERT INTO {namespace} ({', '.join(columns)})
+                INSERT INTO {table_name} ({', '.join(f'"{col}"' for col in columns)})
                 VALUES {', '.join(placeholders)}
                 ON CONFLICT (id) DO UPDATE SET
-                {', '.join(f"{col} = EXCLUDED.{col}" for col in columns[1:])}
+                {', '.join(f'"{col}" = EXCLUDED."{col}"' for col in columns[1:])}
                 RETURNING *;
                 """
 
@@ -148,6 +211,8 @@ class PostgresClient:
         await self._ensure_connected()
         assert self.pool is not None
 
+        table_name = camel_to_snake(collection_name)
+
         async with self.pool.acquire() as conn:
             where_clause = ""
             if filters:
@@ -158,12 +223,12 @@ class PostgresClient:
             
             select_clause = "id, payload"
             if with_vectors:
-                select_clause += f", {vector_name}"
+                select_clause += f', "{vector_name}"'
 
             query = f"""
             SELECT {select_clause},
-                   1 - ({vector_name} <=> $1::vector) as score
-            FROM {collection_name}
+                   1 - ("{vector_name}" <=> $1::vector) as score
+            FROM {table_name}
             {where_clause}
             ORDER BY score DESC
             LIMIT {limit}
@@ -213,16 +278,18 @@ class PostgresClient:
         await self._ensure_connected()
         assert self.pool is not None
 
+        table_name = camel_to_snake(collection_name)
+
         async with self.pool.acquire() as conn:
             if ids:
                 return await conn.execute(
-                    f"DELETE FROM {collection_name} WHERE id = ANY($1::text[])",
+                    f'DELETE FROM {table_name} WHERE id = ANY($1::text[])',
                     ids
                 )
             elif filters:
                 where_clause = self._build_where_clause(filters)
                 return await conn.execute(
-                    f"DELETE FROM {collection_name} WHERE {where_clause}"
+                    f"DELETE FROM {table_name} WHERE {where_clause}"
                 )
             else:
                 raise ValueError("Either ids or filters must be provided.")
@@ -232,19 +299,21 @@ class PostgresClient:
         await self._ensure_connected()
         assert self.pool is not None
 
+        table_name = camel_to_snake(collection_name)
+
         async with self.pool.acquire() as conn:
             where_clause = ""
             if filters:
                 where_clause = f"WHERE {self._build_where_clause(filters)}"
 
-            order_clause = "ORDER BY id"
+            order_clause = 'ORDER BY "id"'
             if order_by:
                 if isinstance(order_by, str):
-                    order_clause = f"ORDER BY payload->'{order_by}'"
+                    order_clause = f'ORDER BY "{order_by}"'
                 elif isinstance(order_by, dict):
-                    order_clause = f"ORDER BY payload->'{order_by['key']}' {order_by['direction']}"
+                    order_clause = f'ORDER BY "{order_by["key"]}" {order_by["direction"]}'
 
-            select_clause = "id, payload"
+            select_clause = "*"
             if with_vectors:
                 # Get all vector columns
                 vector_columns = await conn.fetch("""
@@ -252,12 +321,13 @@ class PostgresClient:
                     FROM information_schema.columns 
                     WHERE table_name = $1 
                     AND data_type = 'vector'
-                """, collection_name)
-                select_clause += ", " + ", ".join(col['column_name'] for col in vector_columns)
+                """, table_name)
+                if vector_columns:
+                    select_clause = '"id", ' + ', '.join(f'"{r["column_name"]}"' for r in vector_columns)
 
             query = f"""
             SELECT {select_clause}
-            FROM {collection_name}
+            FROM {table_name}
             {where_clause}
             {order_clause}
             LIMIT {limit} OFFSET {offset}
@@ -273,8 +343,10 @@ class PostgresClient:
         await self._ensure_connected()
         assert self.pool is not None
 
+        table_name = camel_to_snake(collection_name)
+
         async with self.pool.acquire() as conn:
-            await conn.execute(f"DROP TABLE IF EXISTS {collection_name}")
+            await conn.execute(f'DROP TABLE IF EXISTS {table_name}')
 
     async def get_collections(self):
         """Get all collection (table) names."""
@@ -287,12 +359,14 @@ class PostgresClient:
                 FROM information_schema.tables 
                 WHERE table_schema = 'public'
             """)
-            return [table['table_name'] for table in tables]
+            return [table["table_name"] for table in tables]
 
     async def get_collection(self, collection_name: str, raise_error=True):
         """Get collection (table) information."""
         await self._ensure_connected()
         assert self.pool is not None
+
+        table_name = camel_to_snake(collection_name)
 
         async with self.pool.acquire() as conn:
             try:
@@ -301,7 +375,7 @@ class PostgresClient:
                     FROM information_schema.tables 
                     WHERE table_schema = 'public' 
                     AND table_name = $1
-                """, collection_name)
+                """, table_name)
                 if not info and raise_error:
                     raise ValueError(f"Collection {collection_name} does not exist")
                 return info

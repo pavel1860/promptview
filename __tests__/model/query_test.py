@@ -174,7 +174,7 @@ async def test_or_field_query(seeded_database):
 
 @pytest.mark.asyncio
 async def test_or_and_filtering(seeded_database):
-    recs = await BasicQueryModel.filter(lambda x: ((x.topic == "animals") | (x.topic == "physics")) & ((x.order >= 2) | (x.order <= 3)))    
+    recs = await BasicQueryModel.filter(lambda x: ((x.topic == "animals") | (x.topic == "physics")) & ((x.order >= 2) & (x.order <= 3)))    
     assert len(recs) == 2
 
 

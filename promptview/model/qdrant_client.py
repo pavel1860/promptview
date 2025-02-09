@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Type, TypedDict
 from uuid import uuid4
 from qdrant_client import AsyncQdrantClient, models
 from qdrant_client.http.exceptions import ResponseHandlingException
@@ -14,6 +14,9 @@ from qdrant_client import models
 import grpc
 import os
 import itertools
+
+if TYPE_CHECKING:
+    from .model import Model
 
 from .fields import VectorSpaceMetrics
 
@@ -448,7 +451,7 @@ class QdrantClient:
 
 
 
-    async def create_collection(self, collection_name: str , vector_spaces: list["VectorSpace"], indices: list[dict[str, str]] | None=None):
+    async def create_collection(self, collection_name: str , model_cls: "Type[Model]", vector_spaces: list["VectorSpace"], indices: list[dict[str, str]] | None=None):
         http_client = AsyncQdrantClient(
             url=self.url,
             api_key=self.api_key,
