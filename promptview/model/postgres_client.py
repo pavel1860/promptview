@@ -41,6 +41,12 @@ def camel_to_snake(name: str) -> str:
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', name).lower()
 
 
+
+def stringify_vector(vector: list[float] | np.ndarray):
+    if isinstance(vector, np.ndarray):
+        vector = vector.tolist()
+    return '[' + ', '.join(map(str, vector)) + ']'
+
 class PostgresClient:
     def __init__(self, url=None, user=None, password=None, database=None, host=None, port=None):
         self.url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
@@ -77,6 +83,7 @@ class PostgresClient:
         if self.pool is None:
             await self.connect()
         assert self.pool is not None
+        
 
     async def create_collection(self, collection_name: str, model_cls: "Type[Model]", vector_spaces: list["VectorSpace"], indices: list[dict[str, str]] | None = None):
         """Create a table for vector storage with pgvector extension."""
@@ -99,7 +106,7 @@ class PostgresClient:
 
             # Add columns for each model field
             for field_name, field in model_cls.model_fields.items():
-                if field_name == "id":  # Skip id as it's already added
+                if field_name == "id" or field_name == "_subspace" or field_name == "score":  # Skip id as it's already added
                     continue
                     
                 field_type = field.annotation
@@ -190,10 +197,10 @@ class PostgresClient:
                     for j, col in enumerate(columns[1:], 1):  # Skip id as we already added it
                         placeholder_idx = start_idx + j
                         if isinstance(item[col], np.ndarray):
-                            item[col] = '[' + ', '.join(map(str, item[col])) + ']'
+                            item[col] = stringify_vector(item[col])
                             col_placeholders.append(f"${placeholder_idx}::vector")
                         elif isinstance(item[col], list):  # Vector field
-                            item[col] = '[' + ', '.join(map(str, item[col])) + ']'
+                            item[col] = stringify_vector(item[col])
                             col_placeholders.append(f"${placeholder_idx}::vector")
                         else:  # Regular field
                             col_placeholders.append(f"${placeholder_idx}")
@@ -390,3 +397,73 @@ class PostgresClient:
                 if raise_error:
                     raise e
                 return None 
+
+    async def execute_query(self, collection_name: str, query_set: "QuerySet"):
+        """Execute a query set and return the results."""
+        table_name = camel_to_snake(collection_name)
+        
+        if query_set.query_type == "vector":
+            # Handle vector similarity search
+            if not query_set._vector_query or not query_set._vector_query.vector_lookup:
+                raise ValueError("Vector query not provided or vectors not embedded")
+            
+            vector_name, vector_values = next(iter(query_set._vector_query.vector_lookup.items()))
+            vector_values = stringify_vector(vector_values)
+            where_clause = ""
+            if query_set._filters:
+                where_clause = f"WHERE {self._build_where_clause(query_set._filters)}"
+
+            query = f"""
+            SELECT *,
+                   1 - ("{vector_name}" <=> $1::vector) as score
+            FROM {table_name}
+            {where_clause}
+            ORDER BY score DESC
+            LIMIT {query_set._limit}
+            """
+
+            if query_set._vector_query.threshold:
+                query = query.replace("ORDER BY", f"HAVING score >= {query_set._vector_query.threshold}\nORDER BY")
+
+            async with self.pool.acquire() as conn:
+                return await conn.fetch(query, vector_values)
+                
+        elif query_set.query_type == "scroll":
+            # Handle regular queries with filtering and ordering
+            where_clause = ""
+            if query_set._filters:
+                where_clause = f"WHERE {self._build_where_clause(query_set._filters)}"
+
+            order_clause = 'ORDER BY "id"'
+            if query_set._order_by:
+                if isinstance(query_set._order_by, str):
+                    order_clause = f'ORDER BY "{query_set._order_by}"'
+                elif isinstance(query_set._order_by, dict):
+                    order_clause = f'ORDER BY "{query_set._order_by["key"]}" {query_set._order_by["direction"]}'
+
+            query = f"""
+            SELECT *
+            FROM {table_name}
+            {where_clause}
+            {order_clause}
+            LIMIT {query_set._limit}
+            """
+            
+            if query_set._offset is not None:
+                query += f" OFFSET {query_set._offset}"
+
+            async with self.pool.acquire() as conn:
+                return await conn.fetch(query)
+                
+        elif query_set.query_type == "id":
+            # Handle queries by ID
+            if not query_set._ids:
+                raise ValueError("No IDs provided for ID query")
+                
+            async with self.pool.acquire() as conn:
+                return await conn.fetch(
+                    f'SELECT * FROM {table_name} WHERE id = ANY($1::text[])',
+                    query_set._ids
+                )
+        else:
+            raise ValueError(f"Unsupported query type: {query_set.query_type}") 

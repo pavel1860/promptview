@@ -75,11 +75,6 @@ def metrics_to_qdrant(metric: VectorSpaceMetrics):
 class QdrantResult:
     status: str
     ids: str
-    
-    
-    
-
-
 
 
 
@@ -97,6 +92,7 @@ class QdrantClient:
         
     async def close(self):
         await self.client.close()
+        
             
         
     async def upsert(self, namespace: str, vectors, metadata: List[Dict], ids=None, batch_size=100):

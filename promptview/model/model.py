@@ -468,15 +468,22 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     @classmethod
-    def pack_search_result(cls, search_result):
-        return cls(
-            # _id=search_result.id,
-            # _score=search_result.score if hasattr(search_result, "score") else -1,
+    def pack_search_result(cls: Type[MODEL], search_result, db_type: DatabaseType) -> MODEL:
+        if db_type == "qdrant":
+            return cls(
+                # _id=search_result.id,
+                # _score=search_result.score if hasattr(search_result, "score") else -1,
             id=search_result.id,
             score=search_result.score if hasattr(search_result, "score") else -1,
             _vector=search_result.vector if hasattr(search_result, "vector") else {},
             **search_result.payload
-        )
+            )
+        elif db_type == "postgres":
+            return cls(
+                **search_result
+            )
+        else:
+            raise ValueError(f"Unsupported database type: {db_type}")
         
     @classmethod
     def _get_default_temporal_field(cls):

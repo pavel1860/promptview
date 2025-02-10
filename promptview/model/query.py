@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import Enum
 from types import UnionType
 from typing import TYPE_CHECKING, Any, Callable, Generator, Generic, Iterator, List, Literal, Protocol, Self, Type, TypeVar, Union, get_origin, get_args
+import numpy as np
 from pydantic.fields import FieldInfo
 import datetime as dt
 from qdrant_client import models
@@ -346,7 +347,7 @@ class QueryProxy(Generic[MODEL]):
 class VectorQuerySet:
     query: Any
     vec: list[str] | AllVecs
-    vector_lookup: dict[str, str] | None
+    vector_lookup: dict[str, list[float] | np.ndarray] | None
     threshold: float | None
     
     def __init__(self, query: str, threshold: float | None = None, vec: list[str] | str | AllVecs=ALL_VECS):
@@ -458,8 +459,8 @@ class QuerySet(Generic[MODEL]):
         result = await ns.conn.execute_query(
             namespace,
             query_set=self
-        )
-        records = [self.model.pack_search_result(r) for r in result]
+        )        
+        records = [self.model.pack_search_result(r, ns.db_type) for r in result]
         return records
     
     async def to_client_filters(self):
