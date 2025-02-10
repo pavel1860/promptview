@@ -109,20 +109,20 @@ async def test_filtering(seeded_database):
 
 @pytest.mark.asyncio
 async def test_temporal_query(seeded_database):
-    # recs = await BasicPostgresModel.filter(lambda x: x.created_at > dt.datetime(2021, 1, 1, tzinfo=dt.timezone.utc))
-    # assert len(recs) == 3
-    # for rec in recs:
-    #     assert rec.created_at > dt.datetime(2021, 1, 1, tzinfo=dt.timezone.utc)
-        
-    recs = await BasicPostgresModel.filter(lambda x: x.created_at >= dt.datetime(2021, 1, 1, tzinfo=dt.timezone.utc))
-    assert len(recs) == 4
-    for rec in recs:
-        assert rec.created_at >= dt.datetime(2021, 1, 1, tzinfo=dt.timezone.utc)
-          
-    recs = await BasicPostgresModel.filter(lambda x: (x.created_at >= dt.datetime(2021, 1, 1, tzinfo=dt.timezone.utc)) & (x.created_at < dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc)))
+    recs = await BasicPostgresModel.filter(lambda x: x.created_at > dt.datetime(2021, 1, 1))
     assert len(recs) == 3
     for rec in recs:
-        assert rec.created_at >= dt.datetime(2021, 1, 1, tzinfo=dt.timezone.utc) and rec.created_at < dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc)        
+        assert rec.created_at > dt.datetime(2021, 1, 1)
+        
+    recs = await BasicPostgresModel.filter(lambda x: x.created_at >= dt.datetime(2021, 1, 1))
+    assert len(recs) == 4
+    for rec in recs:
+        assert rec.created_at >= dt.datetime(2021, 1, 1)
+          
+    recs = await BasicPostgresModel.filter(lambda x: (x.created_at >= dt.datetime(2021, 1, 1)) & (x.created_at < dt.datetime(2024, 1, 1)))
+    assert len(recs) == 3
+    for rec in recs:
+        assert rec.created_at >= dt.datetime(2021, 1, 1) and rec.created_at < dt.datetime(2024, 1, 1)        
         assert rec.topic in ["physics", "movies"]
 
 @pytest.mark.asyncio

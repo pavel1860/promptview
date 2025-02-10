@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import datetime as dt
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, TypedDict, Type
 from uuid import uuid4
@@ -117,7 +117,8 @@ class PostgresClient:
                 elif field_type == str:
                     sql_type = "TEXT"
                 elif field_type == datetime or field_type == dt.datetime:
-                    sql_type = "TIMESTAMP WITH TIME ZONE"
+                    # TODO: sql_type = "TIMESTAMP WITH TIME ZONE"
+                    sql_type = "TIMESTAMP"
                 elif str(field_type).startswith("list["):
                     # Handle arrays
                     inner_type = str(field_type).split("[")[1].rstrip("]")
@@ -331,7 +332,9 @@ class PostgresClient:
                         conditions.append(f"{field_name} > '{query_filter.value.gt}'")
                 if query_filter.value.ge is not None:
                     if field_type == int:
-                        conditions.append(f"{field_name} >= {query_filter.value.ge}")
+                        conditions.append(f"{field_name} >= {query_filter.value.ge}")#f"{field_name} >= to_timestamp('{query_filter.value.ge.strfmt('YYYY-MM-DD HH24:MI:SS')}')"
+                    # elif field_type == dt.datetime:                        
+                        # conditions.append(f"{field_name} >= to_timestamp('{query_filter.value.ge.strftime('%Y-%m-%d %H:%M:%S')}')")
                     else:
                         conditions.append(f"{field_name} >= '{query_filter.value.ge}'")
                 if query_filter.value.lt is not None:
