@@ -261,29 +261,89 @@ class PostgresClient:
             elif query_filter._operator == QueryOp.OR:
                 return f"({self._build_where_clause(query_filter._left)} OR {self._build_where_clause(query_filter._right)})"
         elif isinstance(query_filter._operator, FieldOp):
-            field = f"payload->'{query_filter.field.name}'"
+            field = query_filter.field
+            field_name = f'"{field.name}"'
+            
+            # Get field type information
+            if hasattr(field, '_field_info'):
+                field_type = field._field_info.annotation
+            else:
+                field_type = field.type
+                
+            
+            # Handle JSONB fields differently
+            if str(field_type).startswith("dict") or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
+                json_field = f"payload->'{field.name}'"
+                if query_filter._operator == FieldOp.NULL:
+                    return f"{json_field} IS NULL"
+                elif query_filter._operator == FieldOp.EQ:
+                    return f"{json_field} = '{json.dumps(query_filter.value)}'"
+                elif query_filter._operator == FieldOp.NE:
+                    return f"{json_field} != '{json.dumps(query_filter.value)}'"
+                elif query_filter._operator == FieldOp.IN:
+                    values = [json.dumps(v) for v in query_filter.value]
+                    return f"{json_field} = ANY(ARRAY[{', '.join(values)}])"
+                elif query_filter._operator == FieldOp.NOTIN:
+                    values = [json.dumps(v) for v in query_filter.value]
+                    return f"{json_field} != ALL(ARRAY[{', '.join(values)}])"
+            
+            # Handle regular fields with proper type casting
             if query_filter._operator == FieldOp.NULL:
-                return f"{field} IS NULL"
+                return f"{field_name} IS NULL"
             elif query_filter._operator == FieldOp.EQ:
-                return f"{field} = '{json.dumps(query_filter.value)}'"
+                if field_type == bool:
+                    return f"{field_name} = {str(query_filter.value).lower()}"
+                elif field_type == int:
+                    return f"{field_name} = {query_filter.value}"
+                elif field_type == str:
+                    return f"{field_name} = '{query_filter.value}'"
+                elif field_type == dt.datetime:
+                    return f"{field_name} = '{query_filter.value}'"
             elif query_filter._operator == FieldOp.NE:
-                return f"{field} != '{json.dumps(query_filter.value)}'"
+                if field_type == bool:
+                    return f"{field_name} != {str(query_filter.value).lower()}"
+                elif field_type == int:
+                    return f"{field_name} != {query_filter.value}"
+                elif field_type == str:
+                    return f"{field_name} != '{query_filter.value}'"
+                elif field_type == dt.datetime:
+                    return f"{field_name} != '{query_filter.value}'"
             elif query_filter._operator == FieldOp.IN:
-                values = [json.dumps(v) for v in query_filter.value]
-                return f"{field} = ANY(ARRAY[{', '.join(values)}])"
+                if field_type == int:
+                    values = [str(v) for v in query_filter.value]
+                    return f"{field_name} = ANY(ARRAY[{', '.join(values)}])"
+                else:
+                    values = [f"'{v}'" for v in query_filter.value]
+                    return f"{field_name} = ANY(ARRAY[{', '.join(values)}])"
             elif query_filter._operator == FieldOp.NOTIN:
-                values = [json.dumps(v) for v in query_filter.value]
-                return f"{field} != ALL(ARRAY[{', '.join(values)}])"
+                if field_type == int:
+                    values = [str(v) for v in query_filter.value]
+                    return f"{field_name} != ALL(ARRAY[{', '.join(values)}])"
+                else:
+                    values = [f"'{v}'" for v in query_filter.value]
+                    return f"{field_name} != ALL(ARRAY[{', '.join(values)}])"
             elif query_filter._operator == FieldOp.RANGE:
                 conditions = []
                 if query_filter.value.gt is not None:
-                    conditions.append(f"{field} > '{json.dumps(query_filter.value.gt)}'")
+                    if field_type == int:
+                        conditions.append(f"{field_name} > {query_filter.value.gt}")
+                    else:
+                        conditions.append(f"{field_name} > '{query_filter.value.gt}'")
                 if query_filter.value.ge is not None:
-                    conditions.append(f"{field} >= '{json.dumps(query_filter.value.ge)}'")
+                    if field_type == int:
+                        conditions.append(f"{field_name} >= {query_filter.value.ge}")
+                    else:
+                        conditions.append(f"{field_name} >= '{query_filter.value.ge}'")
                 if query_filter.value.lt is not None:
-                    conditions.append(f"{field} < '{json.dumps(query_filter.value.lt)}'")
+                    if field_type == int:
+                        conditions.append(f"{field_name} < {query_filter.value.lt}")
+                    else:
+                        conditions.append(f"{field_name} < '{query_filter.value.lt}'")
                 if query_filter.value.le is not None:
-                    conditions.append(f"{field} <= '{json.dumps(query_filter.value.le)}'")
+                    if field_type == int:
+                        conditions.append(f"{field_name} <= {query_filter.value.le}")
+                    else:
+                        conditions.append(f"{field_name} <= '{query_filter.value.le}'")
                 return f"({' AND '.join(conditions)})"
         return ""
 
