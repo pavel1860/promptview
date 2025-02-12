@@ -68,7 +68,13 @@ class StrBlock(str):
                 pass
         return instance
 
+    @property
+    def role(self):
+        return self._role
     
+    @role.setter
+    def role(self, value: str):
+        self._role = value
 
     def append(self, item: "StrBlock | str"):
         if isinstance(item, StrBlock):

@@ -4,7 +4,8 @@ from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Type,
 from pydantic import BaseModel, ValidationError
 from .messages import AIMessage, HumanMessage
 from .tracer2 import Tracer
-from ..prompt.block import BaseBlock, ResponseBlock
+# from ..prompt.block import BaseBlock, ResponseBlock
+from ..prompt.block2 import StrBlock
 from ..prompt.context import BlockStream
 
 
@@ -105,7 +106,7 @@ class LlmConfig(BaseModel):
 
 class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     # blocks: List[BaseBlock] = []
-    ctx_blocks: BlockStream | List[BaseBlock] | str
+    ctx_blocks: BlockStream | List[StrBlock] | str
     # messages: List[BaseMessage] = []
     messages: List[dict] = []
     # actions: Actions = Actions()
@@ -122,7 +123,7 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     tracer_run: Tracer | None = None
     _to_tools: Callable[[list[Type[BaseModel]]], List[dict] | None] | None = None
     _complete: Callable[CLIENT_PARAMS, CLIENT_RESPONSE] | None = None
-    _parse_response: Callable[[CLIENT_RESPONSE, list[Type[BaseModel]]], ResponseBlock] | None = None
+    _parse_response: Callable[[CLIENT_RESPONSE, list[Type[BaseModel]]], StrBlock] | None = None
     
     class Config:
         arbitrary_types_allowed = True   
@@ -167,7 +168,8 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
         return self
         
     def generate(self):
-        self.tool_choice = "none"
+        # self.tool_choice = "none"
+        self.tool_choice = None
         self.parallel_tool_calls = False
         return self
     
@@ -202,7 +204,7 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     #             raise e
     async def run_complete(
         self, 
-    ) -> ResponseBlock:
+    ) -> StrBlock:
         with Tracer(
             run_type="llm",
             name=self.name,
@@ -292,15 +294,15 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     
     
     @abstractmethod
-    def to_message(self, block: BaseBlock) -> dict:
+    def to_message(self, block: StrBlock) -> dict:
         ...
     
     # @abstractmethod
-    def to_chat(self, blocks: BlockStream) -> List[BaseBlock]:
+    def to_chat(self, blocks: BlockStream) -> List[StrBlock]:
         return blocks._blocks
     
     @abstractmethod
-    def parse_response(self, response: CLIENT_RESPONSE, actions: List[Type[BaseModel]] | None) -> ResponseBlock:
+    def parse_response(self, response: CLIENT_RESPONSE, actions: List[Type[BaseModel]] | None) -> StrBlock:
         ...
         
     @abstractmethod
@@ -313,13 +315,13 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     
     def __call__(
         self, 
-        blocks: BlockStream | List[BaseBlock] | BaseBlock | str,
+        blocks: BlockStream | List[StrBlock] | StrBlock | str,
         retries: int = 3,
         smart_retry: bool = True,
         config: LlmConfig | None = None,
         is_traceable: bool | None = True,
     ) -> LlmExecution:
-        if isinstance(blocks, BaseBlock):
+        if isinstance(blocks, StrBlock):
             blocks = [blocks]
         if isinstance(blocks, str):
             messages = [{

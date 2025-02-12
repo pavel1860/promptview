@@ -45,10 +45,13 @@ class Controller(Generic[P, R]):
     
     def build_execution_ctx(self) -> Context:
         curr_ctx: Context | None = Context.get_current()
-        if curr_ctx is None:
+        if curr_ctx is not None:
+            ctx = curr_ctx.build_child(self._name)
+        else:
             raise ValueError("Context is not set")
-        ctx = curr_ctx.build_child(self._name)
-        return ctx
+            # ctx = Context().start()
+        return ctx    
+        
 
     async def _inject_dependencies(self, *args: P.args, **kwargs: P.kwargs) -> Dict[str, Any]:
         signature = inspect.signature(self._complete)

@@ -351,7 +351,7 @@ class Context:
     
     def __init__(
         self, 
-        user_id: str,
+        user_id: int,
         session: Session | None = None,
         inputs: dict | None = None, 
         message_log: MessageLog | None = None,
@@ -405,7 +405,10 @@ class Context:
 
     @staticmethod
     def get_current():
-        return CURR_CONTEXT.get()
+        try:
+            return CURR_CONTEXT.get()
+        except LookupError:
+            return None
     
     @property
     def session(self):
