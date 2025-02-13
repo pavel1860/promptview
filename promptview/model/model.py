@@ -184,7 +184,17 @@ class ModelMeta(ModelMetaclass, type):
                     ns = connection_manager.get_namespace2(namespace)                
                     if not ns:
                         raise ValueError("Vector Space not defined for Qdrant database")
-                    vector_spaces = list(ns.vector_spaces.values())                                
+                    vector_spaces = list(ns.vector_spaces.values())
+                elif db_type == "postgres":
+                    indices = get_model_indices(dct)
+                    connection_manager.add_namespace(
+                        namespace=namespace,
+                        vector_spaces=[],
+                        indices=indices,
+                        db_type=db_type
+                    )
+                else:
+                    raise ValueError(f"Unsupported database type: {db_type}")
             # for field, field_type in dct.items():
             #     if inspect.isclass(field_type.__class__) and field == "VectorSpace":    
             #         #? vector space extraction

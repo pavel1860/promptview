@@ -178,7 +178,9 @@ class PostgresClient:
                 yield {**vec, **meta, "id": id_}
                 
 
-        columns = [f for f in ['id'] + list(vectors[0].keys()) + list(metadata[0].keys()) if f != "_subspace"]
+        columns = [f for f in (['id'] + list(vectors[0].keys()) if vectors else [] + list(metadata[0].keys())) if f != "_subspace"]
+        
+        
         async with self.pool.acquire() as conn:
             for chunk in chunks(zip_vectors(ids, vectors, metadata), batch_size=batch_size):
                 # Prepare the SQL query
