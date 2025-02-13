@@ -1,3 +1,5 @@
+import os
+os.environ["QDRANT_URL"] = "http://localhost:6333"
 import pytest
 import pytest_asyncio
 import datetime as dt

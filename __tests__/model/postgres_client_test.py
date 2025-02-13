@@ -1,3 +1,5 @@
+import os
+os.environ["POSTGRES_URL"] = "postgresql://snack:Aa123456@localhost:5432/snackbot_test"
 import pytest
 import pytest_asyncio
 import datetime as dt

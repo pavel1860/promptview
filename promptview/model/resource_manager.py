@@ -18,12 +18,16 @@ if TYPE_CHECKING:
 DatabaseType = Literal["qdrant", "postgres"]
 
 def get_qdrant_connection():
+    if not os.environ.get("QDRANT_URL"):
+        return None
     return QdrantClient(
         url=os.environ.get("QDRANT_URL"),
         api_key=os.environ.get("QDRANT_API_KEY", None)
     )
 
 def get_postgres_connection():
+    if not os.environ.get("POSTGRES_URL"):
+        return None
     return PostgresClient(
         url=os.environ.get("POSTGRES_URL"),
         user=os.environ.get("POSTGRES_USER", "postgres"),
@@ -230,11 +234,7 @@ class ConnectionManager:
             raise ValueError(f"Collection {namespace} not found")
     
     def get_namespace2(self, namespace: str):
-        try:
-            ns = self._namespaces[namespace]
-            return ns
-        except KeyError:
-            raise ValueError(f"Namespace {namespace} not found")
+        return self._namespaces.get(namespace, None)
         
     async def get_namespace(self, namespace: str)->NamespaceParams:
         try:

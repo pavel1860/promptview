@@ -135,6 +135,7 @@ class ModelMeta(ModelMetaclass, type):
         default_temporal_field = None
         default_temporal_type = None
         namespace = None
+        db_type = "qdrant"
         vec_field_map = {}
         vector_spaces = []
         if name != "Model":
@@ -150,48 +151,65 @@ class ModelMeta(ModelMetaclass, type):
                     raise ValueError(f"Namespace not defined in base class of {name}")
                 namespace = model_base._namespace.default
                 dct["_subspace"] = name
-                
+            # Get database type from Config class if it exists
+            if "Config" in dct and hasattr(dct["Config"], "database_type"):
+                db_type = dct["Config"].database_type             
             
             
-            for field, field_type in dct.items():
-                if inspect.isclass(field_type.__class__) and field == "VectorSpace":    
-                    #? vector space extraction
-                    vectorizers = field_type.__annotations__
-                    for vec_name, vec_cls in vectorizers.items():
-                        # if not issubclass(vec_cls, BaseVectorizer):
-                            # raise ValueError(f"Vector Space {vec_name} must be of type BaseVectorizer")
-                        vector_spaces.append(
-                            VectorSpace(
-                                name=vec_name,
-                                namespace=namespace,
-                                vectorizer_cls=vec_cls,
-                                metric=VectorSpaceMetrics.COSINE                                
-                            ))
-                        # vectorizers_manager.add_vectorizer(vec_name, vec_cls)
-                    #? namespace and indices extraction
-                    # namespace = name                        
-                    indices = get_model_indices(dct)
-                    # Get database type from Config class if it exists
-                    db_type = "qdrant"  # Default
-                    if "Config" in dct and hasattr(dct["Config"], "database_type"):
-                        db_type = dct["Config"].database_type
-                    connection_manager.add_namespace(
-                        namespace=namespace,
-                        # subspace=dct.get("_subspace"),
-                        vector_spaces=vector_spaces,
-                        indices=indices,
-                        db_type=db_type
-                    )
-                    break
+            if "VectorSpace" in dct:
+                field_type = dct["VectorSpace"]
+                if not inspect.isclass(field_type.__class__):
+                    raise ValueError(f"VectorSpace must be a class")
+                #? vector space extraction
+                vectorizers = field_type.__annotations__
+                for vec_name, vec_cls in vectorizers.items():
+                    vector_spaces.append(
+                        VectorSpace(
+                            name=vec_name,
+                            namespace=namespace,
+                            vectorizer_cls=vec_cls,
+                            metric=VectorSpaceMetrics.COSINE                                
+                        ))
+                #? namespace and indices extraction
+                indices = get_model_indices(dct)
+                connection_manager.add_namespace(
+                    namespace=namespace,
+                    # subspace=dct.get("_subspace"),
+                    vector_spaces=vector_spaces,
+                    indices=indices,
+                    db_type=db_type
+                )
             else:
-                # if not bases:
-                #     raise ValueError(f"Vector Space not defined in {name} and no base class")
-                # if not hasattr(bases[0], "_namespace"):
-                #     raise ValueError(f"Namespace not defined in base class of {name}")
-                # namespace = bases[0]._namespace.default
-                ns = connection_manager.get_namespace2(namespace)
-                vector_spaces = list(ns.vector_spaces.values())
-                # raise NotImplementedError("Vector Space not defined")                
+                if db_type == "qdrant":                    
+                    ns = connection_manager.get_namespace2(namespace)                
+                    if not ns:
+                        raise ValueError("Vector Space not defined for Qdrant database")
+                    vector_spaces = list(ns.vector_spaces.values())                                
+            # for field, field_type in dct.items():
+            #     if inspect.isclass(field_type.__class__) and field == "VectorSpace":    
+            #         #? vector space extraction
+            #         vectorizers = field_type.__annotations__
+            #         for vec_name, vec_cls in vectorizers.items():
+            #             vector_spaces.append(
+            #                 VectorSpace(
+            #                     name=vec_name,
+            #                     namespace=namespace,
+            #                     vectorizer_cls=vec_cls,
+            #                     metric=VectorSpaceMetrics.COSINE                                
+            #                 ))
+            #         #? namespace and indices extraction
+            #         indices = get_model_indices(dct)
+            #         connection_manager.add_namespace(
+            #             namespace=namespace,
+            #             # subspace=dct.get("_subspace"),
+            #             vector_spaces=vector_spaces,
+            #             indices=indices,
+            #             db_type=db_type
+            #         )
+            #         break
+            # else:
+            #     ns = connection_manager.get_namespace2(namespace)
+            #     vector_spaces = list(ns.vector_spaces.values())
             
             for field, field_type in dct.items():
                 #? temporal field extraction
@@ -199,30 +217,7 @@ class ModelMeta(ModelMetaclass, type):
                     if isinstance(field_type, FieldInfo) and field_type.json_schema_extra:
                         if field_type.json_schema_extra.get("auto_now_add", None):
                             default_temporal_field = field
-                            default_temporal_type = field_type
-                    # #? vector space extraction                    
-                    # if field == "VectorSpace":
-                    #     vector_spaces = []
-                    #     vectorizers = field_type.__annotations__
-                    #     for vec_name, vec_cls in vectorizers.items():
-                    #         # if not issubclass(vec_cls, BaseVectorizer):
-                    #             # raise ValueError(f"Vector Space {vec_name} must be of type BaseVectorizer")
-                    #         vector_spaces.append(
-                    #             VectorSpace(
-                    #                 name=vec_name,
-                    #                 vectorizer_cls=vec_cls,
-                    #                 metric=VectorSpaceMetrics.COSINE                                
-                    #             ))
-                    #         # vectorizers_manager.add_vectorizer(vec_name, vec_cls)
-                    #     #? namespace and indices extraction
-                    #     namespace = name                        
-                    #     indices = get_model_indices(dct)
-                    #     connection_manager.add_namespace(
-                    #         namespace=namespace,
-                    #         # subspace=dct.get("_subspace"),
-                    #         vector_spaces=vector_spaces,
-                    #         indices=indices
-                    #     )
+                            default_temporal_type = field_type                    
                         
                     #? vector field extraction. the vector has to be a field of type VectorSpace
                     if type(field_type) == FieldInfo:
