@@ -21,7 +21,7 @@ from sqlalchemy import (
     create_engine, event, text, select, update, Boolean, Result, Table
 )
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import relationship, declarative_base, Session, Mapped, mapped_column
+from sqlalchemy.orm import relationship, declarative_base, Session, Mapped, mapped_column, joinedload
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.sql.expression import or_, and_
 from sqlalchemy_utils import LtreeType
@@ -72,14 +72,17 @@ class SessionManager:
                 await session.close()
                 
     async def initialize_tables(self) -> None:
-        async with self.session() as session:
-            await session.execute(text('CREATE EXTENSION IF NOT EXISTS ltree'))
-            await session.run_sync(Base.metadata.create_all)
+        # async with self.session() as session:
+        if self._engine is None:
+            await self.initialize()
+        async with self._engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
             
     async def drop_tables(self) -> None:
-        async with self.session() as session:
-            await session.execute(text('DROP EXTENSION IF EXISTS ltree'))
-            await session.run_sync(Base.metadata.drop_all)
+        if self._engine is None:
+            await self.initialize()
+        async with self._engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
 
     async def close(self) -> None:
         if self._engine is not None:
@@ -305,6 +308,7 @@ class ArtifactLog:
     def __init__(self):
         self._artifact_tables = {}
         self._session_manager = SessionManager()
+        self._head = None
     
     def register_model(self, model_cls):
         """
@@ -320,11 +324,26 @@ class ArtifactLog:
     async def init_head(self, id: int | None = None) -> Head:
         """
         Initialize a new head with a main branch and initial turn.
+        If id is provided, loads existing head instead of creating new one.
         """
         async with self._session_manager.session() as session:
-            # Create main branch
+            if id is not None:
+                # Load existing head
+                stmt = (
+                    select(Head)
+                    .options(joinedload(Head.branch))
+                    .options(joinedload(Head.turn))
+                    .where(Head.id == id)
+                )
+                result = await session.execute(stmt)
+                head = result.scalar_one_or_none()
+                if head:
+                    self._head = head
+                    return head
+                
+            # Create new head
             branch = Branch(
-                name="main",
+                name="main", 
                 path=Ltree("1")  # Root path
             )
             session.add(branch)
@@ -351,15 +370,16 @@ class ArtifactLog:
             branch.head = head
             await session.flush()
             
+            self._head = head
             return head
-    
+        
     @property
-    async def head(self) -> Head:
+    def head(self) -> Head:
         """Get the current head."""
-        async with self._session_manager.session() as session:
-            stmt = select(Head)
-            result = await session.execute(stmt)
-            return result.scalar_one_or_none()
+        if self._head is None:
+            raise ValueError("No active head found")
+        return self._head
+    
     
     async def stage_artifact(self, model) -> BaseArtifact:
         """
