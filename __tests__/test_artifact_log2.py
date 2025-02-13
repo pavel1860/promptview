@@ -1,10 +1,13 @@
+import os
+os.environ["POSTGRES_URL"] = "postgresql+asyncpg://snack:Aa123456@localhost:5432/snackbot_test"
 import pytest
+import asyncio
+import pytest_asyncio
 from datetime import datetime
-from typing import AsyncGenerator, Generator, Any
-from sqlalchemy import create_engine, text, Column, Integer, String, Text
-from sqlalchemy.orm import sessionmaker, Session
-import psycopg2
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+from typing import AsyncGenerator, Generator, Any, Optional
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import text
+import asyncpg
 from promptview.artifact_log.artifact_log2 import (
     Base,
     Head,
@@ -15,87 +18,77 @@ from promptview.artifact_log.artifact_log2 import (
     ArtifactLog,
     ArtifactQuery,
     create_artifact_table_for_model,
+    SessionManager,
 )
 from promptview.model.model import Model
 from promptview.model.fields import ModelField
-
+from pydantic import BaseModel, ConfigDict
 
 # Test model for versioning
 class TestModel(Model):
     name: str = ModelField(default="")
     value: int = ModelField(default=0)
     
-    class Config:
-        versioned = True
-        database_type = "postgres"
+    class Config: # do not fix this!
+        arbitrary_types_allowed=True
+        database_type="postgres"
+        versioned=True
+    
 
-# Initialize the namespace for TestModel
+# Let pytest-asyncio handle the event loop
+pytestmark = pytest.mark.asyncio
 
-@pytest.fixture(scope="function")
-def db_engine() -> Generator[Any, None, None]:
-    """Create a test database engine."""
-    # Connect to PostgreSQL server to create/drop test database
-    postgres_url = "postgresql://snack:Aa123456@localhost:5432/postgres"
-    test_db_name = "artifact_log_test"
-    
-    # Connect to default postgres database to create/drop test database
-    conn = psycopg2.connect(postgres_url)
-    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-    cursor = conn.cursor()
-    
-    # Drop test database if it exists and create it fresh
-    cursor.execute(f"DROP DATABASE IF EXISTS {test_db_name}")
-    cursor.execute(f"CREATE DATABASE {test_db_name}")
-    
-    cursor.close()
-    conn.close()
-    
-    # Now connect to the test database
-    DATABASE_URL = f"postgresql://snack:Aa123456@localhost:5432/{test_db_name}"
-    engine = create_engine(DATABASE_URL)
-    
-    # Create ltree extension if it doesn't exist
-    with engine.connect() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS ltree;"))
-        conn.commit()
-    
-    # Create all tables
-    Base.metadata.create_all(engine)
-    
-    yield engine
-    
-    # Cleanup after tests
-    Base.metadata.drop_all(engine)
-    
-    # Drop the test database
-    conn = psycopg2.connect(postgres_url)
-    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-    cursor = conn.cursor()
-    cursor.execute(f"DROP DATABASE IF EXISTS {test_db_name}")
-    cursor.close()
-    conn.close()
+@pytest_asyncio.fixture()
+async def admin_pool():
+    """Create a connection pool for database administration."""
+    pool = await asyncpg.create_pool(
+        user="snack",
+        password="Aa123456",
+        database="postgres",
+        host="localhost",
+        port=5432
+    )
+    yield pool
+    await pool.close()
 
-@pytest.fixture(scope="function")
-def db_session(db_engine) -> Generator[Session, None, None]:
-    """Create a new database session for a test."""
-    Session = sessionmaker(bind=db_engine)
-    session = Session()
+@pytest_asyncio.fixture()
+async def session_manager(admin_pool):
+    """Initialize and provide the session manager."""
+    manager = SessionManager()
+    await manager.initialize(os.environ["POSTGRES_URL"])
     
-    yield session
+    # Create database and tables
+    async with admin_pool.acquire() as conn:
+        await conn.execute(f'DROP DATABASE IF EXISTS snackbot_test')
+        await conn.execute(f'CREATE DATABASE snackbot_test')
     
-    session.close()
+    # Ensure engine is initialized with the test database URL
+    await manager.initialize(os.environ["POSTGRES_URL"].replace("snackbot", "snackbot_test"))
+    assert manager._engine is not None
+    
+    # Create ltree extension and tables
+    async with manager._engine.begin() as conn:
+        await conn.execute(text('CREATE EXTENSION IF NOT EXISTS ltree'))
+        await conn.run_sync(Base.metadata.create_all)
+    
+    yield manager
+    
+    # Cleanup
+    await manager.close()
+    async with admin_pool.acquire() as conn:
+        await conn.execute(f'DROP DATABASE IF EXISTS snackbot_test')
 
-@pytest.fixture(scope="function")
-async def artifact_log(db_session) -> AsyncGenerator[ArtifactLog, None]:
+@pytest_asyncio.fixture
+async def artifact_log(session_manager) -> AsyncGenerator[ArtifactLog, None]:
     """Create an ArtifactLog instance with initialized head."""
-    log = ArtifactLog(db_session)
+    log = ArtifactLog()
     await log.init_head()
     yield log
 
 @pytest.mark.asyncio
 async def test_init_head(artifact_log):
     """Test initializing a new head with main branch."""
-    head = artifact_log.head
+    head = await artifact_log.head
     assert head is not None
     assert head.branch.name == "main"
     assert str(head.branch.path) == "1"
@@ -103,7 +96,7 @@ async def test_init_head(artifact_log):
     assert head.turn.status == TurnStatus.STAGED
 
 @pytest.mark.asyncio
-async def test_stage_artifact(artifact_log, db_session):
+async def test_stage_artifact(artifact_log, session_manager):
     """Test staging a model instance as an artifact."""
     # Create a test model instance
     model = TestModel(name="test", value=42)

@@ -10,22 +10,82 @@ The framework uses the following concepts:
 """
 
 import enum
+import os
 from datetime import datetime
-from typing import List, Optional, Type, TypeVar, Generic, Any, Dict, Union, Tuple, Awaitable, cast, Mapping
+from typing import (
+    List, Optional, Type, TypeVar, Generic, Any, Dict, Union, Tuple, 
+    Awaitable, cast, Mapping, AsyncGenerator, AsyncContextManager
+)
 from sqlalchemy import (
     Column, Integer, String, DateTime, ForeignKey, Enum,
     create_engine, event, text, select, update, Boolean, Result, Table
 )
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import relationship, declarative_base, Session, Mapped, mapped_column
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.sql.expression import or_, and_
 from sqlalchemy_utils import LtreeType
 from sqlalchemy_utils.types.ltree import Ltree
 from promptview.model.model import Model
-from sqlalchemy.ext.asyncio import AsyncSession
+from contextlib import asynccontextmanager
 
 Base = declarative_base()
 MODEL = TypeVar('MODEL', bound=Model)
+
+class SessionManager:
+    _instance = None
+    _engine = None
+    _session_maker = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(SessionManager, cls).__new__(cls)
+        return cls._instance
+
+    async def initialize(self, url: str | None = None) -> None:
+        if self._engine is None:
+            url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
+            # Convert the URL to use async driver
+            if not url.startswith("postgresql+asyncpg://"):
+                url = url.replace("postgresql://", "postgresql+asyncpg://")
+            self._engine = create_async_engine(url, future=True, echo=True)
+            self._session_maker = async_sessionmaker(
+                self._engine, 
+                expire_on_commit=False, 
+                future=True, 
+                # autoflush=False
+            )
+
+    @asynccontextmanager
+    async def session(self) -> AsyncGenerator[AsyncSession, None]:
+        if self._session_maker is None:
+            await self.initialize()
+        assert self._session_maker is not None  # for type checker
+        async with self._session_maker() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+            finally:
+                await session.close()
+                
+    async def initialize_tables(self) -> None:
+        async with self.session() as session:
+            await session.execute(text('CREATE EXTENSION IF NOT EXISTS ltree'))
+            await session.run_sync(Base.metadata.create_all)
+            
+    async def drop_tables(self) -> None:
+        async with self.session() as session:
+            await session.execute(text('DROP EXTENSION IF EXISTS ltree'))
+            await session.run_sync(Base.metadata.drop_all)
+
+    async def close(self) -> None:
+        if self._engine is not None:
+            await self._engine.dispose()
+            self._engine = None
+            self._session_maker = None
 
 class TurnStatus(enum.Enum):
     STAGED = "staged"
@@ -119,13 +179,13 @@ def get_artifact_class_for_model(model_cls: Type[MODEL]) -> Type[BaseArtifact]:
 
 class ArtifactQuery(Generic[MODEL]):
     """Query builder for artifacts."""
-    def __init__(self, session: Session, model_cls: Type[MODEL]):
-        self.session = session
+    def __init__(self, session_manager: SessionManager, model_cls: Type[MODEL]):
+        self._session_manager = session_manager
         self.model_cls = model_cls
         self._limit: Optional[int] = None
         self._offset: Optional[int] = None
         self._turn_filter: Optional[Dict[str, Union[int, str]]] = None
-        self._time_filter: Optional[Dict[str, Union[datetime, tuple[datetime, datetime]]]] = None
+        self._time_filter: Optional[Dict[str, Union[datetime, Tuple[datetime, datetime]]]] = None
         self._field_filter: Optional[Dict[str, Any]] = None
         self._include_parent_branches: bool = True
 
@@ -135,15 +195,11 @@ class ArtifactQuery(Generic[MODEL]):
         artifact_cls = get_artifact_class_for_model(self.model_cls)
         
         # Build the base query
-        query = select(self.model_cls).join(
-            artifact_cls,
-            artifact_cls.model_id == self.model_cls.id
-        ).join(
-            Turn,
-            artifact_cls.turn_id == Turn.id
-        ).join(
-            Branch,
-            Turn.branch_id == Branch.id
+        query = (
+            select(self.model_cls)
+            .join(artifact_cls, artifact_cls.model_id == self.model_cls.id)
+            .join(Turn, artifact_cls.turn_id == Turn.id)
+            .join(Branch, Turn.branch_id == Branch.id)
         )
         
         # Apply turn filters
@@ -161,7 +217,7 @@ class ArtifactQuery(Generic[MODEL]):
                 timestamp = cast(datetime, self._time_filter['at'])
                 query = query.where(Turn.created_at <= timestamp)
             elif 'between' in self._time_filter:
-                time_range = cast(tuple[datetime, datetime], self._time_filter['between'])
+                time_range = cast(Tuple[datetime, datetime], self._time_filter['between'])
                 query = query.where(Turn.created_at.between(*time_range))
         
         # Apply field filters
@@ -176,11 +232,9 @@ class ArtifactQuery(Generic[MODEL]):
             query = query.offset(self._offset)
         
         # Execute query
-        if isinstance(self.session, AsyncSession):
-            result = await self.session.execute(query)
-        else:
-            result = await self.session.run_sync(lambda session: session.execute(query))
-        return list(result.scalars().all())
+        async with self._session_manager.session() as session:
+            result = await session.execute(query)
+            return list(result.scalars().all())
 
     def limit(self, limit: int) -> 'ArtifactQuery[MODEL]':
         """Set the limit for the query."""
@@ -198,22 +252,22 @@ class ArtifactQuery(Generic[MODEL]):
 
     def at_turn(self, turn_id: int) -> "ArtifactQuery[MODEL]":
         """Get artifacts at a specific turn."""
-        self._turn_filter = {"type": "at", "turn_id": turn_id}
+        self._turn_filter = {"at": turn_id}
         return self
     
     def up_to_turn(self, turn_id: int) -> "ArtifactQuery[MODEL]":
         """Get artifacts up to and including a specific turn."""
-        self._turn_filter = {"type": "up_to", "turn_id": turn_id}
+        self._turn_filter = {"up_to": turn_id}
         return self
     
     def at_time(self, timestamp: datetime) -> "ArtifactQuery[MODEL]":
         """Get artifacts at a specific timestamp."""
-        self._time_filter = {"type": "at", "timestamp": timestamp}
+        self._time_filter = {"at": timestamp}
         return self
     
     def between(self, start_time: datetime, end_time: datetime) -> "ArtifactQuery[MODEL]":
         """Get artifacts between timestamps."""
-        self._time_filter = {"type": "between", "start": start_time, "end": end_time}
+        self._time_filter = {"between": (start_time, end_time)}
         return self
     
     def latest_turn(self) -> "ArtifactQuery[MODEL]":
@@ -231,11 +285,13 @@ class ArtifactQuery(Generic[MODEL]):
         self._field_filter = predicate
         return self
     
-    def first(self) -> Optional[MODEL]:
+    async def first(self) -> Optional[MODEL]:
         """Get the first result."""
-        return self.limit(1).execute()[0] if self.execute() else None
+        self._limit = 1
+        results = await self.execute()
+        return results[0] if results else None
     
-    def last(self, n: int = None) -> List[MODEL]:
+    async def last(self, n: Optional[int] = None) -> List[MODEL]:
         """Get the last n results."""
         if n is not None:
             self._limit = n
@@ -246,9 +302,9 @@ class ArtifactLog:
     """
     Main class for managing versioned models and their artifacts.
     """
-    def __init__(self, session):
-        self.session = session
+    def __init__(self):
         self._artifact_tables = {}
+        self._session_manager = SessionManager()
     
     def register_model(self, model_cls):
         """
@@ -261,134 +317,168 @@ class ArtifactLog:
         self._artifact_tables[model_cls.__tablename__] = artifact_cls
         return artifact_cls
     
-    async def init_head(self, id: int = None) -> Head:
+    async def init_head(self, id: int | None = None) -> Head:
         """
         Initialize a new head with a main branch and initial turn.
         """
-        # Create main branch
-        branch = Branch(
-            name="main",
-            path=Ltree("1")  # Root path
-        )
-        self.session.add(branch)
-        await self.session.flush()
-        
-        # Create initial turn
-        turn = Turn(
-            branch=branch,
-            index=1,
-            status=TurnStatus.STAGED
-        )
-        self.session.add(turn)
-        
-        # Create head
-        head = Head(
-            id=id,
-            branch=branch,
-            turn=turn
-        )
-        self.session.add(head)
-        await self.session.flush()
-        
-        # Update branch with head reference
-        branch.head = head
-        await self.session.flush()
-        
-        return head
+        async with self._session_manager.session() as session:
+            # Create main branch
+            branch = Branch(
+                name="main",
+                path=Ltree("1")  # Root path
+            )
+            session.add(branch)
+            await session.flush()
+            
+            # Create initial turn
+            turn = Turn(
+                branch=branch,
+                index=1,
+                status=TurnStatus.STAGED
+            )
+            session.add(turn)
+            
+            # Create head
+            head = Head(
+                id=id,
+                branch=branch,
+                turn=turn
+            )
+            session.add(head)
+            await session.flush()
+            
+            # Update branch with head reference
+            branch.head = head
+            await session.flush()
+            
+            return head
+    
+    @property
+    async def head(self) -> Head:
+        """Get the current head."""
+        async with self._session_manager.session() as session:
+            stmt = select(Head)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
     
     async def stage_artifact(self, model) -> BaseArtifact:
         """
         Stage a model instance as an artifact in the current turn.
         """
-        if not hasattr(model.__class__.Config, 'versioned') or not model.__class__.Config.versioned:
+        config = getattr(model.__class__, 'Config', None)
+        if not config or not getattr(config, 'versioned', False):
             raise ValueError(f"Model {model.__class__.__name__} is not versioned")
         
         # Get or create artifact table for this model
         artifact_cls = self.register_model(model.__class__)
         
+        # Get current head
+        current_head = await self.head
+        if not current_head:
+            raise ValueError("No active head found")
+        
         # Create artifact
         artifact = artifact_cls(
-            turn=self.head.turn,
-            record=model
+            turn=current_head.turn,
+            model_id=model.id
         )
-        self.session.add(artifact)
-        await self.session.flush()
+        async with self._session_manager.session() as session:
+            session.add(artifact)
+            await session.flush()
         
         return artifact
     
-    async def commit_turn(self, message: str = None) -> Turn:
+    async def commit_turn(self, message: str | None = None) -> Turn:
         """
         Commit the current turn and create a new one.
         """
+        # Get current head
+        current_head = await self.head
+        if not current_head:
+            raise ValueError("No active head found")
+        
         # End current turn
-        current_turn = self.head.turn
+        current_turn = current_head.turn
         current_turn.status = TurnStatus.COMMITTED
         current_turn.ended_at = datetime.utcnow()
         current_turn.message = message
         
         # Create new turn
         new_turn = Turn(
-            branch=self.head.branch,
+            branch=current_head.branch,
             index=current_turn.index + 1,
             status=TurnStatus.STAGED
         )
-        self.session.add(new_turn)
+        async with self._session_manager.session() as session:
+            session.add(new_turn)
+            await session.flush()
         
         # Update head
-        self.head.turn = new_turn
-        await self.session.flush()
+        current_head.turn = new_turn
+        await session.flush()
         
         return new_turn
     
-    async def branch_from(self, turn_id: int, name: str = None, check_out: bool = False) -> Branch:
+    async def branch_from(self, turn_id: int, name: str | None = None, check_out: bool = False) -> Branch:
         """
         Create a new branch from a turn.
         """
         # Get source turn
-        source_turn = await self.session.get(Turn, turn_id)
-        if not source_turn:
-            raise ValueError(f"Turn {turn_id} not found")
+        stmt = select(Turn).where(Turn.id == turn_id)
+        async with self._session_manager.session() as session:
+            result = await session.execute(stmt)
+            source_turn = result.scalar_one_or_none()
+            if not source_turn:
+                raise ValueError(f"Turn {turn_id} not found")
+        
+        # Get current head
+        current_head = await self.head
+        if not current_head:
+            raise ValueError("No active head found")
         
         # Create new branch
         new_branch = Branch(
             name=name,
-            parent=source_turn.branch,
-            head=self.head,
             path=Ltree(f"{source_turn.branch.path}.{source_turn.id}")
         )
-        self.session.add(new_branch)
-        await self.session.flush()
-        
-        # Create initial turn for new branch
-        new_turn = Turn(
-            branch=new_branch,
-            index=1,
-            status=TurnStatus.STAGED
-        )
-        self.session.add(new_turn)
+        async with self._session_manager.session() as session:
+            session.add(new_branch)
+            await session.flush()
         
         if check_out:
             # Update head to point to new branch
-            self.head.branch = new_branch
-            self.head.turn = new_turn
+            current_head.branch = new_branch
+            current_head.turn = source_turn
         
-        await self.session.flush()
+        await session.flush()
         return new_branch
     
     async def checkout_branch(self, branch_id: int) -> None:
         """
         Switch HEAD to a different branch.
         """
-        branch = await self.session.get(Branch, branch_id)
-        if not branch:
-            raise ValueError(f"Branch {branch_id} not found")
+        # Get branch
+        stmt = select(Branch).where(Branch.id == branch_id)
+        async with self._session_manager.session() as session:
+            result = await session.execute(stmt)
+            branch = result.scalar_one_or_none()
+            if not branch:
+                raise ValueError(f"Branch {branch_id} not found")
+        
+        # Get current head
+        current_head = await self.head
+        if not current_head:
+            raise ValueError("No active head found")
         
         # Get or create staged turn
-        turn = await self.session.execute(
+        stmt = (
             select(Turn)
-            .filter(Turn.branch_id == branch_id, Turn.status == TurnStatus.STAGED)
+            .where(Turn.branch_id == branch_id, Turn.status == TurnStatus.STAGED)
             .order_by(Turn.index.desc())
-        ).scalar_one_or_none()
+        )
+        async with self._session_manager.session() as session:
+            result = await session.execute(stmt)
+            turn = result.scalar_one_or_none()
         
         if not turn:
             # Create new turn if none is staged
@@ -397,32 +487,40 @@ class ArtifactLog:
                 index=1,
                 status=TurnStatus.STAGED
             )
-            self.session.add(turn)
+            async with self._session_manager.session() as session:
+                session.add(turn)
         
         # Update head
-        self.head.branch = branch
-        self.head.turn = turn
-        await self.session.flush()
+        current_head.branch = branch
+        current_head.turn = turn
+        await session.flush()
     
     async def revert_turn(self) -> Turn:
         """
         Revert the current turn and create a new one.
         """
-        current_turn = self.head.turn
+        # Get current head
+        current_head = await self.head
+        if not current_head:
+            raise ValueError("No active head found")
+        
+        current_turn = current_head.turn
         current_turn.status = TurnStatus.REVERTED
         current_turn.ended_at = datetime.utcnow()
         
         # Create new turn
         new_turn = Turn(
-            branch=self.head.branch,
+            branch=current_head.branch,
             index=current_turn.index + 1,
             status=TurnStatus.STAGED
         )
-        self.session.add(new_turn)
+        async with self._session_manager.session() as session:
+            session.add(new_turn)
+            await session.flush()
         
         # Update head
-        self.head.turn = new_turn
-        await self.session.flush()
+        current_head.turn = new_turn
+        await session.flush()
         
         return new_turn
     
@@ -430,12 +528,21 @@ class ArtifactLog:
         """
         Revert to a specific turn, marking all later turns as reverted.
         """
-        target_turn = await self.session.get(Turn, turn_id)
-        if not target_turn:
-            raise ValueError(f"Turn {turn_id} not found")
+        # Get target turn
+        stmt = select(Turn).where(Turn.id == turn_id)
+        async with self._session_manager.session() as session:
+            result = await session.execute(stmt)
+            target_turn = result.scalar_one_or_none()
+            if not target_turn:
+                raise ValueError(f"Turn {turn_id} not found")
+        
+        # Get current head
+        current_head = await self.head
+        if not current_head:
+            raise ValueError("No active head found")
         
         # Mark all later turns as reverted
-        await self.session.execute(
+        stmt = (
             update(Turn)
             .where(
                 Turn.branch_id == target_turn.branch_id,
@@ -447,6 +554,8 @@ class ArtifactLog:
                 ended_at=datetime.utcnow()
             )
         )
+        async with self._session_manager.session() as session:
+            await session.execute(stmt)
         
         # Create new turn
         new_turn = Turn(
@@ -454,39 +563,43 @@ class ArtifactLog:
             index=target_turn.index + 1,
             status=TurnStatus.STAGED
         )
-        self.session.add(new_turn)
+        async with self._session_manager.session() as session:
+            session.add(new_turn)
+            await session.flush()
         
         # Update head
-        self.head.branch = target_turn.branch
-        self.head.turn = new_turn
-        await self.session.flush()
+        current_head.branch = target_turn.branch
+        current_head.turn = new_turn
+        await session.flush()
         
         return new_turn
     
-    def get_artifact(self, model_type) -> ArtifactQuery:
+    def get_artifact(self, model_type: Type[MODEL]) -> ArtifactQuery[MODEL]:
         """
         Get a query builder for artifacts.
         """
-        if not hasattr(model_type.Config, 'versioned') or not model_type.Config.versioned:
+        config = getattr(model_type, 'Config', None)
+        if not config or not getattr(config, 'versioned', False):
             raise ValueError(f"Model {model_type.__name__} is not versioned")
         
-        return ArtifactQuery(self.session, model_type)
+        return ArtifactQuery(self._session_manager, model_type)
     
     async def get_turn(self, turn_id: int) -> Turn:
         """Get a specific turn."""
-        turn = await self.session.get(Turn, turn_id)
-        if not turn:
-            raise ValueError(f"Turn {turn_id} not found")
-        return turn
+        stmt = select(Turn).where(Turn.id == turn_id)
+        async with self._session_manager.session() as session:
+            result = await session.execute(stmt)
+            turn = result.scalar_one_or_none()
+            if not turn:
+                raise ValueError(f"Turn {turn_id} not found")
+            return turn
     
     async def get_branch(self, branch_id: int) -> Branch:
         """Get a specific branch."""
-        branch = await self.session.get(Branch, branch_id)
-        if not branch:
-            raise ValueError(f"Branch {branch_id} not found")
-        return branch
-    
-    @property
-    def head(self) -> Head:
-        """Get the current head."""
-        return self.session.query(Head).first()
+        stmt = select(Branch).where(Branch.id == branch_id)
+        async with self._session_manager.session() as session:
+            result = await session.execute(stmt)
+            branch = result.scalar_one_or_none()
+            if not branch:
+                raise ValueError(f"Branch {branch_id} not found")
+            return branch
