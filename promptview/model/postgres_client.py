@@ -40,6 +40,9 @@ def camel_to_snake(name: str) -> str:
     name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', name).lower()
 
+def model_to_table_name(model) -> str:
+    """Convert a model to a table name."""
+    return camel_to_snake(model.__name__)
 
 
 def stringify_vector(vector: list[float] | np.ndarray):

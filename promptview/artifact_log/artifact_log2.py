@@ -11,13 +11,13 @@ The framework uses the following concepts:
 
 import enum
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import (
     List, Optional, Type, TypeVar, Generic, Any, Dict, Union, Tuple, 
     Awaitable, cast, Mapping, AsyncGenerator, AsyncContextManager
 )
 from sqlalchemy import (
-    Column, Integer, String, DateTime, ForeignKey, Enum,
+    Column, Integer, MetaData, String, DateTime, ForeignKey, Enum,
     create_engine, event, text, select, update, Boolean, Result, Table
 )
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -29,9 +29,12 @@ from sqlalchemy_utils.types.ltree import Ltree
 from promptview.model.model import Model
 from contextlib import asynccontextmanager
 
+from promptview.model.postgres_client import model_to_table_name
+
 Base = declarative_base()
 MODEL = TypeVar('MODEL', bound=Model)
 
+metadata = MetaData()
 class SessionManager:
     _instance = None
     _engine = None
@@ -55,6 +58,7 @@ class SessionManager:
                 future=True, 
                 # autoflush=False
             )
+        
 
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession, None]:
@@ -76,12 +80,18 @@ class SessionManager:
         if self._engine is None:
             await self.initialize()
         async with self._engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS ltree"))
             await conn.run_sync(Base.metadata.create_all)
             
     async def drop_tables(self) -> None:
         if self._engine is None:
             await self.initialize()
         async with self._engine.begin() as conn:
+            # Drop all tables with CASCADE to force drop even with dependencies
+            await conn.execute(text("DROP SCHEMA public CASCADE"))
+            # Recreate the public schema
+            await conn.execute(text("CREATE SCHEMA public"))
+            # Drop all tables through SQLAlchemy as well
             await conn.run_sync(Base.metadata.drop_all)
 
     async def close(self) -> None:
@@ -142,9 +152,9 @@ class BaseArtifact(Base):
     
     turn = relationship('Turn', back_populates='artifacts')
 
-def create_artifact_table_for_model(model_cls: type) -> type:
+def create_artifact_table_for_model(model_cls: Type[Model]) -> type:
     """Create a new artifact table for a model class."""
-    table_name = f"{model_cls.__name__.lower()}_artifacts"
+    table_name = f"{model_to_table_name(model_cls)}_artifacts"
     
     # Create the artifact class
     class ModelArtifact(BaseArtifact):
@@ -152,6 +162,13 @@ def create_artifact_table_for_model(model_cls: type) -> type:
         __mapper_args__ = {
             'polymorphic_identity': table_name,
         }
+        
+        # Add primary key that links to parent
+        id: Mapped[int] = mapped_column(
+            Integer, 
+            ForeignKey('base_artifacts.id', ondelete='CASCADE'),
+            primary_key=True
+        )
         
         # Add reference to the model class
         model_class = model_cls
@@ -174,7 +191,7 @@ MODEL = TypeVar('MODEL', bound=Model)
 
 def get_artifact_class_for_model(model_cls: Type[MODEL]) -> Type[BaseArtifact]:
     """Get the artifact class for a model."""
-    table_name = f"{model_cls.__name__.lower()}_artifacts"
+    table_name = f"{model_to_table_name(model_cls)}_artifacts"
     for cls in BaseArtifact.__subclasses__():
         if cls.__tablename__ == table_name:
             return cls
@@ -198,9 +215,13 @@ class ArtifactQuery(Generic[MODEL]):
         artifact_cls = get_artifact_class_for_model(self.model_cls)
         
         # Build the base query
+        # model_table = Table(model_to_table_name(self.model_cls), Base.metadata, autoload_with=self._session_manager._engine)
+        model_table = metadata.tables.get(model_to_table_name(self.model_cls) + "_artifacts")
+        if model_table is None:
+            raise ValueError(f"Model table {model_to_table_name(self.model_cls)} not found")
         query = (
-            select(self.model_cls)
-            .join(artifact_cls, artifact_cls.model_id == self.model_cls.id)
+            select(model_table)
+            .join(artifact_cls, artifact_cls.model_id == model_table.id)
             .join(Turn, artifact_cls.turn_id == Turn.id)
             .join(Branch, Turn.branch_id == Branch.id)
         )
@@ -310,15 +331,23 @@ class ArtifactLog:
         self._session_manager = SessionManager()
         self._head = None
     
-    def register_model(self, model_cls):
+    async def register_model(self, model_cls: Type[Model]):
         """
         Register a versioned model and create its artifact table.
         """
-        if model_cls.__tablename__ in self._artifact_tables:
-            return self._artifact_tables[model_cls.__tablename__]
+        namespace = await model_cls.get_namespace()
+        if namespace.name in self._artifact_tables:
+            return self._artifact_tables[namespace.name]
         
         artifact_cls = create_artifact_table_for_model(model_cls)
-        self._artifact_tables[model_cls.__tablename__] = artifact_cls
+        self._artifact_tables[namespace.name] = artifact_cls
+        
+        # Create the table in the database
+        # async with self._session_manager.session() as session:
+        #     async with session.begin():
+        #         await session.run_sync(lambda conn: artifact_cls.__table__.create(conn, checkfirst=True))
+        
+        await self._session_manager.initialize_tables()
         return artifact_cls
     
     async def init_head(self, id: int | None = None) -> Head:
@@ -326,6 +355,9 @@ class ArtifactLog:
         Initialize a new head with a main branch and initial turn.
         If id is provided, loads existing head instead of creating new one.
         """
+        # First ensure base tables are created
+        await self._session_manager.initialize_tables()
+        
         async with self._session_manager.session() as session:
             if id is not None:
                 # Load existing head
@@ -390,10 +422,10 @@ class ArtifactLog:
             raise ValueError(f"Model {model.__class__.__name__} is not versioned")
         
         # Get or create artifact table for this model
-        artifact_cls = self.register_model(model.__class__)
+        artifact_cls = await self.register_model(model.__class__)
         
         # Get current head
-        current_head = await self.head
+        current_head = self.head
         if not current_head:
             raise ValueError("No active head found")
         
@@ -412,32 +444,41 @@ class ArtifactLog:
         """
         Commit the current turn and create a new one.
         """
-        # Get current head
-        current_head = await self.head
-        if not current_head:
+        if self._head is None:
             raise ValueError("No active head found")
         
-        # End current turn
-        current_turn = current_head.turn
-        current_turn.status = TurnStatus.COMMITTED
-        current_turn.ended_at = datetime.utcnow()
-        current_turn.message = message
-        
-        # Create new turn
-        new_turn = Turn(
-            branch=current_head.branch,
-            index=current_turn.index + 1,
-            status=TurnStatus.STAGED
-        )
         async with self._session_manager.session() as session:
+            # Merge the current head into the session so that it's tracked
+            current_head = await session.merge(self._head)
+            
+            # End current turn
+            current_turn = current_head.turn
+            current_turn.status = TurnStatus.COMMITTED
+            current_turn.ended_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            current_turn.message = message
+            
+            session.add(current_turn)
+            await session.flush()
+            
+            # Create new turn
+            new_turn = Turn(
+                branch=current_head.branch,
+                index=current_turn.index + 1,
+                status=TurnStatus.STAGED
+            )
             session.add(new_turn)
             await session.flush()
-        
-        # Update head
-        current_head.turn = new_turn
-        await session.flush()
-        
+            
+            # Update head to reference the new turn
+            current_head.turn = new_turn
+            session.add(current_head)
+            await session.flush()
+            
+            # Update the stored head
+            self._head = current_head
+
         return new_turn
+    
     
     async def branch_from(self, turn_id: int, name: str | None = None, check_out: bool = False) -> Branch:
         """
@@ -452,7 +493,7 @@ class ArtifactLog:
                 raise ValueError(f"Turn {turn_id} not found")
         
         # Get current head
-        current_head = await self.head
+        current_head = self.head
         if not current_head:
             raise ValueError("No active head found")
         
@@ -486,7 +527,7 @@ class ArtifactLog:
                 raise ValueError(f"Branch {branch_id} not found")
         
         # Get current head
-        current_head = await self.head
+        current_head = self.head
         if not current_head:
             raise ValueError("No active head found")
         
@@ -520,7 +561,7 @@ class ArtifactLog:
         Revert the current turn and create a new one.
         """
         # Get current head
-        current_head = await self.head
+        current_head = self.head
         if not current_head:
             raise ValueError("No active head found")
         
@@ -557,7 +598,7 @@ class ArtifactLog:
                 raise ValueError(f"Turn {turn_id} not found")
         
         # Get current head
-        current_head = await self.head
+        current_head = self.head
         if not current_head:
             raise ValueError("No active head found")
         

@@ -8,6 +8,8 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 import grpc
 from contextvars import ContextVar
 
+# from promptview.artifact_log.artifact_log2 import BaseArtifact, create_artifact_table_for_model
+
 from .fields import VectorSpaceMetrics
 from .qdrant_client import QdrantClient
 from .postgres_client import PostgresClient
@@ -125,6 +127,20 @@ class VectorizersManager:
         vectorizer = self._vectorizers[vectorizer_cls.__name__]
         self._named_vectorizers[name] = vectorizer
         return vectorizer
+    
+    
+# class ArtifactRegistry:
+#     _artifacts: Dict[str, type]
+    
+#     def __init__(self):
+#         self._artifacts = {}
+                
+#     def create_artifact_table(self, model_cls: Type[Model]):
+#         artifact_cls = create_artifact_table_for_model(model_cls)
+#         self._artifacts[model_cls.__name__] = artifact_cls
+#         return artifact_cls
+        
+        
 
 ENV_CONTEXT = ContextVar("ENV_CONTEXT", default="default")
 
