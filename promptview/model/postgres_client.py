@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 import datetime as dt
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, TypedDict, Type
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, TypedDict, Type, get_args, get_origin
 from uuid import uuid4
 import asyncpg
 import os
@@ -8,6 +8,8 @@ import itertools
 import json
 import numpy as np
 from pydantic import BaseModel
+
+
 if TYPE_CHECKING:
     from promptview.model.model import Model
 
@@ -18,6 +20,9 @@ if TYPE_CHECKING:
     from .resource_manager import VectorSpace
 from .query import QueryFilter, QueryProxy, FieldComparable, FieldOp, QueryOp, QueryProxyAny, QuerySet
 
+
+def unpack_list_model(pydantic_model):
+    return get_args(pydantic_model)[0]
 
 def chunks(iterable, batch_size=100):
     """A helper function to break an iterable into chunks of size batch_size."""
@@ -97,44 +102,53 @@ class PostgresClient:
 
         async with self.pool.acquire() as conn:
             # Enable pgvector extension if not enabled
-            await conn.execute('CREATE EXTENSION IF NOT EXISTS vector;')
+            await conn.execute('''
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+            ''')
 
             # Get model class from the collection name to inspect fields
             
             # Create table with proper columns for each field
             create_table_sql = f"""
             CREATE TABLE IF NOT EXISTS {table_name} (
-                id TEXT PRIMARY KEY
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
             """
 
             # Add columns for each model field
             for field_name, field in model_cls.model_fields.items():
                 if field_name == "id" or field_name == "_subspace" or field_name == "score":  # Skip id as it's already added
                     continue
-                    
-                field_type = field.annotation
-                if field_type == bool:
-                    sql_type = "BOOLEAN"
-                elif field_type == int:
-                    sql_type = "INTEGER"
-                elif field_type == str:
-                    sql_type = "TEXT"
-                elif field_type == datetime or field_type == dt.datetime:
-                    # TODO: sql_type = "TIMESTAMP WITH TIME ZONE"
-                    sql_type = "TIMESTAMP"
-                elif str(field_type).startswith("list["):
-                    # Handle arrays
-                    inner_type = str(field_type).split("[")[1].rstrip("]")
-                    if inner_type == "int":
-                        sql_type = "INTEGER[]"
-                    else:
-                        sql_type = "TEXT[]"
-                elif str(field_type).startswith("dict") or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
-                    sql_type = "JSONB"
-                else:
-                    sql_type = "TEXT"  # Default to TEXT for unknown types
                 
-                create_table_sql += f',\n"{field_name}" {sql_type}'
+                field_type = field.annotation
+                
+                if get_origin(field_type) == list:
+                    field_type =unpack_list_model(field_type)
+                    partition = field.json_schema_extra.get("partition")
+                    create_table_sql += f', FOREIGN KEY ("{field_name}") REFERENCES {model_to_table_name(field_type)} ("{partition}")'
+                else:
+                    if field_type == bool:
+                        sql_type = "BOOLEAN"
+                    elif field_type == int:
+                        sql_type = "INTEGER"
+                    elif field_type == str:
+                        sql_type = "TEXT"
+                    elif field_type == datetime or field_type == dt.datetime:
+                        # TODO: sql_type = "TIMESTAMP WITH TIME ZONE"
+                        sql_type = "TIMESTAMP"
+                    elif str(field_type).startswith("list["):
+                        # Handle arrays
+                        inner_type = str(field_type).split("[")[1].rstrip("]")
+                        if inner_type == "int":
+                            sql_type = "INTEGER[]"
+                        else:
+                            sql_type = "TEXT[]"
+                    elif str(field_type).startswith("dict") or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
+                        sql_type = "JSONB"                    
+                    else:
+                        sql_type = "TEXT"  # Default to TEXT for unknown types
+                
+                    create_table_sql += f',\n"{field_name}" {sql_type}'
 
             # Add vector columns for each vector space
             for vs in vector_spaces:
@@ -176,16 +190,20 @@ class PostgresClient:
             ids = [str(uuid4()) for _ in range(len(metadata))]
 
         results = []
-        def zip_vectors(ids, vectors, metadata):
-            for id_, vec, meta in zip(ids, vectors, metadata):
-                yield {**vec, **meta, "id": id_}
+        def zip_metadata(ids, vectors, metadata):
+            if not vectors:
+                for id_, meta in zip(ids, metadata):
+                    yield {**meta, "id": id_}
+            else:
+                for id_, vec, meta in zip(ids, vectors, metadata):
+                    yield {**vec, **meta, "id": id_}
                 
 
         columns = [f for f in (['id'] + list(vectors[0].keys()) if vectors else [] + list(metadata[0].keys())) if f != "_subspace"]
         
         
         async with self.pool.acquire() as conn:
-            for chunk in chunks(zip_vectors(ids, vectors, metadata), batch_size=batch_size):
+            for chunk in chunks(zip_metadata(ids, vectors, metadata), batch_size=batch_size):
                 # Prepare the SQL query
                 placeholders = []
                 values = []

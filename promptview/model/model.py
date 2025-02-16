@@ -1,7 +1,7 @@
 import asyncio
 import inspect
 import copy
-from typing import Any, Callable, Dict, List, Optional, Self, Type, TypeVar,  get_args, get_origin
+from typing import Any, Callable, Dict, ForwardRef, List, Optional, Self, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import FieldInfo
@@ -111,12 +111,12 @@ class Relation:
     
     async def first(self, partitions=None):
         partitions = partitions or {}        
-        return await self._cls.get_assets(top_k=1, filters=partitions, ascending=True)
+        return await self.cls.get_assets(top_k=1, filters=partitions, ascending=True)
         
 
     async def last(self, partitions=None):
         partitions = partitions or {}
-        return await self._cls.get_assets(top_k=1, filters=partitions, ascending=False)
+        return await self.cls.get_assets(top_k=1, filters=partitions, ascending=False)
         
 
 
@@ -138,6 +138,7 @@ class ModelMeta(ModelMetaclass, type):
         db_type = "qdrant"
         vec_field_map = {}
         vector_spaces = []
+        relations = {}
         if name != "Model":
             #? add model partition
             if not bases:
@@ -258,19 +259,20 @@ class ModelMeta(ModelMetaclass, type):
                         target_type = unpack_list_model(field_type)
                     else:
                         target_type = field_type
-                    if inspect.isclass(target_type): 
-                        if issubclass(target_type, Model):
+                    if inspect.isclass(target_type) and issubclass(target_type, Model) or isinstance(target_type, ForwardRef): 
                             field_info = dct.get(field)                            
                             if not field_info:
                                 raise ValueError(f"Field {field} is not defined")
                             partition = field_info.json_schema_extra.get("partition")
                             if not partition:
                                 raise ValueError(f"Model Field {field} does not have partition")
+                            _target_type, _forward_ref = (target_type, None) if not isinstance(target_type, ForwardRef) else (None, target_type)
                             cls_partitions[field] = {
-                                "type": target_type,
+                                "type": _target_type,
                                 "origin": field_origin,
                                 "partition": partition,
-                                "field": field
+                                "field": field,
+                                "forward_ref": _forward_ref
                             }
                             field_info.default_factory = lambda: Relation(target_type, partition)  
                             print("Found",field, partition)
@@ -361,13 +363,17 @@ class Model(BaseModel, metaclass=ModelMeta):
         
     
     def _payload_dump(self):
-        dump = self.model_dump(exclude={"id", "score", "_vector"})
+        relation_fields = self._get_relation_fields()
+        dump = self.model_dump(exclude={"id", "score", "_vector", *relation_fields})
         dump["_subspace"] = self._subspace
         return dump
         
     # async def verify_namespace(self):
         # await self.rag_documents.verify_namespace()
-    
+    def _get_relation_fields(self):
+        if not self.__class__._partitions:
+            return []
+        return list(self.__class__._partitions.default.keys())
     
     @classmethod
     async def get_namespace(cls):
@@ -381,8 +387,9 @@ class Model(BaseModel, metaclass=ModelMeta):
         return cls._vec_field_map.default# type: ignore
 
     def model_chunk(self, vectorizers: dict[str, BaseVectorizer])-> dict[str, str]:
+        relation_fields = self._get_relation_fields()
         if not self._get_vec_field_map():
-            model_dump = self.model_dump_json()
+            model_dump = self.model_dump_json(exclude=set(relation_fields))
             return {vec_name: model_dump for vec_name in vectorizers}
         vec_strings = {}
         for vec, fields in self._get_vec_field_map().items():

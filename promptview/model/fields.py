@@ -208,3 +208,19 @@ def get_model_indices(cls_, prefix=""):
     return indexs_to_create
 
 
+
+
+
+
+
+def ModelRelation(
+    key: str,
+):
+    json_schema_extra={
+        "is_relation": True,
+        "partition": key,
+    }
+    return Field(
+        None,
+        json_schema_extra=json_schema_extra,
+    )
