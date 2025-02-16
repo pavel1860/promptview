@@ -111,21 +111,23 @@ class PostgresClient:
         # Get model class from the collection name to inspect fields
         
         # Create table with proper columns for each field
-        create_table_sql = f"""CREATE TABLE IF NOT EXISTS {table_name} (
-id UUID PRIMARY KEY DEFAULT uuid_generate_v4()"""
+#         create_table_sql = f"""CREATE TABLE IF NOT EXISTS {table_name} (
+# id UUID PRIMARY KEY DEFAULT uuid_generate_v4()"""
+        create_table_sql = f"""CREATE TABLE IF NOT EXISTS {table_name} ("""
 
+    
         # Add columns for each model field
-        for field_name, field in model_cls.model_fields.items():
+        for field_name, field in model_cls.model_fields.items():            
             if field_name == "id" or field_name == "_subspace" or field_name == "score":  # Skip id as it's already added
                 continue
-            
+            create_table_sql += "\n"
             field_type = field.annotation
             
             if get_origin(field_type) == list:
                 field_type =unpack_list_model(field_type)
                 partition = field.json_schema_extra.get("partition")
                 # create_table_sql += f', FOREIGN KEY ("{field_name}") REFERENCES {model_to_table_name(field_type)} ("{partition}")'
-                create_table_sql += f',\n"{field_name}" UUID FOREIGN KEY REFERENCES {model_to_table_name(field_type)} ("{partition}")'
+                create_table_sql += f'"{field_name}" UUID FOREIGN KEY REFERENCES {model_to_table_name(field_type)} ("{partition}")'
             else:
                 if field_type == bool:
                     sql_type = "BOOLEAN"
@@ -148,14 +150,14 @@ id UUID PRIMARY KEY DEFAULT uuid_generate_v4()"""
                 else:
                     sql_type = "TEXT"  # Default to TEXT for unknown types
             
-                create_table_sql += f',\n"{field_name}" {sql_type}'
+                create_table_sql += f'"{field_name}" {sql_type},'
 
             # Add vector columns for each vector space
         for vs in vector_spaces:
             if vs.vectorizer.type == "dense":
-                create_table_sql += f',\n"{vs.name}" vector({vs.vectorizer.size})'
-
-        create_table_sql += ");"
+                create_table_sql += f'"{vs.name}" vector({vs.vectorizer.size}),\n'
+        create_table_sql = create_table_sql.rstrip(",")
+        create_table_sql += "\n) INHERITS (base_artifacts);"
 
         indices_sql = []
 
@@ -274,39 +276,45 @@ id UUID PRIMARY KEY DEFAULT uuid_generate_v4()"""
 
         table_name = camel_to_snake(namespace)
 
-        if not ids:
-            ids = [str(uuid4()) for _ in range(len(metadata))]
+        # if not ids:
+        #     ids = [str(uuid4()) for _ in range(len(metadata))]
 
         results = []
-        def zip_metadata(ids, vectors, metadata):
+        def zip_metadata(vectors, metadata):
+            # if not vectors:
+            #     for id_, meta in zip(ids, metadata):
+            #         yield {**meta, "id": id_}
+            # else:
+            #     for id_, vec, meta in zip(ids, vectors, metadata):
+            #         yield {**vec, **meta, "id": id_}
             if not vectors:
-                for id_, meta in zip(ids, metadata):
-                    yield {**meta, "id": id_}
+                for meta in metadata:
+                    yield meta
             else:
-                for id_, vec, meta in zip(ids, vectors, metadata):
-                    yield {**vec, **meta, "id": id_}
+                for vec, meta in zip(vectors, metadata):
+                    yield {**vec, **meta}
                 
 
-        columns = [f for f in (['id'] + list(vectors[0].keys()) if vectors else [] + list(metadata[0].keys())) if f != "_subspace"]
+        # columns = [f for f in (['id'] + list(vectors[0].keys()) if vectors else [] + list(metadata[0].keys())) if f != "_subspace"]
+        columns = [f for f in (list(vectors[0].keys()) if vectors else [] + list(metadata[0].keys())) if f != "_subspace"]
         
         
         async with self.pool.acquire() as conn:
-            for chunk in chunks(zip_metadata(ids, vectors, metadata), batch_size=batch_size):
+            for chunk in chunks(zip_metadata(vectors, metadata), batch_size=batch_size):
                 # Prepare the SQL query
                 placeholders = []
                 values = []
                 for i, item in enumerate(chunk):
                     # Calculate the starting placeholder index for this row
-                    start_idx = i * len(columns) + 1
+                    start_idx = i * len(columns)
                     # For each column, if it's a vector add ::vector type cast
                     col_placeholders = []
                     
                     # Add id first
-                    col_placeholders.append(f"${start_idx}")
-                    values.append(item.pop("id"))
+                    # col_placeholders.append(f"${start_idx}")
                     
                     # Add remaining fields
-                    for j, col in enumerate(columns[1:], 1):  # Skip id as we already added it
+                    for j, col in enumerate(columns, 1):  # Skip id as we already added it
                         placeholder_idx = start_idx + j
                         if isinstance(item[col], np.ndarray):
                             item[col] = stringify_vector(item[col])
@@ -320,11 +328,16 @@ id UUID PRIMARY KEY DEFAULT uuid_generate_v4()"""
                     
                     placeholders.append(f"({', '.join(col_placeholders)})")
 
+                # query = f"""
+                # INSERT INTO {table_name} ({', '.join(f'"{col}"' for col in columns)})
+                # VALUES {', '.join(placeholders)}
+                # ON CONFLICT (id) DO UPDATE SET
+                # {', '.join(f'"{col}" = EXCLUDED."{col}"' for col in columns[1:])}
+                # RETURNING *;
+                # """
                 query = f"""
                 INSERT INTO {table_name} ({', '.join(f'"{col}"' for col in columns)})
                 VALUES {', '.join(placeholders)}
-                ON CONFLICT (id) DO UPDATE SET
-                {', '.join(f'"{col}" = EXCLUDED."{col}"' for col in columns[1:])}
                 RETURNING *;
                 """
 
