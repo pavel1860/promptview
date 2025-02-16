@@ -91,7 +91,100 @@ class PostgresClient:
         if self.pool is None:
             await self.connect()
         assert self.pool is not None
+    
+    async def init_extensions(self):
+        await self._ensure_connected()
+        assert self.pool is not None
+        async with self.pool.acquire() as conn:
+            # Enable pgvector extension if not enabled
+            return await conn.execute('''
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+            ''')
+            
+    def build_table_sql(self, collection_name: str, model_cls: "Type[Model]", vector_spaces: list["VectorSpace"], indices: list[dict[str, str]] | None = None):
+        """Create a table for vector storage with pgvector extension."""
+
+        table_name = camel_to_snake(collection_name)
+
         
+        # Get model class from the collection name to inspect fields
+        
+        # Create table with proper columns for each field
+        create_table_sql = f"""CREATE TABLE IF NOT EXISTS {table_name} (
+id UUID PRIMARY KEY DEFAULT uuid_generate_v4()"""
+
+        # Add columns for each model field
+        for field_name, field in model_cls.model_fields.items():
+            if field_name == "id" or field_name == "_subspace" or field_name == "score":  # Skip id as it's already added
+                continue
+            
+            field_type = field.annotation
+            
+            if get_origin(field_type) == list:
+                field_type =unpack_list_model(field_type)
+                partition = field.json_schema_extra.get("partition")
+                # create_table_sql += f', FOREIGN KEY ("{field_name}") REFERENCES {model_to_table_name(field_type)} ("{partition}")'
+                create_table_sql += f',\n"{field_name}" UUID FOREIGN KEY REFERENCES {model_to_table_name(field_type)} ("{partition}")'
+            else:
+                if field_type == bool:
+                    sql_type = "BOOLEAN"
+                elif field_type == int:
+                    sql_type = "INTEGER"
+                elif field_type == str:
+                    sql_type = "TEXT"
+                elif field_type == datetime or field_type == dt.datetime:
+                    # TODO: sql_type = "TIMESTAMP WITH TIME ZONE"
+                    sql_type = "TIMESTAMP"
+                elif str(field_type).startswith("list["):
+                    # Handle arrays
+                    inner_type = str(field_type).split("[")[1].rstrip("]")
+                    if inner_type == "int":
+                        sql_type = "INTEGER[]"
+                    else:
+                        sql_type = "TEXT[]"
+                elif str(field_type).startswith("dict") or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
+                    sql_type = "JSONB"                    
+                else:
+                    sql_type = "TEXT"  # Default to TEXT for unknown types
+            
+                create_table_sql += f',\n"{field_name}" {sql_type}'
+
+            # Add vector columns for each vector space
+        for vs in vector_spaces:
+            if vs.vectorizer.type == "dense":
+                create_table_sql += f',\n"{vs.name}" vector({vs.vectorizer.size})'
+
+        create_table_sql += ");"
+
+        indices_sql = []
+
+        # Create indices
+        if indices:
+            for index in indices:
+                field = index['field']
+                # Create GiST index for vector columns
+                if field in [vs.name for vs in vector_spaces]:
+                    indices_sql.append(f"""
+                    CREATE INDEX IF NOT EXISTS {table_name}_{field}_idx 
+                    ON {table_name} 
+                    USING ivfflat ("{field}" vector_cosine_ops)
+                    WITH (lists = 100);
+                    """)
+                else:
+                    # Create B-tree index for regular columns
+                    indices_sql.append(f"""
+                    CREATE INDEX IF NOT EXISTS {table_name}_{field}_idx 
+                    ON {table_name} 
+                    USING btree ("{field}");
+                    """)
+        return create_table_sql + "\n" + "\n".join(indices_sql)
+
+    async def execute_sql(self, sql: str):
+        await self._ensure_connected()
+        assert self.pool is not None
+        async with self.pool.acquire() as conn:
+            return await conn.execute(sql)
 
     async def create_collection(self, collection_name: str, model_cls: "Type[Model]", vector_spaces: list["VectorSpace"], indices: list[dict[str, str]] | None = None):
         """Create a table for vector storage with pgvector extension."""
@@ -102,11 +195,6 @@ class PostgresClient:
 
         async with self.pool.acquire() as conn:
             # Enable pgvector extension if not enabled
-            await conn.execute('''
-            CREATE EXTENSION IF NOT EXISTS vector;
-            CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-            ''')
-
             # Get model class from the collection name to inspect fields
             
             # Create table with proper columns for each field

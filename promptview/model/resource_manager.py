@@ -219,6 +219,25 @@ class ConnectionManager:
             raise ValueError(f"Namespace {namespace} not found while adding subspace {subspace}")
         self._namespaces[namespace].add_subspace(subspace, indices)
         
+        
+    async def _create_all_namespaces(self):
+        sql = ""
+        for ns in self._namespaces.values():            
+            if ns.db_type == "postgres":
+                sql += "\n" + ns.conn.build_table_sql(  # type: ignore
+                    collection_name=ns.name,
+                    model_cls=self.get_model(ns.name),
+                    vector_spaces=list(ns.vector_spaces.values()),
+                    indices=ns.indices,
+                )
+                self._active_namespaces[ns.name] = ns            
+            else:
+                await self._create_namespace(ns.name)                
+        if sql:
+            res = await self._postgres_connection.execute_sql(sql)
+            print(res)
+                
+                
     async def _create_namespace(self, namespace: str):
         try:
             ns = self._namespaces[namespace]
@@ -257,7 +276,9 @@ class ConnectionManager:
             ns = self._active_namespaces[namespace]          
             return ns
         except KeyError:
-            return await self._create_namespace(namespace)
+            await self._create_all_namespaces()
+            return self._active_namespaces[namespace]
+            # return await self._create_namespace(namespace)
     
     async def add_namespace_indices(self, namespace: str, indices: list[dict[str, str]]):
         ns = await self.get_namespace(namespace)
