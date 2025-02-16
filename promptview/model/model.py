@@ -436,7 +436,8 @@ class Model(BaseModel, metaclass=ModelMeta):
                 vectors=vectors,
                 metadata=[metadata],
                 # ids=[self._id]
-                ids=[self.id]
+                ids=[self.id],
+                model_cls=self.__class__
             )
         return self
 

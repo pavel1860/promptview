@@ -9,6 +9,8 @@ import json
 import numpy as np
 from pydantic import BaseModel
 
+from promptview.artifact_log.artifact_log3 import ArtifactLog
+
 
 if TYPE_CHECKING:
     from promptview.model.model import Model
@@ -269,78 +271,78 @@ class PostgresClient:
                         USING btree ("{field}");
                         """)
 
-    async def upsert(self, namespace: str, vectors: List[dict[str, List[float] | Any]], metadata: List[Dict], ids=None, batch_size=100):
-        """Upsert vectors and metadata into the collection."""
+    async def upsert(
+        self,
+        namespace: str,
+        vectors: List[dict[str, List[float] | Any]],
+        metadata: List[Dict],
+        model_cls: Type[BaseModel],
+        ids=None,
+        batch_size=100,
+    ):
+        """Upsert vectors and metadata into the collection with fixed turn_id and type fields."""
         await self._ensure_connected()
         assert self.pool is not None
+         
+        artifact_log = ArtifactLog.get_current()
+        assert artifact_log.is_initialized
 
         table_name = camel_to_snake(namespace)
 
-        # if not ids:
-        #     ids = [str(uuid4()) for _ in range(len(metadata))]
+        # Define the fixed values you want to add to every record.
+        # You can use hard-coded values (e.g. {"turn_id": 42, "type": "my_type"})
+        # or values derived from artifact_log (e.g. artifact_log.head["turn_id"])
+        fixed_values = {"turn_id": artifact_log.head["turn_id"], "type": model_cls.__name__}
 
-        results = []
+        # Build the base columns from the first record and add the fixed columns.
+        if vectors:
+            base_columns = list(vectors[0].keys())
+        else:
+            base_columns = list(metadata[0].keys())
+
+        # Remove any keys you want to skip (e.g. "_subspace") and also do not duplicate fixed keys.
+        base_columns = [col for col in base_columns if col != "_subspace" and col not in fixed_values]
+        # Now add the fixed columns.
+        columns = base_columns + list(fixed_values.keys())
+
         def zip_metadata(vectors, metadata):
-            # if not vectors:
-            #     for id_, meta in zip(ids, metadata):
-            #         yield {**meta, "id": id_}
-            # else:
-            #     for id_, vec, meta in zip(ids, vectors, metadata):
-            #         yield {**vec, **meta, "id": id_}
             if not vectors:
                 for meta in metadata:
                     yield meta
             else:
                 for vec, meta in zip(vectors, metadata):
                     yield {**vec, **meta}
-                
 
-        # columns = [f for f in (['id'] + list(vectors[0].keys()) if vectors else [] + list(metadata[0].keys())) if f != "_subspace"]
-        columns = [f for f in (list(vectors[0].keys()) if vectors else [] + list(metadata[0].keys())) if f != "_subspace"]
-        
-        
+        results = []
         async with self.pool.acquire() as conn:
             for chunk in chunks(zip_metadata(vectors, metadata), batch_size=batch_size):
-                # Prepare the SQL query
+                # Update each row with our fixed values.
+                for item in chunk:
+                    item.update(fixed_values)
+
                 placeholders = []
                 values = []
                 for i, item in enumerate(chunk):
-                    # Calculate the starting placeholder index for this row
                     start_idx = i * len(columns)
-                    # For each column, if it's a vector add ::vector type cast
                     col_placeholders = []
-                    
-                    # Add id first
-                    # col_placeholders.append(f"${start_idx}")
-                    
-                    # Add remaining fields
-                    for j, col in enumerate(columns, 1):  # Skip id as we already added it
+                    for j, col in enumerate(columns, 1):
                         placeholder_idx = start_idx + j
                         if isinstance(item[col], np.ndarray):
                             item[col] = stringify_vector(item[col])
                             col_placeholders.append(f"${placeholder_idx}::vector")
-                        elif isinstance(item[col], list):  # Vector field
+                        elif isinstance(item[col], list):
                             item[col] = stringify_vector(item[col])
                             col_placeholders.append(f"${placeholder_idx}::vector")
-                        else:  # Regular field
+                        else:
                             col_placeholders.append(f"${placeholder_idx}")
                         values.append(item[col])
-                    
                     placeholders.append(f"({', '.join(col_placeholders)})")
 
-                # query = f"""
-                # INSERT INTO {table_name} ({', '.join(f'"{col}"' for col in columns)})
-                # VALUES {', '.join(placeholders)}
-                # ON CONFLICT (id) DO UPDATE SET
-                # {', '.join(f'"{col}" = EXCLUDED."{col}"' for col in columns[1:])}
-                # RETURNING *;
-                # """
                 query = f"""
                 INSERT INTO {table_name} ({', '.join(f'"{col}"' for col in columns)})
                 VALUES {', '.join(placeholders)}
                 RETURNING *;
                 """
-
                 results.extend(await conn.fetch(query, *values))
 
         return results

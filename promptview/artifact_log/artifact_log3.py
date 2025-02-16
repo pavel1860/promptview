@@ -1,8 +1,11 @@
+from contextvars import ContextVar
 import os
 import asyncpg
 import enum
 from datetime import datetime, timezone
 from typing import List, Optional, Type, Any, Dict, Tuple
+
+from pydantic import BaseModel
 
 
 """
@@ -55,6 +58,23 @@ def model_to_table_name(model_cls: Type[Any]) -> str:
     """Utility function to get table name from a model class."""
     return model_cls.__name__.lower()
 
+
+class Turn(BaseModel):
+    id: int
+    branch_id: int
+    index: int
+    status: TurnStatus
+    created_at: datetime
+    ended_at: datetime | None = None
+    message: str | None = None
+    
+
+class Branch(BaseModel):
+    id: int
+    name: str
+    path: str
+    created_at: datetime
+    
 
 class ArtifactQuery:
     """A simple query builder for artifact records using raw SQL."""
@@ -141,13 +161,37 @@ class ArtifactQuery:
         return []
 
 
+
+ARTIFCAT_LOG_CTX = ContextVar("ARTIFCAT_LOG_CTX", default=None)
+
 class ArtifactLog:
     """
     Main class for managing versioned models and their artifacts using asyncpg.
     """
-    def __init__(self) -> None:
+    def __init__(self, head_id: Optional[int] = None) -> None:        
         self._artifact_tables: Dict[str, str] = {}
         self._head: Optional[Dict[str, Any]] = None
+        self._token = None
+        self._head_id = head_id
+        
+    @classmethod
+    def get_current(cls) -> "ArtifactLog":
+        artifact_log = ARTIFCAT_LOG_CTX.get()
+        if artifact_log is None:
+            raise ValueError("No artifact log found")
+        return artifact_log
+    
+    async def __aenter__(self):
+        await self.init_head(self._head_id)
+        self._token = ARTIFCAT_LOG_CTX.set(self)
+        return self
+    
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        ARTIFCAT_LOG_CTX.reset(self._token)
+        
+    @property
+    def is_initialized(self) -> bool:
+        return self._head is not None
 
     async def initialize_tables(self) -> None:
         # Initialize the asyncpg pool if not already done
@@ -261,6 +305,12 @@ class ArtifactLog:
         if self._head is None:
             raise ValueError("No active head found")
         return self._head
+    
+    
+    def get_upsert_values(self, model_type: Type[Any]):
+        """
+        type, turn_id
+        """
 
     async def stage_artifact(self, model_instance: Any) -> int:
         """
@@ -296,7 +346,8 @@ class ArtifactLog:
             raise ValueError("No active head found")
 
         head = self._head
-        now = datetime.now(timezone.utc)
+        # Convert aware datetime to naive by removing tzinfo
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         query = "UPDATE turns SET status = $1, ended_at = $2, message = $3 WHERE id = $4 RETURNING branch_id, index;"
         rows = await PGConnectionManager.fetch(query, TurnStatus.COMMITTED.value, now, message, head['turn_id'])
         branch_id = rows[0]['branch_id']
@@ -444,4 +495,61 @@ class ArtifactLog:
         rows = await PGConnectionManager.fetch(query, branch_id)
         if not rows:
             raise ValueError(f"Branch {branch_id} not found")
-        return dict(rows[0]) 
+        return dict(rows[0])
+    
+    async def get_turn_list(self, include_parent_branches: bool = True, status: Optional[TurnStatus] = None) -> List[Turn]:
+        """
+        Fetch the list of turns based on the current head.
+        
+        Args:
+            include_parent_branches: If True, include turns from parent branches
+            status: Optional filter for turn status (STAGED, COMMITTED, or REVERTED)
+            
+        Returns:
+            List of turns with their branch information, ordered by branch path and turn index
+        """
+        current_head = self.head
+        if not current_head:
+            raise ValueError("No active head found")
+            
+        # Get current branch path to find parent branches if needed
+        query = "SELECT path FROM branches WHERE id = $1;"
+        branch_rows = await PGConnectionManager.fetch(query, current_head['branch_id'])
+        if not branch_rows:
+            raise ValueError("Branch not found")
+        current_path = branch_rows[0]['path']
+        
+        # Build the query to fetch turns
+        query = """
+            SELECT 
+                t.*,
+                b.name as branch_name,
+                b.path as branch_path
+            FROM turns t
+            JOIN branches b ON t.branch_id = b.id
+            WHERE 1=1
+        """
+        
+        params = []
+        if include_parent_branches:
+            # Include turns from the current branch and its ancestors
+            query += " AND b.path @> $1"
+            params.append(current_path)
+        else:
+            # Only include turns from the current branch
+            query += " AND t.branch_id = $1"
+            params.append(current_head['branch_id'])
+            
+        if status:
+            query += " AND t.status = $" + str(len(params) + 1)
+            params.append(status.value)
+            
+        # Order by branch path (to group related branches together) and turn index
+        query += " ORDER BY b.path::text, t.index"
+        
+        rows = await PGConnectionManager.fetch(query, *params)
+        return [Turn(**dict(row)) for row in rows]
+    
+    
+    
+    
