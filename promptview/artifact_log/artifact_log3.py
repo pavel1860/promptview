@@ -21,13 +21,15 @@ class TurnStatus(enum.Enum):
     REVERTED = "reverted"
 
 
+
+
 class PGConnectionManager:
     _pool: Optional[asyncpg.Pool] = None
 
     @classmethod
     async def initialize(cls, url: Optional[str] = None) -> None:
         if cls._pool is None:
-            url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
+            url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/promptview_test")
             cls._pool = await asyncpg.create_pool(dsn=url)
 
     @classmethod
@@ -60,6 +62,7 @@ class PGConnectionManager:
         assert cls._pool is not None, "Pool must be initialized"
         async with cls._pool.acquire() as conn:
             return await conn.fetchrow(query, *args)
+        
 
 
 
@@ -518,43 +521,6 @@ class ArtifactLog:
         return dict(rows[0])
     
     
-    async def get_artifact_list2(self, artifact_table: str, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[dict]:
-        turn = await self.get_turn(self.head["turn_id"])
-        query = f"""
-        WITH RECURSIVE branch_hierarchy AS (
-            SELECT 
-                id,
-                name,
-                forked_from_turn_index,
-                forked_from_branch_id,
-                {turn.index} as start_turn_index
-            FROM branches
-            WHERE id={turn.branch_id}
-
-            UNION ALL
-
-            SELECT
-                b.id,
-                b.name,
-                b.forked_from_turn_index,
-                b.forked_from_branch_id,
-                bh.forked_from_turn_index as start_turn_index
-            FROM branches b
-            JOIN branch_hierarchy bh ON b.id=bh.forked_from_branch_id
-        )
-        SELECT 
-            m.*
-        FROM branch_hierarchy bh 
-        LEFT JOIN turns t ON bh.id = t.branch_id
-        RIGHT JOIN "{artifact_table}" m on t.id=m.turn_id
-        WHERE t.index <= bh.start_turn_index
-        ORDER BY m.{order_by} {order_direction}
-        LIMIT {limit} OFFSET {offset};
-        """
-        rows = await PGConnectionManager.fetch(query)        
-        return [dict(row) for row in rows]
-    
-    
     async def get_artifact_list(self, artifact_table: str, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[dict]:
         
         turn = await self.get_turn(self.head["turn_id"])
@@ -626,36 +592,6 @@ class ArtifactLog:
 
             SELECT
                 {fields_step}
-                bh.forked_from_turn_index as start_turn_index
-            FROM branches b
-            JOIN branch_hierarchy bh ON b.id=bh.forked_from_branch_id
-        )
-        {select_query}     
-        """
-        return query
-    
-    def _branch_cte_query2(self, turn: Turn, select_query: str="SELECT * FROM branch_hierarchy") -> str:
-        fields_base = """
-        
-        """
-        query = f"""
-        WITH RECURSIVE branch_hierarchy AS (
-            SELECT 
-                id,
-                name,
-                forked_from_turn_index,
-                forked_from_branch_id,
-                {turn.index} as start_turn_index
-            FROM branches
-            WHERE id={turn.branch_id}
-
-            UNION ALL
-
-            SELECT
-                b.id,
-                b.name,
-                b.forked_from_turn_index,
-                b.forked_from_branch_id,
                 bh.forked_from_turn_index as start_turn_index
             FROM branches b
             JOIN branch_hierarchy bh ON b.id=bh.forked_from_branch_id
