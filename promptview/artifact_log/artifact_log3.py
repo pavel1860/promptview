@@ -81,8 +81,12 @@ class Turn(BaseModel):
 class Branch(BaseModel):
     id: int
     name: str
-    path: str
     created_at: datetime
+    updated_at: datetime
+    branch_index: int
+    turn_counter: int
+    forked_from_turn_index: int | None = None
+    forked_from_branch_id: int | None = None
     
 
 class ArtifactQuery:
@@ -513,44 +517,8 @@ class ArtifactLog:
             raise ValueError(f"Branch {branch_id} not found")
         return dict(rows[0])
     
-    # async def get_artifact_list(self, artifact_table: str, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[dict]:
-    #     turn = await self.get_turn(self.head["turn_id"])
-    #     query = """
-    #     WITH RECURSIVE branch_hierarchy AS (
-    #         SELECT 
-    #             id,
-    #             name,
-    #             forked_from_turn_index,
-    #             forked_from_branch_id,
-    #             $1 as start_turn_index
-    #         FROM branches
-    #         WHERE id=$2
-
-    #         UNION ALL
-
-    #         SELECT
-    #             b.id,
-    #             b.name,
-    #             b.forked_from_turn_index,
-    #             b.forked_from_branch_id,
-    #             bh.forked_from_turn_index as start_turn_index
-    #         FROM branches b
-    #         JOIN branch_hierarchy bh ON b.id=bh.forked_from_branch_id
-    #     )
-    #     SELECT 
-    #         m.*
-    #     FROM branch_hierarchy bh 
-    #     LEFT JOIN turns t ON bh.id = t.branch_id
-    #     RIGHT JOIN "$3" m on t.id=m.turn_id
-    #     WHERE t.index <= bh.start_turn_index
-    #     ORDER BY m.created_at DESC
-    #     LIMIT 5 OFFSET 2;
-    #     """
-    #     rows = await PGConnectionManager.fetch(query, turn.index, turn.branch_id, artifact_table)
-    #     # rows = await PGConnectionManager.fetch(query, turn.index, turn.branch_id, artifact_table, order_by, order_direction, limit, offset)
-    #     return [dict(row) for row in rows]
     
-    async def get_artifact_list(self, artifact_table: str, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[dict]:
+    async def get_artifact_list2(self, artifact_table: str, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[dict]:
         turn = await self.get_turn(self.head["turn_id"])
         query = f"""
         WITH RECURSIVE branch_hierarchy AS (
@@ -587,6 +555,161 @@ class ArtifactLog:
         return [dict(row) for row in rows]
     
     
+    async def get_artifact_list(self, artifact_table: str, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[dict]:
+        
+        turn = await self.get_turn(self.head["turn_id"])
+        query = self._artifact_cte_query(
+            turn,
+            artifact_table=artifact_table,
+            order_by=order_by,
+            order_direction=order_direction,
+            limit=limit,
+            offset=offset
+        )
+        rows = await PGConnectionManager.fetch(query)        
+        return [dict(row) for row in rows]
     
+    async def get_turn_list(self, limit: int = 10, status: Optional[TurnStatus] = None, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[Turn]:
+        turn = await self.get_turn(self.head["turn_id"])
+        query = self._turn_cte_query(
+            turn,
+            order_by=f"t.{order_by}",
+            order_direction=order_direction,
+            limit=limit,
+            offset=offset,
+            filter_query=f"t.status = '{status.value}'" if status else ""
+        )
+        rows = await PGConnectionManager.fetch(query)        
+        return [Turn(**dict(row)) for row in rows]
+    
+    async def get_branch_list(self, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[Branch]:
+        turn = await self.get_turn(self.head["turn_id"])
+        query = self._branch_cte_query(turn, select_query=f"SELECT * FROM branch_hierarchy ORDER BY {order_by} {order_direction} LIMIT {limit} OFFSET {offset}", minimal_fields=False)
+        rows = await PGConnectionManager.fetch(query)
+        return [Branch(**dict(row)) for row in rows]
+    
+    async def execute_query(self, query: str) -> List[dict]:
+        rows = await PGConnectionManager.fetch(query)        
+        return [dict(row) for row in rows]
+    
+    def _branch_cte_query(self, turn: Turn, select_query: str="SELECT * FROM branch_hierarchy", minimal_fields: bool=True) -> str:
+        if minimal_fields:
+            fields_base = """
+                id,
+                name,
+                forked_from_turn_index,
+                forked_from_branch_id,
+            """
+            fields_step = """
+                b.id,
+                b.name,
+                b.forked_from_turn_index,
+                b.forked_from_branch_id,
+            """
+        else:
+            fields_base = """
+                *,
+            """
+            fields_step = """
+                b.*,
+            """
+                
+        query = f"""
+        WITH RECURSIVE branch_hierarchy AS (
+            SELECT 
+                {fields_base}
+                {turn.index} as start_turn_index
+            FROM branches
+            WHERE id={turn.branch_id}
+
+            UNION ALL
+
+            SELECT
+                {fields_step}
+                bh.forked_from_turn_index as start_turn_index
+            FROM branches b
+            JOIN branch_hierarchy bh ON b.id=bh.forked_from_branch_id
+        )
+        {select_query}     
+        """
+        return query
+    
+    def _branch_cte_query2(self, turn: Turn, select_query: str="SELECT * FROM branch_hierarchy") -> str:
+        fields_base = """
+        
+        """
+        query = f"""
+        WITH RECURSIVE branch_hierarchy AS (
+            SELECT 
+                id,
+                name,
+                forked_from_turn_index,
+                forked_from_branch_id,
+                {turn.index} as start_turn_index
+            FROM branches
+            WHERE id={turn.branch_id}
+
+            UNION ALL
+
+            SELECT
+                b.id,
+                b.name,
+                b.forked_from_turn_index,
+                b.forked_from_branch_id,
+                bh.forked_from_turn_index as start_turn_index
+            FROM branches b
+            JOIN branch_hierarchy bh ON b.id=bh.forked_from_branch_id
+        )
+        {select_query}     
+        """
+        return query
+    
+    def _turn_cte_query(
+        self, 
+        turn: Turn,
+        select_query: str="t.*",
+        filter_query: str="", 
+        join_query: str="", 
+        order_by: str="t.created_at", 
+        order_direction: str="DESC", 
+        limit: int=10, 
+        offset: int=0
+    ):
+        
+        turn_select_query = f"""
+        SELECT 
+            {select_query}
+        FROM branch_hierarchy bh 
+        LEFT JOIN turns t ON bh.id = t.branch_id
+        {join_query}
+        WHERE t.index <= bh.start_turn_index
+        {"AND " + filter_query if filter_query else ""}
+        ORDER BY {order_by} {order_direction}
+        LIMIT {limit} OFFSET {offset};
+        """
+        return self._branch_cte_query(turn, select_query=turn_select_query)
+    
+    
+    def _artifact_cte_query(
+        self,
+        turn: Turn,
+        artifact_table: str,
+        filter_query: str="",
+        order_by: str="m.created_at",
+        order_direction: str="DESC",
+        limit: int=10,
+        offset: int=0
+    ) -> str:
+        query = self._turn_cte_query(
+            turn, 
+            select_query=f"m.*", 
+            join_query=f"RIGHT JOIN {artifact_table} m on t.id=m.turn_id", 
+            filter_query=filter_query,
+            order_by=order_by,
+            order_direction=order_direction,
+            limit=limit,
+            offset=offset
+        )
+        return query
     
     
