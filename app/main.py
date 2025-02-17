@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from promptview.api.model_router import create_crud_router
+from promptview.api.artifact_log_api import router as artifact_log_router
 from promptview.model.fields import ModelField
 from promptview.model.model import Model
 
@@ -47,7 +48,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(create_crud_router(Message))
-
+app.include_router(artifact_log_router)
 
 
 # Root endpoint

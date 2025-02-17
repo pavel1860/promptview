@@ -184,11 +184,12 @@ class ArtifactLog:
     """
     Main class for managing versioned models and their artifacts using asyncpg.
     """
-    def __init__(self, head_id: Optional[int] = None) -> None:        
+    def __init__(self, head_id: Optional[int] = None, branch_id: Optional[int] = None) -> None:        
         self._artifact_tables: Dict[str, str] = {}
         self._head: Optional[Dict[str, Any]] = None
         self._token = None
         self._head_id = head_id
+        self._branch_id = branch_id
         
     @classmethod
     def get_current(cls) -> "ArtifactLog":
@@ -198,7 +199,7 @@ class ArtifactLog:
         return artifact_log
     
     async def __aenter__(self):
-        await self.init_head(self._head_id)
+        await self.init_head(self._head_id, self._branch_id)
         self._token = ARTIFCAT_LOG_CTX.set(self)
         return self
     
@@ -293,7 +294,7 @@ class ArtifactLog:
         self._artifact_tables[table_name] = table_name
         return table_name
 
-    async def init_head(self, head_id: Optional[int] = None) -> Dict[str, Any]:
+    async def init_head(self, head_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Initialize a new head with a main branch and initial turn.
         If head_id is provided, load the existing head.
@@ -303,6 +304,8 @@ class ArtifactLog:
             rows = await PGConnectionManager.fetch(query, head_id)
             if rows:
                 self._head = dict(rows[0])
+                if branch_id is not None:
+                    await self.checkout_branch(branch_id)
                 return self._head
 
         # Create main branch
@@ -534,6 +537,9 @@ class ArtifactLog:
         )
         rows = await PGConnectionManager.fetch(query)        
         return [dict(row) for row in rows]
+    
+    async def get_all_turns(self) -> List[Turn]:
+        query = ""
     
     async def get_turn_list(self, limit: int = 10, status: Optional[TurnStatus] = None, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[Turn]:
         turn = await self.get_turn(self.head["turn_id"])

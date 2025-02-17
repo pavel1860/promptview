@@ -41,10 +41,13 @@ def create_crud_router(model: Type[MODEL]) -> APIRouter:
     
     
     async def env_ctx(request: Request):
-        env = request.headers.get("env")
+        head_id = request.headers.get("head_id")
+        branch_id = request.headers.get("branch_id")
         # with connection_manager.set_env(env or "default"):
             # yield env
-        async with ArtifactLog(head_id=int(env)) as art_log:
+        if head_id is None:
+            raise HTTPException(status_code=400, detail="head_id is not supported")
+        async with ArtifactLog(head_id=int(head_id), branch_id=int(branch_id)) as art_log:
             yield art_log
     
     def validate_access(instance: MODEL, partitions: Dict[str, str]):
