@@ -51,6 +51,15 @@ class PGConnectionManager:
         assert cls._pool is not None, "Pool must be initialized"
         async with cls._pool.acquire() as conn:
             return await conn.fetch(query, *args)
+        
+        
+    @classmethod
+    async def fetch_one(cls, query: str, *args) -> asyncpg.Record:
+        if cls._pool is None:
+            await cls.initialize()
+        assert cls._pool is not None, "Pool must be initialized"
+        async with cls._pool.acquire() as conn:
+            return await conn.fetchrow(query, *args)
 
 
 
@@ -202,9 +211,14 @@ class ArtifactLog:
         await PGConnectionManager.execute("""
             CREATE TABLE IF NOT EXISTS branches (
                 id SERIAL PRIMARY KEY,
-                name TEXT NOT NULL,
-                path LTREE NOT NULL,
-                created_at TIMESTAMP DEFAULT NOW()
+                name TEXT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                branch_index INTEGER NOT NULL,
+                turn_counter INTEGER NOT NULL,
+                forked_from_turn_index INTEGER,
+                forked_from_branch_id INTEGER,
+                FOREIGN KEY (forked_from_branch_id) REFERENCES branches(id)
             );
         """)
 
@@ -217,7 +231,8 @@ class ArtifactLog:
                 created_at TIMESTAMP DEFAULT NOW(),
                 ended_at TIMESTAMP,
                 message TEXT,
-                FOREIGN KEY (branch_id) REFERENCES branches(id)
+                FOREIGN KEY (branch_id) REFERENCES branches(id),
+                local_state JSONB
             );
         """)
 
@@ -284,8 +299,8 @@ class ArtifactLog:
                 return self._head
 
         # Create main branch
-        query = "INSERT INTO branches (name, path) VALUES ($1, $2) RETURNING id;"
-        branch_rows = await PGConnectionManager.fetch(query, "main", "1")
+        query = "INSERT INTO branches (name, branch_index, turn_counter, forked_from_turn_index, forked_from_branch_id) VALUES ($1, $2, $3, $4, $5) RETURNING id;"
+        branch_rows = await PGConnectionManager.fetch(query, "main", 0, 0, None, None)
         branch_id = branch_rows[0]['id']
 
         # Create initial turn
@@ -312,31 +327,31 @@ class ArtifactLog:
         type, turn_id
         """
 
-    async def stage_artifact(self, model_instance: Any) -> int:
-        """
-        Stage a model instance as an artifact in the current turn.
-        The model must have a Config with versioned=True and an 'id' attribute.
-        """
-        config = getattr(model_instance.__class__, 'Config', None)
-        if not config or not getattr(config, 'versioned', False):
-            raise ValueError(f"Model {model_instance.__class__.__name__} is not versioned")
+    # async def stage_artifact(self, model_instance: Any) -> int:
+    #     """
+    #     Stage a model instance as an artifact in the current turn.
+    #     The model must have a Config with versioned=True and an 'id' attribute.
+    #     """
+    #     config = getattr(model_instance.__class__, 'Config', None)
+    #     if not config or not getattr(config, 'versioned', False):
+    #         raise ValueError(f"Model {model_instance.__class__.__name__} is not versioned")
 
-        artifact_table = await self.register_model(model_instance.__class__)
-        current_head = self.head
-        if not current_head:
-            raise ValueError("No active head found")
+    #     artifact_table = await self.register_model(model_instance.__class__)
+    #     current_head = self.head
+    #     if not current_head:
+    #         raise ValueError("No active head found")
 
-        # Insert into base_artifacts table
-        query = "INSERT INTO base_artifacts (type, model_id, turn_id) VALUES ($1, $2, $3) RETURNING id;"
-        artifact_type = artifact_table  # using table name as identifier
-        rows = await PGConnectionManager.fetch(query, artifact_type, model_instance.id, current_head['turn_id'])
-        artifact_id = rows[0]['id']
+    #     # Insert into base_artifacts table
+    #     query = "INSERT INTO base_artifacts (type, model_id, turn_id) VALUES ($1, $2, $3) RETURNING id;"
+    #     artifact_type = artifact_table  # using table name as identifier
+    #     rows = await PGConnectionManager.fetch(query, artifact_type, model_instance.id, current_head['turn_id'])
+    #     artifact_id = rows[0]['id']
 
-        # Insert into the artifact-specific table
-        query = f"INSERT INTO {artifact_table} (id) VALUES ($1) RETURNING id;"
-        await PGConnectionManager.fetch(query, artifact_id)
+    #     # Insert into the artifact-specific table
+    #     query = f"INSERT INTO {artifact_table} (id) VALUES ($1) RETURNING id;"
+    #     await PGConnectionManager.fetch(query, artifact_id)
 
-        return artifact_id
+    #     return artifact_id
 
     async def commit_turn(self, message: Optional[str] = None) -> int:
         """
@@ -378,20 +393,21 @@ class ArtifactLog:
             raise ValueError("No active head found")
 
         new_branch_name = name if name is not None else f"branch_from_{turn_id}"
-        query = "SELECT path FROM branches WHERE id = $1;"
-        branch_rows = await PGConnectionManager.fetch(query, source_turn['branch_id'])
-        branch_path = branch_rows[0]['path']
-        new_path = branch_path + '.' + str(turn_id)
+        # query = "SELECT path FROM branches WHERE id = $1;"
+        # branch_rows = await PGConnectionManager.fetch(query, source_turn['branch_id'])
+        # branch_path = branch_rows[0]['path']
+        # new_path = branch_path + '.' + str(turn_id)
 
-        query = "INSERT INTO branches (name, path) VALUES ($1, $2) RETURNING id;"
-        new_branch_rows = await PGConnectionManager.fetch(query, new_branch_name, new_path)
+        query = "INSERT INTO branches (name, branch_index, turn_counter, forked_from_turn_index, forked_from_branch_id) VALUES ($1, $2, $3, $4, $5) RETURNING id;"
+        new_branch_rows = await PGConnectionManager.fetch(query, new_branch_name, 0,0, source_turn['index'], source_turn['branch_id'])
         new_branch_id = new_branch_rows[0]['id']
 
         if check_out:
-            query = "UPDATE heads SET branch_id = $1, turn_id = $2 WHERE id = $3;"
-            await PGConnectionManager.execute(query, new_branch_id, turn_id, current_head['id'])
-            current_head['branch_id'] = new_branch_id
-            current_head['turn_id'] = turn_id
+            await self.checkout_branch(new_branch_id)
+            # query = "UPDATE heads SET branch_id = $1, turn_id = $2 WHERE id = $3;"
+            # await PGConnectionManager.execute(query, new_branch_id, turn_id, current_head['id'])
+            # current_head['branch_id'] = new_branch_id
+            # current_head['turn_id'] = turn_id
 
         return new_branch_id
 
@@ -483,12 +499,12 @@ class ArtifactLog:
         """
         return ArtifactQuery(model_type)
 
-    async def get_turn(self, turn_id: int) -> Dict[str, Any]:
+    async def get_turn(self, turn_id: int) -> Turn:
         query = "SELECT * FROM turns WHERE id = $1;"
         rows = await PGConnectionManager.fetch(query, turn_id)
         if not rows:
             raise ValueError(f"Turn {turn_id} not found")
-        return dict(rows[0])
+        return Turn(**dict(rows[0]))
 
     async def get_branch(self, branch_id: int) -> Dict[str, Any]:
         query = "SELECT * FROM branches WHERE id = $1;"
@@ -497,58 +513,79 @@ class ArtifactLog:
             raise ValueError(f"Branch {branch_id} not found")
         return dict(rows[0])
     
-    async def get_turn_list(self, include_parent_branches: bool = True, status: Optional[TurnStatus] = None) -> List[Turn]:
-        """
-        Fetch the list of turns based on the current head.
-        
-        Args:
-            include_parent_branches: If True, include turns from parent branches
-            status: Optional filter for turn status (STAGED, COMMITTED, or REVERTED)
-            
-        Returns:
-            List of turns with their branch information, ordered by branch path and turn index
-        """
-        current_head = self.head
-        if not current_head:
-            raise ValueError("No active head found")
-            
-        # Get current branch path to find parent branches if needed
-        query = "SELECT path FROM branches WHERE id = $1;"
-        branch_rows = await PGConnectionManager.fetch(query, current_head['branch_id'])
-        if not branch_rows:
-            raise ValueError("Branch not found")
-        current_path = branch_rows[0]['path']
-        
-        # Build the query to fetch turns
-        query = """
+    # async def get_artifact_list(self, artifact_table: str, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[dict]:
+    #     turn = await self.get_turn(self.head["turn_id"])
+    #     query = """
+    #     WITH RECURSIVE branch_hierarchy AS (
+    #         SELECT 
+    #             id,
+    #             name,
+    #             forked_from_turn_index,
+    #             forked_from_branch_id,
+    #             $1 as start_turn_index
+    #         FROM branches
+    #         WHERE id=$2
+
+    #         UNION ALL
+
+    #         SELECT
+    #             b.id,
+    #             b.name,
+    #             b.forked_from_turn_index,
+    #             b.forked_from_branch_id,
+    #             bh.forked_from_turn_index as start_turn_index
+    #         FROM branches b
+    #         JOIN branch_hierarchy bh ON b.id=bh.forked_from_branch_id
+    #     )
+    #     SELECT 
+    #         m.*
+    #     FROM branch_hierarchy bh 
+    #     LEFT JOIN turns t ON bh.id = t.branch_id
+    #     RIGHT JOIN "$3" m on t.id=m.turn_id
+    #     WHERE t.index <= bh.start_turn_index
+    #     ORDER BY m.created_at DESC
+    #     LIMIT 5 OFFSET 2;
+    #     """
+    #     rows = await PGConnectionManager.fetch(query, turn.index, turn.branch_id, artifact_table)
+    #     # rows = await PGConnectionManager.fetch(query, turn.index, turn.branch_id, artifact_table, order_by, order_direction, limit, offset)
+    #     return [dict(row) for row in rows]
+    
+    async def get_artifact_list(self, artifact_table: str, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[dict]:
+        turn = await self.get_turn(self.head["turn_id"])
+        query = f"""
+        WITH RECURSIVE branch_hierarchy AS (
             SELECT 
-                t.*,
-                b.name as branch_name,
-                b.path as branch_path
-            FROM turns t
-            JOIN branches b ON t.branch_id = b.id
-            WHERE 1=1
+                id,
+                name,
+                forked_from_turn_index,
+                forked_from_branch_id,
+                {turn.index} as start_turn_index
+            FROM branches
+            WHERE id={turn.branch_id}
+
+            UNION ALL
+
+            SELECT
+                b.id,
+                b.name,
+                b.forked_from_turn_index,
+                b.forked_from_branch_id,
+                bh.forked_from_turn_index as start_turn_index
+            FROM branches b
+            JOIN branch_hierarchy bh ON b.id=bh.forked_from_branch_id
+        )
+        SELECT 
+            m.*
+        FROM branch_hierarchy bh 
+        LEFT JOIN turns t ON bh.id = t.branch_id
+        RIGHT JOIN "{artifact_table}" m on t.id=m.turn_id
+        WHERE t.index <= bh.start_turn_index
+        ORDER BY m.{order_by} {order_direction}
+        LIMIT {limit} OFFSET {offset};
         """
-        
-        params = []
-        if include_parent_branches:
-            # Include turns from the current branch and its ancestors
-            query += " AND b.path @> $1"
-            params.append(current_path)
-        else:
-            # Only include turns from the current branch
-            query += " AND t.branch_id = $1"
-            params.append(current_head['branch_id'])
-            
-        if status:
-            query += " AND t.status = $" + str(len(params) + 1)
-            params.append(status.value)
-            
-        # Order by branch path (to group related branches together) and turn index
-        query += " ORDER BY b.path::text, t.index"
-        
-        rows = await PGConnectionManager.fetch(query, *params)
-        return [Turn(**dict(row)) for row in rows]
+        rows = await PGConnectionManager.fetch(query)        
+        return [dict(row) for row in rows]
+    
     
     
     
