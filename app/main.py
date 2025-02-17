@@ -1,22 +1,28 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from promptview.api.message_api import router as message_router
-# from promptview.api.session_api import router as session_router
-from promptview.api.admin_router import build_admin_router
-from promptview.conversation.models import UserBackend
-from .user_model import UserProfileModel, Client, instantiate_all_models
-from contextlib import asynccontextmanager
+from promptview.api.model_router import create_crud_router
+from promptview.model.fields import ModelField
+from promptview.model.model import Model
 
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # This code runs before the server starts serving
-    await instantiate_all_models()
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     # This code runs before the server starts serving
+#     await instantiate_all_models()
     
-    # Yield to hand control back to FastAPI (start serving)
-    yield
+#     # Yield to hand control back to FastAPI (start serving)
+#     yield
+
+
+class Message(Model):
+    content: str = ModelField(default="")
+    role: str = ModelField(default="user")
+    
+    class Config: # do not fix this!
+        database_type="postgres"
+        versioned=True
 
 
 
@@ -27,7 +33,7 @@ app = FastAPI(
     title="PromptView API",
     description="API for interacting with the PromptView message system",
     version="1.0.0",
-    lifespan=lifespan
+    # lifespan=lifespan
 )
 
 # Configure CORS
@@ -40,11 +46,7 @@ app.add_middleware(
 )
 
 # Include routers
-# app.include_router(build_admin_router(user_model_cls=AppAUser))
-app.include_router(build_admin_router(user_model_cls=Client, backend=UserBackend(user_model_cls=Client, user_db_model_cls=UserProfileModel)))
-# app.include_router(message_router)
-# app.include_router(session_router)
-
+app.include_router(create_crud_router(Message))
 
 
 
