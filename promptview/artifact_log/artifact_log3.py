@@ -626,6 +626,7 @@ class ArtifactLog:
         return self._branch_cte_query(turn, select_query=turn_select_query)
     
     
+    
     def _artifact_cte_query(
         self,
         turn: Turn,
@@ -649,3 +650,47 @@ class ArtifactLog:
         return query
     
     
+    
+    
+    async def artifact_cte_raw_query(
+        self, 
+        artifact_table: str,
+        artifact_query: str,        
+    ):
+        
+        turn = await self.get_turn(self.head["turn_id"])
+        artifact_query = artifact_query.replace(artifact_table, "filtered_artifacts")
+        query = f"""
+        WITH RECURSIVE branch_hierarchy AS (
+            SELECT 
+                id,
+                name,
+                forked_from_turn_index,
+                forked_from_branch_id,
+                {turn.index} AS start_turn_index
+            FROM branches
+            WHERE id = {turn.branch_id}
+
+            UNION ALL
+
+            SELECT
+                b.id,
+                b.name,
+                b.forked_from_turn_index,
+                b.forked_from_branch_id,
+                bh.forked_from_turn_index AS start_turn_index
+            FROM branches b
+            JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id
+        ),
+        filtered_artifacts AS (
+            SELECT 
+                m.*
+            FROM branch_hierarchy bh 
+            JOIN turns t ON bh.id = t.branch_id
+            JOIN "{artifact_table}" m ON t.id = m.turn_id
+            WHERE t.index <= bh.start_turn_index
+        )
+        {artifact_query}
+        """
+        res = await PGConnectionManager.fetch(query)
+        return [dict(row) for row in res]

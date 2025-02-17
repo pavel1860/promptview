@@ -589,6 +589,7 @@ class PostgresClient:
 
     async def execute_query(self, collection_name: str, query_set: "QuerySet"):
         """Execute a query set and return the results."""
+        artifact_log = ArtifactLog.get_current()
         table_name = camel_to_snake(collection_name)
         
         if query_set.query_type == "vector":
@@ -641,8 +642,14 @@ class PostgresClient:
             if query_set._offset is not None:
                 query += f" OFFSET {query_set._offset}"
 
-            async with self.pool.acquire() as conn:
-                return await conn.fetch(query)
+            records = await artifact_log.artifact_cte_raw_query(
+                artifact_table=table_name,
+                artifact_query=query
+            )
+            return records
+            # return res
+            # async with self.pool.acquire() as conn:
+            #     return await conn.fetch(query)
                 
         elif query_set.query_type == "id":
             # Handle queries by ID

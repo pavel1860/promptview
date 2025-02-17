@@ -305,7 +305,7 @@ class ModelMeta(ModelMetaclass, type):
 class Model(BaseModel, metaclass=ModelMeta):
     # _id: str = PrivateAttr(default_factory=lambda: str(uuid4()))
     # _score: float = PrivateAttr(default=-1)
-    id: str = Field(default_factory=lambda: str(uuid4()), description="Unique Identifier")
+    id: str | int = Field(default_factory=lambda: str(uuid4()), description="Unique Identifier")
     score: float = Field(default=-1, description="Score of the document. Default is -1")
     _partitions: dict[str, str] = PrivateAttr(default_factory=dict)
     _default_temporal_field: str = PrivateAttr(default=None)
