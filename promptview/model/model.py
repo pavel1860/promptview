@@ -305,8 +305,10 @@ class ModelMeta(ModelMetaclass, type):
 class Model(BaseModel, metaclass=ModelMeta):
     # _id: str = PrivateAttr(default_factory=lambda: str(uuid4()))
     # _score: float = PrivateAttr(default=-1)
-    id: str | int = Field(default_factory=lambda: str(uuid4()), description="Unique Identifier")
+    # id: str | int = Field(default_factory=lambda: str(uuid4()), description="Unique Identifier")
+    id: str | int = Field(..., description="Unique Identifier")
     score: float = Field(default=-1, description="Score of the document. Default is -1")
+    turn_id: str | int = Field(default=-1, description="Unique Identifier of the turn")
     _partitions: dict[str, str] = PrivateAttr(default_factory=dict)
     _default_temporal_field: str = PrivateAttr(default=None)
     _namespace: str | None = PrivateAttr(default=None)
@@ -326,16 +328,23 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     def __init__(
             self,
-            _id=None, 
-            _score=None,
-            _vector=None, 
+            # _id=None, 
+            # _score=None,
+            _vector=None,
             **data
         ):
+        if "id" not in data:
+            if self.__class__.Config.database_type == "qdrant":
+                data["id"] = str(uuid4())
+            else:
+                data["id"] = -1
         super().__init__(**data)
-        if _id:
-            self._id = _id
-        if _score:
-            self._score = _score 
+        # if _id:
+        #     self._id = _id
+        # if _score:
+        #     self._score = _score 
+        # if id:
+        #     self.id = id
         if _vector:
             self._vector = _vector
         
@@ -439,6 +448,7 @@ class Model(BaseModel, metaclass=ModelMeta):
                 ids=[self.id],
                 model_cls=self.__class__
             )
+        self.id = res[0]['id']
         return self
 
         

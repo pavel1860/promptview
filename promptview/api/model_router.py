@@ -17,6 +17,13 @@ MODEL = TypeVar("MODEL", bound=Model)
 
 
 
+def unpack_int_env_header(request: Request, field: str):    
+    value = request.headers.get(field)
+    if value is None or value == "null":
+        return None
+    return int(value)
+        
+
 
 def create_crud_router(model: Type[MODEL]) -> APIRouter:
     # router = APIRouter(prefix=f"/{model.__name__.lower()}", tags=[model.__name__.lower()])
@@ -41,13 +48,13 @@ def create_crud_router(model: Type[MODEL]) -> APIRouter:
     
     
     async def env_ctx(request: Request):
-        head_id = request.headers.get("head_id")
-        branch_id = request.headers.get("branch_id")
+        head_id = unpack_int_env_header(request, "head_id")
+        branch_id = unpack_int_env_header(request, "branch_id")
         # with connection_manager.set_env(env or "default"):
             # yield env
         if head_id is None:
             raise HTTPException(status_code=400, detail="head_id is not supported")
-        async with ArtifactLog(head_id=int(head_id), branch_id=int(branch_id)) as art_log:
+        async with ArtifactLog(head_id=head_id, branch_id=branch_id) as art_log:
             yield art_log
     
     def validate_access(instance: MODEL, partitions: Dict[str, str]):
@@ -124,7 +131,7 @@ def create_crud_router(model: Type[MODEL]) -> APIRouter:
             # partitions: dict = Depends(get_partitions),
             env: str = Depends(env_ctx)
         ):
-        model_query = model.limit(limit).offset(offset)
+        model_query = model.limit(limit).offset(offset).order_by("created_at", False)
         # model_query._filters = filters
         instances = await model_query        
         return instances

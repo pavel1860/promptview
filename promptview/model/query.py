@@ -631,8 +631,8 @@ class QuerySet(Generic[MODEL]):
     
     
     def order_by(self, key, ascending: bool=False, start_from=None) -> "QuerySet[MODEL]":
-        if self._offset is not None:
-            raise ValueError("Cannot use order_by with offset, use start_from instead")
+        # if self._offset is not None:
+            # raise ValueError("Cannot use order_by with offset, use start_from instead")
         self._order_by = {
             "key": key,
             "direction": "asc" if ascending else "desc",

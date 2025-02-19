@@ -2,7 +2,7 @@ from typing import Dict, Type, List, TypeVar, Generic
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.datastructures import QueryParams
 
-from promptview.artifact_log.artifact_log3 import ArtifactLog, Branch
+from promptview.artifact_log.artifact_log3 import ArtifactLog, Branch, Head, Turn
 
 
 
@@ -23,7 +23,7 @@ def get_artifact_log(request: Request):
 @router.get("/branches", response_model=List[Branch])
 async def get_branches(artifact_log: ArtifactLog = Depends(get_artifact_log)):
     async with artifact_log:
-        branches = await artifact_log.get_branch_list()
+        branches = await artifact_log.get_branch_list(order_direction="ASC")
         return branches
 
 
@@ -34,5 +34,30 @@ async def get_branch(branch_id: int, artifact_log: ArtifactLog = Depends(get_art
         return branch
 
 
+@router.get("/all_turns", response_model=List[Turn])
+async def get_all_turns(artifact_log: ArtifactLog = Depends(get_artifact_log)):
+    async with artifact_log:
+        turns = await artifact_log.get_all_turns()
+        return turns
 
+@router.get("/heads/{head_id}", response_model=Head)
+async def get_head(head_id: int, artifact_log: ArtifactLog = Depends(get_artifact_log)):
+    async with artifact_log:
+        head = artifact_log.head
+        return Head(**dict(head))
+
+    
+    
+@router.get("/turns/{branch_id}", response_model=List[Turn])
+async def get_branch_turns(branch_id: int, artifact_log: ArtifactLog = Depends(get_artifact_log)):
+    async with artifact_log:
+        turns = await artifact_log.get_branch_turns(branch_id)
+        return turns
+
+
+
+@router.get("/heads", response_model=List[Head])
+async def get_head_list():    
+    heads = await ArtifactLog.get_head_list()
+    return heads
 

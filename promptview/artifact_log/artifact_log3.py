@@ -1,4 +1,5 @@
 from contextvars import ContextVar
+import json
 import os
 import asyncpg
 import enum
@@ -79,6 +80,18 @@ class Turn(BaseModel):
     created_at: datetime
     ended_at: datetime | None = None
     message: str | None = None
+    local_state: dict | None = None
+    forked_branches: List[dict] | None = None
+    
+    
+    def __init__(self, forked_branches: List[dict] | str | None = None, **kwargs):
+        if forked_branches is None:
+            forked_branches = []
+        elif isinstance(forked_branches, str):
+            forked_branches = json.loads(forked_branches)
+        super().__init__(**kwargs)
+        self.forked_branches = forked_branches
+    
     
 
 class Branch(BaseModel):
@@ -90,7 +103,16 @@ class Branch(BaseModel):
     turn_counter: int
     forked_from_turn_index: int | None = None
     forked_from_branch_id: int | None = None
-    
+
+
+class Head(BaseModel):
+    id: int
+    main_branch_id: int
+    branch_id: int
+    turn_id: int
+    created_at: datetime
+
+
 
 class ArtifactQuery:
     """A simple query builder for artifact records using raw SQL."""
@@ -204,7 +226,9 @@ class ArtifactLog:
         return self
     
     async def __aexit__(self, exc_type, exc_value, traceback):
-        ARTIFCAT_LOG_CTX.reset(self._token)
+        if self._token is not None:
+            ARTIFCAT_LOG_CTX.reset(self._token)
+            self._token=None
         
     @property
     def is_initialized(self) -> bool:
@@ -216,7 +240,61 @@ class ArtifactLog:
         # Create required extensions and tables
         await PGConnectionManager.execute("CREATE EXTENSION IF NOT EXISTS ltree;")
 
+        # await PGConnectionManager.execute("""
+        #     CREATE TABLE IF NOT EXISTS branches (
+        #         id SERIAL PRIMARY KEY,
+        #         name TEXT,
+        #         created_at TIMESTAMP DEFAULT NOW(),
+        #         updated_at TIMESTAMP DEFAULT NOW(),
+        #         branch_index INTEGER NOT NULL,
+        #         turn_counter INTEGER NOT NULL,
+        #         forked_from_turn_index INTEGER,
+        #         forked_from_branch_id INTEGER,
+        #         head_id INTEGER NOT NULL,
+        #         FOREIGN KEY (forked_from_branch_id) REFERENCES branches(id),
+        #         FOREIGN KEY (head_id) REFERENCES heads(id)
+        #     );
+        # """)
+
+        # await PGConnectionManager.execute("""
+        #     CREATE TABLE IF NOT EXISTS turns (
+        #         id SERIAL PRIMARY KEY,
+        #         branch_id INTEGER NOT NULL,
+        #         index INTEGER NOT NULL,
+        #         status TEXT NOT NULL,
+        #         created_at TIMESTAMP DEFAULT NOW(),
+        #         ended_at TIMESTAMP,
+        #         message TEXT,
+        #         FOREIGN KEY (branch_id) REFERENCES branches(id),
+        #         local_state JSONB
+        #     );
+        # """)
+
+        # await PGConnectionManager.execute("""
+        #     CREATE TABLE IF NOT EXISTS heads (
+        #         id SERIAL PRIMARY KEY,
+        #         branch_id INTEGER NOT NULL,
+        #         turn_id INTEGER NOT NULL,
+        #         created_at TIMESTAMP DEFAULT NOW(),
+        #         FOREIGN KEY (branch_id) REFERENCES branches(id),
+        #         FOREIGN KEY (turn_id) REFERENCES turns(id)
+        #     );
+        # """)
+
+        # await PGConnectionManager.execute("""
+        #     CREATE TABLE IF NOT EXISTS base_artifacts (
+        #         id SERIAL PRIMARY KEY,
+        #         type TEXT,
+        #         model_id TEXT,
+        #         turn_id INTEGER,
+        #         created_at TIMESTAMP DEFAULT NOW(),
+        #         FOREIGN KEY (turn_id) REFERENCES turns(id)
+        #     );
+        # """)
+        
+        
         await PGConnectionManager.execute("""
+                                          
             CREATE TABLE IF NOT EXISTS branches (
                 id SERIAL PRIMARY KEY,
                 name TEXT,
@@ -228,9 +306,7 @@ class ArtifactLog:
                 forked_from_branch_id INTEGER,
                 FOREIGN KEY (forked_from_branch_id) REFERENCES branches(id)
             );
-        """)
 
-        await PGConnectionManager.execute("""
             CREATE TABLE IF NOT EXISTS turns (
                 id SERIAL PRIMARY KEY,
                 branch_id INTEGER NOT NULL,
@@ -242,20 +318,24 @@ class ArtifactLog:
                 FOREIGN KEY (branch_id) REFERENCES branches(id),
                 local_state JSONB
             );
-        """)
-
-        await PGConnectionManager.execute("""
+                                          
             CREATE TABLE IF NOT EXISTS heads (
                 id SERIAL PRIMARY KEY,
-                branch_id INTEGER NOT NULL,
-                turn_id INTEGER NOT NULL,
+                branch_id INTEGER,
+                main_branch_id INTEGER,
+                turn_id INTEGER,
                 created_at TIMESTAMP DEFAULT NOW(),
                 FOREIGN KEY (branch_id) REFERENCES branches(id),
-                FOREIGN KEY (turn_id) REFERENCES turns(id)
+                FOREIGN KEY (turn_id) REFERENCES turns(id),
+                FOREIGN KEY (main_branch_id) REFERENCES branches(id)
             );
-        """)
+            
+            ALTER TABLE branches
+            ADD COLUMN head_id INTEGER NOT NULL;
 
-        await PGConnectionManager.execute("""
+            ALTER TABLE branches
+            ADD CONSTRAINT fk_head_id FOREIGN KEY (head_id) REFERENCES heads(id);
+            
             CREATE TABLE IF NOT EXISTS base_artifacts (
                 id SERIAL PRIMARY KEY,
                 type TEXT,
@@ -308,20 +388,24 @@ class ArtifactLog:
                     await self.checkout_branch(branch_id)
                 return self._head
 
-        # Create main branch
-        query = "INSERT INTO branches (name, branch_index, turn_counter, forked_from_turn_index, forked_from_branch_id) VALUES ($1, $2, $3, $4, $5) RETURNING id;"
-        branch_rows = await PGConnectionManager.fetch(query, "main", 0, 0, None, None)
+        # Create head with null placeholders for branch_id and turn_id
+        query = "INSERT INTO heads (branch_id, turn_id, main_branch_id) VALUES (NULL, NULL, NULL) RETURNING id;"
+        head_rows = await PGConnectionManager.fetch(query)
+        new_head_id = head_rows[0]['id']
+
+        # Create main branch with the new head id
+        query = "INSERT INTO branches (name, branch_index, turn_counter, forked_from_turn_index, forked_from_branch_id, head_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;"
+        branch_rows = await PGConnectionManager.fetch(query, "main", 0, 0, None, None, new_head_id)
         branch_id = branch_rows[0]['id']
 
-        # Create initial turn
+        # Create initial turn for the branch
         query = "INSERT INTO turns (branch_id, index, status) VALUES ($1, $2, $3) RETURNING id;"
         turn_rows = await PGConnectionManager.fetch(query, branch_id, 1, TurnStatus.STAGED.value)
         turn_id = turn_rows[0]['id']
 
-        # Create head
-        query = "INSERT INTO heads (branch_id, turn_id) VALUES ($1, $2) RETURNING id;"
-        head_rows = await PGConnectionManager.fetch(query, branch_id, turn_id)
-        new_head_id = head_rows[0]['id']
+        # Update the previously created head with the actual branch and turn
+        query = "UPDATE heads SET branch_id=$1, main_branch_id=$2, turn_id=$3 WHERE id=$4;"
+        await PGConnectionManager.execute(query, branch_id, branch_id, turn_id, new_head_id)
         self._head = {"id": new_head_id, "branch_id": branch_id, "turn_id": turn_id}
         return self._head
 
@@ -408,8 +492,8 @@ class ArtifactLog:
         # branch_path = branch_rows[0]['path']
         # new_path = branch_path + '.' + str(turn_id)
 
-        query = "INSERT INTO branches (name, branch_index, turn_counter, forked_from_turn_index, forked_from_branch_id) VALUES ($1, $2, $3, $4, $5) RETURNING id;"
-        new_branch_rows = await PGConnectionManager.fetch(query, new_branch_name, 0,0, source_turn['index'], source_turn['branch_id'])
+        query = "INSERT INTO branches (name, branch_index, turn_counter, forked_from_turn_index, forked_from_branch_id, head_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;"
+        new_branch_rows = await PGConnectionManager.fetch(query, new_branch_name, 0,0, source_turn['index'], source_turn['branch_id'], current_head['id'])
         new_branch_id = new_branch_rows[0]['id']
 
         if check_out:
@@ -538,8 +622,67 @@ class ArtifactLog:
         rows = await PGConnectionManager.fetch(query)        
         return [dict(row) for row in rows]
     
+    
+    
     async def get_all_turns(self) -> List[Turn]:
-        query = ""
+        query = """
+        SELECT 
+            t.*
+        FROM heads h
+        JOIN branches b ON b.head_id=h.id
+        JOIN turns t ON t.branch_id=b.id
+        """
+        rows = await PGConnectionManager.fetch(query)
+        return [Turn(**dict(row)) for row in rows]
+    
+    @classmethod
+    async def get_head_list(cls) -> List[Head]:
+        query = """
+            SELECT * FROM heads
+        """
+        rows = await PGConnectionManager.fetch(query)
+        return [Head(**dict(row)) for row in rows]
+    
+    
+    async def get_branch_turns(self, branch_id: int, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[Turn]:
+        query = f"""
+            SELECT 
+                t.id,
+                t.branch_id,
+                t.index,
+                t.status,
+                t.created_at,
+                t.ended_at,
+                t.message,
+                t.local_state,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', b.id,
+                            'name', b.name,
+                            'branch_index', b.branch_index,
+                            'turn_counter', b.turn_counter,
+                            'forked_from_turn_index', b.forked_from_turn_index,
+                            'forked_from_branch_id', b.forked_from_branch_id,
+                            'created_at', b.created_at,
+                            'updated_at', b.updated_at
+                        ) ORDER BY b.branch_index  -- ordering the aggregated forked branches by branch_index
+                    ) FILTER (WHERE b.id IS NOT NULL),
+                    '[]'
+                ) AS forked_branches
+            FROM turns t
+            LEFT JOIN branches b 
+                ON b.forked_from_branch_id = t.branch_id 
+            AND b.forked_from_turn_index = t.index
+            WHERE t.branch_id = {branch_id}  -- Parameter for the specific branch_id
+            GROUP BY t.id
+            ORDER BY t.index ASC     -- Ordering the turns by their index
+            LIMIT {limit} OFFSET {offset};      -- Limit and offset parameters
+
+        """
+        rows = await PGConnectionManager.fetch(query)
+        return [Turn(**dict(row)) for row in rows]
+    
     
     async def get_turn_list(self, limit: int = 10, status: Optional[TurnStatus] = None, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[Turn]:
         turn = await self.get_turn(self.head["turn_id"])

@@ -120,7 +120,7 @@ class PostgresClient:
     
         # Add columns for each model field
         for field_name, field in model_cls.model_fields.items():            
-            if field_name == "id" or field_name == "_subspace" or field_name == "score":  # Skip id as it's already added
+            if field_name in ["id", "turn_id", "_subspace", "score"]:
                 continue
             create_table_sql += "\n"
             field_type = field.annotation
