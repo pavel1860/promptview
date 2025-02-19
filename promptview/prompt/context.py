@@ -1,7 +1,7 @@
 from abc import abstractmethod
 import contextvars
 from enum import Enum
-from typing import Any, Generic, List, Type, TypeVar, Union, Dict
+from typing import Any, Callable, Generic, List, Type, TypeVar, Union, Dict
 
 from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.conversation.message_log import MessageLog, SessionManager
@@ -22,22 +22,20 @@ class MessageView(TypedDict):
 
 
 
+CURR_CONTEXT = contextvars.ContextVar("curr_context")
 
 
+MODEL = TypeVar("MODEL", bound=Model)
 
 
-
-
-class BlockStream:
+class BlockStream(Generic[MODEL]):
     
     def __init__(
-        self, 
-        message_log: MessageLog, 
-        blocks: List[StrBlock] | None = None, 
+        self,         
+        blocks: List[StrBlock] | None = None,        
         run_id: str | None = None, 
         prompt_name: str | None = None
     ):
-        self.message_log = message_log
         self._blocks = []
         self._block_lookup = defaultdict(list)        
         if blocks:
@@ -46,17 +44,16 @@ class BlockStream:
         self._dirty = True
         self.response = None
         self.run_id = run_id
-        self.prompt_name = prompt_name
-    
+        self.prompt_name = prompt_name  
     
     def __add__(self, other: Union[list[StrBlock] , "BlockStream"]):
         if isinstance(other, list):
             for i, b in enumerate(other):
                 if not isinstance(b, StrBlock):
                     raise ValueError(f"Invalid block type: {type(b)} at index {i}")
-            return BlockStream(self.message_log, self._blocks + other, run_id=self.run_id, prompt_name=self.prompt_name)
+            return BlockStream(self._blocks + other, run_id=self.run_id, prompt_name=self.prompt_name)
         elif isinstance(other, BlockStream):
-            return BlockStream(self.message_log, self._blocks + other._blocks, run_id=self.run_id, prompt_name=self.prompt_name)
+            return BlockStream(self._blocks + other._blocks, run_id=self.run_id, prompt_name=self.prompt_name)
         else:       
             raise ValueError(f"Invalid type: {type(other)}")
         
@@ -65,9 +62,9 @@ class BlockStream:
             for i, b in enumerate(other):
                 if not isinstance(b, StrBlock):
                     raise ValueError(f"Invalid block type: {type(b)} at index {i}")
-            return BlockStream(self.message_log, other + self._blocks, run_id=self.run_id, prompt_name=self.prompt_name)
+            return BlockStream(other + self._blocks, run_id=self.run_id, prompt_name=self.prompt_name)
         elif isinstance(other, BlockStream):
-            return BlockStream(self.message_log, other._blocks + self._blocks, run_id=self.run_id, prompt_name=self.prompt_name)
+            return BlockStream(other._blocks + self._blocks, run_id=self.run_id, prompt_name=self.prompt_name)
         else:       
             raise ValueError(f"Invalid type: {type(other)}")        
     
@@ -121,67 +118,72 @@ class BlockStream:
         return chat_blocks
         
         
-    def block(self, title=None, ttype: TitleType="md", role: BlockRole = "user", name: str | None = None, id: str | None = None):
-        lb = StrBlock(title=title, ttype=ttype, id=id, role=role, name=name)
-        self.append(lb)
-        return lb
+    # def block(self, title=None, ttype: TitleType="md", role: BlockRole = "user", name: str | None = None, id: str | None = None):
+    #     lb = StrBlock(title=title, ttype=ttype, id=id, role=role, name=name)
+    #     self.append(lb)
+    #     return lb
     
-    def list(self, title=None, ttype: TitleType="md", bullet: BulletType = "-", role: BlockRole = "user", name: str | None = None, id: str | None = None):        
-        lb = ListBlock(title=title, ttype=ttype, bullet=bullet, id=id, role=role, name=name)
-        self.append(lb)
-        return lb
+    # def list(self, title=None, ttype: TitleType="md", bullet: BulletType = "-", role: BlockRole = "user", name: str | None = None, id: str | None = None):        
+    #     lb = ListBlock(title=title, ttype=ttype, bullet=bullet, id=id, role=role, name=name)
+    #     self.append(lb)
+    #     return lb
     
-    async def push(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):
+    async def push(self, block: StrBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):
         platform_id = None
         action_calls = None        
-        if isinstance(block, str) or isinstance(block, dict):
-            content = block    
-            block = TitleBlock(content=block, role=role or "user", id=id)
-            _role = role or "user"
-        elif isinstance(block, BaseBlock):
+        
+        if isinstance(block, StrBlock):
             content = block.render()
             _role = role or block.role or "user"
             if action:
                 platform_id = action.id
             if isinstance(block, ResponseBlock):
                 action_calls = [a.model_dump() for a in block.action_calls]
+        elif isinstance(block, str) or isinstance(block, dict):
+            content = block    
+            block = StrBlock(block, role=role or "user", id=id)
+            _role = role or "user"
         else:
             raise ValueError(f"Invalid block type: {type(block)}")
-        message = Message(
-            content=content,
-            role=_role,
-            name=id,
-            platform_id=platform_id,
-            extra={"action_calls": action_calls}
-        )        
-        message = await self.message_log.append(message)
-        block.db_msg_id = message.id
-        self.append(block)
-        return message
+        
+        model = CURR_CONTEXT.get().from_blocks(block)
+        await model.save()
+        # model = self.from_blocks(block)
+        # message = Message(
+        #     content=content,
+        #     role=_role,
+        #     name=id,
+        #     platform_id=platform_id,
+        #     extra={"action_calls": action_calls}
+        # )        
+        # message = await self.message_log.append(message)
+        # block.db_msg_id = message.id
+        # self.append(block)
+        return model
     
     
         
-    async def commit_turn(self):
-        await self.message_log.commit()
+    # async def commit_turn(self):
+        # await self.artifact_log.commit_turn()
 
-    async def delete(self, block: BaseBlock):
-        if block.db_msg_id:
-            await self.message_log.delete_message(id=block.db_msg_id)
-        self._blocks.remove(block)
-        if block.id in self._block_lookup:
-            self._block_lookup[block.id].remove(block)
+    # async def delete(self, block: BaseBlock):
+        # if block.db_msg_id:
+            # await self.message_log.delete_message(id=block.db_msg_id)
+        # self._blocks.remove(block)
+        # if block.id in self._block_lookup:
+            # self._block_lookup[block.id].remove(block)
         
     
-    def blocks_to_messages(self, blocks: List[BaseBlock]):
-        messages = []
-        for block in blocks:
-            if isinstance(block, ResponseBlock):
-                messages.append(Message(role="assistant", content=block.render(), platform_uuid=block.platform_id, action_calls=[a.model_dump() for a in block.action_calls]))
-            elif block.role == "tool":
-                messages.append(Message(role="tool", content=block.render(), platform_uuid=block.platform_id))
-            else:
-                messages.append(Message(role="user", content=block.render(), platform_uuid=block.platform_id))
-        return messages
+    # def blocks_to_messages(self, blocks: List[BaseBlock]):
+    #     messages = []
+    #     for block in blocks:
+    #         if isinstance(block, ResponseBlock):
+    #             messages.append(Message(role="assistant", content=block.render(), platform_uuid=block.platform_id, action_calls=[a.model_dump() for a in block.action_calls]))
+    #         elif block.role == "tool":
+    #             messages.append(Message(role="tool", content=block.render(), platform_uuid=block.platform_id))
+    #         else:
+    #             messages.append(Message(role="user", content=block.render(), platform_uuid=block.platform_id))
+    #     return messages
     
     
     def __getitem__(self, key):
@@ -197,7 +199,7 @@ class BlockStream:
 
 
 
-CURR_CONTEXT = contextvars.ContextVar("curr_context")
+
 
 
 class InitMethod(Enum):
@@ -206,7 +208,7 @@ class InitMethod(Enum):
     RESUME_SESSION = "resume_session"
     
     
-MODEL = TypeVar("MODEL", bound=Model)
+
 class ContextBase(Generic[MODEL]):
     _model: Type[MODEL]
     _artifact_log: ArtifactLog
@@ -425,7 +427,12 @@ class ContextBase(Generic[MODEL]):
         # await self.message_log.delete_message(id=id)
     
     @abstractmethod
-    def model_to_blocks(self, model: MODEL) -> StrBlock:
+    def to_blocks(self, model: MODEL) -> StrBlock:
+        pass
+    
+    
+    @abstractmethod
+    def from_blocks(self, block: StrBlock) -> MODEL:
         pass
     
     
@@ -469,9 +476,9 @@ class ContextBase(Generic[MODEL]):
         
     async def last(self, limit=10):
         records = await self._model.limit(limit).order_by("created_at")
-        blocks = [self.model_to_blocks(r) for r in records]
-        # block_stream = BlockStream(self.message_log, blocks)
-        return blocks
+        blocks = [self.to_blocks(r) for r in records]
+        block_stream = BlockStream(blocks)
+        return block_stream
     
     
     # def last_messages(self, limit=10):

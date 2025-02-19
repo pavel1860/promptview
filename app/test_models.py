@@ -26,7 +26,7 @@ class Message(Model):
 class Context(ContextBase[Message]):
     _model = Message
     
-    async def model_to_blocks(self, model: Message) -> StrBlock:
+    def to_blocks(self, model: Message) -> StrBlock:
         if model.role == "assistant":
             return StrBlock(
                 model.content,
@@ -42,3 +42,6 @@ class Context(ContextBase[Message]):
                 model.content,
                 role=model.role,
             )
+            
+    def from_blocks(self, block: StrBlock) -> Message:
+        return Message(content=str(block), role=block.role)
