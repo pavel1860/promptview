@@ -1,12 +1,11 @@
 from abc import abstractmethod
 import json
-from typing import List, Type
+from typing import Any, List, Type
 from .llm3 import LLM, BaseLlmClient
 from pydantic import Field, BaseModel
-from .messages import ActionCall, LlmUsage
 from .utils.action_manager import Actions
 # from ..prompt.block import BaseBlock, ResponseBlock
-from ..prompt.block2 import StrBlock
+from ..prompt.block2 import StrBlock, ToolCall
 import openai
 import os
 
@@ -29,16 +28,16 @@ class OpenAiLLM(LLM):
             }
         elif block.role == "assistant":
             oai_msg: dict[str, Any] = {"role": block.role}
-            if block.action_calls:
+            if block.tool_calls:
                 tool_calls = []
-                for action_call in block.action_calls:
+                for tool_call in block.tool_calls:
                     tool_calls.append({
-                    "id": action_call.id,
+                    "id": tool_call.id,
                         "type": "function",
                         "function": {
                             # "arguments": json.dumps(action_call.action.model_dump()),
-                            "arguments": action_call.action.model_dump_json() if isinstance(action_call.action, BaseModel) else json.dumps(action_call.action),
-                            "name": action_call.name
+                            "arguments": tool_call.to_json(),
+                            "name": tool_call.name
                         }                      
                     })
                 oai_msg["tool_calls"] = tool_calls
@@ -49,7 +48,7 @@ class OpenAiLLM(LLM):
             return oai_msg
         elif block.role == "tool":
             oai_msg = {
-                "tool_call_id": block.tool_call_id,
+                "tool_call_id": block.uuid,
                 "role": "tool",
                 "content": block.render()
             }
@@ -104,13 +103,14 @@ class OpenAiLLM(LLM):
                 action_instance = action_parser.from_openai(tool_call)
                 # tool_calls.append({"id": tool_call.id, "action": action_instance})
                 tool_calls.append(
-                    ActionCall(
+                    ToolCall(
                         id=tool_call.id,
                         name=tool_call.function.name,
-                        action=action_instance
+                        tool=action_instance
                     ))
         response_block = StrBlock(
             output.content,
+            role="assistant",
             # id=response.id,
             # model=response.model,
             # content=output.content,

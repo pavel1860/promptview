@@ -2,7 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import json
 from typing import Annotated
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from promptview.api.model_router import create_crud_router
@@ -61,17 +61,26 @@ def unpack_int_env_header(request: Request, field: str):
     return int(value)
 
 
-async def env_ctx(request: Request):
-    head_id = unpack_int_env_header(request, "head_id")
-    branch_id = unpack_int_env_header(request, "branch_id")
-    # with connection_manager.set_env(env or "default"):
-        # yield env
-    if head_id is None:
-        raise HTTPException(status_code=400, detail="head_id is not supported")
-    async with Context(head_id=head_id, branch_id=branch_id) as ctx:
-        yield ctx
-    # async with ArtifactLog(head_id=head_id, branch_id=branch_id) as art_log:
-        # yield art_log
+# async def env_ctx(request: Request):
+#     head_id = unpack_int_env_header(request, "head_id")
+#     branch_id = unpack_int_env_header(request, "branch_id")
+#     # with connection_manager.set_env(env or "default"):
+#         # yield env
+#     if head_id is None:
+#         raise HTTPException(status_code=400, detail="head_id is not supported")
+#     async with Context(head_id=head_id, branch_id=branch_id) as ctx:
+#         yield ctx
+
+
+# async def env_ctx(request: Request):
+#     head_id = unpack_int_env_header(request, "head_id")
+#     branch_id = unpack_int_env_header(request, "branch_id")
+#     # with connection_manager.set_env(env or "default"):
+#         # yield env
+#     if head_id is None:
+#         raise HTTPException(status_code=400, detail="head_id is not supported")
+#     async with Context(head_id=head_id, branch_id=branch_id) as ctx:
+#         yield ctx
 
 
 
@@ -94,14 +103,15 @@ async def env_ctx(request: Request):
 @app.post("/api/chat")
 async def chat(
     message_json:  Annotated[str, Form(...)],
-    ctx: Context = Depends(env_ctx)
+    head_id: Annotated[int, Header(alias="head_id")],
+    branch_id: Annotated[int | None, Header(alias="branch_id")] = None,
     ):
-    message = Message.model_validate_json(message_json)
-    await message.save()
-    response = await run_agent(message)
-    await response.save()
-    await ctx.commit()
-    return [response, message]
+    
+    async with Context(head_id=head_id, branch_id=branch_id) as ctx:
+        message = Message.model_validate_json(message_json)
+        response, message = await run_agent(ctx=ctx, message=message)
+        await ctx.commit()
+        return [response, message]
 
 
 

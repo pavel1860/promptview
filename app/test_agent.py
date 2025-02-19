@@ -1,15 +1,19 @@
 
 from promptview.prompt.base_prompt3 import prompt
 from promptview.llms.openai_llm2 import OpenAiLLM
-from app.test_models import Message
+from app.test_models import Message, Context
 from promptview.prompt.depends import Depends
 from promptview.prompt.block2 import block as b
 
 
 
 @prompt()
-async def chat_prompt(message: Message, llm: OpenAiLLM = Depends(OpenAiLLM)):
-    
+async def chat_prompt(ctx: Context, message: Message, llm: OpenAiLLM = Depends(OpenAiLLM)):
+    with b("", role="user") as um:
+        b(message.content)
+
+    conv = await ctx.last(4)
+    message = await conv.push(um)
     with b("""
     you should act like a pirate.       
     your name is Jack Sparrow.
@@ -17,17 +21,18 @@ async def chat_prompt(message: Message, llm: OpenAiLLM = Depends(OpenAiLLM)):
         with b.title("Task"):
             b("your task is to learn about the user.")
         
-    with b.title("User Message", role="user") as um:
-        b(message.content)
+    # with b.title("User Message", role="user") as um:
+    #     b(message.content)
     
-    res = await llm([sm, um]).generate()
-    return res
+    res = await llm([sm] + conv).generate()
+    response = await conv.push(res)
+    return response, message
 
 
 
 
-async def run_agent(message: Message):
-    res = await chat_prompt(message=message)
+async def run_agent(ctx: Context, message: Message):
+    res = await chat_prompt(ctx=ctx, message=message)
     return Message(content=str(res), role="assistant")
 
 

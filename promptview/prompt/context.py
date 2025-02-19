@@ -141,12 +141,14 @@ class BlockStream(Generic[MODEL]):
                 action_calls = [a.model_dump() for a in block.action_calls]
         elif isinstance(block, str) or isinstance(block, dict):
             content = block    
-            block = StrBlock(block, role=role or "user", id=id)
             _role = role or "user"
+            # block = StrBlock(block, role=_role, id=id,)
+            
         else:
             raise ValueError(f"Invalid block type: {type(block)}")
-        
-        model = CURR_CONTEXT.get().from_blocks(block)
+        block = StrBlock(content, role=_role, id=id, uuid=platform_id, tool_calls=action_calls)
+        ctx = CURR_CONTEXT.get()
+        model = ctx.from_blocks(block)
         await model.save()
         # model = self.from_blocks(block)
         # message = Message(
@@ -158,7 +160,7 @@ class BlockStream(Generic[MODEL]):
         # )        
         # message = await self.message_log.append(message)
         # block.db_msg_id = message.id
-        # self.append(block)
+        self.append(block)
         return model
     
     
@@ -193,7 +195,7 @@ class BlockStream(Generic[MODEL]):
         return len(self._blocks)
     
     def display(self):
-        from src.utils.generative.prompt.block_visualization import display_block_stream
+        from promptview.prompt.util.block_visualization import display_block_stream
         display_block_stream(self)
 
 
@@ -252,7 +254,15 @@ class ContextBase(Generic[MODEL]):
         return self._artifact_log
         
     def build_child(self, prompt_name: str):
-        ctx = ContextBase(
+        # ctx = ContextBase(
+        #     head_id=self.head_id,
+        #     branch_id=self.branch_id,
+        #     inputs=self.inputs, 
+        #     artifact_log=self._artifact_log,
+        #     prompt_name=prompt_name,
+        #     run_id=self.run_id
+        # )
+        ctx = self.__class__(
             head_id=self.head_id,
             branch_id=self.branch_id,
             inputs=self.inputs, 
@@ -475,8 +485,8 @@ class ContextBase(Generic[MODEL]):
         
         
     async def last(self, limit=10):
-        records = await self._model.limit(limit).order_by("created_at")
-        blocks = [self.to_blocks(r) for r in records]
+        records = await self._model.limit(limit).order_by("created_at", ascending=False)
+        blocks = [self.to_blocks(r) for r in reversed(records)]
         block_stream = BlockStream(blocks)
         return block_stream
     

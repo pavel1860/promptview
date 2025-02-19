@@ -114,7 +114,7 @@ def block_to_html(block: BaseBlock):
         {role_chip(block.role)}        
     </div>
     <div class="message-content">
-        {block.content}
+        {block.render()}
     </div>
     {action_calls_html(block.action_calls) if isinstance(block, ResponseBlock ) else ''}
 </div>

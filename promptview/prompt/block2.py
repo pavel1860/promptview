@@ -1,7 +1,7 @@
 import contextvars
 import textwrap
 from typing import List, Literal, Type
-import uuid
+from uuid import uuid4
 
 from pydantic import BaseModel
 
@@ -36,9 +36,34 @@ def connect_block(instance: "StrBlock"):
         pass
     return instance
 
+
+class LlmUsage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+
+
+class ToolCall(BaseModel):
+    id: str
+    name: str
+    tool: dict | BaseModel
+    
+    @property
+    def type(self):
+        return type(self.tool)
+    
+    def to_json(self):
+        return self.tool.model_dump_json() if isinstance(self.tool, BaseModel) else json.dumps(self.tool)
+
+
+
+
 class StrBlock(str):
     
-    _items: list["StrBlock | TitleBlock | ListBlock"] = []
+    _items: list["StrBlock | TitleBlock | ListBlock"]
+    _tool_calls: list[ToolCall]
     _token: contextvars.Token | None = None
     _parent: "StrBlock | None" = None
     _id: str | None = None
@@ -46,18 +71,33 @@ class StrBlock(str):
     _depth: int = 1
     _indent: int = 3
     _role: str | None = None
+    _name: str | None = None
+    _uuid: str | None = None
     
     
-    def __new__(cls, value, role: str | None = None, id: str | None = None, _auto_append: bool = True):
+    def __new__(
+        cls, 
+        value, 
+        role: str | None = None, 
+        id: str | None = None, 
+        _auto_append: bool = True, 
+        name: str | None = None, 
+        uuid: str | None = None,
+        tool_calls: list[ToolCall] | None = None
+        ):
         # Remove leading and trailing whitespace and dedent the value
         value = textwrap.dedent(value).strip() 
         # Create the instance using str's __new__        
         instance = super().__new__(cls, value)
         # Attach extra attributes to the instance
         instance._items = []
+        instance._tool_calls = tool_calls or []
         instance._token = None
         instance._id = id
         instance._role = role
+        instance._uuid = uuid if uuid else str(uuid4())
+        instance._name = name
+        
         if _auto_append:
             try:
                 instance._parent = block_ctx.get()
@@ -80,7 +120,23 @@ class StrBlock(str):
     def id(self):
         return self._id
     
+    @property
+    def tool_calls(self):
+        return self._tool_calls
+    
+    @tool_calls.setter
+    def tool_calls(self, value: list[ToolCall]):
+        self._tool_calls = value
 
+    
+    @property
+    def name(self):
+        return self._name
+    
+    @property
+    def uuid(self):
+        return self._uuid
+    
     def append(self, item: "StrBlock | str"):
         if isinstance(item, StrBlock):
             self._items.append(item)
@@ -121,8 +177,19 @@ class TitleBlock(StrBlock):
     _sub_items_bullet: BulletType = "number"
     _registered_models = {}
     
-    def __new__(cls, value, type: TitleType, bullet: BulletType = "number", role: str | None = None, id: str | None = None, indent: int = 0, _auto_append: bool = True):
-        instance = super().__new__(cls, value, role, id, _auto_append)
+    def __new__(
+        cls, 
+        value, 
+        type: TitleType, 
+        bullet: BulletType = "number", 
+        role: str | None = None, 
+        id: str | None = None, 
+        indent: int = 0, 
+        _auto_append: bool = True,
+        name: str | None = None,
+        uuid: str | None = None
+        ):
+        instance = super().__new__(cls, value, role, id, _auto_append, name, uuid)
         instance._type = type
         instance._sub_items_bullet = bullet
         instance._indent = indent
@@ -158,8 +225,17 @@ class ListBlock(StrBlock):
     _type: BulletType = "number"
     _idx: int = 0
     
-    def __new__(cls, value, type: BulletType = "number", role: str | None = None, id: str | None = None, _auto_append: bool = True):
-        instance = super().__new__(cls, value, role, id, _auto_append)
+    def __new__(
+        cls, 
+        value, 
+        type: BulletType = "number", 
+        role: str | None = None, 
+        id: str | None = None, 
+        _auto_append: bool = True,
+        name: str | None = None,
+        uuid: str | None = None 
+    ):
+        instance = super().__new__(cls, value, role, id, _auto_append, name, uuid)
         instance._type = type
         if instance._parent:
             instance._idx = len([item for item in instance._parent._items if isinstance(item, ListBlock)])
@@ -199,8 +275,18 @@ class XmlBlock(StrBlock):
     _attributes: dict = {}
     _sub_items_bullet: BulletType = "number"
     
-    def __new__(cls, value, bullet: BulletType = "number", role: str | None = None, id: str | None = None, _auto_append: bool = True, **kwargs):
-        instance = super().__new__(cls, value, role, id, _auto_append)
+    def __new__(
+        cls, 
+        value, 
+        bullet: BulletType = "number", 
+        role: str | None = None, 
+        id: str | None = None, 
+        _auto_append: bool = True,
+        name: str | None = None,    
+        uuid: str | None = None,
+        **kwargs
+    ):
+        instance = super().__new__(cls, value, role, id, _auto_append, name, uuid)
         instance._attributes = kwargs
         instance._sub_items_bullet = bullet
         return instance
@@ -257,15 +343,32 @@ class ListBuilder:
 
 class Block:
     
-    def __init__(self, value: str | None = None, role: str = "user", id: str | None = None):
+    def __init__(
+        self, 
+        value: str | None = None, 
+        role: str = "user", 
+        id: str | None = None,
+        name: str | None = None,
+        uuid: str | None = None
+        ):
         self.li = ListBuilder()
         if value:
-            self.value = StrBlock(value, role, id)
+            self.value = StrBlock(value, role, id, name=name, uuid=uuid)
         else:
             self.value = None
     
 
-    def title(self, value: str, type: TitleType = "md", bullet: BulletType = "number", role: str | None = None, id: str | None = None, indent: int = 0):
+    def title(
+        self, 
+        value: str, 
+        type: TitleType = "md", 
+        bullet: BulletType = "number", 
+        role: str | None = None, 
+        id: str | None = None, 
+        indent: int = 0, 
+        name: str | None = None, 
+        uuid: str | None = None
+    ):
         """
         Create a title block.
         
@@ -274,10 +377,12 @@ class Block:
             type: The type of the title: `md` or `xml`.
             bullet: `number`, `alpha`, `roman`, `roman_upper`, `*`, `-`. The bullet type of underlying list items
             indent: The indent of the sub-items.
+            name: The name of the title.
+            uuid: The uuid of the title.
         Returns:
             TitleBlock: The title block.
         """
-        return TitleBlock(value, type, bullet, role, id, indent)
+        return TitleBlock(value, type, bullet, role, id, indent, name=name, uuid=uuid)
     
     def xml(self, value: str, bullet: BulletType = "number", **kwargs):
         return XmlBlock(value, bullet, **kwargs)
@@ -309,6 +414,7 @@ class Block:
         return self
     
     def __call__(self, target: StrBlock | List[str] | str, role: str = "user", id: str | None = None):
+        
         return self._add_item(target, role, id)
     
     def __radd__(self, other: StrBlock | List[str] | str):
