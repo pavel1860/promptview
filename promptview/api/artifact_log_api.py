@@ -1,6 +1,7 @@
 from typing import Dict, Type, List, TypeVar, Generic
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.datastructures import QueryParams
+from pydantic import BaseModel
 
 from promptview.artifact_log.artifact_log3 import ArtifactLog, Branch, Head, Turn
 
@@ -13,12 +14,22 @@ from promptview.artifact_log.artifact_log3 import ArtifactLog, Branch, Head, Tur
 router = APIRouter(prefix="/artifact_log", tags=["artifact_log"])
 
 
+def unpack_int_env_header(request: Request, field: str):    
+    value = request.headers.get(field)
+    if value is None or value == "null" or value == "undefined":
+        return None
+    return int(value)
+
+
 def get_artifact_log(request: Request):
-    head_id = request.headers.get("head_id")
-    branch_id = request.headers.get("branch_id")
+    head_id = unpack_int_env_header(request, "head_id")
+    branch_id = unpack_int_env_header(request, "branch_id")
     if head_id is None:
         raise HTTPException(status_code=400, detail="head_id is not supported")
-    return ArtifactLog(head_id=int(head_id), branch_id=int(branch_id) if branch_id is not None else None)
+    try:
+        return ArtifactLog(head_id=head_id, branch_id=branch_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/branches", response_model=List[Branch])
 async def get_branches(artifact_log: ArtifactLog = Depends(get_artifact_log)):
@@ -31,6 +42,17 @@ async def get_branches(artifact_log: ArtifactLog = Depends(get_artifact_log)):
 async def get_branch(branch_id: int, artifact_log: ArtifactLog = Depends(get_artifact_log)):
     async with artifact_log:
         branch = await artifact_log.get_branch(branch_id)
+        return branch
+
+
+
+class BranchFromTurnRequest(BaseModel):
+    turn_id: int
+    
+@router.post("/branches")
+async def branch_from_turn(request: BranchFromTurnRequest, artifact_log: ArtifactLog = Depends(get_artifact_log)):
+    async with artifact_log:
+        branch = await artifact_log.branch_from(request.turn_id, check_out=True)
         return branch
 
 
