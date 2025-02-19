@@ -5,7 +5,8 @@ from .llm3 import LLM, BaseLlmClient
 from pydantic import Field, BaseModel
 from .messages import ActionCall, LlmUsage
 from .utils.action_manager import Actions
-from ..prompt.block import BaseBlock, ResponseBlock
+# from ..prompt.block import BaseBlock, ResponseBlock
+from ..prompt.block2 import StrBlock
 import openai
 import os
 
@@ -20,7 +21,7 @@ class OpenAiLLM(LLM):
 
     
     
-    def to_message(self, block: BaseBlock):
+    def to_message(self, block: StrBlock):
         if block.role == "user" or block.role == "system":
             return {
                 "role": block.role, # type: ignore
@@ -55,6 +56,8 @@ class OpenAiLLM(LLM):
             if block.name:
                 oai_msg["name"] = block.name
             return oai_msg
+        else:
+            raise ValueError(f"Invalid block role: {block.role}")
       
     # def to_chat(self, blocks: BlockStream) -> List[BaseBlock]:
     #     return blocks.get([
@@ -106,16 +109,17 @@ class OpenAiLLM(LLM):
                         name=tool_call.function.name,
                         action=action_instance
                     ))
-        response_block = ResponseBlock(
-            id=response.id,
-            model=response.model,
-            content=output.content,
-            action_calls=tool_calls, 
-            raw=response,
-            usage=LlmUsage(
-                prompt_tokens=response.usage.prompt_tokens,
-                completion_tokens= response.usage.completion_tokens,
-                total_tokens= response.usage.total_tokens,
-            )
+        response_block = StrBlock(
+            output.content,
+            # id=response.id,
+            # model=response.model,
+            # content=output.content,
+            # action_calls=tool_calls, 
+            # raw=response,
+            # usage=LlmUsage(
+            #     prompt_tokens=response.usage.prompt_tokens,
+            #     completion_tokens= response.usage.completion_tokens,
+            #     total_tokens= response.usage.total_tokens,
+            # )
         )
         return response_block

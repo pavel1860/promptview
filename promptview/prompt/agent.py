@@ -21,7 +21,7 @@ class Agent(Controller[P, AsyncGenerator[YieldType, None]]):
             with Tracer(
                 name=self._name,
                 inputs=self._filter_args_for_trace(*args, **kwargs, **injection_kwargs),
-                session_id=str(ctx.session_id)
+                # session_id=str(ctx.session_id)
             ) as tracer_run:
                 ctx.run_id = str(tracer_run.id)
                 kwargs.update(injection_kwargs)

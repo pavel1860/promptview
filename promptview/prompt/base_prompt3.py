@@ -81,7 +81,7 @@ class Prompt(Controller[P, R]):
                     name=self._complete.__name__,
                     run_type="prompt",
                     inputs=self._filter_args_for_trace(*args, **kwargs, **injection_kwargs),
-                    session_id=str(ctx.session_id)
+                    # session_id=str(ctx.session_id)
                 ) as run:                
                 ctx.run_id = run.id
                 kwargs.update(injection_kwargs)

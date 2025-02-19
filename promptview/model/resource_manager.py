@@ -302,6 +302,9 @@ class ConnectionManager:
     def reset_connection(self):
         self._qdrant_connection = get_qdrant_connection()
         self._postgres_connection = get_postgres_connection()
+        
+    async def init_all_namespaces(self):
+        await self._create_all_namespaces()
 
 connection_manager = ConnectionManager()
 

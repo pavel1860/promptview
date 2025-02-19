@@ -12,7 +12,7 @@ from .block import BaseBlock
 from .context import BlockStream
 from .depends import Depends, DependsContainer, resolve_dependency
 from .mvc import ViewBlock, create_view_block
-from .context import Context
+from .context import ContextBase
 from ..utils.function_utils import call_function, filter_args_by_exclude
 from pydantic import BaseModel, Field
 
@@ -34,7 +34,7 @@ class Controller(Generic[P, R]):
     
     
     def _filter_args_for_trace(self, *args: P.args, **kwargs: P.kwargs) -> dict[str, Any]:
-        _args, _kwargs = filter_args_by_exclude(args, kwargs, (LLM, Context, BlockStream))
+        _args, _kwargs = filter_args_by_exclude(args, kwargs, (LLM, ContextBase, BlockStream))
         return {"args": _args, "kwargs": _kwargs}
     
     
@@ -43,8 +43,8 @@ class Controller(Generic[P, R]):
             return output.content
         return output
     
-    def build_execution_ctx(self) -> Context:
-        curr_ctx: Context | None = Context.get_current()
+    def build_execution_ctx(self) -> ContextBase:
+        curr_ctx: ContextBase | None = ContextBase.get_current()
         if curr_ctx is not None:
             ctx = curr_ctx.build_child(self._name)
         else:

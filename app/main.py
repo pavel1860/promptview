@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 import json
 from typing import Annotated
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
@@ -7,28 +8,23 @@ import uvicorn
 from promptview.api.model_router import create_crud_router
 from promptview.api.artifact_log_api import router as artifact_log_router
 from promptview.artifact_log.artifact_log3 import ArtifactLog
-from promptview.model.fields import ModelField
-from promptview.model.model import Model
-import datetime as dt
+from app.test_models import Context, Message
+from app.test_agent import chat_prompt, run_agent
+from promptview.model.resource_manager import connection_manager
+
+from promptview.prompt.base_prompt3 import prompt
 
 
-# @asynccontextmanager
-# async def lifespan(app: FastAPI):
-#     # This code runs before the server starts serving
-#     await instantiate_all_models()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # This code runs before the server starts serving
+    await connection_manager.init_all_namespaces()
     
-#     # Yield to hand control back to FastAPI (start serving)
-#     yield
+    # Yield to hand control back to FastAPI (start serving)
+    yield
 
 
-class Message(Model):
-    content: str = ModelField(default="")
-    role: str = ModelField(default="user")
-    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
-    
-    class Config: # do not fix this!
-        database_type="postgres"
-        versioned=True
+
 
 
 
@@ -39,7 +35,7 @@ app = FastAPI(
     title="PromptView API",
     description="API for interacting with the PromptView message system",
     version="1.0.0",
-    # lifespan=lifespan
+    lifespan=lifespan
 )
 
 # Configure CORS
@@ -72,8 +68,13 @@ async def env_ctx(request: Request):
         # yield env
     if head_id is None:
         raise HTTPException(status_code=400, detail="head_id is not supported")
-    async with ArtifactLog(head_id=head_id, branch_id=branch_id) as art_log:
-        yield art_log
+    async with Context(head_id=head_id, branch_id=branch_id) as ctx:
+        yield ctx
+    # async with ArtifactLog(head_id=head_id, branch_id=branch_id) as art_log:
+        # yield art_log
+
+
+
 
 
 # @app.post("/api/chat")
@@ -87,19 +88,19 @@ async def env_ctx(request: Request):
 #     print(message)
 #     return [message, {"message": "Welcome to PromptView API", "role": "assistant"}]
 
+
+
+
 @app.post("/api/chat")
 async def chat(
     message_json:  Annotated[str, Form(...)],
-    artifact_log: ArtifactLog = Depends(env_ctx)
+    ctx: Context = Depends(env_ctx)
     ):
     message = Message.model_validate_json(message_json)
-    input_time = message.created_at
     await message.save()
-    await asyncio.sleep(3)
-    response = Message(content="Welcome to PromptView API:" + message.content, role="assistant")
+    response = await run_agent(message)
     await response.save()
-    output_time = response.created_at
-    print(f"input_time: {input_time}, output_time: {output_time}")
+    await ctx.commit()
     return [response, message]
 
 

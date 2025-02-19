@@ -220,19 +220,26 @@ class ArtifactLog:
             raise ValueError("No artifact log found")
         return artifact_log
     
-    async def __aenter__(self):
-        await self.init_head(self._head_id, self._branch_id)
+    def set_context(self):
         self._token = ARTIFCAT_LOG_CTX.set(self)
-        return self
-    
-    async def __aexit__(self, exc_type, exc_value, traceback):
+        
+    def reset_context(self):
         if self._token is not None:
             ARTIFCAT_LOG_CTX.reset(self._token)
             self._token=None
+    
+    
+    async def __aenter__(self):
+        await self.init_head(self._head_id, self._branch_id)
+        self.set_context()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        self.reset_context()
         
     @property
     def is_initialized(self) -> bool:
-        return self._head is not None
+        return self._head is not None and self._token is not None
 
     async def initialize_tables(self) -> None:
         # Initialize the asyncpg pool if not already done

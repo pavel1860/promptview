@@ -1,12 +1,15 @@
+from abc import abstractmethod
 import contextvars
 from enum import Enum
-from typing import Any, List, Union, Dict
+from typing import Any, Generic, List, Type, TypeVar, Union, Dict
 
+from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.conversation.message_log import MessageLog, SessionManager
 from promptview.conversation.models import Session
-from ..conversation.models import Message
+from promptview.model.model import Model
 from ..llms.messages import ActionCall
 from .block import ActionBlock, BaseBlock, BulletType, ListBlock, ResponseBlock, TitleBlock, TitleType, BlockRole
+from .block2 import StrBlock  
 from collections import defaultdict
 import datetime as dt
 
@@ -30,7 +33,7 @@ class BlockStream:
     def __init__(
         self, 
         message_log: MessageLog, 
-        blocks: List[BaseBlock] | None = None, 
+        blocks: List[StrBlock] | None = None, 
         run_id: str | None = None, 
         prompt_name: str | None = None
     ):
@@ -46,10 +49,10 @@ class BlockStream:
         self.prompt_name = prompt_name
     
     
-    def __add__(self, other: Union[list[BaseBlock] , "BlockStream"]):
+    def __add__(self, other: Union[list[StrBlock] , "BlockStream"]):
         if isinstance(other, list):
             for i, b in enumerate(other):
-                if not isinstance(b, BaseBlock):
+                if not isinstance(b, StrBlock):
                     raise ValueError(f"Invalid block type: {type(b)} at index {i}")
             return BlockStream(self.message_log, self._blocks + other, run_id=self.run_id, prompt_name=self.prompt_name)
         elif isinstance(other, BlockStream):
@@ -57,10 +60,10 @@ class BlockStream:
         else:       
             raise ValueError(f"Invalid type: {type(other)}")
         
-    def __radd__(self, other: Union[list[BaseBlock], "BlockStream"]):
+    def __radd__(self, other: Union[list[StrBlock], "BlockStream"]):
         if isinstance(other, list):
             for i, b in enumerate(other):
-                if not isinstance(b, BaseBlock):
+                if not isinstance(b, StrBlock):
                     raise ValueError(f"Invalid block type: {type(b)} at index {i}")
             return BlockStream(self.message_log, other + self._blocks, run_id=self.run_id, prompt_name=self.prompt_name)
         elif isinstance(other, BlockStream):
@@ -69,8 +72,8 @@ class BlockStream:
             raise ValueError(f"Invalid type: {type(other)}")        
     
         
-    def _update_lookup(self, block: BaseBlock):
-        if isinstance(block, BaseBlock):
+    def _update_lookup(self, block: StrBlock):
+        if isinstance(block, StrBlock):
             if block.id:
                 self._block_lookup[block.id].append(block)
             for b in block._items:
@@ -109,7 +112,7 @@ class BlockStream:
                 chat_blocks.extend(target)
             elif type(k) == dict:                                
                 chat_blocks.append(
-                    TitleBlock(
+                    StrBlock(
                         content=self.get(k["content"]),
                         role=k.get("role", "user")
                     )
@@ -119,7 +122,7 @@ class BlockStream:
         
         
     def block(self, title=None, ttype: TitleType="md", role: BlockRole = "user", name: str | None = None, id: str | None = None):
-        lb = TitleBlock(title=title, ttype=ttype, id=id, role=role, name=name)
+        lb = StrBlock(title=title, ttype=ttype, id=id, role=role, name=name)
         self.append(lb)
         return lb
     
@@ -156,153 +159,7 @@ class BlockStream:
         self.append(block)
         return message
     
-    # async def push(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):        
-    #     if isinstance(block, str) or isinstance(block, dict):
-    #         if action:
-    #             message = Message(
-    #                 content=block,
-    #                 role="tool",
-    #                 platform_id=action.id,
-    #             )
-    #         else:
-    #             message = Message(
-    #                 content=block,
-    #                 role=role or "user",
-    #                 platform_id=id,
-    #             )
-    #         return await self.message_log.append(message)
-    #     elif isinstance(block, BaseBlock):
-    #         platform_id = id
-    #         action_calls = None
-    #         _role = role or block.role or "user"
-    #         if action:
-    #             platform_id = action.id
-    #         if isinstance(block, ResponseBlock):
-    #             action_calls = [a.model_dump() for a in block.action_calls]
-    #         message = Message(
-    #             content=block.render(),
-    #             role=_role,
-    #             platform_id=platform_id,
-    #             blocks=action_calls                
-    #         )
-    #         return await self.message_log.append(message)
-    #     else:
-    #         raise ValueError(f"Invalid block type: {type(block)}")
-        
-    # async def push(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):        
-    #     if action or isinstance(block, ActionBlock):
-    #         if isinstance(block, str) or isinstance(block, dict):
-    #             block = ActionBlock(content=block, tool_call_id=action.id, id=id)
-    #         elif isinstance(block, TitleBlock):
-    #             block = ActionBlock(content=block.content, tool_call_id=action.id, id=id)
-    #         return await self.push_action(block)
-    #     else:
-    #         if isinstance(block, str) or isinstance(block, dict): 
-    #             block = TitleBlock(content=block, role=role or "user", id=id)
-    #             return await self.push_message(block)
-    #         elif isinstance(block, ResponseBlock):
-    #             block.id = id
-    #             return await self.push_response(block)
-    #         elif isinstance(block, TitleBlock):
-    #             block.id = id
-    #             return await self.push_message(block)
-    #         else:
-    #             raise ValueError(f"Invalid block type: {type(block)}")
-            
     
-    
-    # async def pushleft(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None):
-    #     if isinstance(block, str) or isinstance(block, dict):
-    #         if action:
-    #             block = ActionBlock(content=block, tool_call_id=action.id)
-    #             await self.push_action(block, index=0)
-    #         else:
-    #             block = TitleBlock(content=block, role=role or "user")
-    #             await self.push_message(block, index=0)
-    #     elif isinstance(block, ResponseBlock):
-    #         await self.push_response(block, index=0)
-    #     elif isinstance(block, ActionBlock):
-    #         await self.push_action(block, index=0)
-    #     elif isinstance(block, TitleBlock):
-    #         await self.push_message(block, index=0)
-    #     return block
-    
-    
-    # def pushleft_system(self, block: BaseBlock):
-    #     self.insert(0, block)
-
-    
-    # def push(self, block: BaseBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None):
-    #     if isinstance(block, str) or isinstance(block, dict):
-    #         if action:
-    #             block = ActionBlock(content=block, tool_call_id=action.id)
-    #             self.push_action(block)
-    #         else:
-    #             block = TitleBlock(content=block, role=role or "user")
-    #             self.push_message(block)
-            
-    #     elif isinstance(block, ResponseBlock):
-    #         self.push_response(block)
-    #     elif isinstance(block, ActionBlock):
-    #         self.push_action(block)
-    #     return block
- 
-
-    # async def push_action(self, action, index: int | None = None):
-    #     if index is None:
-    #         self.append(action)
-    #     else:
-    #         self.insert(index, action)
-    #     message = await self.message_log.add_message(
-    #         content=action.content,
-    #         platform_id=action.id,
-    #         created_at=action.created_at,
-    #         role=action.role,
-    #         # run_id=self.run_id,
-    #         prompt=self.prompt_name
-    #     )
-    #     action.message = message
-    #     return action
-
-    # async def push_response(self, response, index: int | None = None):
-    #     if index is None:
-    #         self.append(response)
-    #     else:
-    #         self.insert(index, response)
-    #     message = await self.message_log.add_message(
-    #         content=response.content,
-    #         action_calls=[a.model_dump() for a in response.action_calls],
-    #         platform_id=response.platform_id,
-    #         created_at=response.created_at,
-    #         role=response.role,
-    #         # run_id=self.run_id,
-    #         prompt=self.prompt_name
-    #     )
-    #     response.message = message
-    #     return response
-
-    # async def push_message(self, message, index: int | None = None):
-    #     if index is None:
-    #         self.append(message)
-    #     else:
-    #         self.insert(index, message)        
-    #     if isinstance(message, str):
-    #         message = await self.message_log.add_message(
-    #             content=message,
-    #             role="user", 
-    #             created_at=dt.datetime.now(),
-    #             # run_id=self.run_id,
-    #             prompt=self.prompt_name
-    #         )
-    #     elif isinstance(message, TitleBlock):
-    #         message.message = await self.message_log.add_message(
-    #             content=message.content,
-    #             role=message.role,
-    #             created_at=message.created_at or dt.datetime.now(),
-    #             # run_id=self.run_id,
-    #             prompt=self.prompt_name
-    #         )
-    #     return message
         
     async def commit_turn(self):
         await self.message_log.commit()
@@ -347,20 +204,34 @@ class InitMethod(Enum):
     START = "start"
     RESUME = "resume"
     RESUME_SESSION = "resume_session"
-class Context:
+    
+    
+MODEL = TypeVar("MODEL", bound=Model)
+class ContextBase(Generic[MODEL]):
+    _model: Type[MODEL]
+    _artifact_log: ArtifactLog
+    _head_id: int
+    _branch_id: int | None
+    _initialized: bool
+    inputs: dict
+    _ctx_token: contextvars.Token | None
+    _hooks: TurnHooks | None
+    run_id: str | None
+    prompt_name: str
     
     def __init__(
         self, 
-        user_id: int,
-        session: Session | None = None,
+        head_id: int,
+        branch_id: int | None = None,
         inputs: dict | None = None, 
-        message_log: MessageLog | None = None,
+        artifact_log: ArtifactLog | None = None,
         prompt_name: str = "global",
-        run_id: str | None = None,    
+        run_id: str | None = None,
+        commit_on_exit: bool = False,
     ):
-        self._message_log = message_log
-        self._session_manager = SessionManager()
-        self.user_id = user_id
+        self._head_id = head_id
+        self._branch_id = branch_id
+        self._artifact_log = artifact_log or ArtifactLog(head_id=head_id, branch_id=branch_id)
         self._initialized = False
         self.inputs = inputs or {}
         self._ctx_token = None
@@ -370,38 +241,28 @@ class Context:
         self.prompt_name = prompt_name
         self.run_id = run_id
         self._init_method: Dict[str, Any] | None = None
-        self._session = session
+        self._commit_on_exit = commit_on_exit
     
     @property
-    def message_log(self):
-        if self._message_log is None:
-            raise ValueError("Message log not set")
-        return self._message_log
+    def artifact_log(self):
+        if self._artifact_log is None:
+            raise ValueError("Artifact log not set")
+        return self._artifact_log
         
     def build_child(self, prompt_name: str):
-        ctx = Context(
-            user_id=self.user_id,
+        ctx = ContextBase(
+            head_id=self.head_id,
+            branch_id=self.branch_id,
             inputs=self.inputs, 
-            message_log=self.message_log,
-            session=self.session,
+            artifact_log=self._artifact_log,
             prompt_name=prompt_name,
             run_id=self.run_id
         )
         ctx._parent_ctx = self        
         ctx._initialized = self._initialized
-        ctx._hooks = TurnHooks(self.message_log, prompt_name=prompt_name)
+        # ctx._hooks = TurnHooks(self._artifact_log, prompt_name=prompt_name)
         return ctx
     
-    # def copy(self):
-    #     ctx = Context(
-    #         inputs=self.inputs, 
-    #         branch_id=self.branch_id, 
-    #         history=self.history,
-    #         hooks=self._hooks,
-    #         prompt_name=self.prompt_name,
-    #         run_id=self.run_id
-    #     )
-    #     return ctx
 
     @staticmethod
     def get_current():
@@ -416,7 +277,7 @@ class Context:
             raise ValueError("Session not set")
         return self._session
     
-    def set_context(self):
+    def set_context(self):        
         self._ctx_token = CURR_CONTEXT.set(self)
     
     def reset_context(self):
@@ -433,44 +294,40 @@ class Context:
         if self.session is None:
             raise ValueError("Session not set")
         return self.session.id
-        # return self.message_log.head.session_id
-
+    
+    @property
+    def head(self):
+        return self._artifact_log.head
+    
+    @property
+    def head_id(self):
+        return self._artifact_log.head["id"]
+    
     @property
     def branch_id(self):
-        return self.message_log.head.branch_id
+        return self._artifact_log.head["branch_id"]
+    
+    @property
+    def turn_id(self):
+        return self._artifact_log.head["id"]
     
     @property
     def turn(self):
-        return self.message_log.head.turn
+        return self._artifact_log.head["id"]
     
     @property
     def branch(self):
-        return self.message_log.head.branch
+        return self._artifact_log.head["branch_id"]
     
-    # @property
-    # def session(self):
-    #     return self.message_log.head.session
     
     @property
     def is_initialized(self):
         return self._initialized
     
-    async def init(self):
-        if not self._initialized:
-            await self.history.init_new_session()
-            self._initialized = True
-            
-    async def cleanup(self):
-        await self.history.cleanup()
-        
-    async def commit(self):
-        await self.history.commit()
-        
-    async def add_turn(self):
-        await self.message_log.add_turn()
         
     async def get_last_messages(self, limit: int = 10):
         return await self.message_log.get_messages(limit)
+    
     
     def resume_session(self, session_id: int, branch_id: int | None = None, new_turn: bool = True):
         self._init_method = {
@@ -493,54 +350,63 @@ class Context:
         }
         return self
     
-    async def _resume(self, new_turn: bool = True):        
-        # await self.history.init_last_session()        
-        self._session = await self._session_manager.get_last_user_session(user_id=self.user_id)
-        self._message_log = await MessageLog.from_user_last_session(self.user_id)
-        if self.branch_id:
-            await self.message_log.switch_to(self.branch_id)
-        self._initialized = True
-        if new_turn:
-            await self.message_log.add_turn()
-        self._hooks = TurnHooks(self.message_log, prompt_name=self.prompt_name)
-        return self
+    # async def _resume(self, new_turn: bool = True):        
+    #     # await self.history.init_last_session()        
+    #     self._session = await self._session_manager.get_last_user_session(user_id=self.user_id)
+    #     self._message_log = await MessageLog.from_user_last_session(self.user_id)
+    #     if self.branch_id:
+    #         await self.message_log.switch_to(self.branch_id)
+    #     self._initialized = True
+    #     if new_turn:
+    #         await self.message_log.add_turn()
+    #     self._hooks = TurnHooks(self.message_log, prompt_name=self.prompt_name)
+    #     return self
     
-    async def _start(self):
-        # await self.history.init_new_session()        
-        self._session = await self._session_manager.create_session(self.user_id)
-        self._message_log = await MessageLog.from_session(self.session.id)
-        await self.message_log.add_turn()
-        self._initialized = True
-        self._hooks = TurnHooks(self.message_log, prompt_name=self.prompt_name)
-        return self
+    # async def _start(self):
+    #     # await self.history.init_new_session()        
+    #     self._session = await self._session_manager.create_session(self.user_id)
+    #     self._message_log = await MessageLog.from_session(self.session.id)
+    #     await self.message_log.add_turn()
+    #     self._initialized = True
+    #     self._hooks = TurnHooks(self.message_log, prompt_name=self.prompt_name)
+    #     return self
     
-    async def _resume_session(self, session_id: int, branch_id: int | None = None, new_turn: bool = True):
-        self._session = await self._session_manager.get_session(session_id=session_id)
-        self._message_log = await MessageLog.from_session(session_id)
-        if branch_id:
-            await self.message_log.switch_to(branch_id)
-        self._initialized = True
-        if new_turn:
-            await self.message_log.add_turn()
-        self._hooks = TurnHooks(self.message_log, prompt_name=self.prompt_name)
-        return self
+    # async def _resume_session(self, session_id: int, branch_id: int | None = None, new_turn: bool = True):
+    #     self._session = await self._session_manager.get_session(session_id=session_id)
+    #     self._message_log = await MessageLog.from_session(session_id)
+    #     if branch_id:
+    #         await self.message_log.switch_to(branch_id)
+    #     self._initialized = True
+    #     if new_turn:
+    #         await self.message_log.add_turn()
+    #     self._hooks = TurnHooks(self.message_log, prompt_name=self.prompt_name)
+    #     return self
         
-    async def __aenter__(self):
-        if not self._initialized:
-            if not self._init_method:
-                raise ValueError("Init method not set. Call resume() or start() first.")
-            if self._init_method["type"] == InitMethod.RESUME:
-                await self._resume(**self._init_method["kwargs"])
-            elif self._init_method["type"] == InitMethod.START:
-                await self._start()
-            elif self._init_method["type"] == InitMethod.RESUME_SESSION:
-                await self._resume_session(**self._init_method["kwargs"])
+    # async def __aenter__(self):
+    #     if not self._initialized:
+    #         if not self._init_method:
+    #             raise ValueError("Init method not set. Call resume() or start() first.")
+    #         if self._init_method["type"] == InitMethod.RESUME:
+    #             await self._resume(**self._init_method["kwargs"])
+    #         elif self._init_method["type"] == InitMethod.START:
+    #             await self._start()
+    #         elif self._init_method["type"] == InitMethod.RESUME_SESSION:
+    #             await self._resume_session(**self._init_method["kwargs"])
             
+    #     self.set_context()
+    #     return self
+    
+    async def __aenter__(self):
+        if not self._artifact_log.is_initialized:
+            await self._artifact_log.init_head(head_id=self._head_id, branch_id=self._branch_id)
+            self._artifact_log.set_context()
         self.set_context()
         return self
     
     async def __aexit__(self, exc_type, exc_value, traceback):
         # await self.commit()
+        if self._commit_on_exit:
+            await self.commit()
         self.reset_context()
         
     def use_hooks(self, prompt_name: str | None = None) -> TurnHooks:
@@ -557,53 +423,61 @@ class Context:
             
     # async def delete_message(self, id: int):
         # await self.message_log.delete_message(id=id)
-        
-    def messages_to_blocks(self, messages: List[Message]):
-        blocks = []
-        for message in messages:
-            if message.role == "assistant":
-                blocks.append(
-                    ResponseBlock(
-                        db_msg_id=message.id,
-                        content=message.content, 
-                        action_calls=message.extra.get("action_calls", []),
-                        id="history",
-                        platform_id=message.platform_id,
-                        created_at=message.created_at
-                    ))
-            elif message.role == "tool":
-                blocks.append(
-                    ActionBlock(
-                        db_msg_id=message.id,
-                        content=message.content, 
-                        id="history",
-                        platform_id=message.platform_id,
-                        created_at=message.created_at
-                    ))
-            else:
-                blocks.append(
-                    TitleBlock(
-                        db_msg_id=message.id,
-                        content=message.content, 
-                        role=message.role, 
-                        id="history",
-                        platform_id=message.platform_id,
-                        created_at=message.created_at
-                    ))
-        return blocks
+    
+    @abstractmethod
+    def model_to_blocks(self, model: MODEL) -> StrBlock:
+        pass
+    
+    
+    async def commit(self):
+        await self.artifact_log.commit_turn()
+      
+    # def messages_to_blocks(self, messages: List[Message]):
+    #     blocks = []
+    #     for message in messages:
+    #         if message.role == "assistant":
+    #             blocks.append(
+    #                 ResponseBlock(
+    #                     db_msg_id=message.id,
+    #                     content=message.content, 
+    #                     action_calls=message.extra.get("action_calls", []),
+    #                     id="history",
+    #                     platform_id=message.platform_id,
+    #                     created_at=message.created_at
+    #                 ))
+    #         elif message.role == "tool":
+    #             blocks.append(
+    #                 ActionBlock(
+    #                     db_msg_id=message.id,
+    #                     content=message.content, 
+    #                     id="history",
+    #                     platform_id=message.platform_id,
+    #                     created_at=message.created_at
+    #                 ))
+    #         else:
+    #             blocks.append(
+    #                 TitleBlock(
+    #                     db_msg_id=message.id,
+    #                     content=message.content, 
+    #                     role=message.role, 
+    #                     id="history",
+    #                     platform_id=message.platform_id,
+    #                     created_at=message.created_at
+    #                 ))
+    #     return blocks
         
         
     async def last(self, limit=10):
-        messages = await self.message_log.get_messages(limit, session_id=self.session_id)
-        blocks = self.messages_to_blocks(messages)
-        block_stream = BlockStream(self.message_log, blocks)
-        return block_stream
+        records = await self._model.limit(limit).order_by("created_at")
+        blocks = [self.model_to_blocks(r) for r in records]
+        # block_stream = BlockStream(self.message_log, blocks)
+        return blocks
     
     
-    def last_messages(self, limit=10):
-        return self.message_log.get_messages(limit)
+    # def last_messages(self, limit=10):
+        # return self.message_log.get_messages(limit)
     
     
-    def clear_session(self):
-        self.message_log.clear_session()
+    # def clear_session(self):
+        # self.message_log.clear_session()
     
