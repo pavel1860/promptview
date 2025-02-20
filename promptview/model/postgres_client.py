@@ -115,12 +115,20 @@ class PostgresClient:
         # Create table with proper columns for each field
 #         create_table_sql = f"""CREATE TABLE IF NOT EXISTS {table_name} (
 # id UUID PRIMARY KEY DEFAULT uuid_generate_v4()"""
-        create_table_sql = f"""CREATE TABLE IF NOT EXISTS {table_name} ("""
+        create_table_sql = f"""CREATE TABLE IF NOT EXISTS {table_name} (
+            id SERIAL PRIMARY KEY,
+            turn_id INT NOT NULL,
+            FOREIGN KEY (turn_id) REFERENCES turns(id),
+            branch_id INT NOT NULL,
+            FOREIGN KEY (branch_id) REFERENCES branches(id),
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW(),            
+            """
 
     
         # Add columns for each model field
         for field_name, field in model_cls.model_fields.items():            
-            if field_name in ["id", "turn_id", "_subspace", "score"]:
+            if field_name in ["id", "turn_id", "branch_id", "_subspace", "score"]:
                 continue
             create_table_sql += "\n"
             field_type = field.annotation
@@ -204,7 +212,13 @@ class PostgresClient:
             # Create table with proper columns for each field
             create_table_sql = f"""
             CREATE TABLE IF NOT EXISTS {table_name} (
-                id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                turn_id INT NOT NULL,
+                FOREIGN KEY (turn_id) REFERENCES turns(id),
+                branch_id INT NOT NULL,
+                FOREIGN KEY (branch_id) REFERENCES branches(id),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),                
             """
 
             # Add columns for each model field
@@ -292,7 +306,7 @@ class PostgresClient:
         # Define the fixed values you want to add to every record.
         # You can use hard-coded values (e.g. {"turn_id": 42, "type": "my_type"})
         # or values derived from artifact_log (e.g. artifact_log.head["turn_id"])
-        fixed_values = {"turn_id": artifact_log.head["turn_id"], "type": model_cls.__name__}
+        fixed_values = {"turn_id": artifact_log.head["turn_id"], "branch_id": artifact_log.head["branch_id"]}
 
         # Build the base columns from the first record and add the fixed columns.
         if vectors:

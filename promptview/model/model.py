@@ -309,6 +309,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     id: str | int = Field(..., description="Unique Identifier")
     score: float = Field(default=-1, description="Score of the document. Default is -1")
     turn_id: str | int = Field(default=-1, description="Unique Identifier of the turn")
+    branch_id: str | int = Field(default=-1, description="Unique Identifier of the branch")
     _partitions: dict[str, str] = PrivateAttr(default_factory=dict)
     _default_temporal_field: str = PrivateAttr(default=None)
     _namespace: str | None = PrivateAttr(default=None)

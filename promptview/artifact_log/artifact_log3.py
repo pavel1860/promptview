@@ -88,14 +88,24 @@ class Turn(BaseModel):
     local_state: dict | None = None
     
     
-    def __init__(self, forked_branches: List[dict] | str | None = None, **kwargs):
+    def __init__(
+        self, 
+        forked_branches: List[dict] | str | None = None, 
+        metadata: dict | str | None = None,
+        **kwargs
+    ):
         if forked_branches is None:
             forked_branches = []
         elif isinstance(forked_branches, str):
             forked_branches = json.loads(forked_branches)
+        if metadata is None:
+            metadata = {}
+        elif isinstance(metadata, str):
+            metadata = json.loads(metadata)            
+        
         super().__init__(**kwargs)
         self.forked_branches = forked_branches
-    
+        self.metadata = metadata
     
 
 class Branch(BaseModel):
@@ -255,12 +265,15 @@ CREATE TABLE IF NOT EXISTS test_runs (
 );
 """)
 
-    async def drop_tables(self) -> None:
+    async def drop_tables(self, extra_tables: list[str] | None = None) -> None:
         # Drop all main tables and dynamic artifact tables
         await PGConnectionManager.execute("DROP TABLE IF EXISTS heads CASCADE;")
         await PGConnectionManager.execute("DROP TABLE IF EXISTS turns CASCADE;")
         await PGConnectionManager.execute("DROP TABLE IF EXISTS branches CASCADE;")
-        await PGConnectionManager.execute("DROP TABLE IF EXISTS base_artifacts CASCADE;")
+        if extra_tables:
+            for table in extra_tables:
+                await PGConnectionManager.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")
+        # await PGConnectionManager.execute("DROP TABLE IF EXISTS base_artifacts CASCADE;")
         for table in self._artifact_tables.values():
             await PGConnectionManager.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")
         self._artifact_tables = {}
@@ -303,8 +316,8 @@ CREATE TABLE IF NOT EXISTS test_runs (
         new_head_id = head_rows[0]['id']
 
         # Create main branch with the new head id
-        query = "INSERT INTO branches (name, forked_from_turn_index, forked_from_branch_id, head_id) VALUES ($1, $2, $3, $4) RETURNING id;"
-        branch_rows = await PGConnectionManager.fetch(query, "main", 0, None, new_head_id)
+        query = "INSERT INTO branches (name, forked_from_turn_index, forked_from_branch_id) VALUES ($1, $2, $3) RETURNING id;"
+        branch_rows = await PGConnectionManager.fetch(query, "main", 0, None)
         branch_id = branch_rows[0]['id']
 
         # Create initial turn for the branch
@@ -374,16 +387,12 @@ CREATE TABLE IF NOT EXISTS test_runs (
 
         new_branch_name = name if name is not None else f"branch_from_{turn_id}"
 
-        query = "INSERT INTO branches (name, forked_from_turn_index, forked_from_branch_id, head_id) VALUES ($1, $2, $3, $4) RETURNING id;"
-        new_branch_rows = await PGConnectionManager.fetch(query, new_branch_name, 0,0, source_turn['index'], source_turn['branch_id'], current_head['id'])
+        query = "INSERT INTO branches (name, forked_from_turn_index, forked_from_branch_id) VALUES ($1, $2, $3) RETURNING id;"
+        new_branch_rows = await PGConnectionManager.fetch(query, new_branch_name, source_turn['index'], source_turn['branch_id'])
         new_branch_id = new_branch_rows[0]['id']
 
         if check_out:
             await self.checkout_branch(new_branch_id)
-            # query = "UPDATE heads SET branch_id = $1, turn_id = $2 WHERE id = $3;"
-            # await PGConnectionManager.execute(query, new_branch_id, turn_id, current_head['id'])
-            # current_head['branch_id'] = new_branch_id
-            # current_head['turn_id'] = turn_id
 
         return new_branch_id
 
