@@ -8,6 +8,8 @@ from typing import List, Optional, Type, Any, Dict, Tuple
 
 from pydantic import BaseModel
 
+from promptview.utils.db_connections import PGConnectionManager
+
 
 """
 A framework for version-controlling Model instances using a git-like architecture.
@@ -24,45 +26,45 @@ class TurnStatus(enum.Enum):
 
 
 
-class PGConnectionManager:
-    _pool: Optional[asyncpg.Pool] = None
+# class PGConnectionManager:
+#     _pool: Optional[asyncpg.Pool] = None
 
-    @classmethod
-    async def initialize(cls, url: Optional[str] = None) -> None:
-        if cls._pool is None:
-            url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/promptview_test")
-            cls._pool = await asyncpg.create_pool(dsn=url)
+#     @classmethod
+#     async def initialize(cls, url: Optional[str] = None) -> None:
+#         if cls._pool is None:
+#             url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/promptview_test")
+#             cls._pool = await asyncpg.create_pool(dsn=url)
 
-    @classmethod
-    async def close(cls) -> None:
-        if cls._pool:
-            await cls._pool.close()
-            cls._pool = None
+#     @classmethod
+#     async def close(cls) -> None:
+#         if cls._pool:
+#             await cls._pool.close()
+#             cls._pool = None
 
-    @classmethod
-    async def execute(cls, query: str, *args) -> str:
-        if cls._pool is None:
-            await cls.initialize()
-        assert cls._pool is not None, "Pool must be initialized"
-        async with cls._pool.acquire() as conn:
-            return await conn.execute(query, *args)
+#     @classmethod
+#     async def execute(cls, query: str, *args) -> str:
+#         if cls._pool is None:
+#             await cls.initialize()
+#         assert cls._pool is not None, "Pool must be initialized"
+#         async with cls._pool.acquire() as conn:
+#             return await conn.execute(query, *args)
 
-    @classmethod
-    async def fetch(cls, query: str, *args) -> List[asyncpg.Record]:
-        if cls._pool is None:
-            await cls.initialize()
-        assert cls._pool is not None, "Pool must be initialized"
-        async with cls._pool.acquire() as conn:
-            return await conn.fetch(query, *args)
+#     @classmethod
+#     async def fetch(cls, query: str, *args) -> List[asyncpg.Record]:
+#         if cls._pool is None:
+#             await cls.initialize()
+#         assert cls._pool is not None, "Pool must be initialized"
+#         async with cls._pool.acquire() as conn:
+#             return await conn.fetch(query, *args)
         
         
-    @classmethod
-    async def fetch_one(cls, query: str, *args) -> asyncpg.Record:
-        if cls._pool is None:
-            await cls.initialize()
-        assert cls._pool is not None, "Pool must be initialized"
-        async with cls._pool.acquire() as conn:
-            return await conn.fetchrow(query, *args)
+#     @classmethod
+#     async def fetch_one(cls, query: str, *args) -> asyncpg.Record:
+#         if cls._pool is None:
+#             await cls.initialize()
+#         assert cls._pool is not None, "Pool must be initialized"
+#         async with cls._pool.acquire() as conn:
+#             return await conn.fetchrow(query, *args)
         
 
 
@@ -350,6 +352,41 @@ class ArtifactLog:
                 turn_id INTEGER,
                 created_at TIMESTAMP DEFAULT NOW(),
                 FOREIGN KEY (turn_id) REFERENCES turns(id)
+            );
+            
+            
+            
+        CREATE TABLE IF NOT EXISTS test_cases (
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                evaluation_criteria JSONB,
+                inputs JSONB DEFAULT '{}',
+                session_id INTEGER NOT NULL,
+                start_message_id INTEGER REFERENCES messages(id),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+            
+            CREATE TABLE IF NOT EXISTS turn_test_cases (
+                id SERIAL PRIMARY KEY,
+                turn_id INTEGER REFERENCES turns(id),
+                test_case_id INTEGER REFERENCES test_cases(id),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(turn_id, test_case_id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS test_runs (
+                id SERIAL PRIMARY KEY,
+                branch_id INTEGER REFERENCES branches(id),
+                test_case_id INTEGER REFERENCES test_cases(id),
+                status TEXT DEFAULT 'INITIALIZED',
+                score INTEGER,
+                error_message TEXT,
+                meta JSONB DEFAULT '{}',
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
