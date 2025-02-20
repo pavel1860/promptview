@@ -76,14 +76,16 @@ def model_to_table_name(model_cls: Type[Any]) -> str:
 
 class Turn(BaseModel):
     id: int
-    branch_id: int
-    index: int
-    status: TurnStatus
     created_at: datetime
-    ended_at: datetime | None = None
+    ended_at: datetime | None = None    
+    index: int
+    status: TurnStatus    
     message: str | None = None
-    local_state: dict | None = None
+    score: int | None = None
+    metadata: dict | None = None
+    branch_id: int
     forked_branches: List[dict] | None = None
+    local_state: dict | None = None
     
     
     def __init__(self, forked_branches: List[dict] | str | None = None, **kwargs):
@@ -101,8 +103,6 @@ class Branch(BaseModel):
     name: str
     created_at: datetime
     updated_at: datetime
-    branch_index: int
-    turn_counter: int
     forked_from_turn_index: int | None = None
     forked_from_branch_id: int | None = None
 
@@ -116,89 +116,27 @@ class Head(BaseModel):
 
 
 
-class ArtifactQuery:
-    """A simple query builder for artifact records using raw SQL."""
-    def __init__(self, model_type: Type[Any]) -> None:
-        self.model_type = model_type
-        self._limit: Optional[int] = None
-        self._offset: Optional[int] = None
-        self._turn_filter: Optional[Tuple[str, int]] = None
-        self._time_filter: Optional[Tuple[str, Tuple[datetime, datetime]]] = None
-        # _field_filter not implemented in this simple version
+class TestCase(BaseModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    title: str
+    description: str
+    inputs: dict
+    targets: dict
+    branch_id: int
+    turn_id: int
 
-    def limit(self, limit: int) -> 'ArtifactQuery':
-        if limit <= 0:
-            raise ValueError("Limit must be positive")
-        self._limit = limit
-        return self
 
-    def offset(self, offset: int) -> 'ArtifactQuery':
-        if offset < 0:
-            raise ValueError("Offset must be non-negative")
-        self._offset = offset
-        return self
-
-    def at_turn(self, turn_id: int) -> 'ArtifactQuery':
-        self._turn_filter = ("at", turn_id)
-        return self
-
-    def up_to_turn(self, turn_id: int) -> 'ArtifactQuery':
-        self._turn_filter = ("up_to", turn_id)
-        return self
-
-    def at_time(self, timestamp: datetime) -> 'ArtifactQuery':
-        # For simplicity, we treat at_time similar to 'up_to_turn' using turn creation time
-        self._time_filter = ("at", (timestamp, timestamp))
-        return self
-
-    def between(self, start_time: datetime, end_time: datetime) -> 'ArtifactQuery':
-        self._time_filter = ("between", (start_time, end_time))
-        return self
-
-    async def execute(self) -> List[asyncpg.Record]:
-        table_name = f"{model_to_table_name(self.model_type)}_artifacts"
-        # Build the base query joining the artifact table and base_artifacts
-        query = f"SELECT ba.* FROM {table_name} art JOIN base_artifacts ba ON art.id = ba.id "
-        where_clauses = []
-
-        if self._turn_filter:
-            typ, turn_id = self._turn_filter
-            if typ == "at":
-                where_clauses.append(f"ba.turn_id = {turn_id}")
-            elif typ == "up_to":
-                where_clauses.append(f"ba.turn_id <= {turn_id}")
-
-        if self._time_filter:
-            # This requires joining turns to filter on created_at.
-            query += "JOIN turns t ON ba.turn_id = t.id "
-            typ, times = self._time_filter
-            if typ == "at":
-                timestamp = times[0].isoformat()
-                where_clauses.append(f"t.created_at <= '{timestamp}'")
-            elif typ == "between":
-                start_time, end_time = times
-                where_clauses.append(f"t.created_at BETWEEN '{start_time.isoformat()}' AND '{end_time.isoformat()}'")
-
-        if where_clauses:
-            query += "WHERE " + " AND ".join(where_clauses) + " "
-
-        if self._limit is not None:
-            query += f"LIMIT {self._limit} "
-        if self._offset is not None:
-            query += f"OFFSET {self._offset}"
-
-        return await PGConnectionManager.fetch(query)
-
-    async def first(self) -> Optional[asyncpg.Record]:
-        self._limit = 1
-        results = await self.execute()
-        return results[0] if results else None
-
-    async def last(self, n: Optional[int] = None) -> List[asyncpg.Record]:
-        if n is not None:
-            self._limit = n
-        # Implementation for last is not detailed; returning empty list for now
-        return []
+class TestRun(BaseModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    score: int
+    message: str
+    test_case_id: int
+    branch_id: int
+    turn_id: int
 
 
 
@@ -248,147 +186,74 @@ class ArtifactLog:
         await PGConnectionManager.initialize()
         # Create required extensions and tables
         await PGConnectionManager.execute("CREATE EXTENSION IF NOT EXISTS ltree;")
-
-        # await PGConnectionManager.execute("""
-        #     CREATE TABLE IF NOT EXISTS branches (
-        #         id SERIAL PRIMARY KEY,
-        #         name TEXT,
-        #         created_at TIMESTAMP DEFAULT NOW(),
-        #         updated_at TIMESTAMP DEFAULT NOW(),
-        #         branch_index INTEGER NOT NULL,
-        #         turn_counter INTEGER NOT NULL,
-        #         forked_from_turn_index INTEGER,
-        #         forked_from_branch_id INTEGER,
-        #         head_id INTEGER NOT NULL,
-        #         FOREIGN KEY (forked_from_branch_id) REFERENCES branches(id),
-        #         FOREIGN KEY (head_id) REFERENCES heads(id)
-        #     );
-        # """)
-
-        # await PGConnectionManager.execute("""
-        #     CREATE TABLE IF NOT EXISTS turns (
-        #         id SERIAL PRIMARY KEY,
-        #         branch_id INTEGER NOT NULL,
-        #         index INTEGER NOT NULL,
-        #         status TEXT NOT NULL,
-        #         created_at TIMESTAMP DEFAULT NOW(),
-        #         ended_at TIMESTAMP,
-        #         message TEXT,
-        #         FOREIGN KEY (branch_id) REFERENCES branches(id),
-        #         local_state JSONB
-        #     );
-        # """)
-
-        # await PGConnectionManager.execute("""
-        #     CREATE TABLE IF NOT EXISTS heads (
-        #         id SERIAL PRIMARY KEY,
-        #         branch_id INTEGER NOT NULL,
-        #         turn_id INTEGER NOT NULL,
-        #         created_at TIMESTAMP DEFAULT NOW(),
-        #         FOREIGN KEY (branch_id) REFERENCES branches(id),
-        #         FOREIGN KEY (turn_id) REFERENCES turns(id)
-        #     );
-        # """)
-
-        # await PGConnectionManager.execute("""
-        #     CREATE TABLE IF NOT EXISTS base_artifacts (
-        #         id SERIAL PRIMARY KEY,
-        #         type TEXT,
-        #         model_id TEXT,
-        #         turn_id INTEGER,
-        #         created_at TIMESTAMP DEFAULT NOW(),
-        #         FOREIGN KEY (turn_id) REFERENCES turns(id)
-        #     );
-        # """)
         
         
-        await PGConnectionManager.execute("""
-                                          
-            CREATE TABLE IF NOT EXISTS branches (
-                id SERIAL PRIMARY KEY,
-                name TEXT,
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW(),
-                branch_index INTEGER NOT NULL,
-                turn_counter INTEGER NOT NULL,
-                forked_from_turn_index INTEGER,
-                forked_from_branch_id INTEGER,
-                FOREIGN KEY (forked_from_branch_id) REFERENCES branches(id)
-            );
+        await PGConnectionManager.execute("""                                          
+CREATE TABLE IF NOT EXISTS branches (
+	id SERIAL PRIMARY KEY,
+	name TEXT,
+	created_at TIMESTAMP DEFAULT NOW(),
+	updated_at TIMESTAMP DEFAULT NOW(),
+	forked_from_turn_index INTEGER,
+	forked_from_branch_id INTEGER,
+	FOREIGN KEY (forked_from_branch_id) REFERENCES branches(id)
+);
 
-            CREATE TABLE IF NOT EXISTS turns (
-                id SERIAL PRIMARY KEY,
-                branch_id INTEGER NOT NULL,
-                index INTEGER NOT NULL,
-                status TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT NOW(),
-                ended_at TIMESTAMP,
-                message TEXT,
-                FOREIGN KEY (branch_id) REFERENCES branches(id),
-                local_state JSONB
-            );
-                                          
-            CREATE TABLE IF NOT EXISTS heads (
-                id SERIAL PRIMARY KEY,
-                branch_id INTEGER,
-                main_branch_id INTEGER,
-                turn_id INTEGER,
-                created_at TIMESTAMP DEFAULT NOW(),
-                FOREIGN KEY (branch_id) REFERENCES branches(id),
-                FOREIGN KEY (turn_id) REFERENCES turns(id),
-                FOREIGN KEY (main_branch_id) REFERENCES branches(id)
-            );
-            
-            ALTER TABLE branches
-            ADD COLUMN head_id INTEGER NOT NULL;
-
-            ALTER TABLE branches
-            ADD CONSTRAINT fk_head_id FOREIGN KEY (head_id) REFERENCES heads(id);
-            
-            CREATE TABLE IF NOT EXISTS base_artifacts (
-                id SERIAL PRIMARY KEY,
-                type TEXT,
-                model_id TEXT,
-                turn_id INTEGER,
-                created_at TIMESTAMP DEFAULT NOW(),
-                FOREIGN KEY (turn_id) REFERENCES turns(id)
-            );
-            
-            
-            
-        CREATE TABLE IF NOT EXISTS test_cases (
-                id SERIAL PRIMARY KEY,
-                title TEXT NOT NULL,
-                description TEXT,
-                evaluation_criteria JSONB,
-                inputs JSONB DEFAULT '{}',
-                session_id INTEGER NOT NULL,
-                start_message_id INTEGER REFERENCES messages(id),
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW()
-            );
-            
-            CREATE TABLE IF NOT EXISTS turn_test_cases (
-                id SERIAL PRIMARY KEY,
-                turn_id INTEGER REFERENCES turns(id),
-                test_case_id INTEGER REFERENCES test_cases(id),
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(turn_id, test_case_id)
-            );
-            
-            CREATE TABLE IF NOT EXISTS test_runs (
-                id SERIAL PRIMARY KEY,
-                branch_id INTEGER REFERENCES branches(id),
-                test_case_id INTEGER REFERENCES test_cases(id),
-                status TEXT DEFAULT 'INITIALIZED',
-                score INTEGER,
-                error_message TEXT,
-                meta JSONB DEFAULT '{}',
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW()
-            );
-        """)
+CREATE TABLE IF NOT EXISTS turns (
+	id SERIAL PRIMARY KEY,
+	created_at TIMESTAMP DEFAULT NOW(),
+	ended_at TIMESTAMP,                
+	index INTEGER NOT NULL,
+	status TEXT NOT NULL,                
+	message TEXT,
+	score INTEGER,
+	metadata JSONB DEFAULT '{}',
+	branch_id INTEGER NOT NULL,
+	FOREIGN KEY (branch_id) REFERENCES branches(id),
+	local_state JSONB
+);
+							  
+CREATE TABLE IF NOT EXISTS heads (
+	id SERIAL PRIMARY KEY,
+	created_at TIMESTAMP DEFAULT NOW(),
+	updated_at TIMESTAMP DEFAULT NOW(),
+	main_branch_id INTEGER,
+	FOREIGN KEY (main_branch_id) REFERENCES branches(id),
+	branch_id INTEGER,
+	FOREIGN KEY (branch_id) REFERENCES branches(id),
+	turn_id INTEGER,
+	FOREIGN KEY (turn_id) REFERENCES turns(id)
+);
+	
+	
+CREATE TABLE IF NOT EXISTS test_cases (
+	id SERIAL PRIMARY KEY,
+	created_at TIMESTAMP DEFAULT NOW(),
+	updated_at TIMESTAMP DEFAULT NOW(),
+	title TEXT NOT NULL,
+	description TEXT,
+	inputs JSONB DEFAULT '{}',
+	targets JSONB DEFAULT '{}',
+	branch_id INTEGER,                                
+	FOREIGN KEY (branch_id) REFERENCES branches(id),
+	turn_id INTEGER,
+	FOREIGN KEY (turn_id) REFERENCES turns(id)
+);
+				
+CREATE TABLE IF NOT EXISTS test_runs (
+	id SERIAL PRIMARY KEY,
+	created_at TIMESTAMP DEFAULT NOW(),
+	updated_at TIMESTAMP DEFAULT NOW(),                
+	score INTEGER,
+	message TEXT,                
+	test_case_id INTEGER,
+	FOREIGN KEY (test_case_id) REFERENCES test_cases(id),
+	branch_id INTEGER,
+	FOREIGN KEY (branch_id) REFERENCES branches(id),
+	turn_id INTEGER,
+	FOREIGN KEY (turn_id) REFERENCES turns(id)
+);
+""")
 
     async def drop_tables(self) -> None:
         # Drop all main tables and dynamic artifact tables
@@ -438,8 +303,8 @@ class ArtifactLog:
         new_head_id = head_rows[0]['id']
 
         # Create main branch with the new head id
-        query = "INSERT INTO branches (name, branch_index, turn_counter, forked_from_turn_index, forked_from_branch_id, head_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;"
-        branch_rows = await PGConnectionManager.fetch(query, "main", 0, 0, None, None, new_head_id)
+        query = "INSERT INTO branches (name, forked_from_turn_index, forked_from_branch_id, head_id) VALUES ($1, $2, $3, $4) RETURNING id;"
+        branch_rows = await PGConnectionManager.fetch(query, "main", 0, None, new_head_id)
         branch_id = branch_rows[0]['id']
 
         # Create initial turn for the branch
@@ -465,31 +330,7 @@ class ArtifactLog:
         type, turn_id
         """
 
-    # async def stage_artifact(self, model_instance: Any) -> int:
-    #     """
-    #     Stage a model instance as an artifact in the current turn.
-    #     The model must have a Config with versioned=True and an 'id' attribute.
-    #     """
-    #     config = getattr(model_instance.__class__, 'Config', None)
-    #     if not config or not getattr(config, 'versioned', False):
-    #         raise ValueError(f"Model {model_instance.__class__.__name__} is not versioned")
 
-    #     artifact_table = await self.register_model(model_instance.__class__)
-    #     current_head = self.head
-    #     if not current_head:
-    #         raise ValueError("No active head found")
-
-    #     # Insert into base_artifacts table
-    #     query = "INSERT INTO base_artifacts (type, model_id, turn_id) VALUES ($1, $2, $3) RETURNING id;"
-    #     artifact_type = artifact_table  # using table name as identifier
-    #     rows = await PGConnectionManager.fetch(query, artifact_type, model_instance.id, current_head['turn_id'])
-    #     artifact_id = rows[0]['id']
-
-    #     # Insert into the artifact-specific table
-    #     query = f"INSERT INTO {artifact_table} (id) VALUES ($1) RETURNING id;"
-    #     await PGConnectionManager.fetch(query, artifact_id)
-
-    #     return artifact_id
 
     async def commit_turn(self, message: Optional[str] = None) -> int:
         """
@@ -516,6 +357,7 @@ class ArtifactLog:
         head['turn_id'] = new_turn_id
         return new_turn_id
 
+
     async def branch_from(self, turn_id: int, name: Optional[str] = None, check_out: bool = False) -> int:
         """
         Create a new branch from a specific turn.
@@ -531,12 +373,8 @@ class ArtifactLog:
             raise ValueError("No active head found")
 
         new_branch_name = name if name is not None else f"branch_from_{turn_id}"
-        # query = "SELECT path FROM branches WHERE id = $1;"
-        # branch_rows = await PGConnectionManager.fetch(query, source_turn['branch_id'])
-        # branch_path = branch_rows[0]['path']
-        # new_path = branch_path + '.' + str(turn_id)
 
-        query = "INSERT INTO branches (name, branch_index, turn_counter, forked_from_turn_index, forked_from_branch_id, head_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;"
+        query = "INSERT INTO branches (name, forked_from_turn_index, forked_from_branch_id, head_id) VALUES ($1, $2, $3, $4) RETURNING id;"
         new_branch_rows = await PGConnectionManager.fetch(query, new_branch_name, 0,0, source_turn['index'], source_turn['branch_id'], current_head['id'])
         new_branch_id = new_branch_rows[0]['id']
 
@@ -631,11 +469,6 @@ class ArtifactLog:
         current_head['turn_id'] = new_turn_id
         return new_turn_id
 
-    def get_artifact(self, model_type: Type[Any]) -> ArtifactQuery:
-        """
-        Get a query builder for artifacts of a given model.
-        """
-        return ArtifactQuery(model_type)
 
     async def get_turn(self, turn_id: int) -> Turn:
         query = "SELECT * FROM turns WHERE id = $1;"
@@ -704,13 +537,11 @@ class ArtifactLog:
                         json_build_object(
                             'id', b.id,
                             'name', b.name,
-                            'branch_index', b.branch_index,
-                            'turn_counter', b.turn_counter,
                             'forked_from_turn_index', b.forked_from_turn_index,
                             'forked_from_branch_id', b.forked_from_branch_id,
                             'created_at', b.created_at,
                             'updated_at', b.updated_at
-                        ) ORDER BY b.branch_index  -- ordering the aggregated forked branches by branch_index
+                        ) ORDER BY b.created_at  -- ordering the aggregated forked branches by creation time
                     ) FILTER (WHERE b.id IS NOT NULL),
                     '[]'
                 ) AS forked_branches

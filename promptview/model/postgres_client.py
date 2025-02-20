@@ -159,7 +159,7 @@ class PostgresClient:
             if vs.vectorizer.type == "dense":
                 create_table_sql += f'"{vs.name}" vector({vs.vectorizer.size}),\n'
         create_table_sql = create_table_sql.rstrip(",")
-        create_table_sql += "\n) INHERITS (base_artifacts);"
+        create_table_sql += "\n)"
 
         indices_sql = []
 
