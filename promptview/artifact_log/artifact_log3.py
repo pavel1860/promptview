@@ -270,6 +270,8 @@ CREATE TABLE IF NOT EXISTS test_runs (
         await PGConnectionManager.execute("DROP TABLE IF EXISTS heads CASCADE;")
         await PGConnectionManager.execute("DROP TABLE IF EXISTS turns CASCADE;")
         await PGConnectionManager.execute("DROP TABLE IF EXISTS branches CASCADE;")
+        await PGConnectionManager.execute("DROP TABLE IF EXISTS test_cases CASCADE;")
+        await PGConnectionManager.execute("DROP TABLE IF EXISTS test_runs CASCADE;")
         if extra_tables:
             for table in extra_tables:
                 await PGConnectionManager.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")
@@ -301,7 +303,10 @@ CREATE TABLE IF NOT EXISTS test_runs (
         Initialize a new head with a main branch and initial turn.
         If head_id is provided, load the existing head.
         """
-        if head_id is not None:
+        if head_id is None:
+            head = await self.create_head()
+            return head
+        else:
             query = "SELECT * FROM heads WHERE id = $1;"
             rows = await PGConnectionManager.fetch(query, head_id)
             if rows:
@@ -309,7 +314,9 @@ CREATE TABLE IF NOT EXISTS test_runs (
                 if branch_id is not None:
                     await self.checkout_branch(branch_id)
                 return self._head
-
+            
+            
+    async def create_head(self) -> Dict[str, Any]:
         # Create head with null placeholders for branch_id and turn_id
         query = "INSERT INTO heads (branch_id, turn_id, main_branch_id) VALUES (NULL, NULL, NULL) RETURNING id;"
         head_rows = await PGConnectionManager.fetch(query)

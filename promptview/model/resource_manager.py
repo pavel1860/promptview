@@ -73,6 +73,8 @@ class NamespaceParams:
             db_type: DatabaseType,
             indices: list[dict[str, str]] | None = None,
             subspaces: list[str] | None = None,
+            versioned: bool = False,
+            is_head: bool = False,
         ):
         self._name = name
         self.vector_spaces = {vs.name: vs for vs in vector_spaces}
@@ -81,6 +83,8 @@ class NamespaceParams:
         self.subspaces = subspaces or []
         self.envs = envs
         self.db_type = db_type
+        self.versioned = versioned
+        self.is_head = is_head
         
     @property
     def name(self):
@@ -171,7 +175,9 @@ class ConnectionManager:
         namespace: str, 
         vector_spaces: list[VectorSpace], 
         db_type: DatabaseType = "qdrant",
-        indices: list[dict[str, str]] | None=None
+        indices: list[dict[str, str]] | None=None,
+        versioned: bool = False,
+        is_head: bool = False,
     ):        
         if namespace in self._namespaces:
             raise ValueError(f"Namespace {namespace} already exists. seems you have multiple Model classes with the same name")
@@ -182,7 +188,9 @@ class ConnectionManager:
             vector_spaces=vector_spaces,
             connection=self.get_connection(db_type),
             db_type=db_type,
-            indices=indices or []            
+            indices=indices or [],
+            versioned=versioned,
+            is_head=is_head,
         )        
         for vs in vector_spaces:
             self.vectorizers_manager.add_vectorizer(namespace, vs.name, vs.vectorizer_cls)
@@ -206,7 +214,7 @@ class ConnectionManager:
         return ENV_CONTEXT.get()
     
     def add_model(self, model_cls: Type[Model]):
-        self._models[model_cls.__name__] = model_cls
+        self._models[model_cls._namespace.default] = model_cls # type: ignore
         
     def get_model(self, model_name: str) -> Type[Model]:
         try:
@@ -229,6 +237,8 @@ class ConnectionManager:
                     model_cls=self.get_model(ns.name),
                     vector_spaces=list(ns.vector_spaces.values()),
                     indices=ns.indices,
+                    versioned=ns.versioned,
+                    is_head=ns.is_head,
                 )
                 self._active_namespaces[ns.name] = ns            
             else:

@@ -104,10 +104,21 @@ class PostgresClient:
             CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
             ''')
             
-    def build_table_sql(self, collection_name: str, model_cls: "Type[Model]", vector_spaces: list["VectorSpace"], indices: list[dict[str, str]] | None = None):
+    def build_table_sql(
+        self, 
+        collection_name: str, 
+        model_cls: "Type[Model]", 
+        vector_spaces: list["VectorSpace"], 
+        indices: list[dict[str, str]] | None = None,
+        versioned: bool = False,
+        is_head: bool = False
+    ):
         """Create a table for vector storage with pgvector extension."""
 
         table_name = camel_to_snake(collection_name)
+        
+        if versioned and is_head:
+            raise ValueError("Versioned and head models cannot be created at the same time")
 
         
         # Get model class from the collection name to inspect fields
@@ -117,18 +128,29 @@ class PostgresClient:
 # id UUID PRIMARY KEY DEFAULT uuid_generate_v4()"""
         create_table_sql = f"""CREATE TABLE IF NOT EXISTS {table_name} (
             id SERIAL PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW(),            
+            """
+        if versioned:
+            create_table_sql += """
             turn_id INT NOT NULL,
             FOREIGN KEY (turn_id) REFERENCES turns(id),
             branch_id INT NOT NULL,
             FOREIGN KEY (branch_id) REFERENCES branches(id),
-            created_at TIMESTAMP DEFAULT NOW(),
-            updated_at TIMESTAMP DEFAULT NOW(),            
             """
-
+        if is_head:
+            # create_table_sql += """
+            # head_id INT NOT NULL,
+            # FOREIGN KEY (head_id) REFERENCES heads(id),
+            # """
+            create_table_sql += """
+            head_id INTEGER,
+            FOREIGN KEY (head_id) REFERENCES heads(id),
+            """
     
         # Add columns for each model field
         for field_name, field in model_cls.model_fields.items():            
-            if field_name in ["id", "turn_id", "branch_id", "_subspace", "score"]:
+            if field_name in ["id", "turn_id", "branch_id", "head_id", "_subspace", "score"]:
                 continue
             create_table_sql += "\n"
             field_type = field.annotation
@@ -167,7 +189,7 @@ class PostgresClient:
             if vs.vectorizer.type == "dense":
                 create_table_sql += f'"{vs.name}" vector({vs.vectorizer.size}),\n'
         create_table_sql = create_table_sql.rstrip(",")
-        create_table_sql += "\n)"
+        create_table_sql += "\n);"
 
         indices_sql = []
 
@@ -293,20 +315,30 @@ class PostgresClient:
         model_cls: Type[BaseModel],
         ids=None,
         batch_size=100,
+        is_versioned: bool = False,
+        is_head: bool = False
     ):
         """Upsert vectors and metadata into the collection with fixed turn_id and type fields."""
         await self._ensure_connected()
         assert self.pool is not None
-         
-        artifact_log = ArtifactLog.get_current()
-        assert artifact_log.is_initialized
+        if is_versioned and is_head:
+            raise ValueError("Versioned and head models cannot be created at the same time")
+        artifact_values = {}
+        if is_versioned:
+            artifact_log = ArtifactLog.get_current()
+            assert artifact_log.is_initialized
+            artifact_values = {"turn_id": artifact_log.head["turn_id"], "branch_id": artifact_log.head["branch_id"]}
+        if is_head:
+            artifact_log = ArtifactLog()
+            head = await artifact_log.create_head()
+            artifact_values = {"head_id": head["id"]}
+        
 
-        table_name = camel_to_snake(namespace)
 
         # Define the fixed values you want to add to every record.
         # You can use hard-coded values (e.g. {"turn_id": 42, "type": "my_type"})
         # or values derived from artifact_log (e.g. artifact_log.head["turn_id"])
-        fixed_values = {"turn_id": artifact_log.head["turn_id"], "branch_id": artifact_log.head["branch_id"]}
+        
 
         # Build the base columns from the first record and add the fixed columns.
         if vectors:
@@ -315,9 +347,9 @@ class PostgresClient:
             base_columns = list(metadata[0].keys())
 
         # Remove any keys you want to skip (e.g. "_subspace") and also do not duplicate fixed keys.
-        base_columns = [col for col in base_columns if col != "_subspace" and col not in fixed_values]
+        base_columns = [col for col in base_columns if col != "_subspace" and col not in artifact_values]
         # Now add the fixed columns.
-        columns = base_columns + list(fixed_values.keys())
+        columns = base_columns + list(artifact_values.keys())
 
         def zip_metadata(vectors, metadata):
             if not vectors:
@@ -332,7 +364,7 @@ class PostgresClient:
             for chunk in chunks(zip_metadata(vectors, metadata), batch_size=batch_size):
                 # Update each row with our fixed values.
                 for item in chunk:
-                    item.update(fixed_values)
+                    item.update(artifact_values)
 
                 placeholders = []
                 values = []
@@ -353,7 +385,7 @@ class PostgresClient:
                     placeholders.append(f"({', '.join(col_placeholders)})")
 
                 query = f"""
-                INSERT INTO {table_name} ({', '.join(f'"{col}"' for col in columns)})
+                INSERT INTO {namespace} ({', '.join(f'"{col}"' for col in columns)})
                 VALUES {', '.join(placeholders)}
                 RETURNING *;
                 """
@@ -604,7 +636,7 @@ class PostgresClient:
     async def execute_query(self, collection_name: str, query_set: "QuerySet"):
         """Execute a query set and return the results."""
         artifact_log = ArtifactLog.get_current()
-        table_name = camel_to_snake(collection_name)
+        table_name = collection_name
         
         if query_set.query_type == "vector":
             # Handle vector similarity search

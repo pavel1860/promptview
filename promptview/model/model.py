@@ -6,6 +6,8 @@ from uuid import uuid4
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import FieldInfo
 from pydantic._internal._model_construction import ModelMetaclass
+
+from promptview.model.postgres_client import camel_to_snake
 from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QuerySetSingleAdapter, QueryType
 from .vectors.base_vectorizer import BaseVectorizer
 from .fields import VectorSpaceMetrics, get_model_indices
@@ -136,6 +138,8 @@ class ModelMeta(ModelMetaclass, type):
         default_temporal_type = None
         namespace = None
         db_type = "qdrant"
+        versioned = False
+        is_head = False
         vec_field_map = {}
         vector_spaces = []
         relations = {}
@@ -153,9 +157,16 @@ class ModelMeta(ModelMetaclass, type):
                 namespace = model_base._namespace.default
                 dct["_subspace"] = name
             # Get database type from Config class if it exists
-            if "Config" in dct and hasattr(dct["Config"], "database_type"):
-                db_type = dct["Config"].database_type             
+            if "Config" in dct:
+                if hasattr(dct["Config"], "database_type"):
+                    db_type = dct["Config"].database_type             
+                if hasattr(dct["Config"], "versioned"):
+                    versioned = dct["Config"].versioned
+                if hasattr(dct["Config"], "is_head"):
+                    is_head = dct["Config"].is_head
             
+            if db_type == "postgres":
+                namespace = f"{camel_to_snake(namespace)}s"
             
             if "VectorSpace" in dct:
                 field_type = dct["VectorSpace"]
@@ -178,7 +189,9 @@ class ModelMeta(ModelMetaclass, type):
                     # subspace=dct.get("_subspace"),
                     vector_spaces=vector_spaces,
                     indices=indices,
-                    db_type=db_type
+                    db_type=db_type,
+                    versioned=versioned,
+                    is_head=is_head
                 )
             else:
                 if db_type == "qdrant":                    
@@ -187,12 +200,15 @@ class ModelMeta(ModelMetaclass, type):
                         raise ValueError("Vector Space not defined for Qdrant database")
                     vector_spaces = list(ns.vector_spaces.values())
                 elif db_type == "postgres":
+                    
                     indices = get_model_indices(dct)
                     connection_manager.add_namespace(
                         namespace=namespace,
                         vector_spaces=[],
                         indices=indices,
-                        db_type=db_type
+                        db_type=db_type,
+                        versioned=versioned,
+                        is_head=is_head
                     )
                 else:
                     raise ValueError(f"Unsupported database type: {db_type}")
@@ -310,6 +326,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     score: float = Field(default=-1, description="Score of the document. Default is -1")
     turn_id: str | int = Field(default=-1, description="Unique Identifier of the turn")
     branch_id: str | int = Field(default=-1, description="Unique Identifier of the branch")
+    head_id: str | int = Field(default=-1, description="Unique Identifier of the head")
     _partitions: dict[str, str] = PrivateAttr(default_factory=dict)
     _default_temporal_field: str = PrivateAttr(default=None)
     _namespace: str | None = PrivateAttr(default=None)
@@ -374,7 +391,10 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     def _payload_dump(self):
         relation_fields = self._get_relation_fields()
-        dump = self.model_dump(exclude={"id", "score", "_vector", *relation_fields})
+        version_fields = ["turn_id", "branch_id", "main_branch_id", "head_id"]
+            
+            
+        dump = self.model_dump(exclude={"id", "score", "_vector", *relation_fields, *version_fields})
         dump["_subspace"] = self._subspace
         return dump
         
@@ -447,9 +467,19 @@ class Model(BaseModel, metaclass=ModelMeta):
                 metadata=[metadata],
                 # ids=[self._id]
                 ids=[self.id],
-                model_cls=self.__class__
+                model_cls=self.__class__,
+                is_versioned=ns.versioned,
+                is_head=ns.is_head
             )
-        self.id = res[0]['id']
+        if not res:
+            raise ValueError("Failed to save model")
+        if not res[0].get('id'):
+            raise ValueError("No id returned from database")
+        # for field, field_info in self.model_fields.items():
+        self.id = res[0].get('id')
+        self.branch_id = res[0].get('branch_id', -1)
+        self.turn_id = res[0].get('turn_id', -1)
+        self.head_id = res[0].get('head_id', -1)        
         return self
 
         
