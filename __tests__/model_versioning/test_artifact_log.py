@@ -28,7 +28,7 @@ async def artifact_log():
     art_log = ArtifactLog()
     await art_log.initialize_tables()
     yield art_log
-    await art_log.drop_tables()
+    await art_log.drop_tables(["messages"])
 
 
 
@@ -45,10 +45,11 @@ async def test_artifact_log(artifact_log: ArtifactLog):
             content="Hello, how are you?",
             role="user"
         ).save()
-        message_list = await art_log.get_artifact_list(artifact_table="message")
+        # message_list = await art_log.get_artifact_list(artifact_table="message")
+        message_list = await Message.limit(20)
         assert len(message_list) == 1
-        assert message_list[0]["content"] == "Hello, how are you?"
-        assert message_list[0]["role"] == "user"
+        assert message_list[0].content == "Hello, how are you?"
+        assert message_list[0].role == "user"
         
         turn1 = await art_log.get_turn(turn_id1)
         
@@ -60,10 +61,10 @@ async def test_artifact_log(artifact_log: ArtifactLog):
             role="assistant"
         ).save()
         
-        message_list = await art_log.get_artifact_list(artifact_table="message")
+        message_list = await Message.limit(20)  
         assert len(message_list) == 2
-        assert message_list[0]["content"] == "I am fine, thank you!"
-        assert message_list[0]["role"] == "assistant"
+        assert message_list[-1].content == "I am fine, thank you!"
+        assert message_list[-1].role == "assistant"
         
         turn_id2 = await art_log.commit_turn()
         
@@ -76,7 +77,7 @@ async def test_artifact_log(artifact_log: ArtifactLog):
         assert turn_list[1].id == turn_id1
         assert turn_list[1].status == TurnStatus.COMMITTED
         
-        message_list = await art_log.get_artifact_list(artifact_table="message")
+        message_list = await Message.limit(20)
         assert len(message_list) == 2
         
         await Message(
@@ -88,7 +89,7 @@ async def test_artifact_log(artifact_log: ArtifactLog):
             content="the weather in tokyo is sunny",
             role="assistant"
         ).save()
-        message_list = await art_log.get_artifact_list(artifact_table="message")
+        message_list = await Message.limit(20)
         assert len(message_list) == 4
 
 
@@ -162,12 +163,12 @@ async def test_artifact_log_branching(artifact_log: ArtifactLog):
         assert turn_list[0].id == turn4
         
         
-        message_list = await art_log.get_artifact_list(artifact_table="message")
+        message_list = await Message.limit(20)
         assert len(message_list) == 9
-        assert message_list[0]["content"] == "booked you a flight to tokyo for $1000"
-        assert message_list[0]["role"] == "assistant"
-        assert message_list[-1]["content"] == "Hello, how are you?"
-        assert message_list[-1]["role"] == "user"
+        assert message_list[-1].content == "booked you a flight to tokyo for $1000"
+        assert message_list[-1].role == "assistant"
+        assert message_list[0].content == "Hello, how are you?"
+        assert message_list[0].role == "user"
         
         branch2 = await art_log.branch_from(turn_id=turn0, check_out=True)
         assert art_log.head["branch_id"] == branch2
@@ -221,12 +222,12 @@ async def test_artifact_log_branching(artifact_log: ArtifactLog):
         
         
         
-        message_list = await art_log.get_artifact_list(artifact_table="message")
+        message_list = await Message.limit(20)
         assert len(message_list) == 8
-        assert message_list[0]["content"] == "the weather in Bangkok is very hot"
-        assert message_list[0]["role"] == "assistant"
-        assert message_list[-1]["content"] == "Hello, how are you?"
-        assert message_list[-1]["role"] == "user"
+        assert message_list[-1].content == "the weather in Bangkok is very hot"
+        assert message_list[-1].role == "assistant"
+        assert message_list[0].content == "Hello, how are you?"
+        assert message_list[0].role == "user"
         
         
 
@@ -398,18 +399,32 @@ async def test_artifact_log_reverting(artifact_log: ArtifactLog):
         assert len(turn_list) == 7
         assert turn_list[0].id == turn33
         assert turn_list[-1].id == turn0
+        message_list = await Message.limit(20)
+        assert len(message_list) == 12
+        assert message_list[0].content == "Hello, how are you?"
+        assert message_list[0].role == "user"
+        assert message_list[-1].content == "the best restaurant in new york is the one on 5th avenue"
+        assert message_list[-1].role == "assistant"
         
         
-        await art_log.checkout_branch(branch_id=1)
+        await art_log.checkout_branch(branch_id=branch1)
         assert art_log.head["branch_id"] == branch1
         assert art_log.head["turn_id"] == turn4
         
-        message_list = await art_log.get_artifact_list(artifact_table="message")
+        message_list = await Message.limit(20)
         assert len(message_list) == 9
+        assert message_list[0].content == "Hello, how are you?"
+        assert message_list[0].role == "user"        
+        assert message_list[-1].content == "booked you a flight to tokyo for $1000"
+        assert message_list[-1].role == "assistant"
         
-        await art_log.checkout_branch(branch_id=2)
+        await art_log.checkout_branch(branch_id=branch2)
         assert art_log.head["branch_id"] == branch2
         assert art_log.head["turn_id"] == turn24
         
-        message_list = await art_log.get_artifact_list(artifact_table="message")
-        assert len(message_list) == 10
+        message_list = await Message.limit(20)
+        assert len(message_list) == 11
+        assert message_list[0].content == "Hello, how are you?"
+        assert message_list[0].role == "user"
+        assert message_list[-1].content == "booked you a flight to Bangkok"
+        assert message_list[-1].role == "assistant"
