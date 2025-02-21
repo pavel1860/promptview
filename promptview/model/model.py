@@ -6,6 +6,7 @@ from uuid import uuid4
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import FieldInfo
 from pydantic._internal._model_construction import ModelMetaclass
+from pydantic._internal._config import ConfigWrapper
 
 from promptview.model.postgres_client import camel_to_snake
 from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QuerySetSingleAdapter, QueryType
@@ -143,30 +144,62 @@ class ModelMeta(ModelMetaclass, type):
         vec_field_map = {}
         vector_spaces = []
         relations = {}
-        if name != "Model":
+        is_abstract = False
+        config = None
+        if name == "Model":
+            is_abstract = True
+        
+        
+        if "Config" in dct:
+            config = dct["Config"]
+            if hasattr(config, "is_abstract"):
+                is_abstract = config.is_abstract
+        # extract config from base class
+        elif bases and type(bases) == tuple and hasattr(bases[0], "Config"):
+            config = bases[0].Config            
+            
+        if config:        
+            if hasattr(config, "database_type"):
+                db_type = config.database_type             
+            if hasattr(config, "versioned"):
+                versioned = config.versioned
+            if hasattr(config, "is_head"):
+                is_head = config.is_head 
+            if hasattr(config, "namespace"):
+                namespace = config.namespace
+        
+        
+        
+            
+        
+            
+        
+        if not is_abstract:
             #? add model partition
             if not bases:
                 raise ValueError(f"Vector Space not defined in {name} and no base class")
             model_base = bases[0]
-            if model_base == Model:
-                namespace = name
-                dct["_subspace"] = None
+            if not namespace:
+                if model_base == Model:
+                    namespace = f"{camel_to_snake(name)}s" if db_type == "postgres" else name
+                    dct["_subspace"] = None
+                else:
+                    if not hasattr(model_base, "_namespace"):
+                        raise ValueError(f"Namespace not defined in base class of {name}")
+                    namespace = model_base._namespace.default
+                    dct["_subspace"] = name
             else:
-                if not hasattr(model_base, "_namespace"):
-                    raise ValueError(f"Namespace not defined in base class of {name}")
-                namespace = model_base._namespace.default
-                dct["_subspace"] = name
+                dct["_subspace"] = None
             # Get database type from Config class if it exists
-            if "Config" in dct:
-                if hasattr(dct["Config"], "database_type"):
-                    db_type = dct["Config"].database_type             
-                if hasattr(dct["Config"], "versioned"):
-                    versioned = dct["Config"].versioned
-                if hasattr(dct["Config"], "is_head"):
-                    is_head = dct["Config"].is_head
+            # if "Config" in dct:
+            #     if hasattr(dct["Config"], "database_type"):
+            #         db_type = dct["Config"].database_type             
+            #     if hasattr(dct["Config"], "versioned"):
+            #         versioned = dct["Config"].versioned
+            #     if hasattr(dct["Config"], "is_head"):
+            #         is_head = dct["Config"].is_head
             
-            if db_type == "postgres":
-                namespace = f"{camel_to_snake(namespace)}s"
+            
             
             if "VectorSpace" in dct:
                 field_type = dct["VectorSpace"]
@@ -296,11 +329,12 @@ class ModelMeta(ModelMetaclass, type):
             dct["_partitions"] = cls_partitions
             dct["_default_temporal_field"] = default_temporal_field
             dct["_vec_field_map"] = vec_field_map
+            dct["_db_type"] = db_type
             if namespace:
                 dct["_namespace"] = namespace
             # dct["_vectorizers"] = connection_manager.get_vectorizers(namespace)
         model_cls_inst = super().__new__(cls, name, bases, dct)
-        if name != "Model":
+        if not is_abstract:
             if not namespace:
                 raise ValueError("Namespace not defined")
             connection_manager.add_model(model_cls_inst)
@@ -333,15 +367,18 @@ class Model(BaseModel, metaclass=ModelMeta):
     _subspace: str | None = PrivateAttr(default=None)
     _vec_field_map: dict[str, list[str]] = PrivateAttr(default_factory=dict)
     _vector: dict[str, Any] = PrivateAttr(default_factory=dict)
+    _db_type: DatabaseType = PrivateAttr(default="qdrant")
     # _partitions: dict[str, str] = {}
     # _default_temporal_field: str | None = None
     # _namespace: str | None = None
     # _subspace: str | None = None
     # _vec_field_map: dict[str, list[str]] = {}
     
-    class Config:
-        arbitrary_types_allowed = True
-        database_type: DatabaseType = "qdrant"  # Default to qdrant for backward compatibility
+    # class Config:
+    #     arbitrary_types_allowed = True
+    #     database_type: DatabaseType = "qdrant"  # Default to qdrant for backward compatibility
+    #     versioned: bool = False
+    #     is_head: bool = False
     
     
     def __init__(
@@ -522,7 +559,8 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     @classmethod
-    def pack_search_result(cls: Type[MODEL], search_result, db_type: DatabaseType) -> MODEL:
+    def pack_search_result(cls: Type[MODEL], search_result) -> MODEL:
+        db_type = cls._db_type.default # type: ignore
         if db_type == "qdrant":
             return cls(
                 # _id=search_result.id,
@@ -577,7 +615,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def get(cls: Type[MODEL], id: str) -> MODEL | None:
         ns = await cls.get_namespace()
         res = await ns.conn.retrieve(
-            collection_name=ns.name,
+            namespace=ns.name,
             ids=[id]
         )
         if not res:
@@ -588,7 +626,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def get_many(cls: Type[MODEL], ids: List[str] | List[int]) -> List[MODEL]:
         ns = await cls.get_namespace()
         res = await ns.conn.retrieve(
-            collection_name=ns.name,
+            namespace=ns.name,
             ids=ids
         )
         return [cls.pack_search_result(r) for r in res]

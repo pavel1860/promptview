@@ -303,7 +303,33 @@ class XmlBlock(StrBlock):
         return content
     
     
+
+class EncloseBlock(StrBlock):
+    _enclose_fmt: type
     
+    def __new__(
+        cls, 
+        value, 
+        fmt: type = tuple, 
+        role: str | None = None, 
+        id: str | None = None, 
+        _auto_append: bool = True,
+        name: str | None = None,
+        uuid: str | None = None
+    ):
+        instance = super().__new__(cls, value, role, id, _auto_append, name, uuid)
+        instance._enclose_fmt = fmt
+        return instance
+    
+    def render(self):
+        if self._enclose_fmt == list:
+            open_char, close_char = '[', ']'
+        elif self._enclose_fmt == tuple:
+            open_char, close_char = '(', ')'
+        else:
+            raise ValueError("fmt must be either list or tuple")
+        content = ', '.join(repr(item) for item in self._items)
+        return f"{open_char}{content}{close_char}"
     
     
 # class Block:

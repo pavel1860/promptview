@@ -51,6 +51,7 @@ def ModelField(
     is_tenent: bool = False,
     auto_now_add: bool = False,
     auto_now: bool = False,
+    db_type: str | None = None,
     default_factory: typing.Callable[[], Any] | None = _Unset,
     vec: str | list[str] | None = None,
     alias: str | None = _Unset,
@@ -127,6 +128,7 @@ def ModelField(
             "auto_now_add": auto_now_add,
             "auto_now": auto_now,
             "vec": vec_list,
+            "db_type": db_type,
         }
     
     return Field(

@@ -161,7 +161,9 @@ class PostgresClient:
                 # create_table_sql += f', FOREIGN KEY ("{field_name}") REFERENCES {model_to_table_name(field_type)} ("{partition}")'
                 create_table_sql += f'"{field_name}" UUID FOREIGN KEY REFERENCES {model_to_table_name(field_type)} ("{partition}")'
             else:
-                if field_type == bool:
+                if field.json_schema_extra.get("db_type"):
+                    sql_type = field.json_schema_extra.get("db_type")                
+                elif field_type == bool:
                     sql_type = "BOOLEAN"
                 elif field_type == int:
                     sql_type = "INTEGER"
@@ -709,3 +711,12 @@ class PostgresClient:
                 )
         else:
             raise ValueError(f"Unsupported query type: {query_set.query_type}") 
+        
+        
+        
+    async def retrieve(self, namespace: str, ids: List[str] | List[int]):
+        await self._ensure_connected()
+        assert self.pool is not None
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(f'SELECT * FROM "{namespace}" WHERE id = ANY($1)', ids)
+        

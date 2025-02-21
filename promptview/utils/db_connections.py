@@ -43,3 +43,9 @@ class PGConnectionManager:
         assert cls._pool is not None, "Pool must be initialized"
         async with cls._pool.acquire() as conn:
             return await conn.fetchrow(query, *args)
+        
+        
+    @classmethod
+    async def drop_tables(cls, table_names: list[str]) -> None:
+        for table_name in table_names:
+            await cls.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE")

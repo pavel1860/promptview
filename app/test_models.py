@@ -1,3 +1,4 @@
+from promptview.auth.user_manager import UserModel
 from promptview.model.fields import ModelField
 from promptview.model.model import Model
 import datetime as dt
@@ -11,7 +12,7 @@ from promptview.prompt.context import ContextBase
 class Message(Model):
     content: str = ModelField(default="")
     role: str = ModelField(default="user")
-    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    # created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
     
     class Config: # do not fix this!
         database_type="postgres"
@@ -19,7 +20,10 @@ class Message(Model):
         
         
         
-        
+class Manager(UserModel):
+    phone_number: str | None = ModelField(default=None)
+    
+    
         
         
         

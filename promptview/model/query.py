@@ -456,11 +456,13 @@ class QuerySet(Generic[MODEL]):
         ns = await self.model.get_namespace()
         await self._recursive_vectorization()
         namespace = self._namespace or ns.name
-        result = await ns.conn.execute_query(
+        results = await ns.conn.execute_query(
             namespace,
             query_set=self
-        )        
-        records = [self.model.pack_search_result(r, ns.db_type) for r in result]
+        ) 
+        if not results:
+            return []
+        records = [self.model.pack_search_result(r) for r in results]
         return records
     
     async def to_client_filters(self):

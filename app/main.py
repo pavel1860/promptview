@@ -5,11 +5,13 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Form, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from promptview.api.auth_router import router as auth_router
 from promptview.api.model_router import create_crud_router
 from promptview.api.artifact_log_api import router as artifact_log_router
 from promptview.artifact_log.artifact_log3 import ArtifactLog
-from app.test_models import Context, Message
+from app.test_models import Context, Manager, Message
 from app.test_agent import chat_prompt, run_agent
+from promptview.auth.user_manager import UserManager
 from promptview.model.resource_manager import connection_manager
 
 from promptview.prompt.base_prompt3 import prompt
@@ -18,6 +20,10 @@ from promptview.prompt.base_prompt3 import prompt
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # This code runs before the server starts serving
+    artifact_log = ArtifactLog()
+    await artifact_log.initialize_tables()
+    UserManager.register_user_model(Manager)
+    await UserManager.initialize_tables() 
     await connection_manager.init_all_namespaces()
     
     # Yield to hand control back to FastAPI (start serving)
@@ -50,8 +56,7 @@ app.add_middleware(
 # Include routers
 app.include_router(create_crud_router(Message), prefix="/api/model")
 app.include_router(artifact_log_router, prefix="/api")
-
-
+app.include_router(auth_router, prefix="/api")
 
 
 def unpack_int_env_header(request: Request, field: str):    
