@@ -150,7 +150,7 @@ class PostgresClient:
     
         # Add columns for each model field
         for field_name, field in model_cls.model_fields.items():            
-            if field_name in ["id", "turn_id", "branch_id", "head_id", "_subspace", "score"]:
+            if field_name in ["id", "turn_id", "branch_id", "head_id", "_subspace", "score", "created_at", "updated_at"]:
                 continue
             create_table_sql += "\n"
             field_type = field.annotation
@@ -635,9 +635,9 @@ class PostgresClient:
                     raise e
                 return None 
 
-    async def execute_query(self, collection_name: str, query_set: "QuerySet"):
+    async def execute_query(self, collection_name: str, query_set: "QuerySet", is_versioned: bool = False, is_head: bool = False):
         """Execute a query set and return the results."""
-        artifact_log = ArtifactLog.get_current()
+        
         table_name = collection_name
         
         if query_set.query_type == "vector":
@@ -690,10 +690,15 @@ class PostgresClient:
             if query_set._offset is not None:
                 query += f" OFFSET {query_set._offset}"
 
-            records = await artifact_log.artifact_cte_raw_query(
-                artifact_table=table_name,
-                artifact_query=query
-            )
+            if is_versioned:
+                artifact_log = ArtifactLog.get_current()
+                records = await artifact_log.artifact_cte_raw_query(
+                    artifact_table=table_name,
+                    artifact_query=query
+                )
+            else:
+                async with self.pool.acquire() as conn:
+                    records = await conn.fetch(query)
             return records
             # return res
             # async with self.pool.acquire() as conn:

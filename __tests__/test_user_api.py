@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock
 from promptview.conversation.models import User, Session, Message, UserBackend
 from promptview.conversation.message_log import UserManager
-from promptview.api.user_api import create_user_router
+from promptview.api.user_router import create_user_router
 import datetime as dt
 
 class TestUserModel(User):

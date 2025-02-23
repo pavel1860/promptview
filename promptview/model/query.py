@@ -458,7 +458,9 @@ class QuerySet(Generic[MODEL]):
         namespace = self._namespace or ns.name
         results = await ns.conn.execute_query(
             namespace,
-            query_set=self
+            query_set=self,
+            is_versioned=ns.versioned,
+            is_head=ns.is_head
         ) 
         if not results:
             return []

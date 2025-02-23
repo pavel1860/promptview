@@ -63,6 +63,8 @@ class NamespaceParams:
     indices: list[dict[str, str]]
     envs: dict[str, dict[str, str]]
     db_type: DatabaseType
+    is_head: bool
+    versioned: bool
     
     def __init__(
             self, 

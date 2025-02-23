@@ -10,9 +10,9 @@ from promptview.model.resource_manager import connection_manager
 
 
 class UserModel(Model):
-    name: str | None = ModelField(...)
+    name: str | None = ModelField(None)
     email: str = ModelField(...)
-    image: str | None = ModelField(...)
+    image: str | None = ModelField(None)
     emailVerified: datetime = ModelField(..., db_type="TIMESTAMPTZ")
     is_admin: bool = ModelField(default=False)
     # user_auth_id: int = ModelField(...)
@@ -23,7 +23,24 @@ class UserModel(Model):
         is_abstract=True
         namespace="users"
 
-
+    async def check_out_head(self, head_id: int):
+        head = await PGConnectionManager.fetch_one(
+            f"""
+            UPDATE heads AS uh
+            SET 
+                main_branch_id = th.main_branch_id,
+                branch_id      = th.branch_id,
+                turn_id        = th.turn_id,
+                updated_at     = NOW()
+            FROM heads AS th
+            WHERE uh.id = {self.id}
+            AND th.id = {head_id}
+            RETURNING uh.*;
+            """
+        )
+        if head is None:
+            raise UserManagerError("Invalid head id")
+        return dict(head)
 
 class UserAuthPayload(BaseModel):
     name: str | None = None
@@ -208,12 +225,34 @@ CREATE TABLE IF NOT EXISTS sessions (
         return await self.get_user(user_id)
     
     
+    async def change_head(self, user_id: int, head_id: int):
+        head = await PGConnectionManager.fetch_one(
+            f"""
+            WITH taget_head AS (
+                SELECT * FROM heads WHERE id = {head_id}
+            ), user_head AS (
+                SELECT uh.* FROM heads uh
+                JOIN users u ON u.head_id = uh.id
+                WHERE u.id = {user_id}
+            )
+            UPDATE heads SET head_id = (SELECT id FROM head) WHERE id = {user_id}
+            """
+        )
+        if head is None:
+            raise UserManagerError("Invalid head id")        
+    
     async def update_user(self):
         pass
     
     async def delete_user(self):
         pass
     
+
+    
+    async def get_users(self):
+        user_model = self.get_user_model()
+        users = await user_model.filter(lambda x: x.is_admin == False)
+        return users
     
     
     

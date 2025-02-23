@@ -2,13 +2,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
+from promptview.auth.dependencies import get_auth_admin_user, get_auth_user, get_user_manager, verify_api_key
 from promptview.auth.user_manager import UserAuthPayload, UserManager, UserModel
 import os
 
-BACKEND_SECRET = os.getenv("BACKEND_SECRET")
 
 
-security = HTTPBearer()
+
+
 
 router = APIRouter(
     prefix="/auth",
@@ -17,45 +18,14 @@ router = APIRouter(
 )
 
 
-async def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if credentials.credentials != BACKEND_SECRET:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid API key"
-        )
-    return credentials.credentials
-
-class UserIdPayload(BaseModel):
-    id: int
-
-async def get_user_token(request: Request, _: str = Depends(verify_api_key)):
-    session_token = request.cookies.get("next-auth.session-token")
-    if not session_token:
-        raise HTTPException(
-            status_code=401,
-            detail="No session token found"
-        )
-    return session_token
-    
-
-    
-    
-def get_user_manager():
-    return UserManager()
-
-
-async def get_user(user_token: str = Depends(get_user_token), user_manager: UserManager = Depends(get_user_manager)):
-    return await user_manager.get_user_by_session_token(user_token)
-
-async def get_admin_user(user: UserModel = Depends(get_user)):
-    if not user.is_admin:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return user
 
 @router.post("/create_user")
 async def create_user(payload: UserAuthPayload, user_manager: UserManager = Depends(get_user_manager), api_key: str = Depends(verify_api_key)):
     return await user_manager.create_user(payload)
 
+
+class UserIdPayload(BaseModel):
+    id: int
 
 @router.post("/get_user")
 async def get_user_by_id(payload: UserIdPayload, user_manager: UserManager = Depends(get_user_manager), api_key: str = Depends(verify_api_key)):
@@ -63,14 +33,14 @@ async def get_user_by_id(payload: UserIdPayload, user_manager: UserManager = Dep
 
 
 @router.post("/test")
-async def test(user: UserModel = Depends(get_user)):
+async def test(user: UserModel = Depends(get_auth_user)):
     print(user)
     return {"message": "Hello, World!"}
 
 
 
 @router.get("/users")
-async def get_users(user: UserModel = Depends(get_admin_user), user_manager: UserManager = Depends(get_user_manager)):
+async def get_users(user: UserModel = Depends(get_auth_admin_user), user_manager: UserManager = Depends(get_user_manager)):
     return await user_manager.get_users()
 
 

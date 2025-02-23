@@ -8,6 +8,7 @@ import uvicorn
 from promptview.api.auth_router import router as auth_router
 from promptview.api.model_router import create_crud_router
 from promptview.api.artifact_log_api import router as artifact_log_router
+from promptview.api.user_router import connect_user_model_routers
 from promptview.artifact_log.artifact_log3 import ArtifactLog
 from app.test_models import Context, Manager, Message
 from app.test_agent import chat_prompt, run_agent
@@ -57,6 +58,8 @@ app.add_middleware(
 app.include_router(create_crud_router(Message), prefix="/api/model")
 app.include_router(artifact_log_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
+
+connect_user_model_routers(app, [Manager])
 
 
 def unpack_int_env_header(request: Request, field: str):    
