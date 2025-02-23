@@ -156,6 +156,7 @@ class ConnectionManager:
     _namespaces: Dict[str, NamespaceParams] = {}
     _active_namespaces: Dict[str, NamespaceParams] = {}
     _models: Dict[str, Type[Model]] = {}
+    _relations: Dict[str, Any] = {}
     
     def __init__(self):        
         self._qdrant_connection = get_qdrant_connection()
@@ -171,7 +172,10 @@ class ConnectionManager:
             return self._postgres_connection
         else:
             raise ValueError(f"Unknown database type: {db_type}")
-                
+        
+    
+        
+        
     def add_namespace(
         self, 
         namespace: str, 
@@ -215,6 +219,12 @@ class ConnectionManager:
     def get_env(self):
         return ENV_CONTEXT.get()
     
+    def add_relation(self, target_type: Type[Model], relation_desc: str):
+        target_namespace = target_type._namespace.default
+        if target_namespace not in self._relations:
+            self._relations[target_namespace] = []
+        self._relations[target_namespace].append(relation_desc)
+    
     def add_model(self, model_cls: Type[Model]):
         self._models[model_cls._namespace.default] = model_cls # type: ignore
         
@@ -231,21 +241,28 @@ class ConnectionManager:
         
         
     async def _create_all_namespaces(self):
-        sql = ""
+        table_sql = ""
+        indices_sql = ""
+        relations_sql = ""
         for ns in self._namespaces.values():            
             if ns.db_type == "postgres":
-                sql += "\n" + ns.conn.build_table_sql(  # type: ignore
+                create_tbl_sql, ind_sql, rel_sql = ns.conn.build_table_sql(  # type: ignore
                     collection_name=ns.name,
                     model_cls=self.get_model(ns.name),
                     vector_spaces=list(ns.vector_spaces.values()),
                     indices=ns.indices,
                     versioned=ns.versioned,
                     is_head=ns.is_head,
+                    relations=self._relations,
                 )
                 self._active_namespaces[ns.name] = ns            
+                table_sql += "\n" + create_tbl_sql
+                indices_sql += "\n" + ind_sql
+                relations_sql += "\n" + rel_sql
             else:
                 await self._create_namespace(ns.name)                
-        if sql:
+        if table_sql:
+            sql = table_sql + "\n" + indices_sql + "\n" + relations_sql
             res = await self._postgres_connection.execute_sql(sql)
             print(res)
                 

@@ -1,7 +1,7 @@
 import datetime as dt
 from enum import Enum
 import inspect
-from typing import Any, List
+from typing import TYPE_CHECKING, Any, List, Type
 import typing
 import typing_extensions
 import annotated_types
@@ -12,6 +12,9 @@ from pydantic import types
 from pydantic.fields import _Unset, AliasPath, AliasChoices, FieldInfo, JsonDict, Unpack, _EmptyKwargs, Deprecated # type: ignore
 
 from typing_extensions import Literal, TypeAlias, Unpack, deprecated
+
+if TYPE_CHECKING:
+    from promptview.model.model import Model
 
 
 
@@ -122,6 +125,7 @@ def ModelField(
     
     json_schema_extra={
             # "partition": partition,
+            "type": "field",
             "is_relation": True if partition else False,
             "index": index.value if index else None,
             "is_tenent": is_tenent,
@@ -216,13 +220,16 @@ def get_model_indices(cls_, prefix=""):
 
 
 def ModelRelation(
+    # model: "Type[Model]",
     key: str,
 ):
     json_schema_extra={
+        "type": "relation",
         "is_relation": True,
         "partition": key,
+        # "model": model,
     }
     return Field(
-        None,
+        # model,
         json_schema_extra=json_schema_extra,
     )

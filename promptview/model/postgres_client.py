@@ -111,7 +111,8 @@ class PostgresClient:
         vector_spaces: list["VectorSpace"], 
         indices: list[dict[str, str]] | None = None,
         versioned: bool = False,
-        is_head: bool = False
+        is_head: bool = False,
+        relations: dict[str, dict[str, str]] | None = None,
     ):
         """Create a table for vector storage with pgvector extension."""
 
@@ -186,13 +187,30 @@ class PostgresClient:
             
                 create_table_sql += f'"{field_name}" {sql_type},'
 
-            # Add vector columns for each vector space
+        # Add vector columns for each vector space
         for vs in vector_spaces:
             if vs.vectorizer.type == "dense":
                 create_table_sql += f'"{vs.name}" vector({vs.vectorizer.size}),\n'
+        
+        relations_sql = []
+            
+        for relation in relations.get(table_name, []):
+            # create_table_sql += f'\nFOREIGN KEY ("{relation["partition"]}") REFERENCES {relation["source_namespace"]} ("id")'
+            # create_table_sql += f'\n"{relation["partition"]}" INT REFERENCES {relation["source_namespace"]}("id")'
+            relations_sql.append(f"""
+            ALTER TABLE {table_name}
+            ADD COLUMN "{relation["partition"]}" INT;
+                                 
+            ALTER TABLE {table_name}
+            ADD CONSTRAINT fk_{relation["partition"]}
+            FOREIGN KEY ("{relation["partition"]}")
+            REFERENCES {relation["source_namespace"]} ("id");
+            """)
+                
         create_table_sql = create_table_sql.rstrip(",")
         create_table_sql += "\n);"
-
+        
+        
         indices_sql = []
 
         # Create indices
@@ -214,7 +232,8 @@ class PostgresClient:
                     ON {table_name} 
                     USING btree ("{field}");
                     """)
-        return create_table_sql + "\n" + "\n".join(indices_sql)
+        # return create_table_sql + "\n" + "\n".join(indices_sql)
+        return create_table_sql, "\n".join(indices_sql), "\n".join(relations_sql)
 
     async def execute_sql(self, sql: str):
         await self._ensure_connected()

@@ -149,8 +149,8 @@ class TestRun(BaseModel):
     turn_id: int
 
 
-
 ARTIFCAT_LOG_CTX = ContextVar("ARTIFCAT_LOG_CTX", default=None)
+
 
 class ArtifactLog:
     """

@@ -275,20 +275,40 @@ class ModelMeta(ModelMetaclass, type):
             for field, field_type in dct.items():
                 #? temporal field extraction
                 if inspect.isclass(field_type.__class__):
-                    if isinstance(field_type, FieldInfo) and field_type.json_schema_extra:
+                    # if isinstance(field_type, FieldInfo) and field_type.json_schema_extra:
+                    #     if field_type.json_schema_extra.get("auto_now_add", None):
+                    #         default_temporal_field = field
+                    #         default_temporal_type = field_type                    
+                    
+                    # #? vector field extraction. the vector has to be a field of type VectorSpace
+                    # if type(field_type) == FieldInfo:
+                    #     if not field_type.json_schema_extra:
+                    #         raise ValueError(f"You should use ModelField instead of pydantic Field for {field}")
+                    #     if vec:= field_type.json_schema_extra.get("vec"):                            
+                    #         for v in vec: # type: ignore
+                    #             if v not in vec_field_map:
+                    #                 vec_field_map[v] = []
+                    #             vec_field_map[v] += [field]
+                    if isinstance(field_type, FieldInfo):
+                        if not field_type.json_schema_extra:
+                            raise ValueError(f"You should use ModelField instead of pydantic Field for {field}")
                         if field_type.json_schema_extra.get("auto_now_add", None):
                             default_temporal_field = field
                             default_temporal_type = field_type                    
-                        
                     #? vector field extraction. the vector has to be a field of type VectorSpace
-                    if type(field_type) == FieldInfo:
-                        if not field_type.json_schema_extra:
-                            raise ValueError(f"You should use ModelField instead of pydantic Field for {field}")
                         if vec:= field_type.json_schema_extra.get("vec"):                            
                             for v in vec: # type: ignore
                                 if v not in vec_field_map:
                                     vec_field_map[v] = []
                                 vec_field_map[v] += [field]
+                        # if field_type.json_schema_extra.get("type", None) == "relation":
+                        #     to_model_namespace = field_type.json_schema_extra.get("model", None)._namespace.default
+                        #     key = field_type.json_schema_extra.get("key", None)
+                        #     if not key:
+                        #         raise ValueError(f"Relation key not defined for {field}")
+                        #     connection_manager.add_relation(namespace, to_model_namespace, key)
+                                
+                    
                         #TODO validate that the vector exists in the vector space
             if vec_field_map:
                 for vs in vector_spaces:
@@ -322,9 +342,15 @@ class ModelMeta(ModelMetaclass, type):
                                 "origin": field_origin,
                                 "partition": partition,
                                 "field": field,
-                                "forward_ref": _forward_ref
+                                "forward_ref": _forward_ref,
+                                "source_namespace": namespace,
+                                "target_namespace": target_type._namespace.default
                             }
-                            field_info.default_factory = lambda: Relation(target_type, partition)  
+                            connection_manager.add_relation(target_type, cls_partitions[field])
+                            # if field_type.json_schema_extra.get("type", None) == "relation":
+                            # to_model_namespace = field_type.json_schema_extra.get("model", None)._namespace.default                            
+                            # connection_manager.add_relation(namespace, field_type._namespace.default, partition)
+                            field_info.default_factory = lambda: Relation(target_type, partition)
                             print("Found",field, partition)
                 
             dct["_partitions"] = cls_partitions
