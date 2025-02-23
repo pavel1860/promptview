@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import copy
+import json
 from typing import Any, Callable, Dict, ForwardRef, List, Optional, Self, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
@@ -571,8 +572,17 @@ class Model(BaseModel, metaclass=ModelMeta):
             **search_result.payload
             )
         elif db_type == "postgres":
+            parsed_result = {}
+            for field, field_info in cls.model_fields.items():
+                field_type = field_info.annotation
+                field_value = search_result.get(field)
+                if field_value:
+                    if field_type == dict:
+                        parsed_result[field] = json.loads(field_value)
+                    else:
+                        parsed_result[field] = field_value
             return cls(
-                **search_result
+                **parsed_result
             )
         else:
             raise ValueError(f"Unsupported database type: {db_type}")

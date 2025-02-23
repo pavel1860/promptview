@@ -381,6 +381,12 @@ class PostgresClient:
                         elif isinstance(item[col], list):
                             item[col] = stringify_vector(item[col])
                             col_placeholders.append(f"${placeholder_idx}::vector")
+                        elif isinstance(item[col], dict):
+                            item[col] = json.dumps(item[col])
+                            col_placeholders.append(f"${placeholder_idx}::jsonb")
+                        elif isinstance(item[col], BaseModel):
+                            item[col] = item[col].model_dump_json()
+                            col_placeholders.append(f"${placeholder_idx}::jsonb")
                         else:
                             col_placeholders.append(f"${placeholder_idx}")
                         values.append(item[col])
@@ -392,7 +398,7 @@ class PostgresClient:
                 RETURNING *;
                 """
                 results.extend(await conn.fetch(query, *values))
-
+        
         return results
 
     async def search(self, collection_name: str, query, limit=3, filters=None, with_vectors=False, threshold=None):
@@ -699,7 +705,6 @@ class PostgresClient:
             else:
                 async with self.pool.acquire() as conn:
                     records = await conn.fetch(query)
-            return records
             # return res
             # async with self.pool.acquire() as conn:
             #     return await conn.fetch(query)
@@ -710,12 +715,14 @@ class PostgresClient:
                 raise ValueError("No IDs provided for ID query")
                 
             async with self.pool.acquire() as conn:
-                return await conn.fetch(
+                records = await conn.fetch(
                     f'SELECT * FROM {table_name} WHERE id = ANY($1::text[])',
                     query_set._ids
                 )
         else:
             raise ValueError(f"Unsupported query type: {query_set.query_type}") 
+            
+        return records
         
         
         
