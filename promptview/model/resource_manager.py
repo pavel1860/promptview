@@ -64,6 +64,7 @@ class NamespaceParams:
     envs: dict[str, dict[str, str]]
     db_type: DatabaseType
     is_head: bool
+    is_detached_head: bool
     versioned: bool
     
     def __init__(
@@ -77,6 +78,7 @@ class NamespaceParams:
             subspaces: list[str] | None = None,
             versioned: bool = False,
             is_head: bool = False,
+            is_detached_head: bool = False,
         ):
         self._name = name
         self.vector_spaces = {vs.name: vs for vs in vector_spaces}
@@ -87,6 +89,7 @@ class NamespaceParams:
         self.db_type = db_type
         self.versioned = versioned
         self.is_head = is_head
+        self.is_detached_head = is_detached_head
         
     @property
     def name(self):
@@ -184,6 +187,7 @@ class ConnectionManager:
         indices: list[dict[str, str]] | None=None,
         versioned: bool = False,
         is_head: bool = False,
+        is_detached_head: bool = False,
     ):        
         if namespace in self._namespaces:
             raise ValueError(f"Namespace {namespace} already exists. seems you have multiple Model classes with the same name")
@@ -197,6 +201,7 @@ class ConnectionManager:
             indices=indices or [],
             versioned=versioned,
             is_head=is_head,
+            is_detached_head=is_detached_head,
         )        
         for vs in vector_spaces:
             self.vectorizers_manager.add_vectorizer(namespace, vs.name, vs.vectorizer_cls)

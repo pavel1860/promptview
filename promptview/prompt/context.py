@@ -254,14 +254,6 @@ class ContextBase(Generic[MODEL]):
         return self._artifact_log
         
     def build_child(self, prompt_name: str):
-        # ctx = ContextBase(
-        #     head_id=self.head_id,
-        #     branch_id=self.branch_id,
-        #     inputs=self.inputs, 
-        #     artifact_log=self._artifact_log,
-        #     prompt_name=prompt_name,
-        #     run_id=self.run_id
-        # )
         ctx = self.__class__(
             head_id=self.head_id,
             branch_id=self.branch_id,
@@ -482,7 +474,9 @@ class ContextBase(Generic[MODEL]):
     #                     created_at=message.created_at
     #                 ))
     #     return blocks
-        
+    async def last_artifacts(self, limit=10):
+        records = await self._model.limit(limit).order_by("created_at", ascending=False)
+        return records
         
     async def last(self, limit=10):
         records = await self._model.limit(limit).order_by("created_at", ascending=False)

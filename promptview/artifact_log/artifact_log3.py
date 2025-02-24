@@ -343,19 +343,26 @@ CREATE TABLE IF NOT EXISTS test_runs (
         return self._head
           
             
-    async def create_head(self) -> Dict[str, Any]:
+    async def create_head(self, init_repo: bool = True) -> Dict[str, Any]:
         # Create head with null placeholders for branch_id and turn_id                
         
-        branch = await self.create_branch()
-        branch_id = branch.id
-        turn_id = branch.last_turn.id
+        if init_repo:
+            branch = await self.create_branch()
+            branch_id = branch.id
+            turn_id = branch.last_turn.id
+        else:
+            branch_id = None
+            turn_id = None
         
-        query = f"INSERT INTO heads (branch_id, turn_id, main_branch_id) VALUES ({branch_id}, {turn_id}, {branch_id}) RETURNING *;"
-        head_rows = await PGConnectionManager.fetch_one(query)
+        query = f"INSERT INTO heads (branch_id, turn_id, main_branch_id) VALUES ($1, $2, $3) RETURNING *;"
+        head_rows = await PGConnectionManager.fetch_one(query, branch_id, turn_id, branch_id)
         if head_rows is None:
             raise ValueError("Failed to create head")
         new_head = dict(head_rows)
-        return {"is_detached": False, **new_head}
+        return {
+            "is_detached": False if branch_id is not None else True, 
+            **new_head
+        }
         
         
     
@@ -472,7 +479,7 @@ CREATE TABLE IF NOT EXISTS test_runs (
         
     
     
-    async def checkout_branch(self, branch_id: int, turn_id: int | None = None):
+    async def checkout_branch(self, branch_id: int, turn_id: int | None = None, update_db: bool = True):
         if self._head is None:
             raise ValueError("Artifact log is not initialized")
         if turn_id is None:
@@ -498,8 +505,10 @@ CREATE TABLE IF NOT EXISTS test_runs (
         
         self._branch = branch
         self._turn = turn
-        
         self._head = new_head
+        if update_db:
+            await self.update_head(branch_id=new_head["branch_id"], turn_id=new_head["turn_id"])
+            
         return new_head
     
     

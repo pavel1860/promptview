@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import copy
 import json
-from typing import Any, Callable, Dict, ForwardRef, List, Optional, Self, Type, TypeVar,  get_args, get_origin
+from typing import Any, Callable, Dict, ForwardRef, Generic, List, Optional, Self, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import FieldInfo
@@ -92,19 +92,21 @@ MODEL = TypeVar("MODEL", bound="Model")
 
 
 
-class Relation:
+class Relation(Generic[MODEL]):
     
-    def __init__(self, cls: Type["Model"], partitions: dict):
+    def __init__(self, cls: Type[MODEL], rel_field: str):
         self._cls = cls
-        self._partitions = partitions
+        self._rel_field = rel_field
+        self._instance = None
         
     async def all(cls, partitions=None, limit=10, start_from=None, offset=0, ascending=False, ids=None):
         partitions = partitions or {}
         recs = await cls.get_assets(top_k=limit, filters=partitions, start_from=start_from, offset=offset, ascending=ascending, ids=ids)
         return recs
     
-    async def add(self):
-        pass
+    async def add(self, obj: MODEL):
+        # setattr(obj, self._rel_field, self._cls)
+        print(self._cls, self._rel_field)
     
     async def get_or_create(self):
         pass
@@ -144,6 +146,7 @@ class ModelMeta(ModelMetaclass, type):
         db_type = "qdrant"
         versioned = False
         is_head = False
+        is_detached_head = False
         vec_field_map = {}
         vector_spaces = []
         relations = {}
@@ -170,6 +173,9 @@ class ModelMeta(ModelMetaclass, type):
                 is_head = config.is_head 
             if hasattr(config, "namespace"):
                 namespace = config.namespace
+            if hasattr(config, "is_detached_head"):
+                is_detached_head = config.is_detached_head
+            
         for base in bases:
             if base == HeadModel:
                 is_head = True
@@ -229,7 +235,8 @@ class ModelMeta(ModelMetaclass, type):
                     indices=indices,
                     db_type=db_type,
                     versioned=versioned,
-                    is_head=is_head
+                    is_head=is_head,
+                    is_detached_head=is_detached_head
                 )
             else:
                 if db_type == "qdrant":                    
@@ -246,7 +253,8 @@ class ModelMeta(ModelMetaclass, type):
                         indices=indices,
                         db_type=db_type,
                         versioned=versioned,
-                        is_head=is_head
+                        is_head=is_head,
+                        is_detached_head=is_detached_head
                     )
                 else:
                     raise ValueError(f"Unsupported database type: {db_type}")
@@ -537,7 +545,8 @@ class Model(BaseModel, metaclass=ModelMeta):
                 ids=[self.id],
                 model_cls=self.__class__,
                 is_versioned=ns.versioned,
-                is_head=ns.is_head
+                is_head=ns.is_head,
+                is_detached_head=ns.is_detached_head
             )
         if not res:
             raise ValueError("Failed to save model")
@@ -586,7 +595,10 @@ class Model(BaseModel, metaclass=ModelMeta):
             namespace=cls._namespace.default,# type: ignore
             vectors=vectors,
             metadata=metadata,
-            ids=ids
+            ids=ids,
+            is_versioned=ns.versioned,
+            is_head=ns.is_head,
+            is_detached_head=ns.is_detached_head
         )
         return res
     

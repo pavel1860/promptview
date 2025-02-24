@@ -371,7 +371,8 @@ class PostgresClient:
         ids=None,
         batch_size=100,
         is_versioned: bool = False,
-        is_head: bool = False
+        is_head: bool = False,
+        is_detached_head: bool = False
     ):
         """Upsert vectors and metadata into the collection with fixed turn_id and type fields."""
         await self._ensure_connected()
@@ -385,7 +386,7 @@ class PostgresClient:
             artifact_values = {"turn_id": artifact_log.head["turn_id"], "branch_id": artifact_log.head["branch_id"]}
         if is_head:
             artifact_log = ArtifactLog()
-            head = await artifact_log.create_head()
+            head = await artifact_log.create_head(init_repo=not is_detached_head)
             artifact_values = {"head_id": head["id"]}
         
 
