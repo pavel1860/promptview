@@ -592,17 +592,9 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     @classmethod
-    async def pack_search_result(cls: Type[MODEL], search_result) -> MODEL:
+    def pack_search_result(cls: Type[MODEL], search_result) -> MODEL:
         db_type = cls._db_type.default # type: ignore
         if db_type == "qdrant":
-            # result = cls(
-            #     # _id=search_result.id,
-            #     # _score=search_result.score if hasattr(search_result, "score") else -1,
-            # id=search_result.id,
-            # score=search_result.score if hasattr(search_result, "score") else -1,
-            # _vector=search_result.vector if hasattr(search_result, "vector") else {},
-            # **search_result.payload
-            # )
             result_dict = {
                 "id": search_result.id,
                 "score": search_result.score if hasattr(search_result, "score") else -1,
@@ -621,8 +613,6 @@ class Model(BaseModel, metaclass=ModelMeta):
                         result_dict[field] = field_value
         else:
             raise ValueError(f"Unsupported database type: {db_type}")
-        if hasattr(cls, "after_load") and callable(cls.after_load):
-            await cls.after_load(**result_dict)
         return cls(
                 **result_dict
             )

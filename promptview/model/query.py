@@ -465,8 +465,15 @@ class QuerySet(Generic[MODEL]):
         ) 
         if not results:
             return []
-        records = await asyncio.gather(*[self.model.pack_search_result(r) for r in results])
+        records = await asyncio.gather(*[self.pack_search_result(r) for r in results])
+        
         return records
+    
+    async def pack_search_result(self, result: dict):
+        instance = self.model.pack_search_result(result)
+        if hasattr(instance, "after_load") and callable(instance.after_load):
+            await instance.after_load(**result)
+        return instance
     
     async def to_client_filters(self):
         """
