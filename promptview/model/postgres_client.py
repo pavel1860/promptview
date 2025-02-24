@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import datetime as dt
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, TypedDict, Type, get_args, get_origin
 from uuid import uuid4
 import asyncpg
@@ -168,6 +169,8 @@ class PostgresClient:
                     sql_type = "BOOLEAN"
                 elif field_type == int:
                     sql_type = "INTEGER"
+                elif field_type == float:
+                    sql_type = "FLOAT"
                 elif field_type == str:
                     sql_type = "TEXT"
                 elif field_type == datetime or field_type == dt.datetime:
@@ -206,7 +209,7 @@ class PostgresClient:
             # FOREIGN KEY ("{relation["partition"]}")
             # REFERENCES {relation["source_namespace"]} ("id");
             # """)
-            table_name = relation["source_namespace"]
+            source_table_name = relation["source_namespace"]
             column_name = relation["partition"]
             fk_name = f'fk_{column_name}'
             relations_sql.append(f"""
@@ -234,7 +237,7 @@ class PostgresClient:
                     ALTER TABLE {table_name} 
                     ADD CONSTRAINT {fk_name} 
                     FOREIGN KEY ("{column_name}") 
-                    REFERENCES {table_name}("id")
+                    REFERENCES {source_table_name}("id")
                     ';
                 END IF;
             END $$;
@@ -441,6 +444,9 @@ class PostgresClient:
                         elif isinstance(item[col], BaseModel):
                             item[col] = item[col].model_dump_json()
                             col_placeholders.append(f"${placeholder_idx}::jsonb")
+                        elif isinstance(item[col], Enum):
+                            item[col] = item[col].value
+                            col_placeholders.append(f"${placeholder_idx}")
                         else:
                             col_placeholders.append(f"${placeholder_idx}")
                         values.append(item[col])
@@ -738,6 +744,14 @@ class PostgresClient:
                     order_clause = f'ORDER BY "{query_set._order_by}"'
                 elif isinstance(query_set._order_by, dict):
                     order_clause = f'ORDER BY "{query_set._order_by["key"]}" {query_set._order_by["direction"]}'
+            if query_set._partitions:
+                partition_clauses = []
+                for partition_name, partition_value in query_set._partitions.items():
+                    partition_clauses.append(f'"{partition_name}" = {partition_value}')
+                if where_clause:
+                    where_clause += f" AND ({', '.join(partition_clauses)})"
+                else:
+                    where_clause = f"WHERE ({', '.join(partition_clauses)})"
 
             query = f"""
             SELECT *

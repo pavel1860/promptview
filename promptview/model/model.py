@@ -87,46 +87,76 @@ model_manager = ModelManager()
 # AssetBase = TypeVar('AssetBase')
 
 
+def ModelRelation(
+    # model: "Type[Model]",
+    key: str,
+):
+    json_schema_extra={
+        "type": "relation",
+        "is_relation": True,
+        "partition": key,
+        # "model": model,
+    }
+    return Field(
+        # model,
+        json_schema_extra=json_schema_extra,
+    )
+
 
 MODEL = TypeVar("MODEL", bound="Model")
 
 
 
-class Relation(Generic[MODEL]):
+class Relation(BaseModel):
+    model_cls: Type[BaseModel]
+    rel_field: str
+    instance_id: str | None = None
     
-    def __init__(self, cls: Type[MODEL], rel_field: str):
-        self._cls = cls
-        self._rel_field = rel_field
-        self._instance = None
-        
-    async def all(cls, partitions=None, limit=10, start_from=None, offset=0, ascending=False, ids=None):
-        partitions = partitions or {}
-        recs = await cls.get_assets(top_k=limit, filters=partitions, start_from=start_from, offset=offset, ascending=ascending, ids=ids)
-        return recs
     
-    async def add(self, obj: MODEL):
+    def _build_query_set(self, query_type: QueryType = "scroll"):
+        if not self.instance_id:
+            raise ValueError("Instance ID is not set")
+        return QuerySet(self.model_cls, query_type, {self.rel_field: self.instance_id})
+    
+    def all(self, partitions=None, limit=10, start_from=None, offset=0, ascending=False, ids=None):
+        qs = self._build_query_set()        
+        return qs
+    
+    def limit(self, limit: int):
+        qs = self._build_query_set()
+        qs.limit(limit)
+        return qs
+    
+    def filter(self, filters: Callable[[MODEL], bool]):
+        qs = self._build_query_set()
+        qs.filter(filters)
+        return qs
+    
+    async def add(self, obj):
         # setattr(obj, self._rel_field, self._cls)
-        print(self._cls, self._rel_field)
+        setattr(obj, self.rel_field, self.instance_id)
+        await obj.save()
+        return obj
+        
     
-    async def get_or_create(self):
+    def get_or_create(self):
         pass
     
-    async def upsert(self):
+    def upsert(self):
         pass
     
-    async def create(self,):
+    def create(self,):
         pass
     
-    async def first(self, partitions=None):
-        partitions = partitions or {}        
-        return await self.cls.get_assets(top_k=1, filters=partitions, ascending=True)
+    def first(self, partitions=None):
+        pass
         
 
-    async def last(self, partitions=None):
-        partitions = partitions or {}
-        return await self.cls.get_assets(top_k=1, filters=partitions, ascending=False)
+    def last(self, partitions=None):
+        pass
         
-
+    def set_instance_id(self, instance_id: str):
+        self.instance_id = instance_id
 
 
 
@@ -359,10 +389,8 @@ class ModelMeta(ModelMetaclass, type):
                                 "target_namespace": target_type._namespace.default
                             }
                             connection_manager.add_relation(target_type, cls_partitions[field])
-                            # if field_type.json_schema_extra.get("type", None) == "relation":
-                            # to_model_namespace = field_type.json_schema_extra.get("model", None)._namespace.default                            
-                            # connection_manager.add_relation(namespace, field_type._namespace.default, partition)
-                            field_info.default_factory = lambda: Relation(target_type, partition)
+                            
+                            field_info.default_factory = lambda: Relation(model_cls=target_type, rel_field=partition)
                             print("Found",field, partition)
                 
             dct["_partitions"] = cls_partitions
@@ -481,6 +509,14 @@ class Model(BaseModel, metaclass=ModelMeta):
             return []
         return list(self.__class__._partitions.default.keys())
     
+    
+    def _update_relation_instance_id(self):
+        for field in self._get_relation_fields():
+            if not getattr(self, field):
+                continue
+            if isinstance(getattr(self, field), Relation):
+                getattr(self, field).set_instance_id(self.id)
+    
     @classmethod
     async def get_namespace(cls):
         if not cls._namespace:
@@ -559,6 +595,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         # self.head_id = res[0].get('head_id', -1)
         if hasattr(self, "after_save") and callable(self.after_save):
             await self.after_save(**res[0])
+        self._update_relation_instance_id()
         return self
 
         
@@ -625,9 +662,11 @@ class Model(BaseModel, metaclass=ModelMeta):
                         result_dict[field] = field_value
         else:
             raise ValueError(f"Unsupported database type: {db_type}")
-        return cls(
+        instance = cls(
                 **result_dict
             )
+        instance._update_relation_instance_id()
+        return instance
         
     @classmethod
     def _get_default_temporal_field(cls):
