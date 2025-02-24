@@ -197,14 +197,48 @@ class PostgresClient:
         for relation in relations.get(table_name, []):
             # create_table_sql += f'\nFOREIGN KEY ("{relation["partition"]}") REFERENCES {relation["source_namespace"]} ("id")'
             # create_table_sql += f'\n"{relation["partition"]}" INT REFERENCES {relation["source_namespace"]}("id")'
-            relations_sql.append(f"""
-            ALTER TABLE {table_name}
-            ADD COLUMN "{relation["partition"]}" INT;
+            # relations_sql.append(f"""
+            # ALTER TABLE {table_name}
+            # ADD COLUMN "{relation["partition"]}" INT;
                                  
-            ALTER TABLE {table_name}
-            ADD CONSTRAINT fk_{relation["partition"]}
-            FOREIGN KEY ("{relation["partition"]}")
-            REFERENCES {relation["source_namespace"]} ("id");
+            # ALTER TABLE {table_name}
+            # ADD CONSTRAINT fk_{relation["partition"]}
+            # FOREIGN KEY ("{relation["partition"]}")
+            # REFERENCES {relation["source_namespace"]} ("id");
+            # """)
+            table_name = relation["source_namespace"]
+            column_name = relation["partition"]
+            fk_name = f'fk_{column_name}'
+            relations_sql.append(f"""
+            DO $$
+            BEGIN
+                -- Check if the "test_case_id" column exists; if not, add it.
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                    AND table_name = '{table_name}'
+                    AND column_name = '{column_name}'
+                ) THEN
+                    EXECUTE 'ALTER TABLE {table_name} ADD COLUMN "{column_name}" INT';
+                END IF;
+
+                -- Check if the foreign key constraint exists; if not, add it.
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conname = '{fk_name}'
+                    AND conrelid = '{table_name}'::regclass
+                ) THEN
+                    EXECUTE '
+                    ALTER TABLE {table_name} 
+                    ADD CONSTRAINT {fk_name} 
+                    FOREIGN KEY ("{column_name}") 
+                    REFERENCES {table_name}("id")
+                    ';
+                END IF;
+            END $$;
+
             """)
                 
         create_table_sql = create_table_sql.rstrip(",")

@@ -315,6 +315,29 @@ CREATE TABLE IF NOT EXISTS test_runs (
                     await self.checkout_branch(branch_id)
                 return self._head
             
+    async def copy_head(self, head_id: int) -> Dict[str, Any]:
+        if not self.is_initialized:
+            raise ValueError("Artifact log is not initialized")
+        
+        head = await PGConnectionManager.fetch_one(
+            f"""
+            UPDATE heads AS uh
+            SET 
+                main_branch_id = th.main_branch_id,
+                branch_id      = th.branch_id,
+                turn_id        = th.turn_id,
+                updated_at     = NOW()
+            FROM heads AS th
+            WHERE uh.id = {self.head["id"]}
+            AND th.id = {head_id}
+            RETURNING uh.*;
+            """
+        )
+        if head is None:
+            raise ValueError("Head not found")
+        self._head = dict(head)
+        return self._head
+          
             
     async def create_head(self) -> Dict[str, Any]:
         # Create head with null placeholders for branch_id and turn_id
@@ -498,6 +521,15 @@ CREATE TABLE IF NOT EXISTS test_runs (
         rows = await PGConnectionManager.fetch(query, branch_id)
         if not rows:
             raise ValueError(f"Branch {branch_id} not found")
+        return dict(rows[0])
+    
+    
+    @classmethod
+    async def get_head(cls, head_id: int) -> Dict[str, Any]:
+        query = "SELECT * FROM heads WHERE id = $1;"
+        rows = await PGConnectionManager.fetch(query, head_id)
+        if not rows:
+            raise ValueError(f"Head {head_id} not found")
         return dict(rows[0])
     
     

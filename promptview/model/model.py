@@ -9,6 +9,7 @@ from pydantic.fields import FieldInfo
 from pydantic._internal._model_construction import ModelMetaclass
 from pydantic._internal._config import ConfigWrapper
 
+from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model.postgres_client import camel_to_snake
 from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QuerySetSingleAdapter, QueryType
 from .vectors.base_vectorizer import BaseVectorizer
@@ -603,7 +604,7 @@ class Model(BaseModel, metaclass=ModelMeta):
                 field_type = field_info.annotation
                 field_value = search_result.get(field)
                 if field_value:
-                    if field_type == dict:
+                    if field_type == dict or (inspect.isclass(field_type) and issubclass(field_type, BaseModel)):
                         parsed_result[field] = json.loads(field_value)
                     else:
                         parsed_result[field] = field_value
@@ -763,5 +764,13 @@ class Model(BaseModel, metaclass=ModelMeta):
     @classmethod
     async def delete_namespace(cls):
         await connection_manager.delete_namespace(cls._namespace.default)# type: ignore
+    
+    
+    
+    async def get_head(self):        
+        head = await ArtifactLog.get_head(self.head_id)
+        return head
+    
+    
     
     
