@@ -115,6 +115,8 @@ class Branch(BaseModel):
     updated_at: datetime
     forked_from_turn_index: int | None = None
     forked_from_branch_id: int | None = None
+    last_turn: Turn | None = None
+    
 
 
 class Head(BaseModel):
@@ -123,6 +125,7 @@ class Head(BaseModel):
     branch_id: int
     turn_id: int
     created_at: datetime
+    is_detached: bool
 
 
 
@@ -162,6 +165,8 @@ class ArtifactLog:
         self._token = None
         self._head_id = head_id
         self._branch_id = branch_id
+        self._branch = None
+        self._turn = None
         
     @classmethod
     def get_current(cls) -> "ArtifactLog":
@@ -305,17 +310,16 @@ CREATE TABLE IF NOT EXISTS test_runs (
         """
         if head_id is None:
             head = await self.create_head()
+            self._head = head
             return head
         else:
-            query = "SELECT * FROM heads WHERE id = $1;"
-            rows = await PGConnectionManager.fetch(query, head_id)
-            if rows:
-                self._head = dict(rows[0])
-                if branch_id is not None:
-                    await self.checkout_branch(branch_id)
-                return self._head
+            self._head = await self.get_head(head_id)
+            if branch_id is not None:
+                await self.checkout_branch(branch_id)
+            return self._head
             
-    async def copy_head(self, head_id: int) -> Dict[str, Any]:
+            
+    async def checkout_head(self, head_id: int) -> Dict[str, Any]:
         if not self.is_initialized:
             raise ValueError("Artifact log is not initialized")
         
@@ -340,26 +344,36 @@ CREATE TABLE IF NOT EXISTS test_runs (
           
             
     async def create_head(self) -> Dict[str, Any]:
-        # Create head with null placeholders for branch_id and turn_id
-        query = "INSERT INTO heads (branch_id, turn_id, main_branch_id) VALUES (NULL, NULL, NULL) RETURNING id;"
-        head_rows = await PGConnectionManager.fetch(query)
-        new_head_id = head_rows[0]['id']
-
-        # Create main branch with the new head id
-        query = "INSERT INTO branches (name, forked_from_turn_index, forked_from_branch_id) VALUES ($1, $2, $3) RETURNING id;"
-        branch_rows = await PGConnectionManager.fetch(query, "main", 0, None)
-        branch_id = branch_rows[0]['id']
-
-        # Create initial turn for the branch
-        query = "INSERT INTO turns (branch_id, index, status) VALUES ($1, $2, $3) RETURNING id;"
-        turn_rows = await PGConnectionManager.fetch(query, branch_id, 1, TurnStatus.STAGED.value)
-        turn_id = turn_rows[0]['id']
-
-        # Update the previously created head with the actual branch and turn
-        query = "UPDATE heads SET branch_id=$1, main_branch_id=$2, turn_id=$3 WHERE id=$4;"
-        await PGConnectionManager.execute(query, branch_id, branch_id, turn_id, new_head_id)
-        self._head = {"id": new_head_id, "branch_id": branch_id, "turn_id": turn_id}
-        return self._head
+        # Create head with null placeholders for branch_id and turn_id                
+        
+        branch = await self.create_branch()
+        branch_id = branch.id
+        turn_id = branch.last_turn.id
+        
+        query = f"INSERT INTO heads (branch_id, turn_id, main_branch_id) VALUES ({branch_id}, {turn_id}, {branch_id}) RETURNING *;"
+        head_rows = await PGConnectionManager.fetch_one(query)
+        if head_rows is None:
+            raise ValueError("Failed to create head")
+        new_head = dict(head_rows)
+        return {"is_detached": False, **new_head}
+        
+        
+    
+    
+    async def update_head(self, branch_id: int | None = None, turn_id: int | None = None, main_branch_id: int | None = None):
+        if self._head is None:
+            raise ValueError("No active head found")
+        update_values = {}
+        if branch_id is not None:
+            update_values["branch_id"] = branch_id
+        if turn_id is not None:
+            update_values["turn_id"] = turn_id
+        if main_branch_id is not None:
+            update_values["main_branch_id"] = main_branch_id
+        query = "UPDATE heads SET " + ", ".join([f"{k}=${i + 1}" for i,k in enumerate(update_values.keys())]) + " WHERE id=$" + str(len(update_values) + 1) + " RETURNING *;"
+        res = await PGConnectionManager.fetch_one(query, *update_values.values(), self.head["id"])        
+        return dict(res)
+        
 
     @property
     def head(self) -> Dict[str, Any]:
@@ -405,11 +419,12 @@ CREATE TABLE IF NOT EXISTS test_runs (
         """
         Create a new branch from a specific turn.
         """
-        query = "SELECT * FROM turns WHERE id = $1;"
-        rows = await PGConnectionManager.fetch(query, turn_id)
-        if not rows:
-            raise ValueError(f"Turn {turn_id} not found")
-        source_turn = dict(rows[0])
+        # query = "SELECT * FROM turns WHERE id = $1;"
+        # rows = await PGConnectionManager.fetch(query, turn_id)
+        # if not rows:
+        #     raise ValueError(f"Turn {turn_id} not found")
+        # source_turn = dict(rows[0])
+        source_turn = await self.get_turn(turn_id)
 
         current_head = self.head
         if not current_head:
@@ -417,16 +432,152 @@ CREATE TABLE IF NOT EXISTS test_runs (
 
         new_branch_name = name if name is not None else f"branch_from_{turn_id}"
 
-        query = "INSERT INTO branches (name, forked_from_turn_index, forked_from_branch_id) VALUES ($1, $2, $3) RETURNING id;"
-        new_branch_rows = await PGConnectionManager.fetch(query, new_branch_name, source_turn['index'], source_turn['branch_id'])
-        new_branch_id = new_branch_rows[0]['id']
+        branch = await self.create_branch(turn_id=source_turn.id, name=new_branch_name)
+        new_branch_id = branch.id
+        
+        # query = "INSERT INTO branches (name, forked_from_turn_index, forked_from_branch_id) VALUES ($1, $2, $3) RETURNING id;"
+        # new_branch_rows = await PGConnectionManager.fetch(query, new_branch_name, source_turn['index'], source_turn['branch_id'])
+        # new_branch_id = new_branch_rows[0]['id']
 
         if check_out:
             await self.checkout_branch(new_branch_id)
 
         return new_branch_id
+    
+    
+    async def create_branch(self, turn_id: int | None = None, name: str | None = None):
+        if name is None:
+            if turn_id is None:
+                name = "main"
+            else:
+                name = f"branch_from_{turn_id}"
+                
+        if turn_id is not None:
+            turn = await self.get_turn(turn_id)
+            turn_index = turn.index
+            turn_branch_id = turn.branch_id
+        else:
+            turn_index = 1
+            turn_branch_id = None
+        
+        query = "INSERT INTO branches (name, forked_from_turn_index, forked_from_branch_id) VALUES ($1, $2, $3) RETURNING *;"
+        new_branch_rows = await PGConnectionManager.fetch(query, name, turn_index, turn_branch_id)
+        if not new_branch_rows:
+            raise ValueError("Failed to create branch")
+        branch = new_branch_rows[0]
+        turn = await self.create_turn(branch['id'], 1, TurnStatus.STAGED)        
+        branch = Branch(**branch, last_turn=turn)
+        return branch
+        
+        
+    
+    
+    async def checkout_branch(self, branch_id: int, turn_id: int | None = None):
+        if self._head is None:
+            raise ValueError("Artifact log is not initialized")
+        if turn_id is None:
+            branch = await self.get_branch(branch_id=branch_id)
+            new_head = {
+                "id": self.head["id"],
+                "main_branch_id": self.head["main_branch_id"],
+                "is_detached": False,
+                "branch_id": branch.id,
+                "turn_id": branch.last_turn.id
+            }
+            turn = branch.last_turn
+        else:
+            branch, selected_turn, is_detached = await self.get_branch_with_turn(branch_id=branch_id, turn_id=turn_id)
+            new_head = {
+                "id": self.head["id"],
+                "main_branch_id": self.head["main_branch_id"],
+                "is_detached": is_detached,
+                "branch_id": branch.id,
+                "turn_id": selected_turn.id
+            }
+            turn = selected_turn
+        
+        self._branch = branch
+        self._turn = turn
+        
+        self._head = new_head
+        return new_head
+    
+    
+    @classmethod
+    async def get_head(cls, head_id: int) -> Dict[str, Any]:
+        query = "SELECT * FROM heads WHERE id = $1;"
+        res = await PGConnectionManager.fetch_one(query, head_id)
+        if res is None:
+            raise ValueError(f"Head {head_id} not found")
+        return dict(res)
+    
+    
+    async def get_branch_with_turn(self, branch_id: int, turn_id: int):
+        res = await self._get_branch_with_turn(branch_id, turn_id)
+        branch = Branch(**res["branch"], last_turn=Turn(**res["last_turn"]))
+        selected_turn = Turn(**res["selected_turn"])
+        return branch, selected_turn, res["is_detached"]
+    
+    async def get_branch(self, branch_id: int):
+        res = await self._get_branch_with_turn(branch_id)
+        return Branch(**res["branch"], last_turn=Turn(**res["last_turn"]))
+        
+    async def _get_branch_with_turn(self, branch_id: int, turn_id: int | None = None):    
+        query = f"""
+            SELECT 
+                (
+                    SELECT to_json(b) FROM branches b WHERE b.id = {branch_id}
+                ) AS branch,
+                (
+                    SELECT to_json(t)
+                    FROM turns t
+                    WHERE t.branch_id = {branch_id}
+                    ORDER BY t.created_at DESC
+                    LIMIT 1
+                ) AS last_turn               
+        """
+        if turn_id is not None:
+            query += ","
+            query += f"""
+             (
+                SELECT to_json(t)
+                FROM turns t
+                WHERE t.branch_id = {branch_id} AND t.id = {turn_id}
+                ORDER BY t.created_at DESC
+                LIMIT 1
+            ) AS selected_turn
+            """
+        query += ";"        
+        res = await PGConnectionManager.fetch_one(query)
+        if res is None:
+            raise ValueError("No active head found")
+        last_turn = res.get('last_turn')
+        if last_turn is None:
+            raise ValueError("No last turn found")
+        last_turn = json.loads(last_turn)
+        branch = res.get('branch')
+        if branch is None:
+            raise ValueError("No branch found")
+        branch = json.loads(branch)   
+        
+        result = {
+            "branch": branch, 
+            "last_turn": last_turn, 
+            "is_detached": False
+        }
+        
+        if turn_id is not None:
+            selected_turn = res.get('selected_turn')
+            if selected_turn is None:
+                raise ValueError("No selected turn found on branch")
+            selected_turn = json.loads(selected_turn)
+            if last_turn["id"] != selected_turn["id"]:
+                result["is_detached"] = True
+            result["selected_turn"] = selected_turn
+        return result
+     
 
-    async def checkout_branch(self, branch_id: int) -> None:
+    async def checkout_branch2(self, branch_id: int, turn_id: int | None = None) -> None:
         """
         Switch HEAD to a different branch.
         """
@@ -515,22 +666,24 @@ CREATE TABLE IF NOT EXISTS test_runs (
         if not rows:
             raise ValueError(f"Turn {turn_id} not found")
         return Turn(**dict(rows[0]))
+    
+    
+    async def create_turn(self, branch_id: int, index: int, status: TurnStatus):
+        query = "INSERT INTO turns (branch_id, index, status) VALUES ($1, $2, $3) RETURNING *;"
+        new_turn_row = await PGConnectionManager.fetch(query, branch_id, index, status.value)
+        if not new_turn_row:
+            raise ValueError("Failed to create turn")
+        return Turn(**dict(new_turn_row[0]))
 
-    async def get_branch(self, branch_id: int) -> Dict[str, Any]:
-        query = "SELECT * FROM branches WHERE id = $1;"
-        rows = await PGConnectionManager.fetch(query, branch_id)
-        if not rows:
-            raise ValueError(f"Branch {branch_id} not found")
-        return dict(rows[0])
+    # async def get_branch(self, branch_id: int) -> Dict[str, Any]:
+    #     query = "SELECT * FROM branches WHERE id = $1;"
+    #     rows = await PGConnectionManager.fetch(query, branch_id)
+    #     if not rows:
+    #         raise ValueError(f"Branch {branch_id} not found")
+    #     return dict(rows[0])
     
     
-    @classmethod
-    async def get_head(cls, head_id: int) -> Dict[str, Any]:
-        query = "SELECT * FROM heads WHERE id = $1;"
-        rows = await PGConnectionManager.fetch(query, head_id)
-        if not rows:
-            raise ValueError(f"Head {head_id} not found")
-        return dict(rows[0])
+    
     
     
     async def get_artifact_list(self, artifact_table: str, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[dict]:
@@ -619,6 +772,7 @@ CREATE TABLE IF NOT EXISTS test_runs (
         )
         rows = await PGConnectionManager.fetch(query)        
         return [Turn(**dict(row)) for row in rows]
+    
     
     async def get_branch_list(self, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[Branch]:
         turn = await self.get_turn(self.head["turn_id"])

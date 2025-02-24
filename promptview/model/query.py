@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
@@ -464,7 +465,7 @@ class QuerySet(Generic[MODEL]):
         ) 
         if not results:
             return []
-        records = [self.model.pack_search_result(r) for r in results]
+        records = await asyncio.gather(*[self.model.pack_search_result(r) for r in results])
         return records
     
     async def to_client_filters(self):

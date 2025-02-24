@@ -41,7 +41,7 @@ async def get_branches(artifact_log: ArtifactLog = Depends(get_artifact_log)):
 @router.get("/branches/{branch_id}", response_model=Branch)
 async def get_branch(branch_id: int, artifact_log: ArtifactLog = Depends(get_artifact_log)):
     async with artifact_log:
-        branch = await artifact_log.get_branch(branch_id)
+        branch, last_turn, selected_turn, is_detached = await artifact_log.get_branch(branch_id)
         return branch
 
 

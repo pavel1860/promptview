@@ -10,6 +10,7 @@ from pydantic._internal._model_construction import ModelMetaclass
 from pydantic._internal._config import ConfigWrapper
 
 from promptview.artifact_log.artifact_log3 import ArtifactLog
+from promptview.model.head_model import HeadModel
 from promptview.model.postgres_client import camel_to_snake
 from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QuerySetSingleAdapter, QueryType
 from .vectors.base_vectorizer import BaseVectorizer
@@ -169,7 +170,9 @@ class ModelMeta(ModelMetaclass, type):
                 is_head = config.is_head 
             if hasattr(config, "namespace"):
                 namespace = config.namespace
-        
+        for base in bases:
+            if base == HeadModel:
+                is_head = True
         
         
             
@@ -388,7 +391,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     score: float = Field(default=-1, description="Score of the document. Default is -1")
     turn_id: str | int = Field(default=-1, description="Unique Identifier of the turn")
     branch_id: str | int = Field(default=-1, description="Unique Identifier of the branch")
-    head_id: str | int = Field(default=-1, description="Unique Identifier of the head")
+    # head_id: str | int = Field(default=-1, description="Unique Identifier of the head")
     _partitions: dict[str, str] = PrivateAttr(default_factory=dict)
     _default_temporal_field: str = PrivateAttr(default=None)
     _namespace: str | None = PrivateAttr(default=None)
@@ -542,9 +545,11 @@ class Model(BaseModel, metaclass=ModelMeta):
             raise ValueError("No id returned from database")
         # for field, field_info in self.model_fields.items():
         self.id = res[0].get('id')
-        self.branch_id = res[0].get('branch_id', -1)
-        self.turn_id = res[0].get('turn_id', -1)
-        self.head_id = res[0].get('head_id', -1)        
+        # self.branch_id = res[0].get('branch_id', -1)
+        # self.turn_id = res[0].get('turn_id', -1)
+        # self.head_id = res[0].get('head_id', -1)
+        if hasattr(self, "after_save") and callable(self.after_save):
+            await self.after_save(**res[0])
         return self
 
         
@@ -587,32 +592,40 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     @classmethod
-    def pack_search_result(cls: Type[MODEL], search_result) -> MODEL:
+    async def pack_search_result(cls: Type[MODEL], search_result) -> MODEL:
         db_type = cls._db_type.default # type: ignore
         if db_type == "qdrant":
-            return cls(
-                # _id=search_result.id,
-                # _score=search_result.score if hasattr(search_result, "score") else -1,
-            id=search_result.id,
-            score=search_result.score if hasattr(search_result, "score") else -1,
-            _vector=search_result.vector if hasattr(search_result, "vector") else {},
-            **search_result.payload
-            )
+            # result = cls(
+            #     # _id=search_result.id,
+            #     # _score=search_result.score if hasattr(search_result, "score") else -1,
+            # id=search_result.id,
+            # score=search_result.score if hasattr(search_result, "score") else -1,
+            # _vector=search_result.vector if hasattr(search_result, "vector") else {},
+            # **search_result.payload
+            # )
+            result_dict = {
+                "id": search_result.id,
+                "score": search_result.score if hasattr(search_result, "score") else -1,
+                "vector": search_result.vector if hasattr(search_result, "vector") else {},
+                **search_result.payload
+            }
         elif db_type == "postgres":
-            parsed_result = {}
+            result_dict = {}
             for field, field_info in cls.model_fields.items():
                 field_type = field_info.annotation
                 field_value = search_result.get(field)
                 if field_value:
                     if field_type == dict or (inspect.isclass(field_type) and issubclass(field_type, BaseModel)):
-                        parsed_result[field] = json.loads(field_value)
+                        result_dict[field] = json.loads(field_value)
                     else:
-                        parsed_result[field] = field_value
-            return cls(
-                **parsed_result
-            )
+                        result_dict[field] = field_value
         else:
             raise ValueError(f"Unsupported database type: {db_type}")
+        if hasattr(cls, "after_load") and callable(cls.after_load):
+            await cls.after_load(**result_dict)
+        return cls(
+                **result_dict
+            )
         
     @classmethod
     def _get_default_temporal_field(cls):
