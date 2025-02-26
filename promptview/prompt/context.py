@@ -208,10 +208,41 @@ class InitMethod(Enum):
     START = "start"
     RESUME = "resume"
     RESUME_SESSION = "resume_session"
+
+
+
+class BaseContext():
+    _ctx_token: contextvars.Token | None
+    run_id: str | None
     
+    def __init__(self, run_id: str | None = None):
+        self.run_id = run_id
+        self._ctx_token = None
+        
+    def set_context(self):        
+        self._ctx_token = CURR_CONTEXT.set(self)
+    
+    def reset_context(self):
+        if self._ctx_token:
+            try: 
+                CURR_CONTEXT.reset(self._ctx_token)
+            except ValueError as e:
+                print(f"Warning: failed to reset context, probably because generator was closed improperly:")
+            self._ctx_token = None
+    
+    async def __aenter__(self):
+        self.set_context()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        self.reset_context()
+        # return sel
+    
+    
+ 
     
 
-class ContextBase(Generic[MODEL]):
+class Context(Generic[MODEL], BaseContext):
     _model: Type[MODEL]
     _artifact_log: ArtifactLog
     _head_id: int
@@ -281,16 +312,16 @@ class ContextBase(Generic[MODEL]):
             raise ValueError("Session not set")
         return self._session
     
-    def set_context(self):        
-        self._ctx_token = CURR_CONTEXT.set(self)
+    # def set_context(self):        
+    #     self._ctx_token = CURR_CONTEXT.set(self)
     
-    def reset_context(self):
-        if self._ctx_token:
-            try: 
-                CURR_CONTEXT.reset(self._ctx_token)
-            except ValueError as e:
-                print(f"Warning: failed to reset context, probably because generator was closed improperly:")
-            self._ctx_token = None
+    # def reset_context(self):
+    #     if self._ctx_token:
+    #         try: 
+    #             CURR_CONTEXT.reset(self._ctx_token)
+    #         except ValueError as e:
+    #             print(f"Warning: failed to reset context, probably because generator was closed improperly:")
+    #         self._ctx_token = None
     
     
     @property
@@ -354,51 +385,6 @@ class ContextBase(Generic[MODEL]):
         }
         return self
     
-    # async def _resume(self, new_turn: bool = True):        
-    #     # await self.history.init_last_session()        
-    #     self._session = await self._session_manager.get_last_user_session(user_id=self.user_id)
-    #     self._message_log = await MessageLog.from_user_last_session(self.user_id)
-    #     if self.branch_id:
-    #         await self.message_log.switch_to(self.branch_id)
-    #     self._initialized = True
-    #     if new_turn:
-    #         await self.message_log.add_turn()
-    #     self._hooks = TurnHooks(self.message_log, prompt_name=self.prompt_name)
-    #     return self
-    
-    # async def _start(self):
-    #     # await self.history.init_new_session()        
-    #     self._session = await self._session_manager.create_session(self.user_id)
-    #     self._message_log = await MessageLog.from_session(self.session.id)
-    #     await self.message_log.add_turn()
-    #     self._initialized = True
-    #     self._hooks = TurnHooks(self.message_log, prompt_name=self.prompt_name)
-    #     return self
-    
-    # async def _resume_session(self, session_id: int, branch_id: int | None = None, new_turn: bool = True):
-    #     self._session = await self._session_manager.get_session(session_id=session_id)
-    #     self._message_log = await MessageLog.from_session(session_id)
-    #     if branch_id:
-    #         await self.message_log.switch_to(branch_id)
-    #     self._initialized = True
-    #     if new_turn:
-    #         await self.message_log.add_turn()
-    #     self._hooks = TurnHooks(self.message_log, prompt_name=self.prompt_name)
-    #     return self
-        
-    # async def __aenter__(self):
-    #     if not self._initialized:
-    #         if not self._init_method:
-    #             raise ValueError("Init method not set. Call resume() or start() first.")
-    #         if self._init_method["type"] == InitMethod.RESUME:
-    #             await self._resume(**self._init_method["kwargs"])
-    #         elif self._init_method["type"] == InitMethod.START:
-    #             await self._start()
-    #         elif self._init_method["type"] == InitMethod.RESUME_SESSION:
-    #             await self._resume_session(**self._init_method["kwargs"])
-            
-    #     self.set_context()
-    #     return self
     
     async def __aenter__(self):
         if not self._artifact_log.is_initialized:

@@ -304,7 +304,22 @@ class XmlBlock(StrBlock):
             content = "<" + content + " />"
         return content
     
+# class OutputFormatBlock(StrBlock):
+#     _model: Type[BaseModel]
     
+#     def __new__(
+#         cls, 
+#         model: Type[BaseModel],
+#         title: str = "Output Format",
+#         role: str = "system",
+#         name: str | None = None,
+#     ):
+#         instance = super().__new__(cls, title, role="system", id="output_format")
+#         instance._model = model        
+#         return instance
+    
+    
+        
 
 class EncloseBlock(StrBlock):
     _enclose_fmt: type
@@ -332,7 +347,10 @@ class EncloseBlock(StrBlock):
             raise ValueError("fmt must be either list or tuple")
         content = ', '.join(repr(item) for item in self._items)
         return f"{open_char}{content}{close_char}"
-    
+ 
+ 
+ 
+
     
 # class Block:
     
@@ -415,6 +433,8 @@ class Block:
     def xml(self, value: str, bullet: BulletType = "number", **kwargs):
         return XmlBlock(value, bullet, **kwargs)
     
+    def output_format(self, model: Type[BaseModel], title: str = "Output Format", role: str = "system", name: str | None = None):
+        return OutputFormatBlock(model, title, role, name)
 
     def model_dump(self, model: Type[BaseModel], format: str = "ts"):    
         if format == "ts":

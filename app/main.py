@@ -10,7 +10,7 @@ from promptview.api.model_router import create_crud_router
 from promptview.api.artifact_log_api import router as artifact_log_router
 from promptview.api.user_router import connect_user_model_routers
 from promptview.artifact_log.artifact_log3 import ArtifactLog
-from app.test_models import Context, Manager, Message
+from app.test_models import TestContext, Manager, Message
 from app.test_agent import chat_prompt, run_agent
 from promptview.auth.user_manager import UserManager
 from promptview.model.resource_manager import connection_manager
@@ -115,7 +115,7 @@ async def chat(
     branch_id: Annotated[int | None, Header(alias="branch_id")] = None,
     ):
     
-    async with Context(head_id=head_id, branch_id=branch_id) as ctx:
+    async with TestContext(head_id=head_id, branch_id=branch_id) as ctx:
         message = Message.model_validate_json(message_json)
         response, message = await run_agent(ctx=ctx, message=message)
         await ctx.commit()

@@ -747,11 +747,14 @@ class PostgresClient:
             if query_set._partitions:
                 partition_clauses = []
                 for partition_name, partition_value in query_set._partitions.items():
+                    if partition_name == "_subspace":
+                        continue
                     partition_clauses.append(f'"{partition_name}" = {partition_value}')
-                if where_clause:
-                    where_clause += f" AND ({', '.join(partition_clauses)})"
-                else:
-                    where_clause = f"WHERE ({', '.join(partition_clauses)})"
+                if partition_clauses:
+                    if where_clause:
+                        where_clause += f" AND ({', '.join(partition_clauses)})"
+                    else:
+                        where_clause = f"WHERE ({', '.join(partition_clauses)})"
 
             query = f"""
             SELECT *

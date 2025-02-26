@@ -238,36 +238,7 @@ CREATE TABLE IF NOT EXISTS heads (
 	FOREIGN KEY (branch_id) REFERENCES branches(id),
 	turn_id INTEGER,
 	FOREIGN KEY (turn_id) REFERENCES turns(id)
-);
-	
-	
-CREATE TABLE IF NOT EXISTS test_cases (
-	id SERIAL PRIMARY KEY,
-	created_at TIMESTAMP DEFAULT NOW(),
-	updated_at TIMESTAMP DEFAULT NOW(),
-	title TEXT NOT NULL,
-	description TEXT,
-	inputs JSONB DEFAULT '{}',
-	targets JSONB DEFAULT '{}',
-	branch_id INTEGER,                                
-	FOREIGN KEY (branch_id) REFERENCES branches(id),
-	turn_id INTEGER,
-	FOREIGN KEY (turn_id) REFERENCES turns(id)
-);
-				
-CREATE TABLE IF NOT EXISTS test_runs (
-	id SERIAL PRIMARY KEY,
-	created_at TIMESTAMP DEFAULT NOW(),
-	updated_at TIMESTAMP DEFAULT NOW(),                
-	score INTEGER,
-	message TEXT,                
-	test_case_id INTEGER,
-	FOREIGN KEY (test_case_id) REFERENCES test_cases(id),
-	branch_id INTEGER,
-	FOREIGN KEY (branch_id) REFERENCES branches(id),
-	turn_id INTEGER,
-	FOREIGN KEY (turn_id) REFERENCES turns(id)
-);
+);	
 """)
 
     async def drop_tables(self, extra_tables: list[str] | None = None) -> None:
@@ -275,8 +246,6 @@ CREATE TABLE IF NOT EXISTS test_runs (
         await PGConnectionManager.execute("DROP TABLE IF EXISTS heads CASCADE;")
         await PGConnectionManager.execute("DROP TABLE IF EXISTS turns CASCADE;")
         await PGConnectionManager.execute("DROP TABLE IF EXISTS branches CASCADE;")
-        await PGConnectionManager.execute("DROP TABLE IF EXISTS test_cases CASCADE;")
-        await PGConnectionManager.execute("DROP TABLE IF EXISTS test_runs CASCADE;")
         if extra_tables:
             for table in extra_tables:
                 await PGConnectionManager.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")

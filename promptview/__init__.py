@@ -7,11 +7,12 @@ from promptview.llms.anthropic_llm import AnthropicLLM
 from promptview.llms.azure_llm import AzureOpenAiLLM
 from promptview.llms.messages import (AIMessage, BaseMessage, HumanMessage,
                                       SystemMessage)
-from promptview.llms.openai_llm import OpenAiLLM
+from promptview.llms.openai_llm2 import OpenAiLLM
 from promptview.llms.tracer import Tracer
 from promptview.prompt.chat_prompt import ChatPrompt
 from promptview.prompt.components import ToolEnum
-from promptview.prompt.decorator import prompt
+# from promptview.prompt.decorator import prompt
+from promptview.prompt.base_prompt3 import prompt
 from promptview.prompt.map import map_prompt
 from promptview.prompt.block2 import block
 from promptview.prompt.mvc import view
@@ -21,9 +22,13 @@ from promptview.vectors.rag_documents import RagDocuments, RagSearchResult
 from promptview import parsers
 from promptview.model.model import Model
 from promptview.model.fields import ModelField, IndexType
+from promptview.prompt.depends import Depends
+from promptview.testing.test_manager import TestCase, TestRun
 
 import promptview.model.vectors as vectors
 import promptview.platforms as platforms
+import promptview.testing as testing
+
 
 
 __all__ = [
@@ -53,4 +58,6 @@ __all__ = [
     "vectors",
     "platforms",
     "block",
+    "Depends",
+    "testing",
 ]

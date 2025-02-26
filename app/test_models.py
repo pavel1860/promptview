@@ -4,8 +4,8 @@ from promptview.model.model import Model
 import datetime as dt
 
 from promptview.prompt.block2 import StrBlock
-from promptview.prompt.context import ContextBase
-
+from promptview.prompt.context import Context
+from promptview.testing import TestCase, TestRun, Evaluator
 
 
 
@@ -27,7 +27,7 @@ class Manager(UserModel):
         
         
         
-class Context(ContextBase[Message]):
+class TestContext(Context[Message]):
     _model = Message
     
     def to_blocks(self, model: Message) -> StrBlock:

@@ -1,13 +1,18 @@
+from __future__ import annotations
 from abc import abstractmethod
 from enum import StrEnum
 from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar, Union, TYPE_CHECKING
 from pydantic import BaseModel, ValidationError
+
+from promptview.llms.types import ErrorMessage
+
 from .messages import AIMessage, HumanMessage
 from .tracer2 import Tracer
 # from ..prompt.block import BaseBlock, ResponseBlock
-from ..prompt.block2 import StrBlock
 from ..prompt.context import BlockStream
-
+from ..prompt.block2 import StrBlock       
+from ..prompt.output_format import OutputModel
+    
 
 class LLMToolNotFound(Exception):
     
@@ -21,6 +26,7 @@ ToolChoice = Literal['auto', 'required', 'none']
 LLM_CLIENT = TypeVar('LLM_CLIENT')
 CLIENT_PARAMS = ParamSpec('CLIENT_PARAMS')
 CLIENT_RESPONSE = TypeVar('CLIENT_RESPONSE')
+OUTPUT_FORMAT = TypeVar('OUTPUT_FORMAT')
 
 
 ToolReprFormat = Literal['json', 'function', 'xml']
@@ -105,15 +111,11 @@ class LlmConfig(BaseModel):
 
 
 class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
-    # blocks: List[BaseBlock] = []
-    ctx_blocks: BlockStream | List[StrBlock] | str
-    # messages: List[BaseMessage] = []
-    messages: List[dict] = []
-    # actions: Actions = Actions()
+    ctx_blocks: BlockStream
+    output_model: Type[OutputModel] | None = None
     actions: List[Type[BaseModel]] = []
     tools: List[dict] | None = None
     model: str
-    # client: BaseLlmClient
     name: str
     tool_format: ToolReprFormat = 'function'
     tool_choice: ToolChoice | None = None
@@ -124,7 +126,8 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     _to_tools: Callable[[list[Type[BaseModel]]], List[dict] | None] | None = None
     _complete: Callable[CLIENT_PARAMS, CLIENT_RESPONSE] | None = None
     _parse_response: Callable[[CLIENT_RESPONSE, list[Type[BaseModel]]], StrBlock] | None = None
-    
+    _to_message: Callable[[StrBlock], dict] | None = None
+    _to_chat: Callable[[BlockStream], List[StrBlock]] | None = None
     class Config:
         arbitrary_types_allowed = True   
     
@@ -173,97 +176,123 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
         self.parallel_tool_calls = False
         return self
     
+    def output_format(self, model: Type[OutputModel]):
+        self.output_model = model
+        self.tool_choice = None
+        self.parallel_tool_calls = False
+        return self
+    
+    
     
     # async def run_complete(
     #     self, 
-    #     **kwargs
-    # ) -> AIMessage:
-        
-    #     llm_kwargs = self.config.get_llm_args(**kwargs)
-    #     # metadata["model"] = llm_kwargs.get("model", self.model)
+    # ) -> StrBlock:
     #     with Tracer(
-    #         is_traceable=self.is_traceable,
-    #         tracer_run=self.tracer_run,
     #         run_type="llm",
     #         name=self.name,
-    #         inputs={"messages": [msg.to_openai() for msg in self.messages]},
+    #         inputs={"messages": self.messages},
     #         # metadata=metadata,
     #     ) as llm_run:
     #         try:
-    #             response = await self.client.complete(
-    #                 self.messages, 
-    #                 actions=self.actions,
+    #             if self._complete is None:
+    #                 raise ValueError("complete method is not set")
+    #             if self._parse_response is None:
+    #                 raise ValueError("parse_response method is not set")
+    #             if self._to_tools is None:
+    #                 raise ValueError("to_tools method is not set")
+    #             tools = self._to_tools(self.actions)
+    #             response = await self._complete(
+    #                 messages=self.messages,
+    #                 tools=tools,
+    #                 model=self.model,
     #                 tool_choice=self.tool_choice,
-    #                 run_id=str(llm_run.id),
-    #                 **llm_kwargs
+    #                 **self.config.get_llm_args()
     #             )
-    #             llm_run.end(outputs=response.raw)
-    #             return response  
+    #             llm_run.end(outputs=response)
+    #             return self._parse_response(response, self.actions)
     #         except Exception as e:
     #             llm_run.end(errors=str(e))
     #             raise e
     async def run_complete(
         self, 
-    ) -> StrBlock:
-        with Tracer(
-            run_type="llm",
-            name=self.name,
-            inputs={"messages": self.messages},
-            # metadata=metadata,
-        ) as llm_run:
+        retries=3,    
+    ) -> ResponseBlock:
+        if self._complete is None:
+            raise ValueError("complete method is not set")
+        if self._parse_response is None:
+            raise ValueError("parse_response method is not set")
+        if self._to_tools is None:
+            raise ValueError("to_tools method is not set")
+        if self._to_message is None:
+            raise ValueError("to_message method is not set")
+        if self._to_chat is None:
+            raise ValueError("to_chat method is not set")
+        
+        
+        messages = [self._to_message(b) for b in self._to_chat(self.ctx_blocks)]
+        for message in messages:
+            print(f"----------------------{message['role']}-------------------------")
+            print(message['content'])            
+        print(f"-----------------------------------------------------------------")
+        tools = self._to_tools(self.actions)
+        response = None
+        for attempt in range(retries):
             try:
-                if self._complete is None:
-                    raise ValueError("complete method is not set")
-                if self._parse_response is None:
-                    raise ValueError("parse_response method is not set")
-                if self._to_tools is None:
-                    raise ValueError("to_tools method is not set")
-                tools = self._to_tools(self.actions)
                 response = await self._complete(
-                    messages=self.messages,
+                    messages=messages,
                     tools=tools,
                     model=self.model,
                     tool_choice=self.tool_choice,
                     **self.config.get_llm_args()
                 )
-                llm_run.end(outputs=response)
-                return self._parse_response(response, self.actions)
-            except Exception as e:
-                llm_run.end(errors=str(e))
-                raise e
+                parsed_response = self._parse_response(response, self.actions)
+                print(f"----------------------assistant response-------------------------")
+                print(parsed_response)
+                if self.output_model is not None:
+                    parsed_response = self.output_model.parse(parsed_response)
+                return parsed_response
+            except ErrorMessage as e:
+                if attempt == retries - 1:
+                    raise
+                if e.should_retry:
+                    if response:
+                        messages.append({"role": "assistant", "content": response.content})
+                        messages.append(e.to_message())
+        raise Exception("Failed to complete")
+
         
                 
     
-    async def smart_complete(
-        self, 
-        # messages: List[BaseMessage], 
-        # actions: Actions=None,
-        # tool_choice: ToolChoice | BaseModel | None = None,
-        # tracer_run=None,
-        # metadata={},
-        retries=3,
-        smart_retry=False,
-        config: LlmConfig | None = None,
-        **kwargs
-    ) -> AIMessage:
-        for try_num in range(retries):
-            try:
-                response = await self.run_complete(
-                    **kwargs
-                )
-                return response
-            except LLMToolNotFound as e:
-                if try_num == retries - 1:
-                    raise e
-                if smart_retry:
-                    self.messages.append(HumanMessage(content=f"there is no such tool:\n{str(e)}"))
-            except ValidationError as e:
-                if try_num == retries - 1:
-                    raise e
-                if smart_retry:
-                    self.messages.append(HumanMessage(content=f"there is a validation error for the tool:\n{str(e)}"))
-            except Exception as e:
-                raise e
+    # async def smart_complete(
+    #     self, 
+    #     # messages: List[BaseMessage], 
+    #     # actions: Actions=None,
+    #     # tool_choice: ToolChoice | BaseModel | None = None,
+    #     # tracer_run=None,
+    #     # metadata={},
+    #     retries=3,
+    #     smart_retry=False,
+    #     config: LlmConfig | None = None,
+    #     **kwargs
+    # ) -> AIMessage:
+    #     for try_num in range(retries):
+    #         try:
+    #             response = await self.run_complete(
+    #                 **kwargs
+    #             )
+    #             return response
+    #         except LLMToolNotFound as e:
+    #             if try_num == retries - 1:
+    #                 raise e
+    #             if smart_retry:
+    #                 self.messages.append(HumanMessage(content=f"there is no such tool:\n{str(e)}"))
+    #         except ValidationError as e:
+    #             if try_num == retries - 1:
+    #                 raise e
+    #             if smart_retry:
+    #                 self.messages.append(HumanMessage(content=f"there is a validation error for the tool:\n{str(e)}"))
+    #         except Exception as e:
+    #             raise e
     
     
  
@@ -282,15 +311,6 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     
     class Config:
         arbitrary_types_allowed = True   
-        
-        
-    # def transform(self, ctx_blocks: Context) -> List[BaseMessage]:
-    #     if not isinstance(blocks, list):
-    #         blocks = [blocks]
-    #     messages = []
-    #     for block in blocks:
-    #         messages.append(HumanMessage(content=block.render()))
-    #     return messages
     
     
     @abstractmethod
@@ -322,25 +342,21 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
         is_traceable: bool | None = True,
     ) -> LlmExecution:
         if isinstance(blocks, StrBlock):
-            blocks = [blocks]
-        if isinstance(blocks, str):
-            messages = [{
-                "role": "user",
-                "content": blocks
-            }]
-        elif isinstance(blocks, BlockStream):
-            chat_blocks = self.to_chat(blocks)
-            messages = [self.to_message(b) for b in chat_blocks]        
+            blocks = BlockStream([blocks])
+        elif isinstance(blocks, str):
+            blocks = BlockStream([StrBlock(blocks)])
+        # elif isinstance(blocks, BlockStream):
+            # blocks = self.to_chat(blocks)
+        #     messages = [self.to_message(b) for b in chat_blocks]        
         elif isinstance(blocks, list):
-            messages = [self.to_message(b) for b in blocks]
+            blocks = BlockStream(blocks)
+        #     messages = [self.to_message(b) for b in blocks]
         else:
             raise ValueError("Invalid blocks type")
                 
         llm_execution = LlmExecution(
             ctx_blocks=blocks,
-            messages=messages,
             model=self.model,
-            # client=self.client,
             name=self.name,
             # config=config,
             is_traceable=is_traceable
@@ -348,4 +364,6 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
         llm_execution._complete = self.complete
         llm_execution._parse_response = self.parse_response
         llm_execution._to_tools = self.to_tools
+        llm_execution._to_message = self.to_message
+        llm_execution._to_chat = self.to_chat
         return llm_execution

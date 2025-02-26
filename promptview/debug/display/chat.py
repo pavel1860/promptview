@@ -4,7 +4,7 @@ from typing import Callable, Coroutine, Literal, Union, Any
 from promptview.prompt.agent import Agent
 from promptview.prompt.util.block_visualization import block_to_html
 from promptview.prompt.block import TitleBlock
-from promptview.prompt.context import ContextBase
+from promptview.prompt.context import Context
 from abc import abstractmethod
 
 import nest_asyncio
@@ -83,7 +83,7 @@ def display_assistant_message(assistant_message):
 
 class ChatOutput(widgets.Output):
 
-    def __init__(self, context: ContextBase, *args, **kwargs):
+    def __init__(self, context: Context, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.context = context
 
@@ -106,7 +106,7 @@ class ChatOutput(widgets.Output):
 class ChatUI:
   
   
-    def __init__(self, agent: Agent, context: ContextBase):
+    def __init__(self, agent: Agent, context: Context):
         self.agent = agent
         self.context = context
         self.chat_output = ChatOutput(context=context)
@@ -151,7 +151,7 @@ class ChatUI:
             #     print("")    
     
     @staticmethod
-    async def display(agent: Agent, context: ContextBase):
+    async def display(agent: Agent, context: Context):
         if not context.is_initialized:
             context.init()
         chat_ui = ChatUI(agent, context)
@@ -167,7 +167,7 @@ class ChatUI:
 
 
     @staticmethod
-    async def display3(agent: Agent, context: ContextBase):
+    async def display3(agent: Agent, context: Context):
         # ctx = Context(inputs=inputs).resume()
         # await ctx.__aenter__()
         async def run_ui(agent):
