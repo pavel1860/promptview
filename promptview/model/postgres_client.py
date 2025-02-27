@@ -83,14 +83,14 @@ class SqlFieldBase:
         raise NotImplementedError("Placeholder rendering is not supported for this field type")
     @abstractmethod
     def render_insert_value(self, value: Any) -> str:
-        raise NotImplementedError("Insert statements are not supported for this field type")
+        raise NotImplementedError(f"Insert statements are not supported for field {self.name} of type {self.type}")
     
     @abstractmethod
     def render_create(self) -> str:
-        raise NotImplementedError("Augment statements are not supported for this field type")
+        raise NotImplementedError(f"Create statements are not supported for field {self.name} of type {self.type}")
     
     def render_augment(self) -> str:
-        raise NotImplementedError("Augment statements are not supported for this field type")
+        raise NotImplementedError(f"Augment statements are not supported for field {self.name} of type {self.type}")
     
     def render_create_index(self, table: str) -> str:
         return f"""
@@ -679,7 +679,6 @@ class PostgresClient:
         vectors: List[dict[str, List[float] | Any]],
         metadata: List[Dict],
         model_cls: Type[BaseModel],
-        ids=None,
         batch_size=100,
         is_versioned: bool = False,
         is_head: bool = False,
@@ -738,6 +737,73 @@ class PostgresClient:
                     raise e                
                 
         return results
+    
+    
+    async def update(
+        self,
+        namespace: str,
+        id: str | int,
+        vectors: List[dict[str, List[float] | Any]],
+        metadata: List[Dict],
+        is_versioned: bool = False,
+        field_mapper: FieldMapper | None = None,
+    ):
+        if is_versioned:
+            raise ValueError("Versioned models cannot be updated")
+        await self._ensure_connected()
+        assert self.pool is not None
+        
+        if field_mapper is None:
+            raise ValueError("Field mapper is required")
+            
+        table_name = namespace
+        
+        # Combine vectors and metadata
+        update_values = {}
+        if vectors and len(vectors) > 0:
+            update_values.update(vectors[0])
+        if metadata and len(metadata) > 0:
+            update_values.update(metadata[0])
+            
+        if "_subspace" in update_values:
+            update_values.pop("_subspace")
+            
+        if not update_values:
+            return []
+            
+        # Build SET clause
+        set_parts = []
+        values = []
+        next_idx = 1
+        
+        for field_name, value in update_values.items():
+            set_parts.append(f'"{field_name}" = ${next_idx}')
+            values.append(field_mapper.field_lookup[field_name].render_insert_value(value))
+            next_idx += 1
+            
+        set_clause = ", ".join(set_parts)
+        
+        # Add updated_at timestamp
+        set_clause += ", updated_at = NOW()"
+        
+        query = f"""
+        UPDATE {table_name} 
+        SET {set_clause}
+        WHERE id = ${next_idx}
+        RETURNING *
+        """
+        
+        values.append(id)
+        
+        async with self.pool.acquire() as conn:
+            try:
+                results = await conn.fetch(query, *values)
+                return results
+            except Exception as e:
+                print(e)
+                print(query)
+                print(values)
+                raise e
 
     async def upsert2(
         self,
@@ -975,18 +1041,24 @@ class PostgresClient:
         await self._ensure_connected()
         assert self.pool is not None
 
-        table_name = camel_to_snake(collection_name)
+        table_name = collection_name
 
         async with self.pool.acquire() as conn:
             if ids:
-                return await conn.execute(
-                    f'DELETE FROM {table_name} WHERE id = ANY($1::text[])',
-                    ids
-                )
+                if isinstance(ids[0], str):
+                    return await conn.execute(
+                        f'DELETE FROM "{table_name}" WHERE id = ANY($1::text[]);',
+                        ids
+                    )
+                else:
+                    return await conn.execute(
+                        f'DELETE FROM "{table_name}" WHERE id = ANY($1::int[]);',
+                        ids
+                    )
             elif filters:
                 where_clause = self._build_where_clause(filters)
                 return await conn.execute(
-                    f"DELETE FROM {table_name} WHERE {where_clause}"
+                    f'DELETE FROM "{table_name}" WHERE {where_clause};'
                 )
             else:
                 raise ValueError("Either ids or filters must be provided.")
@@ -1192,3 +1264,6 @@ class PostgresClient:
         async with self.pool.acquire() as conn:
             return await conn.fetch(f'SELECT * FROM "{namespace}" WHERE id = ANY($1)', ids)
         
+        
+        
+    

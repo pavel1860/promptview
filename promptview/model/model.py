@@ -423,7 +423,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     # _id: str = PrivateAttr(default_factory=lambda: str(uuid4()))
     # _score: float = PrivateAttr(default=-1)
     # id: str | int = Field(default_factory=lambda: str(uuid4()), description="Unique Identifier")
-    id: str | int = Field(..., description="Unique Identifier")
+    # id: str | int = Field(..., description="Unique Identifier")
     score: float = Field(default=-1, description="Score of the document. Default is -1")
     turn_id: str | int = Field(default=-1, description="Unique Identifier of the turn")
     branch_id: str | int = Field(default=-1, description="Unique Identifier of the branch")
@@ -435,6 +435,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     _vec_field_map: dict[str, list[str]] = PrivateAttr(default_factory=dict)
     _vector: dict[str, Any] = PrivateAttr(default_factory=dict)
     _db_type: DatabaseType = PrivateAttr(default="qdrant")
+    _id: str | int | None = PrivateAttr(default=None)
     # _partitions: dict[str, str] = {}
     # _default_temporal_field: str | None = None
     # _namespace: str | None = None
@@ -448,27 +449,29 @@ class Model(BaseModel, metaclass=ModelMeta):
     #     is_head: bool = False
     
     
-    def __init__(
-            self,
-            # _id=None, 
-            # _score=None,
-            _vector=None,
-            **data
-        ):
-        if "id" not in data:
-            if self.__class__.Config.database_type == "qdrant":
-                data["id"] = str(uuid4())
-            else:
-                data["id"] = -1
-        super().__init__(**data)
-        # if _id:
-        #     self._id = _id
-        # if _score:
-        #     self._score = _score 
-        # if id:
-        #     self.id = id
-        if _vector:
-            self._vector = _vector
+    # def __init__(
+    #         self,
+    #         # _id=None, 
+    #         # _score=None,
+    #         _vector=None,
+    #         **data
+    #     ):
+    #     if "id" not in data:
+    #         if self.__class__.Config.database_type == "qdrant":
+    #             data["id"] = str(uuid4())
+    #         else:
+    #             data["id"] = -1
+    #     super().__init__(**data)
+    #     # if _id:
+    #     #     self._id = _id
+    #     # if _score:
+    #     #     self._score = _score 
+    #     # if id:
+    #     #     self.id = id
+    #     if _vector:
+    #         self._vector = _vector
+
+    
         
         
     # @property
@@ -478,6 +481,12 @@ class Model(BaseModel, metaclass=ModelMeta):
     # @property
     # def score(self):
     #     return self._score
+    
+    @property
+    def id(self):
+        if self._id is None:
+            raise ValueError("Id not set. Please use save() method to set id.")
+        return self._id
     
     @property
     def vector(self):
@@ -501,6 +510,15 @@ class Model(BaseModel, metaclass=ModelMeta):
         dump = self.model_dump(exclude={"id", "score", "_vector", *relation_fields, *version_fields})
         dump["_subspace"] = self._subspace
         return dump
+    
+    
+    def model_dump(self, *args, **kwargs):
+        res = super().model_dump(*args, **kwargs)
+        if self._id is not None:
+            exclude = kwargs.get("exclude", [])
+            if "id" not in exclude:
+                res["id"] = self._id
+        return res
         
     # async def verify_namespace(self):
         # await self.rag_documents.verify_namespace()
@@ -573,16 +591,26 @@ class Model(BaseModel, metaclass=ModelMeta):
         ns = await self.get_namespace()
         vectors = await self.__class__.model_batch_embed([self])
         metadata = self._payload_dump()
-        res = await ns.conn.upsert(
+        
+        if self._id is None:
+            res = await ns.conn.upsert(
+                    namespace=self._namespace,
+                    vectors=vectors,
+                    metadata=[metadata],
+                    # ids=[self._id]
+                    model_cls=self.__class__,
+                    is_versioned=ns.versioned,
+                    is_head=ns.is_head,
+                    is_detached_head=ns.is_detached_head,
+                    field_mapper=ns.field_mapper
+                )
+        else:
+            res = await ns.conn.update(
                 namespace=self._namespace,
+                id=self.id,
                 vectors=vectors,
                 metadata=[metadata],
-                # ids=[self._id]
-                ids=[self.id],
-                model_cls=self.__class__,
                 is_versioned=ns.versioned,
-                is_head=ns.is_head,
-                is_detached_head=ns.is_detached_head,
                 field_mapper=ns.field_mapper
             )
         if not res:
@@ -590,7 +618,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         if not res[0].get('id'):
             raise ValueError("No id returned from database")
         # for field, field_info in self.model_fields.items():
-        self.id = res[0].get('id')
+        self._id = res[0].get('id')
         # self.branch_id = res[0].get('branch_id', -1)
         # self.turn_id = res[0].get('turn_id', -1)
         # self.head_id = res[0].get('head_id', -1)
@@ -615,7 +643,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         return await ns.conn.delete(ns.name, ids=ids, filters=query_filter)
     
     @classmethod
-    async def delete(cls: Type[MODEL], id: str):
+    async def delete(cls: Type[MODEL], id: str | int):
         ns = await cls.get_namespace()
         return await ns.conn.delete(ns.name, ids=[id])
     
@@ -644,13 +672,15 @@ class Model(BaseModel, metaclass=ModelMeta):
     @classmethod
     def pack_search_result(cls: Type[MODEL], search_result) -> MODEL:
         db_type = cls._db_type.default # type: ignore
+        inst_id = None
         if db_type == "qdrant":
             result_dict = {
-                "id": search_result.id,
+                # "id": search_result.id,
                 "score": search_result.score if hasattr(search_result, "score") else -1,
                 "vector": search_result.vector if hasattr(search_result, "vector") else {},
                 **search_result.payload
             }
+            inst_id = search_result.id
         elif db_type == "postgres":
             result_dict = {}
             for field, field_info in cls.model_fields.items():
@@ -661,11 +691,13 @@ class Model(BaseModel, metaclass=ModelMeta):
                         result_dict[field] = json.loads(field_value)
                     else:
                         result_dict[field] = field_value
+            inst_id = search_result.get("id")
         else:
             raise ValueError(f"Unsupported database type: {db_type}")
         instance = cls(
                 **result_dict
             )
+        instance._id = inst_id
         instance._update_relation_instance_id()
         return instance
         
