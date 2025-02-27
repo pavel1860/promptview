@@ -12,7 +12,7 @@ from contextvars import ContextVar
 
 from .fields import VectorSpaceMetrics
 from .qdrant_client import QdrantClient
-from .postgres_client import PostgresClient
+from .postgres_client import FieldMapper, PostgresClient
 from .vectors.base_vectorizer import BaseVectorizer
 if TYPE_CHECKING:
     from promptview.model.model import Model
@@ -38,6 +38,17 @@ def get_postgres_connection():
         host=os.environ.get("POSTGRES_HOST", "localhost"),
         port=int(os.environ.get("POSTGRES_PORT", "5432"))
     )
+    
+    
+    
+
+
+    
+        
+    
+    
+        
+
 
 class VectorSpace:
     name: str
@@ -66,6 +77,7 @@ class NamespaceParams:
     is_head: bool
     is_detached_head: bool
     versioned: bool
+    field_mapper: FieldMapper | None = None
     
     def __init__(
             self, 
@@ -79,6 +91,7 @@ class NamespaceParams:
             versioned: bool = False,
             is_head: bool = False,
             is_detached_head: bool = False,
+            field_mapper: FieldMapper | None = None,
         ):
         self._name = name
         self.vector_spaces = {vs.name: vs for vs in vector_spaces}
@@ -90,7 +103,7 @@ class NamespaceParams:
         self.versioned = versioned
         self.is_head = is_head
         self.is_detached_head = is_detached_head
-        
+        self.field_mapper = field_mapper
     @property
     def name(self):
         return self.envs[ENV_CONTEXT.get()][self._name]
@@ -108,6 +121,14 @@ class NamespaceParams:
                 raise ValueError(f"Index {idx['field']} already exists")            
         self.indices += indices
 
+    
+    def add_field_mapper(self, field_mapper: FieldMapper):
+        self.field_mapper = field_mapper
+        
+    
+    
+    
+    
 class VectorizersManager:
     _vectorizers: Dict[str, BaseVectorizer]
     _named_vectorizers: Dict[str, BaseVectorizer] 
@@ -251,7 +272,7 @@ class ConnectionManager:
         relations_sql = ""
         for ns in self._namespaces.values():            
             if ns.db_type == "postgres":
-                create_tbl_sql, ind_sql, rel_sql = ns.conn.build_table_sql(  # type: ignore
+                field_mapper = ns.conn.build_field_mapper(  # type: ignore
                     collection_name=ns.name,
                     model_cls=self.get_model(ns.name),
                     vector_spaces=list(ns.vector_spaces.values()),
@@ -260,10 +281,11 @@ class ConnectionManager:
                     is_head=ns.is_head,
                     relations=self._relations,
                 )
+                ns.field_mapper = field_mapper
                 self._active_namespaces[ns.name] = ns            
-                table_sql += "\n" + create_tbl_sql
-                indices_sql += "\n" + ind_sql
-                relations_sql += "\n" + rel_sql
+                table_sql += "\n" + field_mapper.render_create(exclude_types=["relation"])
+                indices_sql += "\n" + field_mapper.render_create_indices()
+                relations_sql += "\n" + field_mapper.render_augment(exclude_types=["vector", "field", "foreign_key", "key"])
             else:
                 await self._create_namespace(ns.name)                
         if table_sql:

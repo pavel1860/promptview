@@ -1,3 +1,5 @@
+from abc import abstractmethod
+from dataclasses import KW_ONLY, dataclass, field
 from datetime import datetime, timezone
 import datetime as dt
 from enum import Enum
@@ -59,6 +61,211 @@ def stringify_vector(vector: list[float] | np.ndarray):
         vector = vector.tolist()
     return '[' + ', '.join(map(str, vector)) + ']'
 
+
+
+
+
+
+
+FieldTypes = Literal["field", "vector", "foreign_key", "relation", "key"]
+
+@dataclass
+class SqlFieldBase:
+    _:KW_ONLY    
+    name: str
+    index: Literal["btree", "gist", "hash"] | None = field(default=None)
+    index_extra: dict[str, Any] | None = field(default=None)
+    default: str | None = field(default=None)
+    type: FieldTypes = field(default="field")
+    
+    @abstractmethod
+    def render_create(self) -> str:
+        raise NotImplementedError("Augment statements are not supported for this field type")
+    
+    def render_augment(self) -> str:
+        raise NotImplementedError("Augment statements are not supported for this field type")
+    
+    def render_create_index(self, table: str) -> str:
+        return f"""
+CREATE INDEX IF NOT EXISTS {self.name}_index ON {table} USING {self.index} ({self.name});
+"""
+        
+
+
+@dataclass
+class SqlKeyField(SqlFieldBase):
+    _:KW_ONLY  
+    key_type: str
+    is_primary_key: bool = True
+    type: FieldTypes = field(default="key")
+    
+    def render_create(self) -> str:
+        if self.is_primary_key:
+            return f'"{self.name}" {self.key_type} PRIMARY KEY'
+        else:
+            return f'"{self.name}" {self.key_type}'
+
+@dataclass
+class SqlFieldType(SqlFieldBase):
+    _:KW_ONLY  
+    sql_type: str 
+    type: FieldTypes = field(default="field")
+    def render_create(self) -> str:
+        sql = f'"{self.name}" {self.sql_type}'
+        if self.default:
+            sql += f" DEFAULT {self.default}"
+        return sql
+    
+
+@dataclass
+class SqlVectorField(SqlFieldBase):
+    _:KW_ONLY  
+    size: int
+    type: FieldTypes = field(default="vector")
+    def render_create(self) -> str:
+        return f'"{self.name}" vector({self.size})'
+    
+    
+    def render_create_index(self, table: str) -> str:
+        if self.index is None:
+            return ""
+        sql = f"""CREATE INDEX IF NOT EXISTS {self.name}_index ON {table} USING ivfflat ({self.name} vector_cosine_ops)"""
+        if self.index_extra:
+            sql += f" WITH (lists = {self.index_extra.get('lists', 100)})"
+        return sql
+    
+    
+    
+
+@dataclass
+class SqlForeignKeyField(SqlFieldBase):
+    _:KW_ONLY  
+    table: str
+    foreign_table: str    
+    foreign_key: str = "id"
+    type: FieldTypes = field(default="foreign_key")
+    
+    def render_create(self) -> str:
+        return f"{self.name} INT,\nFOREIGN KEY ({self.name}) REFERENCES {self.foreign_table} ({self.foreign_key})"
+        
+@dataclass
+class RelationField(SqlFieldBase):
+    _:KW_ONLY  
+    table: str
+    foreign_table: str    
+    foreign_key: str = "id"   
+    type: FieldTypes = field(default="relation")
+    
+    def render_create(self) -> str:
+        raise NotImplementedError("Relation field CREATE is not supported in CREATE TABLE statements")
+    
+    def render_augment(self) -> str:
+        return f"""
+DO $$
+BEGIN
+    -- Check if the "test_case_id" column exists; if not, add it.
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+        AND table_name = '{self.table}'
+        AND column_name = '{self.name}'
+    ) THEN
+        EXECUTE 'ALTER TABLE {self.table} ADD COLUMN "{self.name}" INT';
+    END IF;
+
+    -- Check if the foreign key constraint exists; if not, add it.
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_{self.name}'
+        AND conrelid = '{self.table}'::regclass
+    ) THEN
+        EXECUTE '
+        ALTER TABLE {self.table} 
+        ADD CONSTRAINT fk_{self.name} 
+        FOREIGN KEY ("{self.name}") 
+        REFERENCES {self.foreign_table}("{self.foreign_key}")
+        ';
+    END IF;
+END $$;
+"""
+    
+
+
+
+
+
+class FieldMapper:
+    table_name: str
+    model_cls: "Type[Model]"
+    field_lookup: dict[str, SqlFieldBase]
+    
+    def __init__(self, table_name: str, model_cls: "Type[Model]"):
+        self.table_name = table_name
+        self.model_cls = model_cls
+        self.field_lookup= {}
+        
+        
+    def add_field(self, sql_field_type: SqlFieldBase):
+        self.field_lookup[sql_field_type.name] = sql_field_type
+        
+    def set_index(self, field_name: str, index_type: str):
+        self.field_lookup[field_name].index_type = index_type
+        
+            
+    def get_field(self, field_name: str) -> SqlFieldBase:
+        return self.field_lookup[field_name]
+    
+    
+    def get_field_sql(self, field_name: str) -> str:
+        pass
+    
+    def iter_fields(self, exclude_types: list[FieldTypes] = [], has_index: bool | None = None):
+        exclude_lookup = {field_type: True for field_type in exclude_types}        
+        for field in self.field_lookup.values():
+            if field.type in exclude_lookup:
+                continue
+            if has_index is not None:
+                if has_index == False and field.index is not None:
+                    continue
+                if has_index == True and field.index is None:
+                    continue
+            yield field
+           
+    def render_create(self, exclude_types: list[FieldTypes] = []) -> str:
+        fields = "".join([f"{field.render_create()},\n" for field in self.iter_fields(exclude_types)])
+        if fields:
+            fields = fields.rstrip(",\n")
+        return f"""
+CREATE TABLE IF NOT EXISTS {self.table_name} (   
+    {fields}
+);
+"""
+
+    def render_augment(self, exclude_types: list[FieldTypes] = []) -> str:
+        return "".join([f"{field.render_augment()}\n" for field in self.iter_fields(exclude_types)])
+     
+
+    def render_create_indices(self) -> str:
+        return "".join([f"{field.render_create_index(self.table_name)}" for field in self.iter_fields() if field.index is not None])
+    
+    
+        
+            
+    
+            
+            
+            
+            
+            
+            
+            
+
+
+
+
+
 class PostgresClient:
     def __init__(self, url=None, user=None, password=None, database=None, host=None, port=None):
         self.url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
@@ -106,7 +313,105 @@ class PostgresClient:
             CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
             ''')
             
-    def build_table_sql(
+            
+    def build_field_mapper(
+        self, 
+        collection_name: str, 
+        model_cls: "Type[Model]", 
+        vector_spaces: list["VectorSpace"], 
+        indices: list[dict[str, str]] | None = None,
+        versioned: bool = False,
+        is_head: bool = False,
+        relations: dict[str, dict[str, str]] | None = None,
+    ):
+        """Create a table for vector storage with pgvector extension."""
+
+        table_name = camel_to_snake(collection_name)
+        
+        if versioned and is_head:
+            raise ValueError("Versioned and head models cannot be created at the same time")
+
+        
+        # Get model class from the collection name to inspect fields
+        field_mapper = FieldMapper(table_name, model_cls)
+        # Create table with proper columns for each field
+        field_mapper.add_field(SqlKeyField(name="id", key_type="SERIAL", is_primary_key=True))
+        field_mapper.add_field(SqlFieldType(name="created_at", sql_type="TIMESTAMP", index="btree", default="NOW()"))
+        field_mapper.add_field(SqlFieldType(name="updated_at", sql_type="TIMESTAMP", index="btree", default="NOW()"))                
+                
+        if versioned:
+            field_mapper.add_field(SqlForeignKeyField(name="turn_id", table=table_name, foreign_table="turns", foreign_key="id", index="btree"))
+            field_mapper.add_field(SqlForeignKeyField(name="branch_id", table=table_name, foreign_table="branches", foreign_key="id", index="btree"))
+        if is_head:
+            field_mapper.add_field(SqlForeignKeyField(name="head_id", table=table_name, foreign_table="heads", foreign_key="id", index="btree"))
+            # create_table_sql += """
+            # head_id INTEGER,
+            # FOREIGN KEY (head_id) REFERENCES heads(id),
+            # """
+
+        
+        
+        index_lookup = {index['field']: index for index in indices} if indices else {}
+        
+        # Add columns for each model field
+        for field_name, field in model_cls.model_fields.items():            
+            if field_name in ["id", "turn_id", "branch_id", "head_id", "_subspace", "score", "created_at", "updated_at"]:
+                continue
+            # create_table_sql += "\n"
+            field_type = field.annotation
+            
+            index = "btree" if index_lookup.get(field_name) else None
+            
+            if is_list_type(field_type):
+                list_type = get_list_type(field_type)
+                if isinstance(list_type, int):
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="INTEGER[]", index=index))
+                elif isinstance(list_type, float):
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="FLOAT[]", index=index))
+                elif isinstance(list_type, str):
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="TEXT[]", index=index))
+                # elif isinstance(list_type, Model):
+                #     partition = field.json_schema_extra.get("partition")
+                #     create_table_sql += f'"{field_name}" UUID FOREIGN KEY REFERENCES {model_to_table_name(field_type)} ("{partition}")'
+                else:
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="JSONB"))
+            else:
+                if field.json_schema_extra.get("db_type"):
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type=field.json_schema_extra.get("db_type"), index=index))
+                elif field_type == bool:
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="BOOLEAN", index=index))
+                elif field_type == int:
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="INTEGER", index=index))
+                elif field_type == float:
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="FLOAT", index=index))
+                elif field_type == str:
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="TEXT", index=index))
+                elif field_type == datetime or field_type == dt.datetime:
+                    # TODO: sql_type = "TIMESTAMP WITH TIME ZONE"
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="TIMESTAMP", index=index))                    
+                elif isinstance(field_type, dict) or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="JSONB", index=index))
+                else:
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="TEXT", index=index))  # Default to TEXT for unknown types
+            
+
+        # Add vector columns for each vector space
+        for vs in vector_spaces:
+            if vs.vectorizer.type == "dense":
+                index = "gist" if index_lookup.get(vs.name) else None
+                field_mapper.add_field(SqlVectorField(name=vs.name, size=vs.vectorizer.size, index=index, index_extra={"lists": 100}))
+            
+        for relation in relations.get(table_name, []):
+            source_table_name = relation["source_namespace"]
+            column_name = relation["partition"]
+            fk_name = f'fk_{column_name}'
+            index = "btree" if index_lookup.get(column_name) else None  
+            field_mapper.add_field(RelationField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index))
+
+        return field_mapper
+
+            
+    def build_table_sql2(
         self, 
         collection_name: str, 
         model_cls: "Type[Model]", 
@@ -150,7 +455,9 @@ class PostgresClient:
             head_id INTEGER,
             FOREIGN KEY (head_id) REFERENCES heads(id),
             """
-    
+
+        field_lookup = {}
+        
         # Add columns for each model field
         for field_name, field in model_cls.model_fields.items():            
             if field_name in ["id", "turn_id", "branch_id", "head_id", "_subspace", "score", "created_at", "updated_at"]:
@@ -285,97 +592,18 @@ class PostgresClient:
         return create_table_sql, "\n".join(indices_sql), "\n".join(relations_sql)
 
     async def execute_sql(self, sql: str):
+        
         await self._ensure_connected()
         assert self.pool is not None
         async with self.pool.acquire() as conn:
-            return await conn.execute(sql)
+            try:
+                return await conn.execute(sql)
+            except Exception as e:
+                print(e)
+                print(sql)
+                raise e
 
-    async def create_collection(self, collection_name: str, model_cls: "Type[Model]", vector_spaces: list["VectorSpace"], indices: list[dict[str, str]] | None = None):
-        """Create a table for vector storage with pgvector extension."""
-        await self._ensure_connected()
-        assert self.pool is not None
-
-        table_name = camel_to_snake(collection_name)
-
-        async with self.pool.acquire() as conn:
-            # Enable pgvector extension if not enabled
-            # Get model class from the collection name to inspect fields
-            
-            # Create table with proper columns for each field
-            create_table_sql = f"""
-            CREATE TABLE IF NOT EXISTS {table_name} (
-                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                turn_id INT NOT NULL,
-                FOREIGN KEY (turn_id) REFERENCES turns(id),
-                branch_id INT NOT NULL,
-                FOREIGN KEY (branch_id) REFERENCES branches(id),
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW(),                
-            """
-
-            # Add columns for each model field
-            for field_name, field in model_cls.model_fields.items():
-                if field_name == "id" or field_name == "_subspace" or field_name == "score":  # Skip id as it's already added
-                    continue
-                
-                field_type = field.annotation
-                
-                if get_origin(field_type) == list:
-                    field_type =unpack_list_model(field_type)
-                    partition = field.json_schema_extra.get("partition")
-                    create_table_sql += f', FOREIGN KEY ("{field_name}") REFERENCES {model_to_table_name(field_type)} ("{partition}")'
-                else:
-                    if field_type == bool:
-                        sql_type = "BOOLEAN"
-                    elif field_type == int:
-                        sql_type = "INTEGER"
-                    elif field_type == str:
-                        sql_type = "TEXT"
-                    elif field_type == datetime or field_type == dt.datetime:
-                        # TODO: sql_type = "TIMESTAMP WITH TIME ZONE"
-                        sql_type = "TIMESTAMP"
-                    elif str(field_type).startswith("list["):
-                        # Handle arrays
-                        inner_type = str(field_type).split("[")[1].rstrip("]")
-                        if inner_type == "int":
-                            sql_type = "INTEGER[]"
-                        else:
-                            sql_type = "TEXT[]"
-                    elif str(field_type).startswith("dict") or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
-                        sql_type = "JSONB"                    
-                    else:
-                        sql_type = "TEXT"  # Default to TEXT for unknown types
-                
-                    create_table_sql += f',\n"{field_name}" {sql_type}'
-
-            # Add vector columns for each vector space
-            for vs in vector_spaces:
-                if vs.vectorizer.type == "dense":
-                    create_table_sql += f',\n"{vs.name}" vector({vs.vectorizer.size})'
-
-            create_table_sql += ");"
-
-            await conn.execute(create_table_sql)
-
-            # Create indices
-            if indices:
-                for index in indices:
-                    field = index['field']
-                    # Create GiST index for vector columns
-                    if field in [vs.name for vs in vector_spaces]:
-                        await conn.execute(f"""
-                        CREATE INDEX IF NOT EXISTS {table_name}_{field}_idx 
-                        ON {table_name} 
-                        USING ivfflat ("{field}" vector_cosine_ops)
-                        WITH (lists = 100);
-                        """)
-                    else:
-                        # Create B-tree index for regular columns
-                        await conn.execute(f"""
-                        CREATE INDEX IF NOT EXISTS {table_name}_{field}_idx 
-                        ON {table_name} 
-                        USING btree ("{field}");
-                        """)
+    
 
     async def upsert(
         self,
