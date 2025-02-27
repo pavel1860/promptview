@@ -4,12 +4,13 @@ from datetime import datetime
 from pydantic import BaseModel
 from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model.fields import ModelField
+from promptview.model.head_model import HeadModel
 from promptview.model.model import Model
 from promptview.utils.db_connections import PGConnectionManager
 from promptview.model.resource_manager import connection_manager
 
 
-class UserModel(Model):
+class UserModel(Model, HeadModel):
     name: str | None = ModelField(None)
     email: str = ModelField(...)
     image: str | None = ModelField(None)

@@ -44,7 +44,7 @@ async def evaluate_prompt(task: str, response: str, llm: OpenAiLLM = Depends(Ope
 class Evaluator(Model):
     name: str = ModelField()    
     task: str = ModelField()
-    rules: dict = ModelField(default={})
+    rules: list[str] = ModelField(default={})
     model: str = ModelField()    
     
     class Config:

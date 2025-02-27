@@ -11,6 +11,7 @@ import numpy as np
 from pydantic import BaseModel
 
 from promptview.artifact_log.artifact_log3 import ArtifactLog
+from promptview.utils.model_utils import get_list_type, is_list_type
 
 
 if TYPE_CHECKING:
@@ -157,11 +158,19 @@ class PostgresClient:
             create_table_sql += "\n"
             field_type = field.annotation
             
-            if get_origin(field_type) == list:
-                field_type =unpack_list_model(field_type)
-                partition = field.json_schema_extra.get("partition")
-                # create_table_sql += f', FOREIGN KEY ("{field_name}") REFERENCES {model_to_table_name(field_type)} ("{partition}")'
-                create_table_sql += f'"{field_name}" UUID FOREIGN KEY REFERENCES {model_to_table_name(field_type)} ("{partition}")'
+            if is_list_type(field_type):
+                list_type = get_list_type(field_type)
+                if isinstance(list_type, int):
+                    sql_type = "INTEGER[]"
+                elif isinstance(list_type, float):
+                    sql_type = "FLOAT[]"
+                elif isinstance(list_type, str):
+                    sql_type = "TEXT[]"
+                # elif isinstance(list_type, Model):
+                #     partition = field.json_schema_extra.get("partition")
+                #     create_table_sql += f'"{field_name}" UUID FOREIGN KEY REFERENCES {model_to_table_name(field_type)} ("{partition}")'
+                else:
+                    sql_type = "JSONB"
             else:
                 if field.json_schema_extra.get("db_type"):
                     sql_type = field.json_schema_extra.get("db_type")                
@@ -176,15 +185,18 @@ class PostgresClient:
                 elif field_type == datetime or field_type == dt.datetime:
                     # TODO: sql_type = "TIMESTAMP WITH TIME ZONE"
                     sql_type = "TIMESTAMP"
-                elif str(field_type).startswith("list["):
-                    # Handle arrays
-                    inner_type = str(field_type).split("[")[1].rstrip("]")
-                    if inner_type == "int":
-                        sql_type = "INTEGER[]"
-                    else:
-                        sql_type = "TEXT[]"
-                elif str(field_type).startswith("dict") or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
-                    sql_type = "JSONB"                    
+                # elif str(field_type).startswith("list["):
+                #     # Handle arrays
+                #     inner_type = str(field_type).split("[")[1].rstrip("]")
+                #     if inner_type == "int":
+                #         sql_type = "INTEGER[]"
+                #     else:
+                #         sql_type = "TEXT[]"
+                # elif str(field_type).startswith("dict") or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
+                #     sql_type = "JSONB"                    
+                    
+                elif isinstance(field_type, dict) or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
+                    sql_type = "JSONB"
                 else:
                     sql_type = "TEXT"  # Default to TEXT for unknown types
             
@@ -457,7 +469,13 @@ class PostgresClient:
                 VALUES {', '.join(placeholders)}
                 RETURNING *;
                 """
-                results.extend(await conn.fetch(query, *values))
+                try:
+                    results.extend(await conn.fetch(query, *values))
+                except Exception as e:
+                    print(e)
+                    print(query)
+                    print(values)
+                    raise e
         
         return results
 

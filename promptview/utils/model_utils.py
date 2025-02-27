@@ -3,10 +3,21 @@ import json
 import jsonref
 from types import UnionType
 from typing import Any, Literal, Optional, Union, get_args, get_origin
-from promptview.llms.utils.completion_parsing import (is_list_model,
-                                                      unpack_list_model)
 from pydantic import BaseModel, create_model
 from enum import Enum
+
+
+
+def is_list_type(pydantic_model):
+    return get_origin(pydantic_model) == list
+
+
+def unpack_list_model(pydantic_model):
+    return get_args(pydantic_model)[0]
+
+
+def get_list_type(model):
+    return get_args(model)[0]
 
 
 class Config:
@@ -196,7 +207,7 @@ def iterate_class_fields(cls_, sub_cls_filter=None, exclude=False):
 
 def serialize_class(cls_: Any):
     output_type = "object"
-    if is_list_model(cls_):
+    if is_list_type(cls_):
         output_type = "array"
         output_class = unpack_list_model(cls_)
     else:
@@ -225,11 +236,13 @@ def describe_literal(literal, delimiter="|"):
     args = get_args(literal)
     return delimiter.join(args)
 
-def is_union(obj):
+def is_union_type(obj):
     orig = get_origin(obj)
     if orig and orig.__name__ == "UnionType":
         return True
     return hasattr(obj, "__origin__") and obj.__origin__ == Union
+
+
 
 
 def get_type(arg, delimiter="|"):
@@ -271,7 +284,7 @@ def stringify_field_info(field_info, delimiter="|"):
     field_origin = get_origin(field_type)
     if field_origin == list:
         return get_list_args(field_info, delimiter)
-    elif is_union(field_type):
+    elif is_union_type(field_type):
         return get_union_args(field_info, delimiter)
     else:
         return get_type(field_type, delimiter)

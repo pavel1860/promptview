@@ -1,11 +1,13 @@
-from .test_manager import TestCase, TestRun
+from .test_manager import TestCase, TestRun, TestTurn, TestInputs
 from .evaluator import Evaluator
 
 
 
 
 __all__ = [
-    "TestCase", 
+    "TestCase",
+    "TestTurn",
+    "TestInputs",
     "TestRun", 
     "Evaluator"
 ]

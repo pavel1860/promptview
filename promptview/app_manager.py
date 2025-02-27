@@ -3,7 +3,7 @@ from typing import Type, get_args
 
 from promptview.llms.utils.completion_parsing import (is_list_model,
                                                     unpack_list_model)
-from promptview.utils.model_utils import get_union_args, is_union, iterate_class_fields, schema_to_function, serialize_class
+from promptview.utils.model_utils import get_union_args, is_union_type, iterate_class_fields, schema_to_function, serialize_class
 from promptview.vectors.rag_documents import RagDocuments
 from pydantic import BaseModel
 
@@ -68,7 +68,7 @@ def serialize_profile(profile_cls, sub_cls_filter=None, exclude=False):
         if hasattr(info.annotation, '__name__'):
             field_type = PYTHON_TO_JSON_TYPES.get(info.annotation.__name__, info.annotation.__name__)
             return field_type
-        elif is_union(info.annotation):
+        elif is_union_type(info.annotation):
             for arg in get_args(info.annotation):
                 field_type = PYTHON_TO_JSON_TYPES.get(arg.__name__, None)
                 if field_type:
