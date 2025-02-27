@@ -461,7 +461,8 @@ class QuerySet(Generic[MODEL]):
             namespace,
             query_set=self,
             is_versioned=ns.versioned,
-            is_head=ns.is_head
+            is_head=ns.is_head,
+            field_mapper=ns.field_mapper
         ) 
         if not results:
             return []

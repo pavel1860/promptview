@@ -76,7 +76,14 @@ class SqlFieldBase:
     index: Literal["btree", "gist", "hash"] | None = field(default=None)
     index_extra: dict[str, Any] | None = field(default=None)
     default: str | None = field(default=None)
+    is_optional: bool = field(default=False)
     type: FieldTypes = field(default="field")
+    
+    def render_placeholder(self, idx: int) -> str:
+        raise NotImplementedError("Placeholder rendering is not supported for this field type")
+    @abstractmethod
+    def render_insert_value(self, value: Any) -> str:
+        raise NotImplementedError("Insert statements are not supported for this field type")
     
     @abstractmethod
     def render_create(self) -> str:
@@ -89,6 +96,9 @@ class SqlFieldBase:
         return f"""
 CREATE INDEX IF NOT EXISTS {self.name}_index ON {table} USING {self.index} ({self.name});
 """
+
+    def unpack_field(self, value: Any) -> Any:
+        return value
         
 
 
@@ -96,7 +106,7 @@ CREATE INDEX IF NOT EXISTS {self.name}_index ON {table} USING {self.index} ({sel
 class SqlKeyField(SqlFieldBase):
     _:KW_ONLY  
     key_type: str
-    is_primary_key: bool = True
+    is_primary_key: bool = True    
     type: FieldTypes = field(default="key")
     
     def render_create(self) -> str:
@@ -109,22 +119,57 @@ class SqlKeyField(SqlFieldBase):
 class SqlFieldType(SqlFieldBase):
     _:KW_ONLY  
     sql_type: str 
-    type: FieldTypes = field(default="field")
+    type: FieldTypes = field(default="field")    
+    
     def render_create(self) -> str:
         sql = f'"{self.name}" {self.sql_type}'
         if self.default:
             sql += f" DEFAULT {self.default}"
+        elif not self.is_optional:
+            sql += " NOT NULL"
         return sql
     
+    
+    def render_placeholder(self, idx: int) -> str:
+        if self.sql_type == "JSONB":
+            return f"${idx}::JSONB"
+        return f"${idx}"
+    
+    def render_insert_value(self, value: Any | None = None) -> Any:
+        # if value is None:
+        #     if self.default:
+        #         return self.default
+        #     elif self.is_optional:
+        #         return "NULL"
+        #     else:
+        #         raise ValueError(f"Value is None and no default is set for field {self.name}")
+            
+        if self.sql_type == "JSONB":
+            return json.dumps(value)
+        else:
+            return value
+
+    def unpack_field(self, value: Any) -> Any:
+        if self.sql_type == "JSONB":
+            return json.loads(value)
+        else:
+            return value
 
 @dataclass
 class SqlVectorField(SqlFieldBase):
     _:KW_ONLY  
     size: int
     type: FieldTypes = field(default="vector")
+    
+    def render_placeholder(self, idx: int) -> str:
+        return f"${idx}::vector"
+    
+    
     def render_create(self) -> str:
         return f'"{self.name}" vector({self.size})'
     
+    def render_insert_value(self, value: Any) -> str:
+        return stringify_vector(value)
     
     def render_create_index(self, table: str) -> str:
         if self.index is None:
@@ -134,8 +179,8 @@ class SqlVectorField(SqlFieldBase):
             sql += f" WITH (lists = {self.index_extra.get('lists', 100)})"
         return sql
     
-    
-    
+    def unpack_field(self, value: Any) -> Any:
+        raise NotImplementedError("Vector field unpacking is not supported")
 
 @dataclass
 class SqlForeignKeyField(SqlFieldBase):
@@ -144,6 +189,12 @@ class SqlForeignKeyField(SqlFieldBase):
     foreign_table: str    
     foreign_key: str = "id"
     type: FieldTypes = field(default="foreign_key")
+    
+    def render_placeholder(self, idx: int) -> str:
+        return f"${idx}"
+    
+    def render_insert_value(self, value: Any) -> str:
+        return str(value)
     
     def render_create(self) -> str:
         return f"{self.name} INT,\nFOREIGN KEY ({self.name}) REFERENCES {self.foreign_table} ({self.foreign_key})"
@@ -221,9 +272,12 @@ class FieldMapper:
     def get_field_sql(self, field_name: str) -> str:
         pass
     
-    def iter_fields(self, exclude_types: list[FieldTypes] = [], has_index: bool | None = None):
-        exclude_lookup = {field_type: True for field_type in exclude_types}        
+    def iter_fields(self, exclude_types: list[FieldTypes] = [], exclude_fields: list[str] = [], has_index: bool | None = None):
+        exclude_lookup = {field_type: True for field_type in exclude_types}  
+        exclude_fields_lookup = {field_name: True for field_name in exclude_fields}
         for field in self.field_lookup.values():
+            if field.name in exclude_fields_lookup:
+                continue
             if field.type in exclude_lookup:
                 continue
             if has_index is not None:
@@ -250,8 +304,21 @@ CREATE TABLE IF NOT EXISTS {self.table_name} (
     def render_create_indices(self) -> str:
         return "".join([f"{field.render_create_index(self.table_name)}" for field in self.iter_fields() if field.index is not None])
     
+    def render_insert_fields(self, values: dict[str, Any]) -> str:
+        return ', '.join([f'"{k}"' for k in values.keys()])
+        # return f"""{', '.join([f'"{field.name}"' for field in self.iter_fields(exclude_types, exclude_fields)])}"""
     
+    def render_placeholders(self, values: dict[str, Any], start_idx: int = 1) -> tuple[str, int]:
+        end_idx = start_idx + len(values.keys())
+        return ', '.join([self.field_lookup[k].render_placeholder(i + start_idx) for i, k in enumerate(values.keys())]), end_idx
+    
+    
+    def render_insert_values(self, values: dict[str, Any]) -> list[Any]:
+        return [self.field_lookup[f].render_insert_value(v) for f, v in values.items()]
         
+        
+    def unpack_record(self, record: Any):
+        return {k: self.field_lookup[k].unpack_field(v) for k, v in record.items()}
             
     
             
@@ -359,54 +426,57 @@ class PostgresClient:
                 continue
             # create_table_sql += "\n"
             field_type = field.annotation
+            is_optional = False
+            if type(None) in get_args(field_type):
+                is_optional = True
             
             index = "btree" if index_lookup.get(field_name) else None
             
             if is_list_type(field_type):
                 list_type = get_list_type(field_type)
                 if isinstance(list_type, int):
-                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="INTEGER[]", index=index))
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="INTEGER[]", index=index, is_optional=is_optional))
                 elif isinstance(list_type, float):
-                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="FLOAT[]", index=index))
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="FLOAT[]", index=index, is_optional=is_optional))
                 elif isinstance(list_type, str):
-                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="TEXT[]", index=index))
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="TEXT[]", index=index, is_optional=is_optional))
                 # elif isinstance(list_type, Model):
                 #     partition = field.json_schema_extra.get("partition")
                 #     create_table_sql += f'"{field_name}" UUID FOREIGN KEY REFERENCES {model_to_table_name(field_type)} ("{partition}")'
                 else:
-                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="JSONB"))
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="JSONB", is_optional=is_optional))
             else:
                 if field.json_schema_extra.get("db_type"):
-                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type=field.json_schema_extra.get("db_type"), index=index))
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type=field.json_schema_extra.get("db_type"), index=index, is_optional=is_optional))
                 elif field_type == bool:
-                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="BOOLEAN", index=index))
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="BOOLEAN", index=index, is_optional=is_optional))
                 elif field_type == int:
-                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="INTEGER", index=index))
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="INTEGER", index=index, is_optional=is_optional))
                 elif field_type == float:
-                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="FLOAT", index=index))
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="FLOAT", index=index, is_optional=is_optional))
                 elif field_type == str:
-                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="TEXT", index=index))
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="TEXT", index=index, is_optional=is_optional))
                 elif field_type == datetime or field_type == dt.datetime:
                     # TODO: sql_type = "TIMESTAMP WITH TIME ZONE"
-                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="TIMESTAMP", index=index))                    
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="TIMESTAMP", index=index, is_optional=is_optional))
                 elif isinstance(field_type, dict) or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
-                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="JSONB", index=index))
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="JSONB", index=index, is_optional=is_optional))
                 else:
-                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="TEXT", index=index))  # Default to TEXT for unknown types
+                    field_mapper.add_field(SqlFieldType(name=field_name, sql_type="TEXT", index=index, is_optional=is_optional))  # Default to TEXT for unknown types
             
 
         # Add vector columns for each vector space
         for vs in vector_spaces:
             if vs.vectorizer.type == "dense":
                 index = "gist" if index_lookup.get(vs.name) else None
-                field_mapper.add_field(SqlVectorField(name=vs.name, size=vs.vectorizer.size, index=index, index_extra={"lists": 100}))
+                field_mapper.add_field(SqlVectorField(name=vs.name, size=vs.vectorizer.size, index=index, index_extra={"lists": 100}, is_optional=False))
             
         for relation in relations.get(table_name, []):
             source_table_name = relation["source_namespace"]
             column_name = relation["partition"]
             fk_name = f'fk_{column_name}'
             index = "btree" if index_lookup.get(column_name) else None  
-            field_mapper.add_field(RelationField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index))
+            field_mapper.add_field(RelationField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
 
         return field_mapper
 
@@ -603,9 +673,73 @@ class PostgresClient:
                 print(sql)
                 raise e
 
-    
-
     async def upsert(
+        self,
+        namespace: str,
+        vectors: List[dict[str, List[float] | Any]],
+        metadata: List[Dict],
+        model_cls: Type[BaseModel],
+        ids=None,
+        batch_size=100,
+        is_versioned: bool = False,
+        is_head: bool = False,
+        is_detached_head: bool = False,
+        field_mapper: FieldMapper | None = None,
+    ):
+        """Upsert vectors and metadata into the collection with fixed turn_id and type fields."""
+        await self._ensure_connected()
+        assert self.pool is not None
+        if is_versioned and is_head:
+            raise ValueError("Versioned and head models cannot be created at the same time")
+        artifact_values = {}
+        if field_mapper is None:
+            raise ValueError("field_mapper is required")
+        if is_versioned:
+            artifact_log = ArtifactLog.get_current()
+            assert artifact_log.is_initialized
+            artifact_values = {"turn_id": artifact_log.head["turn_id"], "branch_id": artifact_log.head["branch_id"]}
+        if is_head:
+            artifact_log = ArtifactLog()
+            head = await artifact_log.create_head(init_repo=not is_detached_head)
+            artifact_values = {"head_id": head["id"]}
+        
+        def zip_metadata(vectors, metadata):
+            if not vectors:
+                for meta in metadata:
+                    yield meta
+            else:
+                for vec, meta in zip(vectors, metadata):
+                    yield {**vec, **meta}
+                
+        results = []
+        async with self.pool.acquire() as conn:
+            for chunk in chunks(zip_metadata(vectors, metadata), batch_size=batch_size):
+                insert_sql = f"""INSERT INTO {namespace} ("""
+                placeholders_sql = f"""VALUES ("""
+                values = []
+                next_idx = 1
+                for item in chunk:
+                    item.pop("_subspace")
+                    insert_sql+= field_mapper.render_insert_fields(item)
+                    item_ph_sql, next_idx = field_mapper.render_placeholders(item, next_idx)
+                    item_values = field_mapper.render_insert_values(item)
+                    placeholders_sql+= item_ph_sql
+                    values.extend(item_values)
+                    
+                insert_sql += ")"
+                placeholders_sql += ")"
+                sql = f"{insert_sql} {placeholders_sql}\nRETURNING *;"
+                try:
+                    results.extend(await conn.fetch(sql, *values))
+                except Exception as e:
+                    print(e)                    
+                    print(sql)
+                    print(values)
+                    raise e                
+                
+        return results
+
+    async def upsert2(
         self,
         namespace: str,
         vectors: List[dict[str, List[float] | Any]],
@@ -947,11 +1081,20 @@ class PostgresClient:
                     raise e
                 return None 
 
-    async def execute_query(self, collection_name: str, query_set: "QuerySet", is_versioned: bool = False, is_head: bool = False):
+    async def execute_query(
+        self, 
+        collection_name: str, 
+        query_set: "QuerySet", 
+        is_versioned: bool = False, 
+        is_head: bool = False,
+        field_mapper: FieldMapper | None = None
+        ):
         """Execute a query set and return the results."""
         
         table_name = collection_name
         
+        if field_mapper is None:
+            raise ValueError("Field mapper is required")
         if query_set.query_type == "vector":
             # Handle vector similarity search
             if not query_set._vector_query or not query_set._vector_query.vector_lookup:
@@ -1039,7 +1182,7 @@ class PostgresClient:
         else:
             raise ValueError(f"Unsupported query type: {query_set.query_type}") 
             
-        return records
+        return [field_mapper.unpack_record(r) for r in records]
         
         
         

@@ -582,7 +582,8 @@ class Model(BaseModel, metaclass=ModelMeta):
                 model_cls=self.__class__,
                 is_versioned=ns.versioned,
                 is_head=ns.is_head,
-                is_detached_head=ns.is_detached_head
+                is_detached_head=ns.is_detached_head,
+                field_mapper=ns.field_mapper
             )
         if not res:
             raise ValueError("Failed to save model")
