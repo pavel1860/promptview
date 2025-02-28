@@ -516,7 +516,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         res = super().model_dump(*args, **kwargs)
         if self._id is not None:
             exclude = kwargs.get("exclude", [])
-            if "id" not in exclude:
+            if exclude and "id" not in exclude:
                 res["id"] = self._id
         return res
         
@@ -655,16 +655,18 @@ class Model(BaseModel, metaclass=ModelMeta):
         vectors = await cls.model_batch_embed(points)
         metadata = [point._payload_dump() for point in points]
         # ids = [point._id for point in points]        
-        ids = [point.id for point in points]
+        # ids = [point.id for point in points]
         ns = await cls.get_namespace()
         res = await ns.conn.upsert(
             namespace=cls._namespace.default,# type: ignore
             vectors=vectors,
             metadata=metadata,
-            ids=ids,
+            # ids=ids,
+            model_cls=cls,
             is_versioned=ns.versioned,
             is_head=ns.is_head,
-            is_detached_head=ns.is_detached_head
+            is_detached_head=ns.is_detached_head,
+            field_mapper=ns.field_mapper
         )
         return res
     

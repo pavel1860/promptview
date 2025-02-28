@@ -56,6 +56,22 @@ def model_to_table_name(model) -> str:
     return camel_to_snake(model.__name__)
 
 
+def shorten_vector_strings(text: str):
+    import re
+    pattern = re.compile(r'\[\s*(?P<first>[-+]?\d*\.\d{3})[^\]]*?(?P<last>\d{5})\s*\]')
+
+    def shorten_vector_aux(match):
+        # Retrieve the captured groups.
+        first = match.group('first')
+        last = match.group('last')
+        # Build the new string in the desired format.
+        return f'[{first} ... {last}]'
+
+    result = pattern.sub(shorten_vector_aux, text)
+    return result
+
+
+
 def stringify_vector(vector: list[float] | np.ndarray):
     if isinstance(vector, np.ndarray):
         vector = vector.tolist()
@@ -94,7 +110,7 @@ class SqlFieldBase:
     
     def render_create_index(self, table: str) -> str:
         return f"""
-CREATE INDEX IF NOT EXISTS {self.name}_index ON {table} USING {self.index} ({self.name});
+CREATE INDEX IF NOT EXISTS {self.name}_index ON {table} USING {self.index} ("{self.name}");
 """
 
     def unpack_field(self, value: Any) -> Any:
@@ -426,6 +442,10 @@ class PostgresClient:
                 continue
             # create_table_sql += "\n"
             field_type = field.annotation
+            
+            
+            if field.json_schema_extra.get('is_relation'):
+                continue
             is_optional = False
             if type(None) in get_args(field_type):
                 is_optional = True
@@ -670,7 +690,7 @@ class PostgresClient:
                 return await conn.execute(sql)
             except Exception as e:
                 print(e)
-                print(sql)
+                print(shorten_vector_strings(sql))
                 raise e
 
     async def upsert(
@@ -693,15 +713,21 @@ class PostgresClient:
         artifact_values = {}
         if field_mapper is None:
             raise ValueError("field_mapper is required")
+        # if is_versioned:
+        #     artifact_log = ArtifactLog.get_current()
+        #     assert artifact_log.is_initialized
+        #     artifact_values = {"turn_id": artifact_log.head["turn_id"], "branch_id": artifact_log.head["branch_id"]}
+        # if is_head:
+        #     artifact_log = ArtifactLog()
+        #     head = await artifact_log.create_head(init_repo=not is_detached_head)
+        #     artifact_values = {"head_id": head["id"]}
+        artifact_log = None
         if is_versioned:
             artifact_log = ArtifactLog.get_current()
             assert artifact_log.is_initialized
-            artifact_values = {"turn_id": artifact_log.head["turn_id"], "branch_id": artifact_log.head["branch_id"]}
         if is_head:
             artifact_log = ArtifactLog()
-            head = await artifact_log.create_head(init_repo=not is_detached_head)
-            artifact_values = {"head_id": head["id"]}
-        
+            
         def zip_metadata(vectors, metadata):
             if not vectors:
                 for meta in metadata:
@@ -713,26 +739,43 @@ class PostgresClient:
         results = []
         async with self.pool.acquire() as conn:
             for chunk in chunks(zip_metadata(vectors, metadata), batch_size=batch_size):
-                insert_sql = f"""INSERT INTO {namespace} ("""
+                fields_sql = f"""INSERT INTO {namespace} ("""
                 placeholders_sql = f"""VALUES ("""
                 values = []
                 next_idx = 1
                 for item in chunk:
                     item.pop("_subspace")
-                    insert_sql+= field_mapper.render_insert_fields(item)
+                    item_fields_sql = field_mapper.render_insert_fields(item)
                     item_ph_sql, next_idx = field_mapper.render_placeholders(item, next_idx)
                     item_values = field_mapper.render_insert_values(item)
+                    item_ph_sql += ", "
+                    item_fields_sql += ", "
+                    if artifact_log:
+                        if is_versioned: 
+                            item_fields_sql += "turn_id, branch_id, "
+                            item_ph_sql += f"${next_idx}, ${next_idx+1}, "
+                            next_idx += 2
+                            item_values.extend([artifact_log.head["turn_id"], artifact_log.head["branch_id"]])                        
+                        if is_head:                        
+                            head = await artifact_log.create_head(init_repo=not is_detached_head)
+                            item_fields_sql += "head_id, "
+                            item_ph_sql += f"${next_idx}, "
+                            next_idx += 1
+                            item_values.append(head["id"])
+                    fields_sql += item_fields_sql
                     placeholders_sql+= item_ph_sql
                     values.extend(item_values)
-                    
-                insert_sql += ")"
+                
+                fields_sql = fields_sql.rstrip(", ")
+                fields_sql += ")"
+                placeholders_sql = placeholders_sql.rstrip(", ")
                 placeholders_sql += ")"
-                sql = f"{insert_sql} {placeholders_sql}\nRETURNING *;"
+                sql = f"{fields_sql}\n{placeholders_sql}\nRETURNING *;"
                 try:
                     results.extend(await conn.fetch(sql, *values))
                 except Exception as e:
                     print(e)                    
-                    print(sql)
+                    print(shorten_vector_strings(sql))
                     print(values)
                     raise e                
                 
@@ -801,7 +844,7 @@ class PostgresClient:
                 return results
             except Exception as e:
                 print(e)
-                print(query)
+                print(shorten_vector_strings(query))
                 print(values)
                 raise e
 
@@ -901,7 +944,7 @@ class PostgresClient:
                     results.extend(await conn.fetch(query, *values))
                 except Exception as e:
                     print(e)
-                    print(query)
+                    print(shorten_vector_strings(query))
                     print(values)
                     raise e
         

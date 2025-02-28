@@ -4,7 +4,6 @@ from fastapi.datastructures import QueryParams
 from pydantic import BaseModel
 
 # from app.util.dependencies import get_partitions
-from promptview.model.head_model import Head, HeadModel
 from promptview.model.resource_manager import connection_manager
 # from app.util.auth import varify_token
 # from app.util.dependencies import unpack_request_token
@@ -13,6 +12,10 @@ from typing import Type, Any, Dict, Optional
 from fastapi import Query
 from pydantic import BaseModel
 from promptview.artifact_log.artifact_log3 import ArtifactLog
+from promptview.model.head_model import Head
+
+
+
 
 MODEL = TypeVar("MODEL", bound=Model)
 
@@ -26,50 +29,13 @@ def unpack_int_env_header(request: Request, field: str):
         
 
 
-def create_crud_router(model: Type[MODEL]) -> APIRouter:
-    # router = APIRouter(prefix=f"/{model.__name__.lower()}", tags=[model.__name__.lower()])
+def create_head_crud_router(model: Type[MODEL]) -> APIRouter:    
     router = APIRouter(prefix=f"/{model.__name__}", tags=[model.__name__.lower()])
     
     
-    is_versioned = False
-    is_head = False
-    if hasattr(model, "Config"):
-        config = model.Config
-        if hasattr(config, "versioned"):
-            is_versioned = config.versioned
-    if issubclass(model, HeadModel):
-        is_head = True
-            
-    # class ModelQuery(model):
-    #     limit: int = 10
-    #     offset: int = 0
-    
-    # async def get_partitions(request: Request, token: str = Depends(unpack_request_token)):
-    #     payload = varify_token(token)
-    #     query_keys = [p for p in request.query_params if p not in ['limit', 'offset']]
-    #     bad_keys = [p for p in query_keys if p not in model.model_fields]
-    #     if bad_keys:
-    #         raise HTTPException(status_code=400, detail=f"Invalid query parameters: {bad_keys}")
-    #     if 'manager_phone_number' in query_keys:
-    #         if request.query_params.get('manager_phone_number') != payload.user_phone:
-    #             raise HTTPException(status_code=403, detail="Forbidden")
-    #     partitions = {k: request.query_params[k] for k in query_keys}
-    #     partitions.update({"manager_phone_number": payload.user_phone})
-    #     return partitions
-    
-    
     async def env_ctx(request: Request):
-        if is_head:
-            yield None
-        else:   
-            head_id = unpack_int_env_header(request, "head_id")
-            branch_id = unpack_int_env_header(request, "branch_id")
-            # with connection_manager.set_env(env or "default"):
-                # yield env
-            if head_id is None:
-                raise HTTPException(status_code=400, detail="head_id is not supported")
-            async with ArtifactLog(head_id=head_id, branch_id=branch_id) as art_log:
-                yield art_log
+        return None
+        
     
     def validate_access(instance: MODEL, partitions: Dict[str, str]):
         for key, value in partitions.items():

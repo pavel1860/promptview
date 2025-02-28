@@ -8,6 +8,8 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 import grpc
 from contextvars import ContextVar
 
+from promptview.artifact_log.artifact_log3 import ArtifactLog
+
 # from promptview.artifact_log.artifact_log2 import BaseArtifact, create_artifact_table_for_model
 
 from .fields import VectorSpaceMetrics
@@ -181,6 +183,7 @@ class ConnectionManager:
     _active_namespaces: Dict[str, NamespaceParams] = {}
     _models: Dict[str, Type[Model]] = {}
     _relations: Dict[str, Any] = {}
+    _artifact_log: ArtifactLog
     
     def __init__(self):        
         self._qdrant_connection = get_qdrant_connection()
@@ -188,7 +191,7 @@ class ConnectionManager:
         self._namespaces = {}
         self.vectorizers_manager = VectorizersManager()
         self._envs = {"default": {}}
-    
+        self._artifact_log = ArtifactLog()
     def get_connection(self, db_type: DatabaseType):
         if db_type == "qdrant":
             return self._qdrant_connection
@@ -360,8 +363,19 @@ class ConnectionManager:
         self._postgres_connection = get_postgres_connection()
         
     async def init_all_namespaces(self):
+        if self._qdrant_connection is not None:
+            pass
+        if self._postgres_connection is not None:
+            await self._postgres_connection.init_extensions()
+        
+        await self._artifact_log.initialize_tables()
         await self._create_all_namespaces()
-
+        
+        
+    async def drop_all_namespaces(self):     
+        namespaces = list(self._active_namespaces.keys())   
+        await self._artifact_log.drop_tables(namespaces)
+        
 connection_manager = ConnectionManager()
 
 

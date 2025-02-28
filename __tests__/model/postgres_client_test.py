@@ -1,5 +1,5 @@
 import os
-os.environ["POSTGRES_URL"] = "postgresql://snack:Aa123456@localhost:5432/snackbot_test"
+os.environ["POSTGRES_URL"] = "postgresql://snack:Aa123456@localhost:5432/promptview_test"
 import pytest
 import pytest_asyncio
 import datetime as dt
@@ -26,6 +26,9 @@ class BasicPostgresModel(Model):
 @pytest_asyncio.fixture()
 async def seeded_database():
     # Create and seed test data
+    
+    await connection_manager.init_all_namespaces()
+    
     points = [
         BasicPostgresModel(
             created_at=dt.datetime(2018, 1, 1),
@@ -74,7 +77,8 @@ async def seeded_database():
     
     yield connection_manager
     
-    await BasicPostgresModel.delete_namespace()
+    # await BasicPostgresModel.delete_namespace()
+    await connection_manager.drop_all_namespaces()
 
 @pytest.mark.asyncio
 async def test_basic_search(seeded_database):
