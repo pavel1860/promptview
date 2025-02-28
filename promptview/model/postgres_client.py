@@ -211,7 +211,7 @@ class SqlForeignKeyField(SqlFieldBase):
         return f"${idx}"
     
     def render_insert_value(self, value: Any) -> str:
-        return str(value)
+        return value
     
     def render_create(self) -> str:
         return f"{self.name} INT,\nFOREIGN KEY ({self.name}) REFERENCES {self.foreign_table} ({self.foreign_key})"
@@ -289,7 +289,7 @@ class FieldMapper:
     def get_field_sql(self, field_name: str) -> str:
         pass
     
-    def iter_fields(self, exclude_types: list[FieldTypes] = [], exclude_fields: list[str] = [], has_index: bool | None = None):
+    def iter_fields(self, values: dict[str, Any] | None = None, exclude_types: list[FieldTypes] = [], exclude_fields: list[str] = [], has_index: bool | None = None):
         exclude_lookup = {field_type: True for field_type in exclude_types}  
         exclude_fields_lookup = {field_name: True for field_name in exclude_fields}
         for field in self.field_lookup.values():
@@ -302,10 +302,16 @@ class FieldMapper:
                     continue
                 if has_index == True and field.index is None:
                     continue
+            if values and field.name not in values:
+                if field.is_optional or field.default:
+                    continue
+                else:
+                    raise ValueError(f"Value is None and no default is set for field {field.name}")
             yield field
+            
            
     def render_create(self, exclude_types: list[FieldTypes] = []) -> str:
-        fields = "".join([f"{field.render_create()},\n" for field in self.iter_fields(exclude_types)])
+        fields = "".join([f"{field.render_create()},\n" for field in self.iter_fields(exclude_types=exclude_types)])
         if fields:
             fields = fields.rstrip(",\n")
         return f"""
@@ -315,31 +321,33 @@ CREATE TABLE IF NOT EXISTS {self.table_name} (
 """
 
     def render_augment(self, exclude_types: list[FieldTypes] = []) -> str:
-        return "".join([f"{field.render_augment()}\n" for field in self.iter_fields(exclude_types)])
+        return "".join([f"{field.render_augment()}\n" for field in self.iter_fields(exclude_types=exclude_types)])
      
 
     def render_create_indices(self) -> str:
         return "".join([f"{field.render_create_index(self.table_name)}" for field in self.iter_fields() if field.index is not None])
     
-    def render_insert_fields(self, exclude_types: list[FieldTypes] = [], exclude_fields: list[str] = []) -> str:
+    def render_insert_fields(self, values: dict[str, Any], exclude_types: list[FieldTypes] = [], exclude_fields: list[str] = []) -> str:
         # return ', '.join([f'"{k}"' for k in values.keys()])
-        return 'INSERT INTO ' + self.table_name + ' (' + ', '.join([f'"{field.name}"' for field in self.iter_fields(exclude_types, exclude_fields)]) + ')'
+        return 'INSERT INTO ' + self.table_name + ' (' + ', '.join([f'"{field.name}"' for field in self.iter_fields(values=values, exclude_types=exclude_types, exclude_fields=exclude_fields)]) + ')'
     
     # def render_placeholders(self, values: dict[str, Any], start_idx: int = 1) -> str:
     #     return '(' + ', '.join([self.field_lookup[k].render_placeholder(i + start_idx) for i, k in enumerate(values.keys())]) + ')'
     
-    def render_placeholders(self, item_num, exclude_types: list[FieldTypes] = [], exclude_fields: list[str] = []) -> str:
+        
+        
+    
+    def render_placeholders(self, items: list[dict[str, Any]], exclude_types: list[FieldTypes] = [], exclude_fields: list[str] = []) -> str:
         ph_list = []
-        step = len(list(self.iter_fields(exclude_types, exclude_fields)))
-        for idx in range(item_num):
-            _field_iter = self.iter_fields(exclude_types, exclude_fields)
+        step = len(items[0].keys())
+        for idx in range(len(items)):
+            _field_iter = self.iter_fields(items[idx], exclude_types, exclude_fields)
             ph_list.append('(' + ', '.join([field.render_placeholder(1 + i + idx * step) for i, field in enumerate(_field_iter)]) + ')')
         return "VALUES\n" + ',\n'.join(ph_list)
     
     def render_insert_values(self, values: dict[str, Any], exclude_types: list[FieldTypes] = [], exclude_fields: list[str] = []) -> list[Any]:
-        _field_iter = self.iter_fields(exclude_types, exclude_fields)
-        return [field.render_insert_value(values[field.name]) for field in _field_iter]
-        
+        _field_iter = self.iter_fields(values, exclude_types, exclude_fields)
+        return [field.render_insert_value(values.get(field.name, None)) for field in _field_iter]
         
     def unpack_record(self, record: Any):
         return {k: self.field_lookup[k].unpack_field(v) for k, v in record.items()}
@@ -744,28 +752,23 @@ class PostgresClient:
                 for vec, meta in zip(vectors, metadata):
                     yield {**vec, **meta}
         
-                 
-                    
-                    
-               
+
         results = []
         async with self.pool.acquire() as conn:
-            for chunk in chunks(zip_metadata(vectors, metadata), batch_size=batch_size):
-            
-                values = []
-                fields_sql = field_mapper.render_insert_fields(exclude_types=["relation", "key"], exclude_fields=["_subspace"])                
-                place_holders_sql = field_mapper.render_placeholders(len(chunk), exclude_types=["relation", "key"], exclude_fields=["_subspace"])
+            for chunk in chunks(zip_metadata(vectors, metadata), batch_size=batch_size):            
+                values = []             
                 for item in chunk:
                     item.pop("_subspace")
                     if artifact_log:
                         if is_versioned:
-                            item.update({"turn_id": artifact_log.head["turn_id"], "branch_id": artifact_log.head["branch_id"]})                      
-                        if is_head:                        
+                            item.update({"turn_id": artifact_log.head["turn_id"], "branch_id": artifact_log.head["branch_id"]})
+                        if is_head:
                             head = await artifact_log.create_head(init_repo=not is_detached_head)
-                            item.update({"head_id": head["id"]})
-                    
-                    item_values = field_mapper.render_insert_values(item, exclude_types=["relation", "key"], exclude_fields=["_subspace"])                
-                    values.extend(item_values)                                                
+                            item.update({"head_id": head["id"]})                        
+                    item_values = field_mapper.render_insert_values(item, exclude_types=["relation", "key"], exclude_fields=["_subspace"])
+                    values.extend(item_values)
+                fields_sql = field_mapper.render_insert_fields(chunk[0], exclude_types=["relation", "key"], exclude_fields=["_subspace"])
+                place_holders_sql = field_mapper.render_placeholders(chunk, exclude_types=["relation", "key"], exclude_fields=["_subspace"])
                 sql = f"{fields_sql}\n{place_holders_sql}\nRETURNING *;"
                 try:
                     results.extend(await conn.fetch(sql, *values))
