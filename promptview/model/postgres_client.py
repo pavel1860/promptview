@@ -97,6 +97,7 @@ class SqlFieldBase:
     
     def render_placeholder(self, idx: int) -> str:
         raise NotImplementedError("Placeholder rendering is not supported for this field type")
+    
     @abstractmethod
     def render_insert_value(self, value: Any) -> str:
         raise NotImplementedError(f"Insert statements are not supported for field {self.name} of type {self.type}")
@@ -196,7 +197,7 @@ class SqlVectorField(SqlFieldBase):
         return sql
     
     def unpack_field(self, value: Any) -> Any:
-        raise NotImplementedError("Vector field unpacking is not supported")
+        return json.loads(value)
 
 @dataclass
 class SqlForeignKeyField(SqlFieldBase):
@@ -320,17 +321,24 @@ CREATE TABLE IF NOT EXISTS {self.table_name} (
     def render_create_indices(self) -> str:
         return "".join([f"{field.render_create_index(self.table_name)}" for field in self.iter_fields() if field.index is not None])
     
-    def render_insert_fields(self, values: dict[str, Any]) -> str:
-        return ', '.join([f'"{k}"' for k in values.keys()])
-        # return f"""{', '.join([f'"{field.name}"' for field in self.iter_fields(exclude_types, exclude_fields)])}"""
+    def render_insert_fields(self, exclude_types: list[FieldTypes] = [], exclude_fields: list[str] = []) -> str:
+        # return ', '.join([f'"{k}"' for k in values.keys()])
+        return 'INSERT INTO ' + self.table_name + ' (' + ', '.join([f'"{field.name}"' for field in self.iter_fields(exclude_types, exclude_fields)]) + ')'
     
-    def render_placeholders(self, values: dict[str, Any], start_idx: int = 1) -> tuple[str, int]:
-        end_idx = start_idx + len(values.keys())
-        return ', '.join([self.field_lookup[k].render_placeholder(i + start_idx) for i, k in enumerate(values.keys())]), end_idx
+    # def render_placeholders(self, values: dict[str, Any], start_idx: int = 1) -> str:
+    #     return '(' + ', '.join([self.field_lookup[k].render_placeholder(i + start_idx) for i, k in enumerate(values.keys())]) + ')'
     
+    def render_placeholders(self, item_num, exclude_types: list[FieldTypes] = [], exclude_fields: list[str] = []) -> str:
+        ph_list = []
+        step = len(list(self.iter_fields(exclude_types, exclude_fields)))
+        for idx in range(item_num):
+            _field_iter = self.iter_fields(exclude_types, exclude_fields)
+            ph_list.append('(' + ', '.join([field.render_placeholder(1 + i + idx * step) for i, field in enumerate(_field_iter)]) + ')')
+        return "VALUES\n" + ',\n'.join(ph_list)
     
-    def render_insert_values(self, values: dict[str, Any]) -> list[Any]:
-        return [self.field_lookup[f].render_insert_value(v) for f, v in values.items()]
+    def render_insert_values(self, values: dict[str, Any], exclude_types: list[FieldTypes] = [], exclude_fields: list[str] = []) -> list[Any]:
+        _field_iter = self.iter_fields(exclude_types, exclude_fields)
+        return [field.render_insert_value(values[field.name]) for field in _field_iter]
         
         
     def unpack_record(self, record: Any):
@@ -735,42 +743,30 @@ class PostgresClient:
             else:
                 for vec, meta in zip(vectors, metadata):
                     yield {**vec, **meta}
-                
+        
+                 
+                    
+                    
+               
         results = []
         async with self.pool.acquire() as conn:
             for chunk in chunks(zip_metadata(vectors, metadata), batch_size=batch_size):
-                fields_sql = f"""INSERT INTO {namespace} ("""
-                placeholders_sql = f"""VALUES ("""
+            
                 values = []
-                next_idx = 1
+                fields_sql = field_mapper.render_insert_fields(exclude_types=["relation", "key"], exclude_fields=["_subspace"])                
+                place_holders_sql = field_mapper.render_placeholders(len(chunk), exclude_types=["relation", "key"], exclude_fields=["_subspace"])
                 for item in chunk:
                     item.pop("_subspace")
-                    item_fields_sql = field_mapper.render_insert_fields(item)
-                    item_ph_sql, next_idx = field_mapper.render_placeholders(item, next_idx)
-                    item_values = field_mapper.render_insert_values(item)
-                    item_ph_sql += ", "
-                    item_fields_sql += ", "
                     if artifact_log:
-                        if is_versioned: 
-                            item_fields_sql += "turn_id, branch_id, "
-                            item_ph_sql += f"${next_idx}, ${next_idx+1}, "
-                            next_idx += 2
-                            item_values.extend([artifact_log.head["turn_id"], artifact_log.head["branch_id"]])                        
+                        if is_versioned:
+                            item.update({"turn_id": artifact_log.head["turn_id"], "branch_id": artifact_log.head["branch_id"]})                      
                         if is_head:                        
                             head = await artifact_log.create_head(init_repo=not is_detached_head)
-                            item_fields_sql += "head_id, "
-                            item_ph_sql += f"${next_idx}, "
-                            next_idx += 1
-                            item_values.append(head["id"])
-                    fields_sql += item_fields_sql
-                    placeholders_sql+= item_ph_sql
-                    values.extend(item_values)
-                
-                fields_sql = fields_sql.rstrip(", ")
-                fields_sql += ")"
-                placeholders_sql = placeholders_sql.rstrip(", ")
-                placeholders_sql += ")"
-                sql = f"{fields_sql}\n{placeholders_sql}\nRETURNING *;"
+                            item.update({"head_id": head["id"]})
+                    
+                    item_values = field_mapper.render_insert_values(item, exclude_types=["relation", "key"], exclude_fields=["_subspace"])                
+                    values.extend(item_values)                                                
+                sql = f"{fields_sql}\n{place_holders_sql}\nRETURNING *;"
                 try:
                     results.extend(await conn.fetch(sql, *values))
                 except Exception as e:
