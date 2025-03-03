@@ -4,6 +4,7 @@ from fastapi.datastructures import QueryParams
 from pydantic import BaseModel
 
 # from app.util.dependencies import get_partitions
+from promptview.auth.dependencies import get_user_token
 from promptview.model.head_model import Head, HeadModel
 from promptview.model.resource_manager import connection_manager
 # from app.util.auth import varify_token
@@ -23,10 +24,14 @@ def unpack_int_env_header(request: Request, field: str):
     if value is None or value == "null":
         return None
     return int(value)
+
+
         
+# async def get_user(user_token: str = Depends(get_user_token), user_manager: UserManager = Depends(get_user_manager)):
+#     return await user_manager.get_user_by_session_token(user_token)
 
 
-def create_crud_router(model: Type[MODEL]) -> APIRouter:
+def create_crud_router(model: Type[MODEL], IdType: Type[int] | Type[str] = int) -> APIRouter:
     # router = APIRouter(prefix=f"/{model.__name__.lower()}", tags=[model.__name__.lower()])
     router = APIRouter(prefix=f"/{model.__name__}", tags=[model.__name__.lower()])
     
@@ -104,31 +109,38 @@ def create_crud_router(model: Type[MODEL]) -> APIRouter:
 
 
 
-    @router.post("/create", response_model=model)
-    async def create_instance(data: dict, env: str = Depends(env_ctx)):
+    @router.post("/create")
+    async def create_instance(data: dict, env: str = Depends(env_ctx)):                        
         instance = model(**data)
         await instance.save()  # Assuming your save method is asynchronous
-        return instance
+        head = data.get("head", None)
+        if is_head and head is not None:
+            branch_id = head.get("branch_id", None)
+            turn_id = head.get("turn_id", None)
+            if branch_id is None:
+                raise HTTPException(status_code=400, detail="branch_id is required")
+            await instance.head.checkout(branch_id=branch_id, turn_id=turn_id)
+        return instance.model_dump()
 
-    @router.get("/id/{item_id}", response_model=model)
-    async def read_instance(item_id: str, env: str = Depends(env_ctx)):
+    @router.get("/id/{item_id}")
+    async def read_instance(item_id: IdType, env: str = Depends(env_ctx)):
         instance = await model.get(item_id)
         if not instance:
             raise HTTPException(status_code=404, detail="Item not found")            
-        return instance
+        return instance.model_dump()
 
-    @router.post("/update/{item_id}", response_model=model)
-    async def update_instance(item_id: str, updates: dict, env: str = Depends(env_ctx)):
+    @router.post("/update/{item_id}")
+    async def update_instance(item_id: IdType, updates: dict, env: str = Depends(env_ctx)):
         instance = await model.get(item_id)
         if not instance:
             raise HTTPException(status_code=404, detail="Item not found")
         for key, value in updates.items():
             setattr(instance, key, value)
         await instance.save()
-        return instance
+        return instance.model_dump()
 
     @router.post("/delete/{item_id}")
-    async def delete_instance(item_id: str, env: str = Depends(env_ctx)):
+    async def delete_instance(item_id: IdType, env: str = Depends(env_ctx)):
         instance = await model.get(item_id)
         if not instance:
             raise HTTPException(status_code=404, detail="Item not found")
@@ -137,7 +149,7 @@ def create_crud_router(model: Type[MODEL]) -> APIRouter:
             raise HTTPException(status_code=404, detail="Item not found")
         return {"detail": "Item deleted"}
 
-    @router.get("/list", response_model=List[model])
+    @router.get("/list")
     async def list_instances(
             limit: int = 10, 
             offset: int = 0, 
@@ -148,23 +160,23 @@ def create_crud_router(model: Type[MODEL]) -> APIRouter:
         model_query = model.limit(limit).offset(offset).order_by("created_at", False)
         # model_query._filters = filters
         instances = await model_query        
-        return instances
+        return [instance.model_dump() for instance in instances]
     
-    @router.get("/last", response_model=model | None)
+    @router.get("/last")
     async def last_instance(request: Request, env: str = Depends(env_ctx)):
         query_params = dict(request.query_params)
         instance = await model.last(query_params)
         if not instance:
             return None
-        return instance
+        return instance.model_dump()
     
-    @router.get("/first", response_model=model | None)
+    @router.get("/first")
     async def first_instance(request: Request, env: str = Depends(env_ctx)):
         query_params = dict(request.query_params)
         instance = await model.first(query_params)
         if not instance:
             return None
-        return instance
+        return instance.model_dump()
     
     # @router.get("/similar", response_model=List[model])
     # async def similar_instances(query: str, limit: int = 10, offset: int = 0, partitions: dict = Depends(get_partitions)):

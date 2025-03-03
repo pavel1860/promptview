@@ -426,6 +426,9 @@ class Context(Generic[MODEL], BaseContext):
     
     async def commit(self):
         await self.artifact_log.commit_turn()
+        
+        
+
       
     # def messages_to_blocks(self, messages: List[Message]):
     #     blocks = []

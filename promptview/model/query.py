@@ -466,7 +466,8 @@ class QuerySet(Generic[MODEL]):
         ) 
         if not results:
             return []
-        records = await asyncio.gather(*[self.pack_search_result(r) for r in results])
+        # records = await asyncio.gather(*[self.pack_search_result(r) for r in results])
+        records = await asyncio.gather(*[self.model.pack_search_result_with_hooks(r) for r in results])
         
         return records
     

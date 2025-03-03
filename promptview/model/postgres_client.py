@@ -163,6 +163,8 @@ class SqlFieldType(SqlFieldBase):
             
         if self.sql_type == "JSONB":
             return json.dumps(value)
+        elif isinstance(value, Enum):
+            return value.value
         else:
             return value
 
@@ -512,7 +514,8 @@ class PostgresClient:
             column_name = relation["partition"]
             fk_name = f'fk_{column_name}'
             index = "btree" if index_lookup.get(column_name) else None  
-            field_mapper.add_field(RelationField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
+            # field_mapper.add_field(RelationField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
+            field_mapper.add_field(SqlForeignKeyField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
 
         return field_mapper
 
@@ -1105,7 +1108,16 @@ class PostgresClient:
             else:
                 raise ValueError("Either ids or filters must be provided.")
 
-    async def scroll(self, collection_name: str, filters=None, limit=10, offset=0, with_vectors=False, order_by=None):
+    async def scroll(
+        self, 
+        collection_name: str, 
+        filters=None, 
+        limit=10, 
+        offset=0, 
+        with_vectors=False, 
+        order_by=None,
+        field_mapper: FieldMapper | None = None
+        ):
         """Implement scrolling pagination."""
         await self._ensure_connected()
         assert self.pool is not None
@@ -1146,7 +1158,7 @@ class PostgresClient:
 
             records = await conn.fetch(query)
             next_offset = offset + len(records) if len(records) == limit else None
-
+            records = [field_mapper.unpack_record(r) for r in records]
             return records, next_offset
 
     async def delete_collection(self, collection_name: str):
@@ -1300,11 +1312,12 @@ class PostgresClient:
         
         
         
-    async def retrieve(self, namespace: str, ids: List[str] | List[int]):
+    async def retrieve(self, namespace: str, ids: List[str] | List[int], field_mapper: FieldMapper):
         await self._ensure_connected()
         assert self.pool is not None
         async with self.pool.acquire() as conn:
-            return await conn.fetch(f'SELECT * FROM "{namespace}" WHERE id = ANY($1)', ids)
+            records = await conn.fetch(f'SELECT * FROM "{namespace}" WHERE id = ANY($1)', ids)
+            return [field_mapper.unpack_record(r) for r in records]
         
         
         

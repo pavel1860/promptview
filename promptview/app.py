@@ -1,185 +1,117 @@
-import asyncio
-import os
-from typing import Any, List, Literal, Optional
 
-from promptview.app_manager import app_manager
-from promptview.llms.utils.completion_parsing import (is_list_model,
-                                                    unpack_list_model)
-from promptview.llms.prompt_tracer import PromptTracer
-from promptview.llms.tracer_api import get_run_messages
-from promptview.vectors.rag_documents import RagDocuments
-from promptview.vectors.stores.base import OrderBy
+from contextlib import asynccontextmanager
+from functools import wraps
+from typing import Annotated, Any, Awaitable, Callable, Concatenate, Dict, Generic, Literal, ParamSpec, Type, TypeVar
+from fastapi import FastAPI, Form, Header
+
+from promptview import testing
+from promptview.api.model_router import create_crud_router
+from promptview.artifact_log.artifact_log3 import ArtifactLog
+from promptview.auth.user_manager import UserManager, UserModel
+from promptview.testing.test_manager import TestManager
+from promptview.model.model import Model
 from promptview.model.resource_manager import connection_manager
-from fastapi import FastAPI
-from fastapi.concurrency import asynccontextmanager
-from pydantic import BaseModel
-
-LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "default")
-
-class GetRagParams(BaseModel):
-    namespace: str
-
-
-class GetAssetDocumentsParams(BaseModel):
-    asset: str
+from promptview.prompt.context import Context
+from promptview.api.auth_router import router as auth_router
+from promptview.api.model_router import create_crud_router
+from promptview.api.head_model_router import create_head_crud_router
+from promptview.api.artifact_log_api import router as artifact_log_router
+from promptview.api.testing_router import connect_testing_routers
+from promptview.api.user_router import connect_user_model_routers
 
 
-class UpsertRagParams(BaseModel):
-    namespace: str
-    input: Any
-    output: Any
-    id: str | int | None = None
+MSG_MODEL = TypeVar('MSG_MODEL', bound=Model)
+USER_MODEL = TypeVar('USER_MODEL', bound=UserModel)
+CTX_MODEL = TypeVar('CTX_MODEL', bound=Context)
 
+P = ParamSpec('P')
 
-class DeleteRagParams(BaseModel):
-    id: str | int
+EnpointType = Callable[Concatenate[CTX_MODEL, MSG_MODEL, P], Awaitable[MSG_MODEL]]
 
-
-
-
-def add_promptboard(app, rag_namespaces=None, assets=None, profiles=None, prompts=None):
-
-    if rag_namespaces:
-        for space in rag_namespaces:            
-            app_manager.register_rag_space(space["namespace"], space["metadata_class"], space["prompt"])
-
-    if assets:
-        for asset in assets:
-            app_manager.register_asset(asset)
-
-
-    if profiles:
-        for profile in profiles:
-            app_manager.register_profile(profile)
-
-    if prompts:
-        for prompt in prompts:
-            app_manager.register_prompt(prompt)
-
-
-    @asynccontextmanager
-    async def init_promptboard(app: FastAPI):
-        print("Initializing promptboard...")
-        await app_manager.verify_rag_spaces()
-        yield
-
-
-    app.router.lifespan_context = init_promptboard
-
+class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
+    _app: FastAPI
+    _entrypoints_registry: Dict[str, EnpointType]
+    _message_model: Type[MSG_MODEL]
+    _user_model: Type[USER_MODEL]
+    _ctx_model: Type[CTX_MODEL]
     
-    @app.get('/promptboard/metadata')
-    def get_promptboard_metadata():
-        app_metadata = app_manager.get_metadata()
-        # return {"metadata": app_metadata}
-        return app_metadata
-    
-    print("promptboard added to app.")
-
-
-    @app.get("/promptboard/get_asset_documents")
-    async def get_asset_documents(asset: str):
-        asset_cls = app_manager.assets[asset]
-        asset_instance = asset_cls()
-        res = await asset_instance.get_assets()
-        return [r.to_dict() for r in res]
-    
-    @app.get("/promptboard/rag_documents/{namespace}")
-    # async def get_rag_documents(namespace: str, offset: int = 0, limit: int = 10):
-    async def get_rag_documents(namespace: str, page: int = 0, pageSize: int = 10, sortField: str | None=None, sortOrder: Literal["asc", "desc"] | None=None):
-        rag_cls = app_manager.rag_spaces[namespace]["metadata_class"]
-        ns = app_manager.rag_spaces[namespace]["namespace"]
-        rag_space = RagDocuments(ns, metadata_class=rag_cls)
-
-        order_by = OrderBy(
-            key= sortField,
-            direction= sortOrder,
-            start_from= page*pageSize
-        ) if sortOrder and sortField else None
+    def __init__(
+        self, 
+        message_model: Type[MSG_MODEL], 
+        user_model: Type[USER_MODEL], 
+        ctx_model: Type[CTX_MODEL],
+        app: FastAPI | None = None
+    ):
         
-        res = await rag_space.get_documents(top_k=pageSize, offset=page*pageSize, order_by=order_by)
-        return [r.to_dict() for r in res]
-    
-
-    @app.post("/promptboard/get_rag_document")
-    async def get_rag_document(body: GetRagParams):
-        print(body.namespace)
-        rag_cls = app_manager.rag_spaces[body.namespace]["metadata_class"]
-        ns = app_manager.rag_spaces[body.namespace]["namespace"]
-        rag_space = RagDocuments(ns, metadata_class=rag_cls)
-        res = await rag_space.get_many(top_k=10)
-        return res
-
-
-    @app.post("/promptboard/rag_documents/upsert_rag_document")
-    async def upsert_rag_document(body: UpsertRagParams):
-        rag_cls = app_manager.rag_spaces[body.namespace]["metadata_class"]
-        ns = app_manager.rag_spaces[body.namespace]["namespace"]
-        prompt_cls = app_manager.rag_spaces[body.namespace].get("prompt", None)
-        if prompt_cls is not None:
-            prompt = prompt_cls()
-            user_msg_content = await prompt.render_prompt(**body.input)
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            # This code runs before the server starts serving
+            artifact_log = ArtifactLog()
+            await artifact_log.initialize_tables()
+            UserManager.register_user_model(user_model)
+            await UserManager.initialize_tables() 
+            await connection_manager.init_all_namespaces()            
+            # Yield to hand control back to FastAPI (start serving)
+            yield
             
-        rag_space = RagDocuments(ns, metadata_class=rag_cls)
-        # doc_id = [body.id] if body.id is not None else None
-        doc_id = [body.id] if body.id is not None else None
-        key = user_msg_content
-        if is_list_model(rag_cls):
-            list_model = unpack_list_model(rag_cls)
-            if type(body.output) == list:
-                value = [list_model(**item) for item in body.output]
-            else:
-                raise ValueError("Output must be a list.")
-        else:
-            value = rag_cls(key=key, value=body.output)
-        #     value = rag_cls(**body.output)
-        res = await rag_space.add_documents([key], [value], doc_id) #type: ignore
-        return [r.to_dict() for r in res]
-    
-    @app.get('/promptboard/get_asset_partition')
-    async def get_asset_partition(asset: str, field: str, partition: str):
-        # asset_cls = app_manager.assets[asset]
-        # asset_instance = asset_cls()
-        # assets = await asset_instance.get_assets(filters={ field: partition })        
-        # return [a.to_json() for a in assets]
-        model_cls = connection_manager.get_model(asset)
-        if not model_cls:
-            raise ValueError("Model class not found for asset")
-        recs = await model_cls.partition({field: partition}).limit(30)
-        return recs
+        self._app = app or FastAPI(lifespan=lifespan)
+        self._entrypoints_registry = {}
+        self._message_model = message_model
+        self._user_model = user_model
+        self._ctx_model = ctx_model
         
-
-
-    @app.get('/promptboard/get_profile_partition')
-    async def get_profile_partition(profile: str, partition: str):
-        profile_cls = app_manager.profiles[profile]
-        profile_list = await profile_cls.get_many()        
-        return [p.to_dict() for p in profile_list]
+        self.setup_apis()
+        
+    def get_app(self):
+        return self._app
     
+    def setup_apis(self):
+        self._app.include_router(create_crud_router(self._message_model), prefix="/api/model")
+        self._app.include_router(artifact_log_router, prefix="/api")
+        self._app.include_router(auth_router, prefix="/api")
+        connect_user_model_routers(self._app, [self._user_model])
+        connect_testing_routers(self._app)
 
-    @app.post("/promptboard/edit_document")
-    def edit_rag_document():
-        return {}
     
-
-    @app.get("/promptboard/get_runs")
-    async def get_runs(limit: int = 10, offset: int = 0, runNames: Optional[List[str]] = None):
-        LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "default")
-        tracer = PromptTracer()
-        runs = await tracer.aget_runs(name=runNames, limit=limit, project_name=LANGCHAIN_PROJECT)
-        return [r.run for r in runs]
+    def entrypoint(self, path: str, method: Literal['GET', 'POST', 'PUT', 'DELETE'] = 'POST', auto_commit: bool = True):
+        def decorator(func: EnpointType):
+            self._entrypoints_registry[path] = func
+            async def input_endpoint(
+                message_json:  Annotated[str, Form(...)],
+                head_id: Annotated[int, Header(alias="head_id")],
+                branch_id: Annotated[int | None, Header(alias="branch_id")] = None,
+            ):
+                message = self._message_model.model_validate_json(message_json)
+                with self._ctx_model(head_id=head_id, branch_id=branch_id) as ctx:
+                    response = await func(ctx=ctx, message=message)
+                    if auto_commit:
+                        await ctx.commit()
+                return [response, message]
+            
+            async def test_endpoint(
+                body: dict,
+            ):
+                test_case_id = body.get("test_case_id")
+                async with TestManager(test_case_id=test_case_id) as tm:
+                        for inputs, evaluator in tm.iter_turns():
+                            async with self._ctx_model(head_id=tm.head_id) as ctx:
+                                message = self._message_model(content=inputs, role="user")
+                                response = await func(ctx=ctx, message=message)
+                                await ctx.commit()
+                            await evaluator(response.content)
+                return tm.test_run
+            
+            self._app.add_api_route(path, endpoint=input_endpoint, methods=[method])
+            self._app.add_api_route("/api/testing/run", endpoint=test_endpoint, methods=["POST"])
+            
+            @wraps(func)
+            async def wrapper(*args, **kwargs):
+                return await func(*args, **kwargs)
+            return wrapper
+        return decorator
     
-
-    @app.get("/promptboard/get_run_tree")
-    async def get_run_tree(run_id: str):
-        tracer = PromptTracer()
-        run = await tracer.aget_run(run_id)
-        return run
     
-
-
-    @app.get("/promptboard/get_trace")
-    async def get_trace(run_id: str):
-        tracer = PromptTracer()
-        run = await tracer.aget_run(run_id)
-        trace = get_run_messages(run)
-        return trace.model_dump()
+    
+    
+    
+    

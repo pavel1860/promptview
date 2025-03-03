@@ -194,7 +194,12 @@ class ArtifactLog:
         
     @property
     def is_initialized(self) -> bool:
-        return self._head is not None and self._token is not None
+        return self._head is not None
+        # return self._head is not None and self._token is not None
+    
+    @property
+    def is_in_context(self) -> bool:
+        return self._token is not None
 
     async def initialize_tables(self) -> None:
         # Initialize the asyncpg pool if not already done

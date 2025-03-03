@@ -341,18 +341,19 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
         config: LlmConfig | None = None,
         is_traceable: bool | None = True,
     ) -> LlmExecution:
-        if isinstance(blocks, StrBlock):
-            blocks = BlockStream([blocks])
-        elif isinstance(blocks, str):
-            blocks = BlockStream([StrBlock(blocks)])
-        # elif isinstance(blocks, BlockStream):
-            # blocks = self.to_chat(blocks)
-        #     messages = [self.to_message(b) for b in chat_blocks]        
-        elif isinstance(blocks, list):
-            blocks = BlockStream(blocks)
-        #     messages = [self.to_message(b) for b in blocks]
-        else:
-            raise ValueError("Invalid blocks type")
+        if not isinstance(blocks, BlockStream):
+            if isinstance(blocks, StrBlock):
+                blocks = BlockStream([blocks])
+            elif isinstance(blocks, str):
+                blocks = BlockStream([StrBlock(blocks)])
+            # elif isinstance(blocks, BlockStream):
+                # blocks = self.to_chat(blocks)
+            #     messages = [self.to_message(b) for b in chat_blocks]        
+            elif isinstance(blocks, list):
+                blocks = BlockStream(blocks)
+            #     messages = [self.to_message(b) for b in blocks]
+            else:
+                raise ValueError("Invalid blocks type")
                 
         llm_execution = LlmExecution(
             ctx_blocks=blocks,

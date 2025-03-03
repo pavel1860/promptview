@@ -48,22 +48,28 @@ class Head(BaseModel):
             turn: Turn | None = None, 
             head: "Head | None" = None,
             model: Type["Model"] | None = None,
+            branch_id: int | None = None,
+            turn_id: int | None = None,
         ):
         if branch is not None:
-            await self._artifact_log.checkout_branch(
-                branch_id=branch.id, 
-                turn_id=turn.id if turn is not None else None
+            branch_id = branch.id
+        if turn is not None:
+            turn_id = turn.id
+        if branch_id is not None:
+            await self.artifact_log.checkout_branch(
+                branch_id=branch_id,
+                turn_id=turn_id
             )
         if turn is not None:
             raise ValueError("You need to specify a branch")
         if head is not None:
-            await self._artifact_log.checkout_head(head_id=head.id)
+            await self.artifact_log.checkout_head(head_id=head.id)
         if model is not None:
             if not hasattr(model, "turn_id"):
                 raise ValueError("Model has no turn_id attribute")
             if not hasattr(model, "branch_id"):
                 raise ValueError("Model has no branch_id attribute")
-            await self._artifact_log.checkout_branch(                
+            await self.artifact_log.checkout_branch(                
                 branch_id=int(model.branch_id),
                 turn_id=int(model.turn_id)
             )
@@ -84,15 +90,22 @@ class Head(BaseModel):
     
     
     
-    
-    
-    async def branch_from(self, turn: Turn):
-        branch = await self._artifact_log.create_branch(turn_id=turn.id)
+    async def branch_from(
+        self,
+        head: "Head | None" = None,
+        turn: Turn | None = None, 
+        turn_id: int | None = None
+    ):
+        if turn is not None:
+            turn_id = turn.id
+        if head is not None:
+            turn_id = head.turn_id
+        branch = await self.artifact_log.create_branch(turn_id=turn_id)
         await self.checkout(branch=branch)
         return branch
 
 
-class HeadModel:
+class HeadModel(BaseModel):
     _head_id: int
     _head: Head | None = None
     

@@ -513,11 +513,13 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     def model_dump(self, *args, **kwargs):
-        res = super().model_dump(*args, **kwargs)
-        if self._id is not None:
-            exclude = kwargs.get("exclude", [])
-            if exclude and "id" not in exclude:
+        res = super().model_dump(*args, **kwargs)        
+        exclude = kwargs.get("exclude") or []
+        if "id" not in exclude:
+            if self._id is not None:
                 res["id"] = self._id
+        if "head_id" not in exclude and issubclass(self.__class__, HeadModel):
+            res["head_id"] = self.head.id
         return res
         
     # async def verify_namespace(self):
@@ -702,7 +704,14 @@ class Model(BaseModel, metaclass=ModelMeta):
         instance._id = inst_id
         instance._update_relation_instance_id()
         return instance
-        
+    
+    @classmethod
+    async def pack_search_result_with_hooks(cls: Type[MODEL], search_result):
+        instance = cls.pack_search_result(search_result)
+        if hasattr(instance, "after_load") and callable(instance.after_load):
+            await instance.after_load(**search_result)
+        return instance
+    
     @classmethod
     def _get_default_temporal_field(cls):
         if cls._default_temporal_field.default is not None: # type: ignore
@@ -742,20 +751,23 @@ class Model(BaseModel, metaclass=ModelMeta):
         ns = await cls.get_namespace()
         res = await ns.conn.retrieve(
             namespace=ns.name,
-            ids=[id]
+            ids=[id],
+            field_mapper=ns.field_mapper
         )
         if not res:
             return None
-        return cls.pack_search_result(res[0])
+        return await cls.pack_search_result_with_hooks(res[0])
     
     @classmethod
     async def get_many(cls: Type[MODEL], ids: List[str] | List[int]) -> List[MODEL]:
         ns = await cls.get_namespace()
         res = await ns.conn.retrieve(
             namespace=ns.name,
-            ids=ids
+            ids=ids,
+            field_mapper=ns.field_mapper
         )
-        return [cls.pack_search_result(r) for r in res]
+        return await asyncio.gather(*[cls.pack_search_result_with_hooks(r) for r in res])
+        # return [cls.pack_search_result(r) for r in res]
     
     @classmethod
     def build_query(cls: Type[MODEL], query_type: QueryType, partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
@@ -860,6 +872,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         head = await ArtifactLog.get_head(self.head_id)
         return head
     
+
     
     
     

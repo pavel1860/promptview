@@ -34,7 +34,7 @@ class UserModel(Model, HeadModel):
                 turn_id        = th.turn_id,
                 updated_at     = NOW()
             FROM heads AS th
-            WHERE uh.id = {self.head_id}
+            WHERE uh.id = {self.head.id}
             AND th.id = {head_id}
             RETURNING uh.*;
             """
