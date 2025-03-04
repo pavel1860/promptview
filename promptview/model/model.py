@@ -8,7 +8,7 @@ from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import FieldInfo
 from pydantic._internal._model_construction import ModelMetaclass
 from pydantic._internal._config import ConfigWrapper
-
+from pydantic_core import core_schema
 from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model.head_model import HeadModel
 from promptview.model.postgres_client import camel_to_snake
@@ -87,30 +87,49 @@ model_manager = ModelManager()
 # AssetBase = TypeVar('AssetBase')
 
 
-def ModelRelation(
-    # model: "Type[Model]",
-    key: str,
-):
-    json_schema_extra={
-        "type": "relation",
-        "is_relation": True,
-        "partition": key,
-        # "model": model,
-    }
-    return Field(
-        # model,
-        json_schema_extra=json_schema_extra,
-    )
+# def ModelRelation(
+#     # model: "Type[Model]",
+#     key: str,
+# ):
+#     json_schema_extra={
+#         "type": "relation",
+#         "is_relation": True,
+#         "partition": key,
+#         # "model": model,
+#     }
+#     return Field(
+#         # model,
+#         json_schema_extra=json_schema_extra,
+#     )
 
 
 MODEL = TypeVar("MODEL", bound="Model")
 
+def get_relation_model(cls):
+    args = get_args(cls)
+    if len(args) != 1:
+        raise ValueError("Relation model must have exactly one argument")
+    return args[0]
 
-
-class Relation(BaseModel):
-    model_cls: Type[BaseModel]
+class Relation(Generic[MODEL]):
+    model_cls: Type[MODEL]
     rel_field: str
     instance_id: str | None = None
+    
+    def __init__(self, model_cls: Type[MODEL], rel_field: str):
+        self.model_cls = model_cls
+        self.rel_field = rel_field
+        self.instance_id = None
+    
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, 
+        _source_type: Any, 
+        _handler: Callable[[Any], core_schema.CoreSchema]
+    ) -> core_schema.CoreSchema:
+        from pydantic_core import core_schema
+        # Use a simple any schema since we're handling serialization ourselves
+        return core_schema.any_schema()
     
     
     def _build_query_set(self, query_type: QueryType = "scroll"):
@@ -132,7 +151,7 @@ class Relation(BaseModel):
         qs.filter(filters)
         return qs
     
-    async def add(self, obj):
+    async def add(self, obj: MODEL):
         # setattr(obj, self._rel_field, self._cls)
         setattr(obj, self.rel_field, self.instance_id)
         await obj.save()
@@ -157,6 +176,7 @@ class Relation(BaseModel):
         
     def set_instance_id(self, instance_id: str):
         self.instance_id = instance_id
+
 
 
 
@@ -371,27 +391,49 @@ class ModelMeta(ModelMetaclass, type):
                         target_type = unpack_list_model(field_type)
                     else:
                         target_type = field_type
-                    if inspect.isclass(target_type) and issubclass(target_type, Model) or isinstance(target_type, ForwardRef): 
-                            field_info = dct.get(field)                            
-                            if not field_info:
-                                raise ValueError(f"Field {field} is not defined")
-                            partition = field_info.json_schema_extra.get("partition")
-                            if not partition:
-                                raise ValueError(f"Model Field {field} does not have partition")
-                            _target_type, _forward_ref = (target_type, None) if not isinstance(target_type, ForwardRef) else (None, target_type)
-                            cls_partitions[field] = {
-                                "type": _target_type,
-                                "origin": field_origin,
-                                "partition": partition,
-                                "field": field,
-                                "forward_ref": _forward_ref,
-                                "source_namespace": namespace,
-                                "target_namespace": target_type._namespace.default
-                            }
-                            connection_manager.add_relation(target_type, cls_partitions[field])
+                    if field_origin and inspect.isclass(field_origin) and issubclass(field_origin, Relation): 
+                        target_type = get_relation_model(target_type)
+                        field_info = dct.get(field)                            
+                        if not field_info:
+                            raise ValueError(f"Field {field} is not defined")
+                        partition = field_info.json_schema_extra.get("partition")
+                        if not partition:
+                            raise ValueError(f"Model Field {field} does not have partition")
+                        _target_type, _forward_ref = (target_type, None) if not isinstance(target_type, ForwardRef) else (None, target_type)
+                        cls_partitions[field] = {
+                            "type": _target_type,
+                            "origin": field_origin,
+                            "partition": partition,
+                            "field": field,
+                            "forward_ref": _forward_ref,
+                            "source_namespace": namespace,
+                            "target_namespace": target_type._namespace.default
+                        }
+                        connection_manager.add_relation(target_type, cls_partitions[field])
+                        
+                        field_info.default_factory = lambda: Relation(model_cls=target_type, rel_field=partition)
+                        print("Found",field, partition)
+                    # if inspect.isclass(target_type) and issubclass(target_type, Model) or isinstance(target_type, ForwardRef): 
+                    #         field_info = dct.get(field)                            
+                    #         if not field_info:
+                    #             raise ValueError(f"Field {field} is not defined")
+                    #         partition = field_info.json_schema_extra.get("partition")
+                    #         if not partition:
+                    #             raise ValueError(f"Model Field {field} does not have partition")
+                    #         _target_type, _forward_ref = (target_type, None) if not isinstance(target_type, ForwardRef) else (None, target_type)
+                    #         cls_partitions[field] = {
+                    #             "type": _target_type,
+                    #             "origin": field_origin,
+                    #             "partition": partition,
+                    #             "field": field,
+                    #             "forward_ref": _forward_ref,
+                    #             "source_namespace": namespace,
+                    #             "target_namespace": target_type._namespace.default
+                    #         }
+                    #         connection_manager.add_relation(target_type, cls_partitions[field])
                             
-                            field_info.default_factory = lambda: Relation(model_cls=target_type, rel_field=partition)
-                            print("Found",field, partition)
+                    #         field_info.default_factory = lambda: Relation(model_cls=target_type, rel_field=partition)
+                    #         print("Found",field, partition)
                 
             dct["_partitions"] = cls_partitions
             dct["_default_temporal_field"] = default_temporal_field
@@ -845,14 +887,22 @@ class Model(BaseModel, metaclass=ModelMeta):
     # async def update_payload(cls: Type[MODEL], id: str, update: dict):
     #     pass
         
-    def copy(self, with_ids: bool = True):
+    # def copy(self, with_ids: bool = True):
+    #     payload = self._payload_dump()
+    #     if not with_ids:
+    #         payload.pop("id")
+    #     obj = self.__class__(**payload)
+    #     if self._vector:
+    #         obj._vector = copy.deepcopy(self._vector)        
+    #     return obj
+    
+    def copy(self, *args, with_ids: bool = False, **kwargs):
         payload = self._payload_dump()
         if not with_ids:
             payload.pop("id")
         obj = self.__class__(**payload)
         if self._vector:
-            obj._vector = copy.deepcopy(self._vector)
-        
+            obj._vector = copy.deepcopy(self._vector)        
         return obj
     
     @classmethod

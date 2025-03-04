@@ -13,3 +13,4 @@ build
 __pycache__
 msgs_*.pkl
 scripts
+.cursor

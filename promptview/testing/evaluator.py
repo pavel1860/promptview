@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from promptview.prompt.block2 import StrBlock
 from promptview.prompt.output_format import OutputModel
 from promptview import prompt, Depends, OpenAiLLM
-from promptview.model.model import Model, Relation, ModelRelation
+from promptview.model.model import Model
 from promptview.model.fields import ModelField
 
 

@@ -23,11 +23,11 @@ from promptview import parsers
 from promptview.model.model import Model
 from promptview.model.fields import ModelField, IndexType
 from promptview.prompt.depends import Depends
-from promptview.testing.test_manager import TestCase, TestRun
+# from promptview.testing.test_manager import TestCase, TestRun
 
 import promptview.model.vectors as vectors
 import promptview.platforms as platforms
-import promptview.testing as testing
+# import promptview.testing as testing
 
 
 
@@ -59,5 +59,5 @@ __all__ = [
     "platforms",
     "block",
     "Depends",
-    "testing",
+    # "testing",
 ]

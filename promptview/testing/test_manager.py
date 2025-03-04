@@ -1,8 +1,8 @@
 import enum
 from typing import List
 from promptview.model.head_model import HeadModel
-from promptview.model.model import Model, Relation, ModelRelation
-from promptview.model.fields import ModelField
+from promptview.model.model import Model
+from promptview.model.fields import ModelField, ModelRelation
 from pydantic import BaseModel, PrivateAttr
 
 from promptview.testing.evaluator import evaluate_prompt
@@ -10,14 +10,14 @@ from promptview.testing.evaluator import evaluate_prompt
 
 
 
-class Result(BaseModel):
+class EvalResult(BaseModel):
     reasoning: str = ModelField(default="")
     score: float = ModelField(default=-1)
 
 
 class TurnResult(BaseModel):
     output: str = ModelField(default="")
-    evaluations: list[Result] = ModelField(default=[])
+    evaluations: list[EvalResult] = ModelField(default=[])
     score: int = ModelField(default=-1)
 
 
@@ -45,7 +45,7 @@ class TestRun(Model, HeadModel):
     def add_eval_result(self, reasoning: str, score: float):
         if len(self.results) == 0:
             raise ValueError("No turn results to add to")
-        self.results[-1].evaluations.append(Result(reasoning=reasoning, score=score))
+        self.results[-1].evaluations.append(EvalResult(reasoning=reasoning, score=score))
         # self.score = sum([result.score for result in self.results[-1].evaluations]) / len(self.results[-1].evaluations)
         self.score = sum([result.score for result in self.results[-1].evaluations])
     
