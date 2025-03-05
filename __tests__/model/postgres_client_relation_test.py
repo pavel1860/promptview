@@ -3,13 +3,11 @@ os.environ["POSTGRES_URL"] = "postgresql://snack:Aa123456@localhost:5432/promptv
 import pytest
 import pytest_asyncio
 import datetime as dt
-from promptview.model.fields import ModelField, IndexType, ModelRelation
-from promptview.model.model import Model, Relation
-from promptview.model.resource_manager import connection_manager
-from promptview.model.vectors.openai_vectorizer import OpenAISmallVectorizer
-from promptview.model.postgres_client import PostgresClient
+# from promptview.model.fields import ModelField, IndexType, ModelRelation
+# from promptview.model.model import Model, Relation
+# from promptview.model.resource_manager import connection_manager
 
-
+from promptview.model import Model, Relation, ModelField, ModelRelation, connection_manager
 
 
 class Post(Model):
@@ -24,7 +22,7 @@ class Post(Model):
 class User(Model):
     name: str = ModelField()
     age: int = ModelField()
-    posts: Post = ModelRelation(key="user_id")
+    posts: Relation[Post] = ModelRelation(key="user_id")
     
     class Config:
         database_type = "postgres"
@@ -62,10 +60,18 @@ async def seeded_database():
     
 @pytest.mark.asyncio
 async def test_seperate_query(seeded_database):
-    user = await User.get(1)
-    assert user is not None
-    assert user.name == "John Doe 1"
-    # posts = await user.posts.all()
-    # assert len(posts) == 2
-    # assert posts[0].title == "Post 1"
-    # assert posts[1].title == "Post 2"
+    user1 = await User.get(1)
+    assert user1 is not None
+    assert user1.name == "John Doe 1"
+    
+    posts = await user1.posts.limit(10)
+    assert len(posts) == 2
+    assert posts[0].title == "Post 1"
+    assert posts[1].title == "Post 2"
+    user2 = await User.get(2)
+    assert user2 is not None
+    assert user2.name == "Jane Doe 2"
+    posts = await user2.posts.limit(10)
+    assert len(posts) == 1
+    assert posts[0].title == "Post 3"
+    

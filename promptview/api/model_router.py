@@ -14,7 +14,7 @@ from typing import Type, Any, Dict, Optional
 from fastapi import Query
 from pydantic import BaseModel
 from promptview.artifact_log.artifact_log3 import ArtifactLog
-
+import json
 MODEL = TypeVar("MODEL", bound=Model)
 
 
@@ -25,6 +25,14 @@ def unpack_int_env_header(request: Request, field: str):
         return None
     return int(value)
 
+
+def query_filters(filters: str | None):
+    if filters is None:
+        return {}
+    try:
+        return json.loads(filters)
+    except json.JSONDecodeError:
+        return {}
 
         
 # async def get_user(user_token: str = Depends(get_user_token), user_manager: UserManager = Depends(get_user_manager)):
@@ -151,12 +159,15 @@ def create_crud_router(model: Type[MODEL], IdType: Type[int] | Type[str] = int) 
 
     @router.get("/list")
     async def list_instances(
+            # request: Request,
             limit: int = 10, 
             offset: int = 0, 
+            query_params: Dict[str, Any] = Depends(query_filters), 
             # filters: Dict[str, Any] = Depends(filter_dependency(model)), 
             # partitions: dict = Depends(get_partitions),
             env: str = Depends(env_ctx)
         ):
+        
         model_query = model.limit(limit).offset(offset).order_by("created_at", False)
         # model_query._filters = filters
         instances = await model_query        

@@ -31,7 +31,7 @@ def connect_testing_routers(app, prefix: str = "/api"):
     
     app.include_router(test_case_router, prefix=prefix + "/testing")
     app.include_router(evaluator_router, prefix=prefix + "/evaluators")
-    app.include_router(test_run_router, prefix=prefix + "/test-runs")
+    app.include_router(test_run_router, prefix=prefix + "/testing")
     
     
     

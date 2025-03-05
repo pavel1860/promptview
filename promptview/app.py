@@ -82,7 +82,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
                 branch_id: Annotated[int | None, Header(alias="branch_id")] = None,
             ):
                 message = self._message_model.model_validate_json(message_json)
-                with self._ctx_model(head_id=head_id, branch_id=branch_id) as ctx:
+                async with self._ctx_model(head_id=head_id, branch_id=branch_id) as ctx:
                     response = await func(ctx=ctx, message=message)
                     if auto_commit:
                         await ctx.commit()

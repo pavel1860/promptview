@@ -514,8 +514,8 @@ class PostgresClient:
             column_name = relation["partition"]
             fk_name = f'fk_{column_name}'
             index = "btree" if index_lookup.get(column_name) else None  
-            field_mapper.add_field(RelationField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
-            # field_mapper.add_field(SqlForeignKeyField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
+            # field_mapper.add_field(RelationField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
+            field_mapper.add_field(SqlForeignKeyField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
 
         return field_mapper
 

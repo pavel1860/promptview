@@ -1,8 +1,9 @@
 import enum
 from typing import List
 from promptview.model.head_model import HeadModel
-from promptview.model.model import Model
-from promptview.model.fields import ModelField, ModelRelation
+# from promptview.model.model import Model, Relation
+# from promptview.model.fields import ModelField, ModelRelation
+from promptview.model import Model, Relation, ModelField, ModelRelation
 from pydantic import BaseModel, PrivateAttr
 
 from promptview.testing.evaluator import evaluate_prompt
@@ -18,7 +19,7 @@ class EvalResult(BaseModel):
 class TurnResult(BaseModel):
     output: str = ModelField(default="")
     evaluations: list[EvalResult] = ModelField(default=[])
-    score: int = ModelField(default=-1)
+    score: float = ModelField(default=-1)
 
 
 class TestRunStatus(enum.Enum):
@@ -46,8 +47,8 @@ class TestRun(Model, HeadModel):
         if len(self.results) == 0:
             raise ValueError("No turn results to add to")
         self.results[-1].evaluations.append(EvalResult(reasoning=reasoning, score=score))
-        # self.score = sum([result.score for result in self.results[-1].evaluations]) / len(self.results[-1].evaluations)
-        self.score = sum([result.score for result in self.results[-1].evaluations])
+        self.final_score = sum([result.score for result in self.results[-1].evaluations]) / len(self.results[-1].evaluations)
+        # self.score = sum([result.score for result in self.results[-1].evaluations])
     
     def failed(self, error: Exception):
         self.status = TestRunStatus.FAILURE
@@ -77,7 +78,7 @@ class TestCase(Model, HeadModel):
     description: str = ModelField(default="")
     input_turns: List[TestTurn] = ModelField(default=[])
         
-    test_runs: TestRun = ModelRelation(key="test_case_id")
+    test_runs: Relation[TestRun] = ModelRelation(key="test_case_id")
     
     class Config:
         database_type="postgres"

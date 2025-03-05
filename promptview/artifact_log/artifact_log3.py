@@ -495,6 +495,11 @@ CREATE TABLE IF NOT EXISTS heads (
         return dict(res)
     
     
+    async def delete_head(self, head_id: int):
+        query = "DELETE FROM heads WHERE id = $1;"
+        return await PGConnectionManager.execute(query, head_id)
+    
+    
     async def get_branch_with_turn(self, branch_id: int, turn_id: int):
         res = await self._get_branch_with_turn(branch_id, turn_id)
         branch = Branch(**res["branch"], last_turn=Turn(**res["last_turn"]))

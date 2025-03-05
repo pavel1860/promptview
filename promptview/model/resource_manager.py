@@ -273,7 +273,7 @@ class ConnectionManager:
         table_sql = ""
         indices_sql = ""
         relations_sql = ""
-        for ns in self._namespaces.values():            
+        for ns in reversed(list(self._namespaces.values())): #TODO find a better way to check FOREIGN key dependencies           
             if ns.db_type == "postgres":
                 field_mapper = ns.conn.build_field_mapper(  # type: ignore
                     collection_name=ns.name,

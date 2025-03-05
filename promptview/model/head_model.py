@@ -105,13 +105,18 @@ class Head(BaseModel):
         return branch
 
 
-class HeadModel(BaseModel):
-    _head_id: int
-    _head: Head | None = None
+class HeadModel:
+    _head_id: int | None = Field(default=None)
+    _head: Head | None = Field(default=None)
     
-    # def __init__(self, head: Head):
-    #     self._head = head
-
+    def __init__(self, **kwargs):
+        head = kwargs.get("head")
+        if head is None:
+            raise ValueError("Head is not provided")
+        
+        self._head = head
+        self._head_id = head.id
+        
     @property
     def head(self):
         if self._head is None:
@@ -134,3 +139,6 @@ class HeadModel(BaseModel):
         head_id = kwargs.get("head_id")
         self._head = await Head.from_head_id(head_id=head_id)
         return self
+    
+    async def delete(self):
+        await self.head.artifact_log.delete_head(self.head.id)

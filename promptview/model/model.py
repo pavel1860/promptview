@@ -555,8 +555,13 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     def model_dump(self, *args, **kwargs):
-        res = super().model_dump(*args, **kwargs)        
-        exclude = kwargs.get("exclude") or []
+        relation_fields = self._get_relation_fields()
+        exclude = kwargs.get("exclude", set())
+        if not isinstance(exclude, set):
+            exclude = set()
+        exclude.update(relation_fields)
+        kwargs["exclude"] = exclude
+        res = super().model_dump(*args, **kwargs)
         if "id" not in exclude:
             if self._id is not None:
                 res["id"] = self._id
@@ -690,6 +695,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def delete(cls: Type[MODEL], id: str | int):
         ns = await cls.get_namespace()
         return await ns.conn.delete(ns.name, ids=[id])
+    
     
     
         
