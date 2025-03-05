@@ -10,6 +10,7 @@ import datetime as dt
 from qdrant_client import models
 if TYPE_CHECKING:  # pragma: nocoverage
     from .model import Model
+from .query_types import QueryListType
 
 
 class FieldOp(Enum):
@@ -42,7 +43,8 @@ class QueryFilter:
                 self.field = self._right
                 self.value = self._left
             else:
-                raise ValueError("No PropertyComparable found")        
+                raise ValueError("No PropertyComparable found")
+
     
     def is_datetime(self):
         if self.field.type == dt.datetime:
@@ -89,7 +91,16 @@ class QueryFilter:
         return f"({left_repr} {self._operator.value.upper()} {right_repr})"
 
 
-
+    def model_dump(self):
+        left = self._left.model_dump() if hasattr(self._left, "model_dump") else self._left
+        right = self._right.model_dump() if hasattr(self._right, "model_dump") else self._right
+        return {
+            "left": left,
+            "operator": self._operator.value,
+            "right": right,
+            "_type": "filter"
+        }
+        
 
 class RangeFilter:
     def __init__(self, ge=None, le=None, gt=None, lt=None):
@@ -114,6 +125,16 @@ class RangeFilter:
         
     def __repr__(self):
         return f"RangeFilter(ge={self.ge}, le={self.le}, gt={self.gt}, lt={self.lt})"
+    
+    
+    def model_dump(self):
+        return {
+            "ge": self.ge,
+            "le": self.le,
+            "gt": self.gt,
+            "lt": self.lt,
+            "_type": "range"
+        }
     
 
 class PropertyComparable:
@@ -211,6 +232,14 @@ class PropertyComparable:
     
     def __repr__(self):
         return f"Field({self.name})"
+    
+    def model_dump(self):
+        return {
+            "name": self.name,
+            "type": self.type.__name__ if self.type else None,
+            "_type": "property"
+        }
+        
 
 
 class FieldComparable(PropertyComparable):
@@ -423,13 +452,13 @@ class QuerySet(Generic[MODEL]):
     _namespace: str | None = None
     
     
-    def __init__(self, model: Type[MODEL], query_type: QueryType, partitions: dict[str, str] | None = None):
+    def __init__(self, model: Type[MODEL], query_type: QueryType, partitions: dict[str, str] | None = None, filters: QueryFilter | None = None):
         self.model = model
         self.query_type = query_type
         self._limit = 10
         self._offset = None
         self._order_by = None
-        self._filters = None
+        self._filters = filters
         self._vector_query = None
         self._prefetch = []
         self._fusion = None
@@ -588,7 +617,9 @@ class QuerySet(Generic[MODEL]):
             self._filters = self._filters & filter_fn(query)#type: ignore
         return self
     
-    
+    def filter_list(self, filters: QueryListType) -> "QuerySet[MODEL]":
+        self._filters = parse_query_params(filters)
+        return self
     
     
     # def filter(self, filter_fn: Callable[[ModelFilterProxy[MODEL]], Any]):
@@ -780,3 +811,90 @@ def print_query(query):
     
     print(print_filter(query["query_filter"]))
         
+# Frontend filter operation mapping to backend operations
+def parse_query_params(conditions: QueryListType) -> QueryFilter | None:
+    """Parse query parameters string into a QueryFilter object"""
+    # Split into individual conditions
+    # conditions = query_params.split('&')
+    
+    # Group conditions by field name
+    field_conditions = {}
+    for condition in conditions:
+        field = None
+        value = None
+        operator = None
+        
+        if len(condition) != 3:
+            raise ValueError(f"Invalid condition: {condition}")
+        field, operator, value = condition
+        # Parse operators and values
+        if operator == "==":
+            field_conditions[field] = {'eq': value}
+        elif operator == ">=":
+            if field not in field_conditions:
+                field_conditions[field] = {'range': {}}
+            field_conditions[field]['range']['ge'] = parse_value(field, value)
+        elif operator == "<=":
+            if field not in field_conditions:
+                field_conditions[field] = {'range': {}}
+            field_conditions[field]['range']['le'] = parse_value(field, value)
+        elif operator == ">":
+            if field not in field_conditions:
+                field_conditions[field] = {'range': {}}
+            field_conditions[field]['range']['gt'] = parse_value(field, value)
+        elif operator == "<":
+            if field not in field_conditions:
+                field_conditions[field] = {'range': {}}
+            field_conditions[field]['range']['lt'] = parse_value(field, value)
+
+    # Convert conditions to QueryFilter objects
+    filters = []
+    for field, conditions in field_conditions.items():
+        field_type = get_field_type(field)
+        if 'eq' in conditions:
+            filters.append(QueryFilter(
+                PropertyComparable(field, field_type),
+                FieldOp.EQ,
+                conditions['eq']
+            ))
+        elif 'range' in conditions:
+            range_params = conditions['range']
+            filters.append(QueryFilter(
+                PropertyComparable(field, field_type),
+                FieldOp.RANGE,
+                RangeFilter(**range_params)
+            ))
+
+    # Combine filters with AND
+    result = filters[0]
+    for f in filters[1:]:
+        result = result & f
+        
+    return result
+
+def get_field_type(field: str) -> Type:
+    """Determine field type based on field name"""
+    if field in ['score']:
+        return float
+    elif field in ['date', 'datetime']:
+        return dt.datetime
+    elif field in ['name', 'category', 'status']:
+        return str
+    else:
+        return int
+
+def parse_value(field: str, value: str) -> Any:
+    """Parse string value into appropriate type based on field name"""
+    field_type = get_field_type(field)
+    if field_type == float:
+        return float(value)
+    elif field_type == dt.datetime:
+        try:
+            return dt.datetime.strptime(value, '%Y-%m-%dT%H:%M:%S')
+        except ValueError:
+            return dt.datetime.strptime(value, '%Y-%m-%d')
+    elif field_type == str:
+        return value
+    else:
+        return int(value)
+

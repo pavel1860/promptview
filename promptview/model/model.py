@@ -12,7 +12,8 @@ from pydantic_core import core_schema
 from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model.head_model import HeadModel
 from promptview.model.postgres_client import camel_to_snake
-from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QuerySetSingleAdapter, QueryType
+from promptview.model.query_types import QueryListType
+from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QuerySetSingleAdapter, QueryType, parse_query_params
 from .vectors.base_vectorizer import BaseVectorizer
 from .fields import VectorSpaceMetrics, get_model_indices
 from .resource_manager import VectorSpace, connection_manager, DatabaseType
@@ -838,6 +839,9 @@ class Model(BaseModel, metaclass=ModelMeta):
     def filter(cls: Type[MODEL], filters: Callable[[MODEL], bool], partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
         return cls.build_query("scroll", partitions).filter(filters)
         # return QuerySet(cls, query_type="scroll").filter(filters)
+        
+    def filter_list(cls: Type[MODEL], filters: QueryListType, partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:
+        return cls.build_query("scroll", partitions).filter_list(filters)
     
     @classmethod
     def fusion(cls: Type[MODEL], *args, type: FusionType="rff", partitions: dict[str, str] | None = None) -> QuerySet[MODEL]:

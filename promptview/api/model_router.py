@@ -6,6 +6,8 @@ from pydantic import BaseModel
 # from app.util.dependencies import get_partitions
 from promptview.auth.dependencies import get_user_token
 from promptview.model.head_model import Head, HeadModel
+from promptview.model.query import parse_query_params
+from promptview.model.query_types import QueryListType
 from promptview.model.resource_manager import connection_manager
 # from app.util.auth import varify_token
 # from app.util.dependencies import unpack_request_token
@@ -26,13 +28,11 @@ def unpack_int_env_header(request: Request, field: str):
     return int(value)
 
 
-def query_filters(filters: str | None):
-    if filters is None:
-        return {}
-    try:
+def query_filters(request: Request) -> QueryListType | None:
+    filters = request.query_params.get("filter")
+    if filters:
         return json.loads(filters)
-    except json.JSONDecodeError:
-        return {}
+    return None
 
         
 # async def get_user(user_token: str = Depends(get_user_token), user_manager: UserManager = Depends(get_user_manager)):
@@ -162,13 +162,15 @@ def create_crud_router(model: Type[MODEL], IdType: Type[int] | Type[str] = int) 
             # request: Request,
             limit: int = 10, 
             offset: int = 0, 
-            query_params: Dict[str, Any] = Depends(query_filters), 
+            filters: QueryListType | None = Depends(query_filters), 
             # filters: Dict[str, Any] = Depends(filter_dependency(model)), 
             # partitions: dict = Depends(get_partitions),
             env: str = Depends(env_ctx)
         ):
         
         model_query = model.limit(limit).offset(offset).order_by("created_at", False)
+        if filters:
+            model_query = model_query.filter_list(filters)
         # model_query._filters = filters
         instances = await model_query        
         return [instance.model_dump() for instance in instances]
