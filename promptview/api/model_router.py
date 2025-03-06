@@ -77,11 +77,12 @@ def create_crud_router(model: Type[MODEL], IdType: Type[int] | Type[str] = int) 
         else:   
             head_id = unpack_int_env_header(request, "head_id")
             branch_id = unpack_int_env_header(request, "branch_id")
+            turn_id = unpack_int_env_header(request, "turn_id")
             # with connection_manager.set_env(env or "default"):
                 # yield env
-            if head_id is None:
-                raise HTTPException(status_code=400, detail="head_id is not supported")
-            async with ArtifactLog(head_id=head_id, branch_id=branch_id) as art_log:
+            if head_id is None and branch_id is None:
+                raise HTTPException(status_code=400, detail="head_id is not supported")            
+            async with ArtifactLog(head_id=head_id, branch_id=branch_id, turn_id=turn_id) as art_log:
                 yield art_log
     
     def validate_access(instance: MODEL, partitions: Dict[str, str]):

@@ -159,12 +159,13 @@ class ArtifactLog:
     """
     Main class for managing versioned models and their artifacts using asyncpg.
     """
-    def __init__(self, head_id: Optional[int] = None, branch_id: Optional[int] = None) -> None:        
+    def __init__(self, head_id: Optional[int] = None, branch_id: Optional[int] = None, turn_id: Optional[int] = None) -> None:        
         self._artifact_tables: Dict[str, str] = {}
         self._head: Optional[Dict[str, Any]] = None
         self._token = None
         self._head_id = head_id
         self._branch_id = branch_id
+        self._turn_id = turn_id
         self._branch = None
         self._turn = None
         
@@ -185,7 +186,18 @@ class ArtifactLog:
     
     
     async def __aenter__(self):
-        await self.init_head(self._head_id, self._branch_id)
+        if self._head_id is not None:
+            self._head = await self.get_head(self._head_id)
+        if self._branch_id is not None:
+            await self.checkout_branch(self._branch_id, self._turn_id, update_db=False)
+        if self._head is None:
+            self._head = await self.create_head()
+            
+            
+        # if self._head_id is not None:
+        #     await self.init_head(self._head_id, self._branch_id)
+        # elif self._branch_id is not None:
+        #     await self.checkout_branch(self._branch_id, self._turn_id, update_db=False)
         self.set_context()
         return self
     
@@ -340,6 +352,9 @@ CREATE TABLE IF NOT EXISTS heads (
         
         
     
+        
+        
+    
     
     async def update_head(self, branch_id: int | None = None, turn_id: int | None = None, main_branch_id: int | None = None):
         if self._head is None:
@@ -432,7 +447,7 @@ CREATE TABLE IF NOT EXISTS heads (
                 name = "main"
             else:
                 name = f"branch_from_{turn_id}"
-                
+        turn = None    
         if turn_id is not None:
             turn = await self.get_turn(turn_id)
             turn_index = turn.index
@@ -446,7 +461,7 @@ CREATE TABLE IF NOT EXISTS heads (
         if not new_branch_rows:
             raise ValueError("Failed to create branch")
         branch = new_branch_rows[0]
-        turn = await self.create_turn(branch['id'], 1, TurnStatus.STAGED)        
+        turn = await self.create_turn(branch['id'], turn.index + 1 if turn is not None else 1, TurnStatus.STAGED)        
         branch = Branch(**branch, last_turn=turn)
         return branch
         
@@ -454,13 +469,13 @@ CREATE TABLE IF NOT EXISTS heads (
     
     
     async def checkout_branch(self, branch_id: int, turn_id: int | None = None, update_db: bool = True):
-        if self._head is None:
-            raise ValueError("Artifact log is not initialized")
+        # if self._head is None:
+            # raise ValueError("Artifact log is not initialized")
         if turn_id is None:
             branch = await self.get_branch(branch_id=branch_id)
             new_head = {
-                "id": self.head["id"],
-                "main_branch_id": self.head["main_branch_id"],
+                "id": self._head["id"] if self._head is not None else None,
+                "main_branch_id": self._head["main_branch_id"] if self._head is not None else None,
                 "is_detached": False,
                 "branch_id": branch.id,
                 "turn_id": branch.last_turn.id
@@ -469,8 +484,8 @@ CREATE TABLE IF NOT EXISTS heads (
         else:
             branch, selected_turn, is_detached = await self.get_branch_with_turn(branch_id=branch_id, turn_id=turn_id)
             new_head = {
-                "id": self.head["id"],
-                "main_branch_id": self.head["main_branch_id"],
+                "id": self._head["id"] if self._head is not None else None,
+                "main_branch_id": self._head["main_branch_id"] if self._head is not None else None,
                 "is_detached": is_detached,
                 "branch_id": branch.id,
                 "turn_id": selected_turn.id
@@ -565,32 +580,32 @@ CREATE TABLE IF NOT EXISTS heads (
         return result
      
 
-    async def checkout_branch2(self, branch_id: int, turn_id: int | None = None) -> None:
-        """
-        Switch HEAD to a different branch.
-        """
-        query = "SELECT * FROM branches WHERE id = $1;"
-        rows = await PGConnectionManager.fetch(query, branch_id)
-        if not rows:
-            raise ValueError(f"Branch {branch_id} not found")
+    # async def checkout_branch2(self, branch_id: int, turn_id: int | None = None) -> None:
+    #     """
+    #     Switch HEAD to a different branch.
+    #     """
+    #     query = "SELECT * FROM branches WHERE id = $1;"
+    #     rows = await PGConnectionManager.fetch(query, branch_id)
+    #     if not rows:
+    #         raise ValueError(f"Branch {branch_id} not found")
 
-        current_head = self.head
-        if not current_head:
-            raise ValueError("No active head found")
+    #     current_head = self.head
+    #     if not current_head:
+    #         raise ValueError("No active head found")
 
-        query = "SELECT * FROM turns WHERE branch_id = $1 AND status = $2 ORDER BY index DESC LIMIT 1;"
-        turn_rows = await PGConnectionManager.fetch(query, branch_id, TurnStatus.STAGED.value)
-        if turn_rows:
-            turn_id = turn_rows[0]['id']
-        else:
-            query = "INSERT INTO turns (branch_id, index, status) VALUES ($1, $2, $3) RETURNING id;"
-            turn_row = await PGConnectionManager.fetch(query, branch_id, 1, TurnStatus.STAGED.value)
-            turn_id = turn_row[0]['id']
+    #     query = "SELECT * FROM turns WHERE branch_id = $1 AND status = $2 ORDER BY index DESC LIMIT 1;"
+    #     turn_rows = await PGConnectionManager.fetch(query, branch_id, TurnStatus.STAGED.value)
+    #     if turn_rows:
+    #         turn_id = turn_rows[0]['id']
+    #     else:
+    #         query = "INSERT INTO turns (branch_id, index, status) VALUES ($1, $2, $3) RETURNING id;"
+    #         turn_row = await PGConnectionManager.fetch(query, branch_id, 1, TurnStatus.STAGED.value)
+    #         turn_id = turn_row[0]['id']
 
-        query = "UPDATE heads SET branch_id = $1, turn_id = $2 WHERE id = $3;"
-        await PGConnectionManager.execute(query, branch_id, turn_id, current_head['id'])
-        current_head['branch_id'] = branch_id
-        current_head['turn_id'] = turn_id
+    #     query = "UPDATE heads SET branch_id = $1, turn_id = $2 WHERE id = $3;"
+    #     await PGConnectionManager.execute(query, branch_id, turn_id, current_head['id'])
+    #     current_head['branch_id'] = branch_id
+    #     current_head['turn_id'] = turn_id
 
     async def revert_turn(self) -> int:
         """

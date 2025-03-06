@@ -567,7 +567,9 @@ class Model(BaseModel, metaclass=ModelMeta):
             if self._id is not None:
                 res["id"] = self._id
         if "head_id" not in exclude and issubclass(self.__class__, HeadModel):
-            res["head_id"] = self.head.id
+            # res["head_id"] = self.head.id
+            if self.head:
+                res["head"] = self.head.model_dump()
         return res
         
     # async def verify_namespace(self):
