@@ -7,7 +7,7 @@ from functools import wraps
 from typing import Any, Callable, Generator, List, Literal, Tuple, Type, Union
 from uuid import uuid4
 
-from promptview.llms.messages import AIMessage, ActionCall, ActionMessage, BaseMessage
+from promptview.llms.messages import AIMessage, ActionCall, ActionMessage, BaseMessage, ContentType
 from promptview.llms.utils.action_manager import Actions
 from promptview.utils.string_utils import convert_camel_to_snake
 from pydantic import BaseModel, Field
@@ -106,7 +106,7 @@ class ViewBlock(BaseModel):
     name: str | None = Field(None, description="name of the person who created the view")
     view_name: str
     title: str | None = None
-    content: str | BaseModel | dict | None = None
+    content: str | dict | BaseModel | None = None
     view_blocks: list[ViewBlock] = Field(default_factory=list, description="list of view blocks that are children of this view block")
     role: RoleType | None = None
     actions: list[Type[BaseModel]] | Type[BaseModel] | None = None
@@ -119,7 +119,8 @@ class ViewBlock(BaseModel):
     strip: StripType = Field(default=None, description="if the content should be stripped")
     base_model: BaseModelRenderType = 'json'
     base_model_indent: int = 2
-    wrap: ViewWrapperType = None    
+    wrap: ViewWrapperType = None
+    content_type: ContentType = 'text'
     role_name: str | None = None    
     index: int | None = None
     
@@ -145,6 +146,8 @@ class ViewBlock(BaseModel):
     
     @property
     def action_call_uuids(self):
+        if not self.action_calls:
+            return []
         return [a.id for a in self.action_calls]
     
     def find_actions(self) -> Actions:
@@ -368,6 +371,7 @@ def create_view_block(
     name: str | None=None,
     title: str | None = None,
     wrap: ViewWrapperType = None,
+    content_type: ContentType = 'text',
     actions: List[BaseModel] | BaseModel | None = None,
     role: Literal["assistant", "user", "system"] | None = None,
     bullet: Literal["number" , "astrix" , "dash" , "none", None] | str = None,
@@ -425,6 +429,7 @@ def create_view_block(
         bullet=bullet,
         strip=strip,
         wrap=wrap,
+        content_type=content_type,
         role=role,
         indent=indent,        
         tag=tag,
@@ -444,9 +449,10 @@ def view(
     base_model: BaseModelRenderType = 'json',
     base_model_indent: int = 2,
     wrap: ViewWrapperType = None,
+    content_type: ContentType = 'text',
     indent: int = 0,
     class_: str | None = None,
-    tag: str | None = None,
+    tag: str | None = None
     ):
 
     def decorator(func):
@@ -460,7 +466,8 @@ def view(
                 view_name=func.__name__, 
                 name=name, 
                 title=title, 
-                wrap=wrap, 
+                wrap=wrap,
+                content_type=content_type,
                 actions=actions, 
                 role=role, 
                 bullet=bullet,

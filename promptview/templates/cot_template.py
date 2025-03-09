@@ -80,6 +80,13 @@ def sanitize_text(text):
     return text
 
 
+def sanitize_xml(xml_string_raw):
+    xml_string = xml_string_raw.strip()
+    if xml_string.startswith("xml"):
+        xml_string = xml_string[3:]
+    return xml_string.strip()
+        
+
 
 class CotPrompt(ChatPrompt):
     # output_format = chain_of_thought_inference
@@ -116,13 +123,17 @@ class CotPrompt(ChatPrompt):
         return child_only_fields
 
     def parse_xml_response(self, response, actions, model_cls):
-        xml_string = response.content
-        root = ET.fromstring(xml_string)
-        fields = self.get_model_fields(model_cls)
-        params = {k: root.find(k).text for k in fields}
-        action_calls = {"action_calls": self.find_actions(actions, root)}
         try:
-            return model_cls(**(response.model_dump(exclude=["raw"]) | params | action_calls))
+            xml_string = sanitize_xml(response.content)
+            root = ET.fromstring(xml_string)
+            fields = self.get_model_fields(model_cls)
+            params = {k: root.find(k).text for k in fields}
+            action_calls = {"action_calls": self.find_actions(actions, root)}
+            try:
+                return model_cls(**(response.model_dump(exclude=["raw"]) | params | action_calls))
+            except Exception as e:
+                print(response.content)
+                raise e
         except Exception as e:
             print(response.content)
             raise e

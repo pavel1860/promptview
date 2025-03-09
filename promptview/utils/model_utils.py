@@ -3,9 +3,21 @@ import json
 import jsonref
 from types import UnionType
 from typing import Any, Literal, Optional, Union, get_args, get_origin
-from promptview.llms.utils.completion_parsing import (is_list_model,
-                                                      unpack_list_model)
 from pydantic import BaseModel, create_model
+from enum import Enum
+
+
+
+def is_list_type(pydantic_model):
+    return get_origin(pydantic_model) == list
+
+
+def unpack_list_model(pydantic_model):
+    return get_args(pydantic_model)[0]
+
+
+def get_list_type(model):
+    return get_args(model)[0]
 
 
 class Config:
@@ -105,7 +117,7 @@ def _schema_to_ts(value_type, indent: int = 2, depth: int = 0) -> str:
         return '{ [key: string]: any }'
     
     # Handle Union types
-    if origin == Union:
+    if origin == UnionType or origin == Union:
         union_args = get_args(value_type)
         ts_types = [_schema_to_ts(arg, indent, depth) for arg in union_args]
         return ' | '.join(ts_types)
@@ -120,15 +132,18 @@ def _schema_to_ts(value_type, indent: int = 2, depth: int = 0) -> str:
     fields = []
     for field_name, field in value_type.model_fields.items():
         field_type = field.annotation
-
         ts_type = _schema_to_ts(field_type, indent, depth + 1)
+            
+        # Add question mark for optional fields (those with default values or None default)
+        is_optional = field.default is not None or field.default_factory is not None
+        optional_marker = '?' if is_optional else ''
             
         # Add field description if available
         description = field.description or ''
         if description:
-            fields.append(f'{fields_indent_str}{field_name}: {ts_type}, // {description}')
+            fields.append(f'{fields_indent_str}{field_name}{optional_marker}: {ts_type}, // {description}')
         else:
-            fields.append(f'{fields_indent_str}{field_name}: {ts_type},')
+            fields.append(f'{fields_indent_str}{field_name}{optional_marker}: {ts_type},')
             
     return '{\n' + '\n'.join(fields) + f'\n{indent_str}}}'
 
@@ -192,7 +207,7 @@ def iterate_class_fields(cls_, sub_cls_filter=None, exclude=False):
 
 def serialize_class(cls_: Any):
     output_type = "object"
-    if is_list_model(cls_):
+    if is_list_type(cls_):
         output_type = "array"
         output_class = unpack_list_model(cls_)
     else:
@@ -221,11 +236,13 @@ def describe_literal(literal, delimiter="|"):
     args = get_args(literal)
     return delimiter.join(args)
 
-def is_union(obj):
+def is_union_type(obj):
     orig = get_origin(obj)
     if orig and orig.__name__ == "UnionType":
         return True
     return hasattr(obj, "__origin__") and obj.__origin__ == Union
+
+
 
 
 def get_type(arg, delimiter="|"):
@@ -267,7 +284,7 @@ def stringify_field_info(field_info, delimiter="|"):
     field_origin = get_origin(field_type)
     if field_origin == list:
         return get_list_args(field_info, delimiter)
-    elif is_union(field_type):
+    elif is_union_type(field_type):
         return get_union_args(field_info, delimiter)
     else:
         return get_type(field_type, delimiter)

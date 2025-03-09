@@ -1,88 +1,136 @@
-
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Type, TypeVar, Generic, Union
+import contextlib
+import os
+from typing import Any, Dict, List, Optional, Type, TypeVar, Generic, Union, TYPE_CHECKING, Literal
 from uuid import uuid4
-
-from promptview import RagDocuments
-from pydantic import create_model, ConfigDict, BaseModel, Field
+from pydantic import BaseModel
 from qdrant_client.http.exceptions import UnexpectedResponse
 import grpc
-from promptview.model.fields import VectorSpaceMetrics
-# from promptview.model.namespace import NamespaceParams, VectorSpace
-from promptview.model.qdrant_client import QdrantClient
-from promptview.model.vectors.base_vectorizer import BaseVectorizer
+from contextvars import ContextVar
 
+from promptview.artifact_log.artifact_log3 import ArtifactLog
 
+# from promptview.artifact_log.artifact_log2 import BaseArtifact, create_artifact_table_for_model
 
+from .fields import VectorSpaceMetrics
+from .qdrant_client import QdrantClient
+from .postgres_client import FieldMapper, PostgresClient
+from .vectors.base_vectorizer import BaseVectorizer
+if TYPE_CHECKING:
+    from promptview.model.model import Model
 
+DatabaseType = Literal["qdrant", "postgres"]
 
+def get_qdrant_connection():
+    if not os.environ.get("QDRANT_URL"):
+        return None
+    return QdrantClient(
+        url=os.environ.get("QDRANT_URL"),
+        api_key=os.environ.get("QDRANT_API_KEY", None)
+    )
 
-
-
-
-
-
-class RagDocumentsMenager:
+def get_postgres_connection():
+    if not os.environ.get("POSTGRES_URL"):
+        return None
+    return PostgresClient(
+        url=os.environ.get("POSTGRES_URL"),
+        user=os.environ.get("POSTGRES_USER", "postgres"),
+        password=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        database=os.environ.get("POSTGRES_DB", "postgres"),
+        host=os.environ.get("POSTGRES_HOST", "localhost"),
+        port=int(os.environ.get("POSTGRES_PORT", "5432"))
+    )
     
-    _rag_documents: Dict[str, RagDocuments] = {}
     
-    def __init__(self):
-        self._rag_documents = {}
+    
+
+
+    
         
-    async def get_rag_documents(self, metadata_model: Type[BaseModel]):
-        try:
-            return self._rag_documents[metadata_model.__name__]
-        except KeyError:
-            rag_documents = RagDocuments(
-                metadata_model.__name__,
-                metadata_class=metadata_model,
-                # vectorizers=[EmptyVectorizer(size=1536) if self.input_class is None else TextVectorizer()],
-                # vectorizers=[EmptyVectorizer(size=1536)],
-            )
-            self._rag_documents[metadata_model.__name__] = rag_documents
-            await rag_documents.verify_namespace()
-            return rag_documents
-
-
-
-
-
-
-
+    
+    
+        
 
 
 class VectorSpace:
     name: str
+    namespace: str
     vectorizer_cls: Type[BaseVectorizer]
     metric: VectorSpaceMetrics
     
-    def __init__(self, name: str, vectorizer_cls: Type[BaseVectorizer], metric: VectorSpaceMetrics):
+    def __init__(self, namespace: str, name: str, vectorizer_cls: Type[BaseVectorizer], metric: VectorSpaceMetrics):
         self.name = name
+        self.namespace = namespace
         self.vectorizer_cls = vectorizer_cls
         self.metric = metric
     
     @property
     def vectorizer(self):
-        return connection_manager.vectorizers_manager.get_vectorizer(self.name)
+        return connection_manager.vectorizers_manager.get_vectorizer(self.namespace, self.name)
 
-    
 class NamespaceParams:
-    name: str
+    _name: str
+    subspaces: list[str]
     vector_spaces: dict[str, VectorSpace]
-    conn: QdrantClient
+    conn: QdrantClient | PostgresClient
     indices: list[dict[str, str]]
+    envs: dict[str, dict[str, str]]
+    db_type: DatabaseType
+    is_head: bool
+    is_detached_head: bool
+    versioned: bool
+    field_mapper: FieldMapper | None = None
     
-    def __init__(self, name: str, vector_spaces: list[VectorSpace], connection: QdrantClient, indices: list[dict[str, str]] | None = None):
-        self.name = name
+    def __init__(
+            self, 
+            name: str, 
+            envs: dict[str, dict[str, str]],
+            vector_spaces: list[VectorSpace], 
+            connection: QdrantClient | PostgresClient,
+            db_type: DatabaseType,
+            indices: list[dict[str, str]] | None = None,
+            subspaces: list[str] | None = None,
+            versioned: bool = False,
+            is_head: bool = False,
+            is_detached_head: bool = False,
+            field_mapper: FieldMapper | None = None,
+        ):
+        self._name = name
         self.vector_spaces = {vs.name: vs for vs in vector_spaces}
         self.conn = connection
         self.indices = indices or []
+        self.subspaces = subspaces or []
+        self.envs = envs
+        self.db_type = db_type
+        self.versioned = versioned
+        self.is_head = is_head
+        self.is_detached_head = is_detached_head
+        self.field_mapper = field_mapper
+    @property
+    def name(self):
+        return self.envs[ENV_CONTEXT.get()][self._name]
 
     def get(self, vector_space: str):
         return self.vector_spaces[vector_space]
     
-        
+    def add_subspace(self, subspace: str, indices: list[dict[str, str]]):
+        if subspace in self.subspaces:
+            raise ValueError(f"Subspace {subspace} already exists")
+        self.subspaces.append(subspace)
+        new_idx_field_set = set([idx["field"] for idx in indices])
+        for idx in self.indices:
+            if idx["field"] in new_idx_field_set:
+                raise ValueError(f"Index {idx['field']} already exists")            
+        self.indices += indices
 
+    
+    def add_field_mapper(self, field_mapper: FieldMapper):
+        self.field_mapper = field_mapper
+        
+    
+    
+    
+    
 class VectorizersManager:
     _vectorizers: Dict[str, BaseVectorizer]
     _named_vectorizers: Dict[str, BaseVectorizer] 
@@ -91,9 +139,10 @@ class VectorizersManager:
         self._vectorizers = {}
         self._named_vectorizers = {}
         
-    def get_vectorizer(self, vector_name: str) -> BaseVectorizer:
+    def get_vectorizer(self, namespace: str, vector_name: str) -> BaseVectorizer:
+        name = f"{namespace}_{vector_name}"
         try:
-            return self._named_vectorizers[vector_name]
+            return self._named_vectorizers[name]
         except KeyError:
             raise ValueError(f"Vectorizer {vector_name} not found")
         
@@ -103,137 +152,232 @@ class VectorizersManager:
         except KeyError:
             raise ValueError(f"Vectorizer {vectorizer_model.__name__} not found")
         
-    def add_vectorizer(self, vector_name: str, vectorizer_cls: Type[BaseVectorizer]) -> BaseVectorizer:
+    def add_vectorizer(self, namespace: str, vector_name: str, vectorizer_cls: Type[BaseVectorizer]) -> BaseVectorizer:
+        name = f"{namespace}_{vector_name}"
         if not vectorizer_cls.__name__ in self._vectorizers:
-            self._vectorizers[vectorizer_cls.__name__] = vectorizer_cls()        
+            self._vectorizers[vectorizer_cls.__name__] = vectorizer_cls() # type: ignore
         vectorizer = self._vectorizers[vectorizer_cls.__name__]
-        self._named_vectorizers[vector_name] = vectorizer
+        self._named_vectorizers[name] = vectorizer
         return vectorizer
-
-
     
+    
+# class ArtifactRegistry:
+#     _artifacts: Dict[str, type]
+    
+#     def __init__(self):
+#         self._artifacts = {}
+                
+#     def create_artifact_table(self, model_cls: Type[Model]):
+#         artifact_cls = create_artifact_table_for_model(model_cls)
+#         self._artifacts[model_cls.__name__] = artifact_cls
+#         return artifact_cls
         
+        
+
+ENV_CONTEXT = ContextVar("ENV_CONTEXT", default="default")
+
 class ConnectionManager:
-    
-    # _vector_db_connections: Dict[str, Any] = {}
     _qdrant_connection: QdrantClient 
+    _postgres_connection: PostgresClient
     _namespaces: Dict[str, NamespaceParams] = {}
     _active_namespaces: Dict[str, NamespaceParams] = {}
+    _models: Dict[str, Type[Model]] = {}
+    _relations: Dict[str, Any] = {}
+    _artifact_log: ArtifactLog
     
     def __init__(self):        
-        self._qdrant_connection = QdrantClient()
+        self._qdrant_connection = get_qdrant_connection()
+        self._postgres_connection = get_postgres_connection()
         self._namespaces = {}
         self.vectorizers_manager = VectorizersManager()
-        # self._vector_db_connections = {}
-        
-    # async def get_connection(self, db_name: str):
-    #     try:
-    #         return self._db_connections[db_name]
-    #     except KeyError:
-    #         raise ValueError(f"Connection {db_name} not found")
-    
-    
-    def get_vec_db_conn(self, db_name: str):
-        try:
+        self._envs = {"default": {}}
+        self._artifact_log = ArtifactLog()
+    def get_connection(self, db_type: DatabaseType):
+        if db_type == "qdrant":
             return self._qdrant_connection
-        except KeyError:
-            raise ValueError(f"Connection {db_name} not found")
-                
-    def add_namespace(self, namespace: str, vector_spaces: list[VectorSpace], indices: list[dict[str, str]] | None=None):        
+        elif db_type == "postgres":
+            return self._postgres_connection
+        else:
+            raise ValueError(f"Unknown database type: {db_type}")
+        
+    
+        
+        
+    def add_namespace(
+        self, 
+        namespace: str, 
+        vector_spaces: list[VectorSpace], 
+        db_type: DatabaseType = "qdrant",
+        indices: list[dict[str, str]] | None=None,
+        versioned: bool = False,
+        is_head: bool = False,
+        is_detached_head: bool = False,
+    ):        
+        if namespace in self._namespaces:
+            raise ValueError(f"Namespace {namespace} already exists. seems you have multiple Model classes with the same name")
+        self._envs["default"][namespace] = namespace
         self._namespaces[namespace] = NamespaceParams(
             name=namespace,
+            envs=self._envs,
             vector_spaces=vector_spaces,
-            connection=self._qdrant_connection,
-            indices=indices or []
-        )
+            connection=self.get_connection(db_type),
+            db_type=db_type,
+            indices=indices or [],
+            versioned=versioned,
+            is_head=is_head,
+            is_detached_head=is_detached_head,
+        )        
         for vs in vector_spaces:
-            self.vectorizers_manager.add_vectorizer(vs.name, vs.vectorizer_cls)
+            self.vectorizers_manager.add_vectorizer(namespace, vs.name, vs.vectorizer_cls)
         return self._namespaces[namespace]
+    
+    def add_env(self, env_name: str, env: dict[str, str]):
+        self._envs[env_name] = env
         
-    async def get_vectorizers(self, namespace: str):
+    def get_env_names(self):
+        return list(self._envs.keys())
+        
+    @contextlib.contextmanager
+    def set_env(self, env_name: str):
+        token = ENV_CONTEXT.set(env_name)
         try:
-            namespace_inst = self._namespaces[namespace]
-            return {
-                vs.name: self.vectorizers_manager.get_vectorizer(vs.vectorizer.__name__) 
-                for vs in namespace_inst.vector_spaces
-            }
-        except KeyError:
-            raise ValueError(f"Namespace {namespace} not found")
+            yield
+        finally:
+            ENV_CONTEXT.reset(token)
+            
+    def get_env(self):
+        return ENV_CONTEXT.get()
+    
+    def add_relation(self, target_type: Type[Model], relation_desc: str):
+        target_namespace = target_type._namespace.default
+        if target_namespace not in self._relations:
+            self._relations[target_namespace] = []
+        self._relations[target_namespace].append(relation_desc)
+    
+    def add_model(self, model_cls: Type[Model]):
+        self._models[model_cls._namespace.default] = model_cls # type: ignore
         
-        
-    async def get_namespace(self, namespace: str)->NamespaceParams:
+    def get_model(self, model_name: str) -> Type[Model]:
         try:
-            ns = self._active_namespaces[namespace]
-            # vectorizers = {vs.name: self.vectorizers_manager.get_vectorizer(vs.vectorizer.__name__)
-            #     for vs in namespace_inst.vector_spaces}            
-            return ns
+            return self._models[model_name]
         except KeyError:
-            try:
-                ns = self._namespaces[namespace]
-                collection = await ns.conn.get_collection(namespace, raise_error=False)
+            raise ValueError(f"Model {model_name} not found")
+    
+    def add_subspace(self, namespace: str, subspace: str, indices: list[dict[str, str]]):
+        if namespace not in self._namespaces:
+            raise ValueError(f"Namespace {namespace} not found while adding subspace {subspace}")
+        self._namespaces[namespace].add_subspace(subspace, indices)
+        
+        
+    async def _create_all_namespaces(self):
+        table_sql = ""
+        indices_sql = ""
+        relations_sql = ""
+        for ns in reversed(list(self._namespaces.values())): #TODO find a better way to check FOREIGN key dependencies           
+            if ns.db_type == "postgres":
+                field_mapper = ns.conn.build_field_mapper(  # type: ignore
+                    collection_name=ns.name,
+                    model_cls=self.get_model(ns.name),
+                    vector_spaces=list(ns.vector_spaces.values()),
+                    indices=ns.indices,
+                    versioned=ns.versioned,
+                    is_head=ns.is_head,
+                    relations=self._relations,
+                )
+                ns.field_mapper = field_mapper
+                self._active_namespaces[ns.name] = ns            
+                table_sql += "\n" + field_mapper.render_create(exclude_types=["relation"])
+                indices_sql += "\n" + field_mapper.render_create_indices()
+                relations_sql += "\n" + field_mapper.render_augment(exclude_types=["vector", "field", "foreign_key", "key"])
+            else:
+                await self._create_namespace(ns.name)                
+        if table_sql:
+            sql = table_sql + "\n" + indices_sql + "\n" + relations_sql
+            res = await self._postgres_connection.execute_sql(sql)
+            print(res)
+                
+                
+    async def _create_namespace(self, namespace: str):
+        try:
+            ns = self._namespaces[namespace]
+            if ns.db_type == "qdrant":
+                collection = await ns.conn.get_collection(namespace, raise_error=False)  # type: ignore
                 if not collection:
+                    subspace_index = []
+                    if ns.subspaces:
+                        subspace_index = [{"field": "_subspace", "schema": "keyword"}]
                     create_result = await ns.conn.create_collection(
                         collection_name=namespace,
+                        model_cls=self.get_model(namespace),
                         vector_spaces=list(ns.vector_spaces.values()),
-                        indices=ns.indices
+                        indices=ns.indices + subspace_index
                     )
                     if not create_result:
                         raise ValueError(f"Some error occured while creating collection {namespace}")
-                self._active_namespaces[namespace] = ns
-                return ns
-            except KeyError:
-                raise ValueError(f"Collection {namespace} not found")
+            elif ns.db_type == "postgres":
+                await ns.conn.create_collection(  # type: ignore
+                    collection_name=namespace,
+                    model_cls=self.get_model(namespace),
+                    vector_spaces=list(ns.vector_spaces.values()),
+                    indices=ns.indices,
+                    
+                )
+            self._active_namespaces[namespace] = ns
+            return ns
+        except KeyError:
+            raise ValueError(f"Collection {namespace} not found")
+    
+    def get_namespace2(self, namespace: str):
+        return self._namespaces.get(namespace, None)
+        
+    async def get_namespace(self, namespace: str)->NamespaceParams:
+        try:
+            ns = self._active_namespaces[namespace]          
+            return ns
+        except KeyError:
+            await self._create_all_namespaces()
+            return self._active_namespaces[namespace]
+            # return await self._create_namespace(namespace)
     
     async def add_namespace_indices(self, namespace: str, indices: list[dict[str, str]]):
         ns = await self.get_namespace(namespace)
         ns.indices += indices        
         return ns    
         
-    async def validate_namespace(self):
+    async def delete_namespace(self, namespace: str):
         try:
-            await self.vector_store.info()
-        except (UnexpectedResponse, grpc.aio._call.AioRpcError) as e:            
-            await self.create_namespace()
-
+            ns = self._namespaces[namespace]
+            if ns.db_type == "qdrant":
+                await self._qdrant_connection.delete_collection(namespace)
+            elif ns.db_type == "postgres":
+                await self._postgres_connection.delete_collection(namespace)
+            if namespace in self._active_namespaces:
+                del self._active_namespaces[namespace]
+            if namespace in self._namespaces:
+                del self._namespaces[namespace]            
+        except (UnexpectedResponse, grpc.aio._call.AioRpcError) as e:
+            pass
         
-
-
-
-
+    def reset_connection(self):
+        self._qdrant_connection = get_qdrant_connection()
+        self._postgres_connection = get_postgres_connection()
         
-
-# connection_manager = RagDocumentsMenager()
+    async def init_all_namespaces(self):
+        if self._qdrant_connection is not None:
+            pass
+        if self._postgres_connection is not None:
+            await self._postgres_connection.init_extensions()
+        
+        await self._artifact_log.initialize_tables()
+        await self._create_all_namespaces()
+        
+        
+    async def drop_all_namespaces(self):     
+        namespaces = list(self._active_namespaces.keys())   
+        await self._artifact_log.drop_tables(namespaces)
+        
 connection_manager = ConnectionManager()
 
 
 
 
-
-
-
-
-
-# from typing import TYPE_CHECKING, Dict
-# from contextvars import ContextVar
-
-# if TYPE_CHECKING:
-#     from qdrant_client import QdrantClient
-
-# class ConnectionHandler:
-    
-#     _conn_storage: ContextVar[Dict[str, "QdrantClient"]] = ContextVar(
-#         "_conn_storage", default={}
-#     )
-    
-    
-#     def _create_connection(self, conn_name: str) -> "QdrantClient":
-#         conn_name: str = QdrantClient(url=conn_name)
-    
-    
-#     def get(self, conn_name: str) -> "QdrantClient":
-#         # return self._conn_storage.get().get(conn_name)
-#         storage: Dict[str, "QdrantClient"] = self._conn_storage.get()
-#         try:
-#             return storage[conn_name]
-#         except KeyError:
-#             connection: "QdrantClient" = self._create_connection(conn_name)

@@ -5,14 +5,19 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, validator
 
 
-    
+ContentType = Literal['text', 'image', 'pdf', 'png', 'jpeg']
+
+class TypedContentBlock(BaseModel):
+    type: ContentType
+    content: str
 
 class BaseMessage(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     content: str | None
-    content_blocks: List[Dict[str, Any]] | None = None
+    content_type: ContentType = 'text'
+    content_blocks: List[Dict[str, Any]] | List[TypedContentBlock] | None = None
     name: str | None = None
-    
+
     is_example: Optional[bool] = False
     is_history: Optional[bool] = False
     is_output: Optional[bool] = False
@@ -30,11 +35,56 @@ class BaseMessage(BaseModel):
             oai_msg["name"] = self.name
         return oai_msg
     
-    def to_anthropic(self):            
-        return {
-            "role": "user",
-            "content": self.content_blocks or self.content,
-        }
+    def to_anthropic(self):
+        def typed_content(content: str, content_type: ContentType):
+            match content_type:
+                case 'pdf':
+                    return {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": content
+                        }
+                    }
+                case 'image':
+                    return {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": content
+                        }
+                    }
+                case 'jpeg' | 'png':
+                    return {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": f"image/{content_type}",
+                            "data": content
+                        }
+                    }
+                case _:
+                    return {
+                        "type": "text",
+                        "text": content
+                    }
+
+        if self.content_blocks:
+            content_blocks = [
+                typed_content(c.content, c.type) if isinstance(c, TypedContentBlock) else c
+                for c in self.content_blocks
+            ]
+            return {    
+                "role": "user",
+                "content": content_blocks
+            }
+        else:
+            return {
+                "role": "user",
+                "content": [typed_content(self.content, self.content_type)]
+            }
 
 
 class SystemMessage(BaseMessage):
@@ -52,6 +102,10 @@ class ActionCall(BaseModel):
     id: str
     name: str
     action: dict | BaseModel
+    
+    @property
+    def type(self):
+        return type(self.action)
     
     
     
@@ -330,7 +384,18 @@ def filter_message_alternation(messages: List[BaseMessage]) -> List[BaseMessage]
         prev_role = msg.role
         validated_messages.append(msg)
     return validated_messages
-            
+
+
+def merge_messages(messages: List[BaseMessage]) -> List[BaseMessage]:
+    validated_messages = []
+    prev_role = None
+    for msg in messages:
+        if msg.role == prev_role:
+            validated_messages[-1].content += "\n" + msg.content
+        else:
+            validated_messages.append(msg)
+        prev_role = msg.role
+    return validated_messages
         
     
 
@@ -344,12 +409,14 @@ def validate_first_message(messages: List[BaseMessage]) -> List[BaseMessage]:
         raise ValueError("No user message found in messages. first message must be a user message")
 
     
-def filter_action_calls(messages: List[BaseMessage], user_first: bool=False, check_alternation=False) -> List[BaseMessage]:
-    messages = [m.model_copy() for m in messages if m.content]
+def filter_action_calls(messages: List[BaseMessage], user_first: bool=False, check_alternation=False, should_merge=False) -> List[BaseMessage]:
+    messages = [m.model_copy() for m in messages if (m.content or m.content_blocks)]
     if user_first:
         messages = validate_first_message(messages)
+    if should_merge:
+        messages = merge_messages(messages)
     if check_alternation:
-        messages = filter_message_alternation(messages)
+        messages = filter_message_alternation(messages)    
     messages = remove_actions(remove_action_calls(messages))    
     return messages
     

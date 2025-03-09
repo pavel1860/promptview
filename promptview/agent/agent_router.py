@@ -1,7 +1,7 @@
 
 import inspect
 from functools import wraps
-from typing import Dict, Generic, List, Optional, Type, TypeVar, Union
+from typing import Dict, Generic, List, Optional, Type, TypeVar, Union, Callable
 from pydantic import BaseModel
 from promptview.prompt.base_prompt import Prompt
 from promptview.state.context import Context

@@ -44,11 +44,16 @@ def is_in_time_window(time, from_time=None, hours=0, minutes=0, seconds=0):
 
 def convert_datetime_timezone(origin: datetime, origin_code: str, target_code: str="UTC") -> datetime:
     """Converts a datetime object from one timezone to another timezone"""
-    origin_str = pytz.country_timezones[origin_code]
-    origin_time_zone = pytz.timezone(origin_str[0])
     if origin.tzinfo is not None:
         origin = origin.replace(tzinfo=None)
-    origin_time = origin_time_zone.localize(origin)    
+
+    if origin_code == "UTC":
+        origin_time = pytz.utc.localize(origin)
+    else:
+        origin_str = pytz.country_timezones[origin_code]
+        origin_time_zone = pytz.timezone(origin_str[0])
+        origin_time = origin_time_zone.localize(origin)    
+
     # Convert to UTC
     if target_code == "UTC":
         utc_time = origin_time.astimezone(pytz.utc)

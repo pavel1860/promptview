@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+---
+
+# Generating API 
+- should should read carfully the class that the API should be generated for
+- the application uses FAST API server for serving
+- mydantic BaseModel should be used to add typing to FastAPI endpoints.
+- a unit test should be created in the __tests__/ directory
+- API's should be created in the promptview/api/ folder

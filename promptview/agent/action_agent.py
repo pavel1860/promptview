@@ -86,6 +86,7 @@ class ActionAgent(BaseModel):
             #         tracer_run=tracer_run, 
             #         **kwargs
             #     )
+            #region main loop                  
             ex_ctx = self.router_prompt.build_execution_context(context=context, message= message, tracer_run=tracer_run, **kwargs)
             ex_ctx = await self.router_prompt.run_steps(ex_ctx)
             response = ex_ctx.output
@@ -96,7 +97,7 @@ class ActionAgent(BaseModel):
                 if not self.is_router:
                     await context.history.add(context, response, str(tracer_run.id), self.name)
                 tracer_run.add_outputs(response)
-                if response.content and not response.action_calls:                    
+                if response.content and not response.action_calls:
                     yield response
                 if response.action_calls:
                     action_output_views = []
@@ -162,7 +163,7 @@ class ActionAgent(BaseModel):
             else:
                 if message.id not in context.history.contained_id:
                     await context.history.add(context, message, str(tracer_run.id), "user")
-    
+#endregion
 
     def reducer(self, action: BaseModel):
         def decorator(func):

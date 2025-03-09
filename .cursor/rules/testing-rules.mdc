@@ -1,0 +1,10 @@
+---
+description: writing unit test
+globs: 
+---
+
+# Rules for writing
+- when generating big components, a unit test file should be created.
+- to run a test a conda environment should be set. use snack-env as the environment to run the tests
+- all unit tests should be in the __test__/ folder
+- to run the unit test use conda environment pytest __tests__/test_artifact_log2.py -v

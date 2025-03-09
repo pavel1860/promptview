@@ -1,16 +1,20 @@
 import datetime as dt
 from enum import Enum
 import inspect
-from typing import Any
+from typing import TYPE_CHECKING, Any, List, Type
 import typing
-from pydantic import BaseModel, Field
-from pydantic_core import PydanticUndefined
-from pydantic import types
-from pydantic.fields import _Unset, AliasPath, AliasChoices, FieldInfo, JsonDict, Unpack, _EmptyKwargs, Deprecated
 import typing_extensions
 import annotated_types
 
+from pydantic import BaseModel, Field, JsonValue
+from pydantic_core import PydanticUndefined
+from pydantic import types
+from pydantic.fields import _Unset, AliasPath, AliasChoices, FieldInfo, JsonDict, Unpack, _EmptyKwargs, Deprecated # type: ignore
+
 from typing_extensions import Literal, TypeAlias, Unpack, deprecated
+
+if TYPE_CHECKING:
+    from promptview.model.model import Model
 
 
 
@@ -29,7 +33,7 @@ class IndexType(Enum):
 
 
 
-class VectorSpaceMetrics:
+class VectorSpaceMetrics(str, Enum):
     """Supported metrics for vector similarity"""
     COSINE = "cosine"
     EUCLIDEAN = "euclidean"
@@ -50,7 +54,9 @@ def ModelField(
     is_tenent: bool = False,
     auto_now_add: bool = False,
     auto_now: bool = False,
+    db_type: str | None = None,
     default_factory: typing.Callable[[], Any] | None = _Unset,
+    vec: str | list[str] | None = None,
     alias: str | None = _Unset,
     alias_priority: int | None = _Unset,
     validation_alias: str | AliasPath | AliasChoices | None = _Unset,
@@ -108,14 +114,25 @@ def ModelField(
             index = IndexType.Datetime
         elif index != IndexType.Datetime:
             raise ValueError("auto_now_add must have index type of Datetime")
-        
+    #  vec if vec is None or type(vec) == list else [vec]
+    vec_list: list[JsonValue] | None = None
+    if type(vec) == str:
+        vec_list = [vec]
+    elif type(vec) == list:
+        vec_list = vec# type: ignore
+    elif vec is not None:
+        raise ValueError(f"vec must be a string or list of strings, {vec}")    
+    
     json_schema_extra={
-            "partition": partition,
+            # "partition": partition,
+            "type": "field",
             "is_relation": True if partition else False,
             "index": index.value if index else None,
             "is_tenent": is_tenent,
             "auto_now_add": auto_now_add,
-            "auto_now": auto_now
+            "auto_now": auto_now,
+            "vec": vec_list,
+            "db_type": db_type,
         }
     
     return Field(
@@ -189,52 +206,30 @@ def get_model_indices(cls_, prefix=""):
             indexs_to_create += get_model_indices(info.annotation, prefix=prefix+field+".")
         extra = get_field_extra(info)        
         if extra:
-            if "index" in extra:
-                # print("found index:", field, extra["index"])
+            if extra.get("index", None):
                 indexs_to_create.append({
                     "field": prefix+field,
-                    "schema": extra["index"]
+                    "schema": extra.get("index")
                 })
     return indexs_to_create
 
 
 
 
-# def AssetField(
-#     *args,
-#     partition: str | None = None,
-#     index: IndexType | None = None,
-#     is_tenent: bool = False,
-#     auto_now_add: bool = False,
-#     auto_now: bool = False,
-#     **kwargs
-# ):
-#     if auto_now_add and auto_now:
-#         raise ValueError("auto_now_add and auto_now cannot be True at the same time")
-#     if auto_now_add:
-#         if "default_factory" in kwargs:
-#             raise ValueError("default_factory cannot be set when auto_now_add is True")
-#         kwargs["default_factory"] = dt.datetime.now
-    
-#     if auto_now:
-#         if "default_factory" in kwargs:
-#             raise ValueError("default_factory cannot be set when auto_now is True")
-#         kwargs["default_factory"] = dt.datetime.now
-    
-#     return Field(
-#         *args,
-#         json_schema_extra={
-#             "partition": partition,
-#             "index": index.value if index else None,
-#             "is_tenent": is_tenent,
-#             "auto_now_add": auto_now_add,
-#             "auto_now": auto_now
-#         },
-#         **kwargs
-#     )
 
 
 
-
-
-
+def ModelRelation(
+    # model: "Type[Model]",
+    key: str,
+):
+    json_schema_extra={
+        "type": "relation",
+        "is_relation": True,
+        "partition": key,
+        # "model": model,
+    }
+    return Field(
+        # model,
+        json_schema_extra=json_schema_extra,
+    )

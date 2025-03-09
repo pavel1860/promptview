@@ -215,7 +215,7 @@ class Prompt(BaseModel, Generic[T]):
                     tool_choice=tool_choice or self.tool_choice, 
                     tracer_run=prompt_run, 
                     **kwargs
-                )                
+                )
                 prompt_run.end(outputs={'output': response})
                 return response
             except Exception as e:

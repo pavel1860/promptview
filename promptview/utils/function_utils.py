@@ -1,4 +1,3 @@
-
 import inspect
 
 
@@ -28,4 +27,21 @@ async def call_function(func, *args, **kwargs):
     if inspect.iscoroutinefunction(func):
         return await func(*args, **kwargs)
     return func(*args, **kwargs)
+
+
+def filter_args_by_exclude(args: tuple, kwargs: dict, exclude_classes: tuple[type, ...]) -> tuple[tuple, dict]:
+    """
+    Filter args and kwargs by excluding values of specified classes.
+    
+    Args:
+        args: Tuple of positional arguments
+        kwargs: Dictionary of keyword arguments
+        exclude_classes: Tuple of classes to exclude
+        
+    Returns:
+        Tuple of (filtered_args, filtered_kwargs)
+    """
+    filtered_args = tuple(arg for arg in args if not isinstance(arg, exclude_classes))
+    filtered_kwargs = {k: v for k, v in kwargs.items() if not isinstance(v, exclude_classes)}
+    return filtered_args, filtered_kwargs
 
