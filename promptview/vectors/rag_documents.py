@@ -1,5 +1,7 @@
 import asyncio
 import inspect
+import grpc
+
 from typing import (Any, Dict, Generic, List, Literal, Optional, Type,
                     TypedDict, TypeVar, Union)
 from uuid import uuid4
@@ -18,6 +20,7 @@ from promptview.vectors.vectorizers.text_vectorizer import TextVectorizer
 from pydantic import BaseModel
 from qdrant_client.http.exceptions import UnexpectedResponse
 
+
 K = TypeVar('K', bound=BaseModel)
 V = TypeVar('V', bound=BaseModel)
 
@@ -30,26 +33,35 @@ V = TypeVar('V', bound=BaseModel)
 # class RagDocMetadata:
 
 
+def get_extra(info):
+    if hasattr(info, 'json_schema_extra'):
+        return info.json_schema_extra
+    elif hasattr(info, 'field_info'): # check if pydantic v1
+        return info.field_info.extra
+    return None
 
     
     
 def get_model_indexs(cls_, prefix=""):
     indexs_to_create = []
     for field, info in cls_.__fields__.items():
+        extra = get_extra(info)
         if inspect.isclass(info.annotation) and issubclass(info.annotation, BaseModel):
-            indexs_to_create += get_model_indexs(info.annotation, prefix=prefix+field+".")
-        extra = None
-        if hasattr(info, 'json_schema_extra'):
-            extra = info.json_schema_extra
-        elif hasattr(info, 'field_info'): # check if pydantic v1
-            extra = info.field_info.extra
+            if extra:
+                is_relation = extra.get("is_relation", None)
+                if is_relation == True:
+                    continue
+            indexs_to_create += get_model_indexs(info.annotation, prefix=prefix+field+".")                
         if extra:
             if "index" in extra:
-                # print("found index:", field, extra["index"])
                 indexs_to_create.append({
                     "field": prefix+field,
                     "schema": extra["index"]
                 })
+    if "_metadata" in cls_.__private_attributes__:
+        default_factory = cls_.__private_attributes__['_metadata'].default_factory
+        if default_factory:
+            indexs_to_create += get_model_indexs(default_factory, prefix=prefix+"_metadata.")
     return indexs_to_create
 
 
@@ -266,7 +278,7 @@ class RagDocuments:
         return self._pack_results(res)
     
 
-    async def create_namespace(self, namespace: str | None = None):
+    async def create_namespace(self, namespace: str | None = None):        
         namespace = namespace or self.namespace
         if isinstance(self.metadata_class, BaseModel) or issubclass(self.metadata_class, BaseModel):
             indexs_to_create=get_model_indexs(self.metadata_class)
@@ -274,12 +286,13 @@ class RagDocuments:
             indexs_to_create = []        
         return await self.vector_store.create_collection(self.vectorizers, namespace, indexs=indexs_to_create)
     
+    
     async def verify_namespace(self):
         try:
             await self.vector_store.info()
-        except UnexpectedResponse as e:
+        except (UnexpectedResponse, grpc.aio._call.AioRpcError) as e:            
             await self.create_namespace()
-    
+            
 
     async def delete_namespace(self, namespace: str | None = None):
         namespace = namespace or self.namespace

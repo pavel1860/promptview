@@ -76,6 +76,7 @@ class QdrantVectorStore(VectorStoreBase):
         self.client = AsyncQdrantClient(
             url=self.url,
             api_key=self.api_key,
+            prefer_grpc=True,
             # host=os.environ['QDRANT_HOST'], 
             # port=os.environ['QDRANT_PORT']
         )
@@ -225,10 +226,11 @@ class QdrantVectorStore(VectorStoreBase):
     async def add_documents(self, vectors, metadata: List[Dict | BaseModel], ids=None, namespace=None, batch_size=100):
         namespace = namespace or self.collection_name
         # metadata = [m.dict(exclude={'__orig_class__'}) if isinstance(m, BaseModel) else m for m in metadata]
-        metadata = [m if isinstance(m, dict) else m.dict(exclude={'__orig_class__'}) for m in metadata]
+        metadata = [m if isinstance(m, dict) else m.model_dump(exclude={'__orig_class__'}) for m in metadata]
         if not ids:
             ids = [str(uuid4()) for i in range(len(vectors))]
         
+        results = []
         for vector_chunk in chunks(zip(ids, vectors, metadata), batch_size=batch_size):
             points = [
                 PointStruct(
@@ -241,7 +243,15 @@ class QdrantVectorStore(VectorStoreBase):
                 collection_name=namespace,
                 points=points
             )
-
+            results += [
+                VectorSearchResult(
+                    id=p.id,
+                    score=-1,
+                    metadata=p.payload,
+                    vector=p.vector
+                ) 
+                for p in points]        
+        return results
 
     async def update_documents(self, metadata: Dict, ids: List[str | int] | None=None, filters=None,  namespace=None):
         namespace = namespace or self.collection_name        
@@ -265,6 +275,11 @@ class QdrantVectorStore(VectorStoreBase):
 
 
     async def create_collection(self, vectorizers, collection_name: str | None = None, indexs=None):
+        http_client = AsyncQdrantClient(
+            url=self.url,
+            api_key=self.api_key,
+            prefer_grpc=False,
+        )
         collection_name=collection_name or self.collection_name
         vector_config = {}
         sparse_vector_config = {}
@@ -275,18 +290,21 @@ class QdrantVectorStore(VectorStoreBase):
                 sparse_vector_config[vectorizer.name] = SparseVectorParams(
                     index=models.models.SparseIndexParams()
                 )
-        await self.client.recreate_collection(
+        await http_client.recreate_collection(
             collection_name=collection_name,
             vectors_config=vector_config,
             sparse_vectors_config=sparse_vector_config           
         )
         if indexs:
             for index in indexs:
-                await self.client.create_payload_index(
-                    collection_name=collection_name,
-                    field_name=index['field'],
-                    field_schema=index['schema']
-                )
+                try:
+                    await http_client.create_payload_index(
+                        collection_name=collection_name,
+                        field_name=index['field'],
+                        field_schema=index['schema']
+                    )
+                except Exception as e:
+                    raise e
 
 
     async def delete_collection(self, collection_name: str | None =None):

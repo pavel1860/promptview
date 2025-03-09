@@ -13,10 +13,13 @@ def get_message(run_data):
         return HumanMessage(content=run_data['content'])
     if run_data['role'] == 'assistant':
         tool_calls = None
-        if run_data['additional_kwargs'].get('tool_calls'):
-            tool_calls = [ChatCompletionMessageToolCall(**tc) for tc in run_data['additional_kwargs']['tool_calls']]
-            # tool_calls = run_data['additional_kwargs']['tool_calls']
-        return AIMessage(content=run_data['content'], tool_calls=tool_calls)
+        # if run_data['additional_kwargs'].get('tool_calls'):
+        if run_data.get('tool_calls'):
+            tool_calls = [ChatCompletionMessageToolCall(**tc) for tc in run_data['additional_kwargs']['tool_calls']]            
+        if isinstance(run_data['content'], str): 
+            return AIMessage(content=run_data['content'], tool_calls=tool_calls)
+        else:
+            return AIMessage(content='', content_blocks=run_data['content'], tool_calls=tool_calls)
     if run_data['role'] == 'system':
         return SystemMessage(content=run_data['content'])
     else:
@@ -114,9 +117,9 @@ def get_run_messages(run):
             metadata=run.metadata,
             error=run.error
         )
-        messages = [get_message(m['data']) for m in run.inputs['messages']]
+        messages = [get_message(m) for m in run.inputs['messages']]
         # print("----output----")
-        messages.append(get_message(run.outputs['generations'][0]['message']['data']))            
+        messages.append(get_message(run.outputs))            
         ls_llm_run.messages = messages
         return ls_llm_run    
     elif run.run_type == "retriever":

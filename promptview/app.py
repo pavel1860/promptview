@@ -63,7 +63,7 @@ def add_promptboard(app, rag_namespaces=None, assets=None, profiles=None, prompt
         yield
 
 
-    # app.router.lifespan_context = init_promptboard
+    app.router.lifespan_context = init_promptboard
 
     
     @app.get('/promptboard/metadata')
