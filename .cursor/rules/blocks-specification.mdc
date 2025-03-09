@@ -1,0 +1,95 @@
+---
+description: this is a specification for the Block class - what it tries to solve, guildlines etc.
+globs: 
+alwaysApply: false
+---
+
+# Block - description
+the block class needs to help with generating prompts for llms in python language.
+
+
+
+# Specification 
+1. the class should help easing the problems of prompt generation in code and string manipulation in python.
+2. the class should be a basic building block and support extendability with inheritance for more specified classes.
+3. the class API should be very easy to remember.
+4. the class should be helpfull.
+5. the class should address the pain points of prompt generation
+6. the class should enable reusability of basic prompt components just like react components.
+7. the class should define a structure, and support render, for generation a string and parsing, for parsing a string into a structure.
+8. it should support editing, order restructuring, deleting, so the same prompt can be used in different configurations for different LLM systems.
+9. use different python features for handling prompts. especially context manager for nested formating of blocks.
+10. support for A/B testing for how different rules affect the prompt.
+
+
+the most basic example 
+
+with block("this is a title", as_list="numbered", title="md") as b:
+    b += "this is sentence1"
+    b += "this is sentence2"
+    b += "this is sentence3"
+
+will generate the string:
+```
+# this is a title
+1. this is sentence1
+2. this is sentence2
+3. this is sentence3
+
+```
+
+
+## Decoupling of responsibilities
+in string generated prompts everything is coupled togather, a string can't be manipulated on block based level to 
+be send to different LLMs, and styling in included in the prompt.
+## LLM specific
+because different LLMs like to receive the prompts in different formats and different order of messages, the 
+impolementation should support rearrange the different blocks so a single prompt can be very simply ingested by 
+different LLM providers. it should support taging mechanism where every block can be rearanged by passing the tags
+in some format. for example
+[
+    "task",
+    "rules",
+    "output_format"
+]
+will extract the blocks with those tags and group them in a new block.
+
+
+
+# Pain points for prompt generation
+1. versioning of prompts - very hard to keep track of the changes made to the prompt. the system changes, very hard 
+to understand what effected the changes
+2. prompt aggregation - then evolving a prompt, we append more and more rules and information for the prompt.
+this increases the size of the prompt, effecting the cost and latency. some of the information can be redundent.
+3. nested structures - a prompts usually build with nested structures, building and appending them is very hard.
+the more functionality the solution supports the less readble the prompt.
+4. there are a lot of use cases and options for prompt building, from sql generation to task descriptions. non 
+of the solutions give basic blocks that can be extendable to all use cases.
+5. string based prompts are not extendable, they are a monolith, different LLMs react differently for different
+prompt furmulations, which makes testing a lot harder. for example openai receive rules in a system prompt, but
+anthropic prefers them in the user message. 
+6. multi line strings, or string concatination intruduce unexpected indents and formats.
+7. LLMs process text at the sentence or word level, but Python lacks built-in functions to handle sentence segmentation and word operations efficiently.
+
+Sentence Splitting (with Proper Punctuation Handling)
+
+Current Python: str.split(". ") (but doesn’t handle !, ?, quotes properly)
+Missing Feature: s.split_sentences()
+
+8. Word-Level Tokenization (LLM-Friendly)
+
+Missing Feature: s.tokenize()
+Example:
+python
+Copy
+"This is GPT-4.".tokenize()
+# Output: ["This", "is", "GPT-4", "."]
+9. Reverse Sentence Order Missing Feature: s.reverse_sentences()
+10. no section formating, where I can add titles etc.
+11. no Auto-Numbering & Labeling for Instructions
+12. convert list to Readable Paragraph
+13. Auto-Split into Chunks - chunks play a crucial function for max token limit handling to RAG ingestion.
+14.  
+
+
+
