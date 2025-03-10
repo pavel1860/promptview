@@ -5,13 +5,16 @@ alwaysApply: false
 ---
 
 # Block - description
-the block class needs to help with generating prompts for llms in python language.
+the block class needs to help with generating prompts for llms in python language. the block system needs to be easily readable by developers, extendable and editable. 
 
-
+# readability 
+the block system needs to be very easy to read from the code. in order to replace the current methods of string/text based prompts the block system
+needs to give an alternative that not only gives editing, debuging and ab testing capabilities but also be very easy to read.
+developers like to understand what the prompt is doing without too much effort.
 
 # Specification 
 1. the class should help easing the problems of prompt generation in code and string manipulation in python.
-2. the class should be a basic building block and support extendability with inheritance for more specified classes.
+2. the class should be a basic building block and support extendability.
 3. the class API should be very easy to remember.
 4. the class should be helpfull.
 5. the class should address the pain points of prompt generation

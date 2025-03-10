@@ -1,7 +1,7 @@
 import json
 import textwrap
 from typing import Literal, Type
-from promptview.prompt.block4 import ProtoBlock, Block
+from promptview.prompt.block4 import BaseBlock, Block
 from promptview.prompt.style import StyleDict
 from promptview.utils.string_utils import int_to_roman
 
@@ -14,40 +14,40 @@ BulletType = Literal["number", "alpha", "roman", "roman_upper", "*", "-"]
 
 
 
-class BaseBlock(ProtoBlock):    
-    indent: int = 0
-    title: TitleType | None = None
-    bullet: BulletType | None = None
+# class BaseBlock(ProtoBlock):    
+#     indent: int = 0
+#     title: TitleType | None = None
+#     bullet: BulletType | None = None
     
     
-    def __init__(
-        self,
-        _: Type[None] | None = None,
-        tags: list[str] | None = None,
-        style: StyleDict | None = None,
-        depth: int = 1,
-    ):
-        super().__init__(None,tags, style, depth)                
+#     def __init__(
+#         self,
+#         _: Type[None] | None = None,
+#         tags: list[str] | None = None,
+#         style: StyleDict | None = None,
+#         depth: int = 1,
+#     ):
+#         super().__init__(None,tags, style, depth)                
     
-    def _get_prefix(self, idx: int):
-        bullet_type = self.get_style('bullet', self.bullet)
-        if bullet_type is None:
-            return ""
-        elif bullet_type == "number":
-            return f"{idx}. "
-        elif bullet_type == "alpha":
-            return f"{chr(96+idx)}. "
-        elif bullet_type == "roman_upper":
-            return int_to_roman(idx, upper=True) + ". "
-        elif bullet_type == "roman":
-            return int_to_roman(idx, upper=False) + ". "
-        return f"{bullet_type} "
+#     def _get_prefix(self, idx: int):
+#         bullet_type = self.get_style('bullet', self.bullet)
+#         if bullet_type is None:
+#             return ""
+#         elif bullet_type == "number":
+#             return f"{idx}. "
+#         elif bullet_type == "alpha":
+#             return f"{chr(96+idx)}. "
+#         elif bullet_type == "roman_upper":
+#             return int_to_roman(idx, upper=True) + ". "
+#         elif bullet_type == "roman":
+#             return int_to_roman(idx, upper=False) + ". "
+#         return f"{bullet_type} "
     
-    def render(self) -> str:        
-        return "\n".join([self._get_prefix(i) + item.render() for i, item in enumerate(self.items)])
+#     def render(self) -> str:        
+#         return "\n".join([self._get_prefix(i) + item.render() for i, item in enumerate(self.items)])
     
-    def parse(self, text: str):
-        return text
+#     def parse(self, text: str):
+#         return text
 
 
 
@@ -195,7 +195,7 @@ class StrBlock(BaseBlock):
     
     
 
-class DictBlock(ProtoBlock):
+class DictBlock(BaseBlock):
     
     content: dict
     def __init__(self, content: dict, tags: list[str] | None = None, depth: int = 1):

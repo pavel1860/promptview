@@ -1,7 +1,7 @@
 import json
 import textwrap
 from typing import Literal, Type, Any, Optional
-from promptview.prompt.block4 import ProtoBlock, Block
+from promptview.prompt.block4 import BaseBlock, Block
 from promptview.utils.string_utils import int_to_roman
 from promptview.prompt.style import StyleDict
 
@@ -14,7 +14,7 @@ BulletType = Literal["number", "alpha", "roman", "roman_upper", "*", "-"]
 
 
 
-class Block(ProtoBlock):    
+class Block(BaseBlock):    
     indent: int = 0
     title: TitleType | None = None
     bullet: BulletType | None = None
@@ -196,7 +196,7 @@ class StrBlock(Block):
     
     
 
-class DictBlock(ProtoBlock):
+class DictBlock(BaseBlock):
     
     content: dict
     def __init__(self, content: dict, tags: list[str] | None = None, depth: int = 1):

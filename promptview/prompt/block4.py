@@ -1,86 +1,37 @@
 from collections import defaultdict
 from abc import abstractmethod
 from typing import Any, List, Type
-
 from promptview.prompt.style import StyleDict, style_manager
 
 
-
-
-
-
-class TagRegistry:
     
-    tags: defaultdict[str, list["ProtoBlock"]]
     
-    def __init__(self):
-        self.tags = defaultdict(list)
-
-    def add(self, block: "ProtoBlock"):
-        for tag in block.tags:
-            self.tags[tag].append(block)        
     
-    def get(self, tag: str | list[str]) -> list["ProtoBlock"]:
-        if isinstance(tag, str):
-            return self.tags[tag]
-        else:
-            return [block for t in tag for block in self.tags[t]]
 
-
-
-
-
-
-# class MetaBlock(type):
-    
-#     def __new__(cls, name, bases, attrs):
-#         attrs["__call__"] = BlockContext(cls)
-#         return super().__new__(cls, name, bases, attrs)
-
-     
         
-        
-class ProtoBlock:
+class BaseBlock:
     
     tags: list[str]
-    items: list["ProtoBlock"]
+    items: list["BaseBlock"]
     inline_style: StyleDict
     computed_style: StyleDict
     content: None
+    parent: "BaseBlock | None"
     
-    def __init__(self, content: Any | None = None, tags: list[str] | None = None, style: StyleDict | None = None, depth: int = 0):
+    def __init__(self, content: Any | None = None, tags: list[str] | None = None, style: StyleDict | None = None, depth: int = 0, parent: "BaseBlock | None" = None):
         self.content = content
         self.tags = tags or []
         self.items = []
         self.depth = depth or 0
-        self.computed_style: StyleDict = {}
         self.inline_style: StyleDict = style or {}
+        self.parent = parent
         
-        
-    def append(self, item: "ProtoBlock | Any"):
-        # if not isinstance(item, Block):
-            # item = self._build_instance(item)
+    def append(self, item: "BaseBlock | Any"):
         self.items.append(item)
         return item
         
-    def __add__(self, other: "ProtoBlock | Any"):
-        item = self.append(other)
-        return item
     
-    def __iadd__(self, other: "ProtoBlock | Any"):
-        self.append(other)
-        return self
-       
-    # def _build_instance(self, *args, **kwargs):
-    #     print(self.__class__)     
-    #     return self.__class__(*args, **kwargs)
-    
-    @classmethod
-    def _build_instance(cls, *args, **kwargs): 
-        return cls(*args, **kwargs)
-    
-    
-    def add_style(self, **style_props: Any) -> "ProtoBlock":
+    def add_style(self, **style_props: Any) -> "BaseBlock":
         """
         Add inline style properties to this block
         """
@@ -88,160 +39,24 @@ class ProtoBlock:
         return self
     
     
-    def compute_styles(self) -> StyleDict:
-        """
-        Compute the final styles for this block by applying the style manager rules
-        """
-        self.computed_style = style_manager.apply_styles(self)
+    # def compute_styles(self) -> StyleDict:
+    #     """
+    #     Compute the final styles for this block by applying the style manager rules
+    #     """
+    #     self.computed_style = style_manager.apply_styles(self)
         
-        # Recursively compute styles for all child blocks
-        for item in self.items:
-            if hasattr(item, 'compute_styles'):
-                item.compute_styles()
+    #     # Recursively compute styles for all child blocks
+    #     for item in self.items:
+    #         if hasattr(item, 'compute_styles'):
+    #             item.compute_styles()
                 
-        return self.computed_style
+    #     return self.computed_style
     
     def get_style(self, property_name: str, default: Any = None) -> Any:
         """
         Get a computed style property value
         """
-        if not self.computed_style:
-            self.compute_styles()
-        return self.computed_style.get(property_name, default)
-        
-        
-    @abstractmethod
-    def render(self):
-        raise NotImplementedError("Subclasses must implement this method")
-    
-    @abstractmethod
-    def parse(self, text: str):
-        raise NotImplementedError("Subclasses must implement this method")
-        
-    def __enter__(self):
-        return self
-    
-    def __exit__(self, exc_type, exc_value, traceback):
-        pass
-        
-
-
+        return self.inline_style.get(property_name, default)
     
       
-    
-    
-    
-class Block(object):
-    
-    _block_type_registry: dict[Type, Type[ProtoBlock]]
-    _ctx_stack: "List[ProtoBlock]"
-    
-    
-    def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, "_block_type_registry"):
-            cls._block_type_registry = {}
-        return super().__new__(cls)
 
-        
-    def __init__(
-        self,
-        value: Any | None = None,
-        tags: list[str] | None = None,
-        style: StyleDict | None = None,
-        # ctx_stack: "List[Block] | None" = None, 
-    ):
-        # self._block = block
-        # self._staged_inst = self._build_instance(value, *args, **kwargs)
-        self._ctx_stack = []
-        inst = self._build_instance(value, tags, style)
-        self._main_inst = inst
-        # self._ctx_stack.append(inst)
-    
-    @property
-    def root(self):
-        return self._ctx_stack[0]
-    
-    def __call__(self, value: Any, tags: list[str] | None = None, style: StyleDict | None = None, **kwargs):       
-        self._append(value, tags, style)
-        return self
-    
-    def _append(self, value: Any, tags: list[str] | None = None, style: StyleDict | None = None):
-        # print(self._ctx_stack, value)
-        inst = self._build_instance(value, tags, style)        
-        self._ctx_stack[-1].append(inst)
-        return inst
-
-    
-    @property
-    def top(self):
-        if not self._ctx_stack:
-            raise ValueError("No context stack")
-        return self._ctx_stack[-1]
-    
-    @property
-    def last(self):
-        if not self._ctx_stack:
-            raise ValueError("No context stack")
-        if not self._ctx_stack[-1].items:
-            return self._ctx_stack[-1]
-        return self._ctx_stack[-1].items[-1]
-        
-    def __enter__(self):        
-        if not self._ctx_stack:
-            self._ctx_stack.append(self._main_inst)
-        else:
-            self._ctx_stack.append(self.last)
-        return self
-    
-    def __exit__(self, exc_type, exc_value, traceback):
-        if len(self._ctx_stack) > 1:
-            self._ctx_stack.pop()
-
-    
-    
-    @classmethod
-    def register(cls, typ: Type, block_type: Type[ProtoBlock]):
-        if not hasattr(cls, "_block_type_registry"):
-            cls._block_type_registry = {}
-        cls._block_type_registry[typ] = block_type    
-    
-        
-    def _build_instance(self, value: Any, tags: list[str] | None = None, style: StyleDict | None = None):
-        # if "depth" not in kwargs:
-            # kwargs["depth"] = depth
-        inst = self.__class__._block_type_registry[type(value)](value, tags, style)
-        inst.depth = len(self._ctx_stack) + 1
-        return inst
-    
-    
-    def __add__(self, value: Any):
-        inst = self._append(value)
-        return inst
-    
-    def __iadd__(self, value: Any):
-        self._append(value)
-        return self
-    
-    def render(self):
-        return self._ctx_stack[-1].render()
-    
-    
-    
-    
-    
-    
-
-
-def print_block(b, depth=0):
-    tags = f"{b.tags}" if b.tags else ""
-    print(str(depth) + " " + tags + "  " * depth + str(b.content))
-    for item in b.items:
-        print_block(item, depth+1)
-        
-        
-        
-        
-        
-        
-        
-        
