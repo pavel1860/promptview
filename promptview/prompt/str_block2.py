@@ -1,9 +1,9 @@
 import json
 import textwrap
-from typing import Literal, Type
+from typing import Literal, Type, Any, Optional
 from promptview.prompt.block4 import ProtoBlock, Block
-from promptview.prompt.style import StyleDict
 from promptview.utils.string_utils import int_to_roman
+from promptview.prompt.style import StyleDict
 
         
         
@@ -14,7 +14,7 @@ BulletType = Literal["number", "alpha", "roman", "roman_upper", "*", "-"]
 
 
 
-class BaseBlock(ProtoBlock):    
+class Block(ProtoBlock):    
     indent: int = 0
     title: TitleType | None = None
     bullet: BulletType | None = None
@@ -23,14 +23,19 @@ class BaseBlock(ProtoBlock):
     def __init__(
         self,
         _: Type[None] | None = None,
-        tags: list[str] | None = None,
-        style: StyleDict | None = None,
+        tags: list[str] | None = None,                
+        bullet: BulletType | None = None,
+        indent: int = 0,
         depth: int = 1,
     ):
-        super().__init__(None,tags, style, depth)                
+        super().__init__(tags, depth)                
+        self.bullet = bullet
+        self.indent = indent
     
     def _get_prefix(self, idx: int):
+        # First check if there's a bullet style in computed styles
         bullet_type = self.get_style('bullet', self.bullet)
+        
         if bullet_type is None:
             return ""
         elif bullet_type == "number":
@@ -43,8 +48,15 @@ class BaseBlock(ProtoBlock):
             return int_to_roman(idx, upper=False) + ". "
         return f"{bullet_type} "
     
-    def render(self) -> str:        
-        return "\n".join([self._get_prefix(i) + item.render() for i, item in enumerate(self.items)])
+    def render(self) -> str:
+        # Apply indent from computed styles if available
+        indent_size = self.get_style('indent', self.indent)
+        
+        rendered_items = [self._get_prefix(i) + item.render() for i, item in enumerate(self.items)]
+        if indent_size > 0:
+            rendered_items = [textwrap.indent(item, ' ' * indent_size) for item in rendered_items]
+            
+        return "\n".join(rendered_items)
     
     def parse(self, text: str):
         return text
@@ -52,7 +64,7 @@ class BaseBlock(ProtoBlock):
 
 
          
-class StrBlock(BaseBlock):    
+class StrBlock(Block):    
     content: str
     indent: int = 0
     title: TitleType | None = None
@@ -61,58 +73,47 @@ class StrBlock(BaseBlock):
     def __init__(
         self,
         content: str,
-        tags: list[str] | None = None,
-        style: StyleDict | None = None,
+        tags: list[str] | None = None,                
+        title: TitleType | None = None,
+        bullet: BulletType | None = None,
+        indent: int = 0,
         dedent: bool = True,
         depth: int = 1,
     ):
-        super().__init__(None, tags, style, depth)
+        super().__init__(None, tags, bullet, indent, depth)
         
         if content is not None:
             content = textwrap.dedent(content).strip() if dedent else content
         self.content = content
+        self.title = title
         
-    # def _render_title(self, item_content: str) -> str:        
-    #     content = self.content
-    #     title_style = self.get_style('title', self.title)
-    #     if content:
-    #         if title_style == "md":
-    #             heading_level = self.get_style('heading_level', self.depth)
-    #             return f"{'#' * heading_level} {content}" + "\n" + item_content                
-    #         elif title_style == "xml":                
-    #             return f"<{content}>{item_content}</{content}>"
-    #         return content + "\n" + item_content
-        
-        
-    # def render(self) -> str:                        
-    #     item_content = super().render()
-    #     if item_content:
-    #         return self._render_title(item_content)
-    #     return item_content
-    
-    
     def render(self) -> str:
         content = self.content
-        item_content = super().render()
         
+        # Get title style from computed styles if available
         title_style = self.get_style('title', self.title)
-        if content:
-            if item_content:
-                if title_style == "md":
-                    heading_level = self.get_style('heading_level', self.depth)
-                    return f"{'#' * heading_level} {content}" + "\n" + item_content                
-                elif title_style == "xml":                
-                    return f"<{content}>{item_content}</{content}>"
-                return content + "\n" + item_content
-            else:
-                if title_style == "md":
-                    heading_level = self.get_style('heading_level', self.depth)
-                    return f"{'#' * heading_level} {content}"
-                elif title_style == "xml":                
-                    return f"<{content} />"
-                return content
-        else:
-            return item_content
+        
+        if content and title_style:
+            if title_style == "md":
+                heading_level = self.get_style('heading_level', self.depth)
+                content = f"{'#' * heading_level} {self.content}"
+            elif title_style == "xml":
+                tag_name = self.get_style('tag_name', 'section')
+                content = f"<{tag_name}>{self.content}</{tag_name}>"
+        
+        # Apply text formatting styles if available
+        if self.get_style('bold', False):
+            content = f"**{content}**"
+        if self.get_style('italic', False):
+            content = f"*{content}*"
+        if self.get_style('code', False):
+            content = f"`{content}`"
+            
+        item_content = super().render()
+        if item_content:
+            content = content + "\n" + item_content
+        
+        return content
     
     
     
@@ -225,22 +226,42 @@ class block(Block):
         self,
         content: str | None = None,
         tags: list[str] | None = None,                
-        style: StyleDict | None = None,
-    ):
-        super().__init__(content, tags, style)
-        
-        
-    def __call__(
-        self,
-        content: str | None = None,
-        tags: list[str] | None = None,                
         title: TitleType | None = None,
         bullet: BulletType | None = None,
         indent: int = 0,
         dedent: bool = True,
+        style: Optional[StyleDict] = None,
         # depth: int = 1
     ):
-        return super().__call__(content, tags, title, bullet, indent, dedent)
+        super().__init__(content, tags=tags, title=title, bullet=bullet, indent=indent, dedent=dedent)
+        
+        # Apply inline styles if provided
+        if style and hasattr(self._main_inst, 'add_style'):
+            self._main_inst.add_style(**style)
+        
+    def __call__(
+        self,
+        content: str | None = None,
+        **kwargs
+    ):
+        # Extract known parameters from kwargs
+        tags = kwargs.pop('tags', None)
+        title = kwargs.pop('title', None)
+        bullet = kwargs.pop('bullet', None)
+        indent = kwargs.pop('indent', 0)
+        dedent = kwargs.pop('dedent', True)
+        style = kwargs.pop('style', None)
+        
+        # Call parent method with content and remaining kwargs
+        result = super().__call__(content, **kwargs)
+        
+        # Apply inline styles if provided
+        if style and self._ctx_stack and hasattr(self._ctx_stack[-1], 'items') and self._ctx_stack[-1].items:
+            last_item = self._ctx_stack[-1].items[-1]
+            if hasattr(last_item, 'add_style'):
+                last_item.add_style(**style)
+                
+        return result
     
     
     

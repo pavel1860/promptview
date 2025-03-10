@@ -1,7 +1,6 @@
 from collections import defaultdict
 from abc import abstractmethod
-from typing import Any, List, Type
-
+from typing import Any, List, Type, Dict, Optional
 from promptview.prompt.style import StyleDict, style_manager
 
 
@@ -11,16 +10,16 @@ from promptview.prompt.style import StyleDict, style_manager
 
 class TagRegistry:
     
-    tags: defaultdict[str, list["ProtoBlock"]]
+    tags: defaultdict[str, list["BaseBlock"]]
     
     def __init__(self):
         self.tags = defaultdict(list)
 
-    def add(self, block: "ProtoBlock"):
+    def add(self, block: "BaseBlock"):
         for tag in block.tags:
             self.tags[tag].append(block)        
     
-    def get(self, tag: str | list[str]) -> list["ProtoBlock"]:
+    def get(self, tag: str | list[str]) -> list["BaseBlock"]:
         if isinstance(tag, str):
             return self.tags[tag]
         else:
@@ -40,34 +39,37 @@ class TagRegistry:
      
         
         
-class ProtoBlock:
+class BaseBlock:
     
     tags: list[str]
-    items: list["ProtoBlock"]
-    inline_style: StyleDict
-    computed_style: StyleDict
-    content: None
+    items: list["BaseBlock"]
     
-    def __init__(self, content: Any | None = None, tags: list[str] | None = None, style: StyleDict | None = None, depth: int = 0):
-        self.content = content
+    
+    def __init__(self, tags: list[str] | None = None, depth: int = 0):
         self.tags = tags or []
         self.items = []
         self.depth = depth or 0
+        self.inline_style: StyleDict = {}
         self.computed_style: StyleDict = {}
-        self.inline_style: StyleDict = style or {}
+        self.parent: Optional["BaseBlock"] = None
         
         
-    def append(self, item: "ProtoBlock | Any"):
+    def append(self, item: "BaseBlock | Any"):
         # if not isinstance(item, Block):
             # item = self._build_instance(item)
         self.items.append(item)
+        
+        # Set parent reference for nested selector support
+        if hasattr(item, 'parent'):
+            item.parent = self
+            
         return item
         
-    def __add__(self, other: "ProtoBlock | Any"):
+    def __add__(self, other: "BaseBlock | Any"):
         item = self.append(other)
         return item
     
-    def __iadd__(self, other: "ProtoBlock | Any"):
+    def __iadd__(self, other: "BaseBlock | Any"):
         self.append(other)
         return self
        
@@ -79,14 +81,12 @@ class ProtoBlock:
     def _build_instance(cls, *args, **kwargs): 
         return cls(*args, **kwargs)
     
-    
-    def add_style(self, **style_props: Any) -> "ProtoBlock":
+    def add_style(self, **style_props: Any) -> "BaseBlock":
         """
         Add inline style properties to this block
         """
         self.inline_style.update(style_props)
         return self
-    
     
     def compute_styles(self) -> StyleDict:
         """
@@ -109,7 +109,6 @@ class ProtoBlock:
             self.compute_styles()
         return self.computed_style.get(property_name, default)
         
-        
     @abstractmethod
     def render(self):
         raise NotImplementedError("Subclasses must implement this method")
@@ -131,10 +130,10 @@ class ProtoBlock:
     
     
     
-class Block(object):
+class BlockContext(object):
     
-    _block_type_registry: dict[Type, Type[ProtoBlock]]
-    _ctx_stack: "List[ProtoBlock]"
+    _block_type_registry: dict[Type, Type[BaseBlock]]
+    _ctx_stack: "List[BaseBlock]"
     
     
     def __new__(cls, *args, **kwargs):
@@ -146,29 +145,29 @@ class Block(object):
     def __init__(
         self,
         value: Any | None = None,
-        tags: list[str] | None = None,
-        style: StyleDict | None = None,
+        **kwargs,
         # ctx_stack: "List[Block] | None" = None, 
     ):
         # self._block = block
         # self._staged_inst = self._build_instance(value, *args, **kwargs)
         self._ctx_stack = []
-        inst = self._build_instance(value, tags, style)
+        inst = self._build_instance(value, **kwargs)
         self._main_inst = inst
         # self._ctx_stack.append(inst)
     
-    @property
-    def root(self):
-        return self._ctx_stack[0]
     
-    def __call__(self, value: Any, tags: list[str] | None = None, style: StyleDict | None = None, **kwargs):       
-        self._append(value, tags, style)
+    def __call__(self, value: Any, **kwargs):       
+        self._append(value, **kwargs)
         return self
     
-    def _append(self, value: Any, tags: list[str] | None = None, style: StyleDict | None = None):
-        # print(self._ctx_stack, value)
-        inst = self._build_instance(value, tags, style)        
+    def _append(self, value: Any, **kwargs):
+        inst = self._build_instance(value, **kwargs)        
         self._ctx_stack[-1].append(inst)
+        
+        # Set parent reference for nested selector support
+        if hasattr(inst, 'parent'):
+            inst.parent = self._ctx_stack[-1]
+            
         return inst
 
     
@@ -177,39 +176,30 @@ class Block(object):
         if not self._ctx_stack:
             raise ValueError("No context stack")
         return self._ctx_stack[-1]
-    
-    @property
-    def last(self):
-        if not self._ctx_stack:
-            raise ValueError("No context stack")
-        if not self._ctx_stack[-1].items:
-            return self._ctx_stack[-1]
-        return self._ctx_stack[-1].items[-1]
         
     def __enter__(self):        
         if not self._ctx_stack:
             self._ctx_stack.append(self._main_inst)
         else:
-            self._ctx_stack.append(self.last)
+            self._ctx_stack.append(self.top)
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
         if len(self._ctx_stack) > 1:
             self._ctx_stack.pop()
 
-    
-    
+        
     @classmethod
-    def register(cls, typ: Type, block_type: Type[ProtoBlock]):
+    def register(cls, typ: Type, block_type: Type[BaseBlock]):
         if not hasattr(cls, "_block_type_registry"):
             cls._block_type_registry = {}
         cls._block_type_registry[typ] = block_type    
     
         
-    def _build_instance(self, value: Any, tags: list[str] | None = None, style: StyleDict | None = None):
+    def _build_instance(self, value: Any, **kwargs):
         # if "depth" not in kwargs:
             # kwargs["depth"] = depth
-        inst = self.__class__._block_type_registry[type(value)](value, tags, style)
+        inst = self.__class__._block_type_registry[type(value)](value, **kwargs)
         inst.depth = len(self._ctx_stack) + 1
         return inst
     
@@ -223,8 +213,17 @@ class Block(object):
         return self
     
     def render(self):
+        # Compute styles before rendering
+        self._ctx_stack[-1].compute_styles()
         return self._ctx_stack[-1].render()
     
+    def style(self, **style_props: Any):
+        """
+        Add inline style properties to the current block
+        """
+        self.top.add_style(**style_props)
+        return self
+    
     
     
     
@@ -232,16 +231,3 @@ class Block(object):
     
 
 
-def print_block(b, depth=0):
-    tags = f"{b.tags}" if b.tags else ""
-    print(str(depth) + " " + tags + "  " * depth + str(b.content))
-    for item in b.items:
-        print_block(item, depth+1)
-        
-        
-        
-        
-        
-        
-        
-        
