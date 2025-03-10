@@ -104,7 +104,8 @@ class Block(object):
     def _build_instance(self, content: Any, tags: list[str] | None = None, style: StyleDict | None = None, parent: "BaseBlock | None" = None):
         # if "depth" not in kwargs:
             # kwargs["depth"] = depth
-        inst = self.__class__._block_type_registry[type(content)](
+        block_type = self.__class__._block_type_registry.get(type(content), BaseBlock)
+        inst = block_type(
                 content=content, 
                 tags=tags, 
                 style=style, 

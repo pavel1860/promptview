@@ -15,7 +15,7 @@ class BaseBlock:
     items: list["BaseBlock"]
     inline_style: StyleDict
     computed_style: StyleDict
-    content: None
+    content: Any | None
     parent: "BaseBlock | None"
     
     def __init__(self, content: Any | None = None, tags: list[str] | None = None, style: StyleDict | None = None, depth: int = 0, parent: "BaseBlock | None" = None):
@@ -29,7 +29,14 @@ class BaseBlock:
     def append(self, item: "BaseBlock | Any"):
         self.items.append(item)
         return item
-        
+    
+    @property
+    def is_block(self) -> bool:
+        return len(self.items) > 0
+    
+    @property
+    def is_inline(self) -> bool:
+        return len(self.items) == 0
     
     def add_style(self, **style_props: Any) -> "BaseBlock":
         """
