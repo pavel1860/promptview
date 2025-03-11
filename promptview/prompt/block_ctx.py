@@ -1,6 +1,7 @@
 from typing import Any, Type
 from promptview.prompt.block4 import BaseBlock
 from promptview.prompt.block_renderer import BlockRenderer
+from promptview.prompt.llm_block import BlockRole, LLMBlock, ToolCall
 from promptview.prompt.renderer import RendererMeta
 from promptview.prompt.style import InlineStyle
 from promptview.prompt.style import style_manager
@@ -50,14 +51,19 @@ class Block(object):
         
     def __init__(
         self,
-        value: Any | None = None,
+        content: Any | None = None,
         tags: list[str] | None = None,
         style: InlineStyle | None = None,
         dedent: bool = True,
         # ctx_stack: "List[Block] | None" = None, 
     ):
         self._ctx = None
-        inst = self._build_instance(value, tags, style)
+        inst = self._build_instance(
+            content=content, 
+            tags=tags, 
+            style=style, 
+            dedent=dedent
+        )
         self._main_inst = inst
     
     @property
@@ -72,9 +78,12 @@ class Block(object):
             self._ctx =ContextStack()
         return self._ctx
     
+    def get(self, key: str | list[str], default: Any = None) -> Any:
+        return self.root.get(key, default)
     
-    def __call__(self, value: Any, tags: list[str] | None = None, style: InlineStyle | None = None, **kwargs):       
-        self._append(value, tags, style)
+    
+    def __call__(self, content: Any, tags: list[str] | None = None, style: InlineStyle | None = None, **kwargs):       
+        self._append(content, tags, style)
         return self
     
     def _append(self, value: Any, tags: list[str] | None = None, style: InlineStyle | None = None):
@@ -117,6 +126,8 @@ class Block(object):
         """
         Build an instance of a block based on the content type
         """
+        if isinstance(content, BaseBlock):
+            return content
         block_type = self.__class__._block_type_registry.get(type(content), BaseBlock)
         inst = block_type(
                 content=content, 
@@ -143,15 +154,51 @@ class Block(object):
         self._append(content)
         return self
     
+    @classmethod
+    def message(
+        cls,
+        content: Any | None = None, 
+        role: BlockRole = "user", 
+        tool_calls: list[ToolCall] | None = None,
+        id: str | None = None, 
+        name: str | None = None,
+        model: str | None = None,
+        run_id: str | None = None,
+        tags: list[str] | None = None, 
+        style: InlineStyle | None = None, 
+        depth: int = 0, 
+        parent: "BaseBlock | None" = None, 
+        dedent: bool = True
+    ):
+        return cls(
+            LLMBlock(
+                content=content,
+                role=role,
+                tool_calls=tool_calls,
+                id=id,
+                name=name,
+                model=model,
+                run_id=run_id,
+                tags=tags,
+                style=style,
+                depth=depth,
+                parent=parent,
+                dedent=dedent,
+            )
+        )
+        
     
-    def render(self):
+    
+    def render(self):        
         rndr = BlockRenderer(style_manager, RendererMeta._renderers)
         return rndr.render(self.root)
     
     
     
-    
-    
+    def __repr__(self) -> str:
+        content = self.render()
+        return f"{self.__class__.__name__}()\n{content}"
+
     
 
 

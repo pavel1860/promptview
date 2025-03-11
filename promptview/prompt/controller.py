@@ -2,11 +2,11 @@ import enum
 import functools
 import inspect
 from functools import wraps
-from typing import (Any, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, Type,
+from typing import (TYPE_CHECKING, Any, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, Type,
                     TypedDict, TypeVar, ParamSpec)
 
 from promptview.conversation.history import History
-from promptview.llms.llm3 import LLM
+
 
 from .block import BaseBlock
 from .context import BlockStream
@@ -16,6 +16,8 @@ from .context import Context, BaseContext
 from ..utils.function_utils import call_function, filter_args_by_exclude
 from pydantic import BaseModel, Field
 
+if TYPE_CHECKING:
+    from promptview.llms import LLM
 
 P = ParamSpec('P')
 R = TypeVar('R')

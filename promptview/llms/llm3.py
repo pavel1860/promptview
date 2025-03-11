@@ -5,14 +5,15 @@ from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Type,
 from pydantic import BaseModel, ValidationError
 
 from promptview.llms.types import ErrorMessage
+from promptview.prompt.context import BlockStream
+from promptview.prompt.output_format import OutputModel
 
 from .messages import AIMessage, HumanMessage
 from .tracer2 import Tracer
 # from ..prompt.block import BaseBlock, ResponseBlock
-from ..prompt.context import BlockStream
-from ..prompt.block2 import StrBlock       
-from ..prompt.output_format import OutputModel
-    
+# from ..prompt import OutputModel, Block, BaseBlock
+from ..prompt import LLMBlock, Block, BaseBlock, BlockRole, ToolCall, LlmUsage
+
 
 class LLMToolNotFound(Exception):
     
@@ -111,7 +112,7 @@ class LlmConfig(BaseModel):
 
 
 class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
-    ctx_blocks: BlockStream
+    ctx_blocks: Block
     output_model: Type[OutputModel] | None = None
     actions: List[Type[BaseModel]] = []
     tools: List[dict] | None = None
@@ -125,9 +126,9 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     tracer_run: Tracer | None = None
     _to_tools: Callable[[list[Type[BaseModel]]], List[dict] | None] | None = None
     _complete: Callable[CLIENT_PARAMS, CLIENT_RESPONSE] | None = None
-    _parse_response: Callable[[CLIENT_RESPONSE, list[Type[BaseModel]]], StrBlock] | None = None
-    _to_message: Callable[[StrBlock], dict] | None = None
-    _to_chat: Callable[[BlockStream], List[StrBlock]] | None = None
+    _parse_response: Callable[[CLIENT_RESPONSE, list[Type[BaseModel]]], Block] | None = None
+    _to_message: Callable[[Block], dict] | None = None
+    _to_chat: Callable[[Block], Block] | None = None
     class Config:
         arbitrary_types_allowed = True   
     
@@ -216,7 +217,7 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     async def run_complete(
         self, 
         retries=3,    
-    ) -> ResponseBlock:
+    ) -> LLMBlock:
         if self._complete is None:
             raise ValueError("complete method is not set")
         if self._parse_response is None:
@@ -314,15 +315,15 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     
     
     @abstractmethod
-    def to_message(self, block: StrBlock) -> dict:
+    def to_message(self, block: Block) -> dict:
         ...
     
     # @abstractmethod
-    def to_chat(self, blocks: BlockStream) -> List[StrBlock]:
-        return blocks._blocks
+    def to_chat(self, blocks: Block) -> List[BaseBlock]:
+        return [blocks]
     
     @abstractmethod
-    def parse_response(self, response: CLIENT_RESPONSE, actions: List[Type[BaseModel]] | None) -> StrBlock:
+    def parse_response(self, response: CLIENT_RESPONSE, actions: List[Type[BaseModel]] | None) -> LLMBlock:
         ...
         
     @abstractmethod
@@ -335,25 +336,14 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     
     def __call__(
         self, 
-        blocks: BlockStream | List[StrBlock] | StrBlock | str,
+        blocks: Block | str,
         retries: int = 3,
         smart_retry: bool = True,
         config: LlmConfig | None = None,
         is_traceable: bool | None = True,
     ) -> LlmExecution:
-        if not isinstance(blocks, BlockStream):
-            if isinstance(blocks, StrBlock):
-                blocks = BlockStream([blocks])
-            elif isinstance(blocks, str):
-                blocks = BlockStream([StrBlock(blocks)])
-            # elif isinstance(blocks, BlockStream):
-                # blocks = self.to_chat(blocks)
-            #     messages = [self.to_message(b) for b in chat_blocks]        
-            elif isinstance(blocks, list):
-                blocks = BlockStream(blocks)
-            #     messages = [self.to_message(b) for b in blocks]
-            else:
-                raise ValueError("Invalid blocks type")
+        if isinstance(blocks, str):
+            blocks = Block(blocks)    
                 
         llm_execution = LlmExecution(
             ctx_blocks=blocks,

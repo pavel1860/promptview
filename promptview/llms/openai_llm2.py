@@ -5,9 +5,11 @@ from .llm3 import LLM, BaseLlmClient
 from pydantic import Field, BaseModel
 from .utils.action_manager import Actions
 # from ..prompt.block import BaseBlock, ResponseBlock
-from ..prompt.block2 import StrBlock, ToolCall
+from ..prompt import Block, BaseBlock, LLMBlock, ToolCall
 import openai
 import os
+
+
 
 
     
@@ -17,10 +19,17 @@ class OpenAiLLM(LLM):
     # client: OpenAiLlmClient = Field(default_factory=OpenAiLlmClient)
     client: openai.AsyncClient = Field(default_factory=lambda: openai.AsyncClient(api_key=os.getenv("OPENAI_API_KEY")))
     model: str = "gpt-4o"
+    
+    
+    
 
-    
-    
-    def to_message(self, block: StrBlock):
+    def to_message(self, block: BaseBlock | LLMBlock | Block):
+        if not isinstance(block, LLMBlock):
+            if isinstance(block, BaseBlock):
+                block = LLMBlock.from_block(block)
+            elif isinstance(block, Block):
+                block = LLMBlock.from_block(block.root)
+                        
         if block.role == "user" or block.role == "system":
             return {
                 "role": block.role, # type: ignore
@@ -108,7 +117,16 @@ class OpenAiLLM(LLM):
                         name=tool_call.function.name,
                         tool=action_instance
                     ))
-        response_block = StrBlock(
+                
+                
+        response_block = Block.message(
+            content=output.content,
+            role="assistant",
+            tool_calls=tool_calls,
+        )
+        return response_block
+        
+        response_block = LLMBlock(
             output.content,
             role="assistant",
             # id=response.id,

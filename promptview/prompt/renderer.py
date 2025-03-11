@@ -1,10 +1,10 @@
 
-from promptview.prompt.block4 import BaseBlock
+
 from promptview.prompt.style import BulletType, StyleManager
-from typing import Any, List, Literal, Protocol, Type, TypedDict, Union
+from typing import TYPE_CHECKING, Any, List, Literal, Protocol, Type, TypedDict, Union
 
 from promptview.utils.string_utils import int_to_roman
-
+from promptview.prompt.block4 import BaseBlock
 
 
 
@@ -77,31 +77,43 @@ class MarkdownParagraphRenderer(ItemsRenderer):
     def __call__(self, block: BaseBlock, inner_content: List[str], depth: int) -> List[str]:
         return inner_content
 
+
+
+def get_bullet_prefix(bullet_type: BulletType, idx: int) -> str:
+    if bullet_type == "" or bullet_type == "number":
+        return f"{idx}. "
+    elif bullet_type == "alpha":
+        return f"{chr(96+idx)}. "
+    elif bullet_type == "roman_upper":
+        return int_to_roman(idx, upper=True) + ". "
+    elif bullet_type == "roman":
+        return int_to_roman(idx, upper=False) + ". "
+    elif bullet_type == "*":
+        return "* "
+    elif bullet_type == "-":
+        return "- "
+    else:
+        return f"{bullet_type} "
+
 class MarkdownListRenderer(ItemsRenderer):
-    tags = ["list:number", "list:alpha", "list:roman", "list:roman_lower", "list:*", "list:-"]
-    
-        
-    def _get_prefix(self, bullet_type: BulletType, idx: int) -> str:
-        if bullet_type == "" or bullet_type == "number":
-            return f"{idx}. "
-        elif bullet_type == "alpha":
-            return f"{chr(96+idx)}. "
-        elif bullet_type == "roman_upper":
-            return int_to_roman(idx, upper=True) + ". "
-        elif bullet_type == "roman":
-            return int_to_roman(idx, upper=False) + ". "
-        elif bullet_type == "*":
-            return "* "
-        elif bullet_type == "-":
-            return "- "
-        else:
-            return f"{bullet_type} "
+    tags = ["list","list:number", "list:alpha", "list:roman", "list:roman_lower", "list:*", "list:-"]
         
     def __call__(self, block: BaseBlock, inner_content: List[str], depth: int) -> List[str]:
         bullet_type = block.inline_style.get("bullet_type", "number")
         if not bullet_type:
             raise ValueError("Bullet type not found")
-        return [self._get_prefix(bullet_type, idx) + item for idx, item in enumerate(inner_content)]
+        return [get_bullet_prefix(bullet_type, idx) + item for idx, item in enumerate(inner_content)]
+
+
+
+# class MarkdownListContentRenderer(ContentRenderer):
+#     tags = ["li"]
+    
+#     def __call__(self, block: BaseBlock, inner_content: List[str], depth: int) -> str:
+#         bullet_type = block.inline_style.get("bullet_type", "number")
+#         if not bullet_type:
+#             raise ValueError("Bullet type not found")
+#         return get_bullet_prefix(bullet_type, idx) + item
 
 
 class XMLRenderer(ContentRenderer):

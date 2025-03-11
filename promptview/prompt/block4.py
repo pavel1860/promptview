@@ -29,6 +29,20 @@ class BaseBlock:
         self.inline_style = BlockStyle(style)
         self.parent = parent
         
+    def get(self, key: str | list[str], default: Any = None) -> Any:
+        if isinstance(key, str):
+            key = [key]
+        sel_items = []
+        for item in self.items:
+            for k in key:
+                if k in item.tags:
+                    sel_items.append(item)
+                    break
+            else:
+                sel_items.extend(item.get(key, default))
+        return sel_items
+        
+        
     def append(self, item: "BaseBlock | Any"):
         self.items.append(item)
         return item
@@ -72,5 +86,16 @@ class BaseBlock:
         """
         return self.inline_style.get(property_name, default)
     
+    
+    def render(self) -> str:
+        from promptview.prompt.block_renderer import BlockRenderer
+        from promptview.prompt.renderer import RendererMeta
+        rndr = BlockRenderer(style_manager, RendererMeta._renderers)
+        return rndr.render(self)
+    
       
+    def __repr__(self) -> str:
+        content = self.render()
+        return f"{self.__class__.__name__}()\n{content}"
+
 

@@ -1,8 +1,8 @@
-from promptview.prompt.block4 import BaseBlock
-from promptview.prompt.renderer import ItemsRenderer, MarkdownListRenderer, MarkdownParagraphRenderer, MarkdownTitleRenderer, ContentRenderer, Renderer
-from promptview.prompt.style import InlineStyle, BlockStyle, StyleManager
-from typing import List, Literal, Type, TypedDict, Union
 
+from promptview.prompt.renderer import ItemsRenderer, MarkdownListRenderer, MarkdownParagraphRenderer, MarkdownTitleRenderer, ContentRenderer, Renderer
+from promptview.prompt.style import InlineStyle, BlockStyle, StyleManager, UndefinedTagError
+from typing import TYPE_CHECKING, List, Literal, Type, TypedDict, Union
+from promptview.prompt.block4 import BaseBlock
 
 
 class RenderersClassDict(TypedDict):
@@ -66,8 +66,12 @@ class BlockRenderer:
             "items": MarkdownParagraphRenderer
         }
         for tag in block.inline_style.style:
-            renderer_cls = self.renderer_lookup[tag]
-            target_classes[renderer_cls.target] = renderer_cls # type: ignore
+            try:
+                renderer_cls = self.renderer_lookup[tag]
+            except KeyError:
+                raise UndefinedTagError(f"Tag {tag} not found in renderer lookup. Implement a renderer for this tag.")
+            else:
+                target_classes[renderer_cls.target] = renderer_cls # type: ignore
         if target_classes["content"] is None or target_classes["items"] is None:
             raise ValueError("No renderer found for content or items")        
         

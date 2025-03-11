@@ -7,9 +7,11 @@ from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.conversation.message_log import MessageLog, SessionManager
 from promptview.conversation.models import Session
 from promptview.model.model import Model
+from promptview.prompt.block4 import BaseBlock
+from promptview.prompt.llm_block import BlockRole, LLMBlock
 from ..llms.messages import ActionCall
-from .block import ActionBlock, BaseBlock, BulletType, ListBlock, ResponseBlock, TitleBlock, TitleType, BlockRole
-from .block2 import StrBlock  
+# from .block import ActionBlock, BaseBlock, BulletType, ListBlock, ResponseBlock, TitleBlock, TitleType, BlockRole
+from .block_ctx import Block  
 from collections import defaultdict
 import datetime as dt
 
@@ -28,11 +30,21 @@ CURR_CONTEXT = contextvars.ContextVar("curr_context")
 MODEL = TypeVar("MODEL", bound=Model)
 
 
+
+def sanitize_block(block: Block | BaseBlock | LLMBlock):
+    if not isinstance(block, LLMBlock):
+        if isinstance(block, Block):
+            block = LLMBlock.from_block(block.root)
+        elif isinstance(block, BaseBlock):
+            block = LLMBlock.from_block(block)
+    return block
+
+
 class BlockStream(Generic[MODEL]):
     
     def __init__(
         self,         
-        blocks: List[StrBlock] | None = None,        
+        blocks: List[Block] | None = None,        
         run_id: str | None = None, 
         prompt_name: str | None = None
     ):
@@ -40,16 +52,19 @@ class BlockStream(Generic[MODEL]):
         self._block_lookup = defaultdict(list)        
         if blocks:
             for b in blocks:
-                self.append(b)        
+                self.append(sanitize_block(b))        
         self._dirty = True
         self.response = None
         self.run_id = run_id
         self.prompt_name = prompt_name  
+        
     
-    def __add__(self, other: Union[list[StrBlock] , "BlockStream"]):
+                
+    
+    def __add__(self, other: Union[list[Block] , "BlockStream"]):
         if isinstance(other, list):
             for i, b in enumerate(other):
-                if not isinstance(b, StrBlock):
+                if not isinstance(b, Block):
                     raise ValueError(f"Invalid block type: {type(b)} at index {i}")
             return BlockStream(self._blocks + other, run_id=self.run_id, prompt_name=self.prompt_name)
         elif isinstance(other, BlockStream):
@@ -57,10 +72,10 @@ class BlockStream(Generic[MODEL]):
         else:       
             raise ValueError(f"Invalid type: {type(other)}")
         
-    def __radd__(self, other: Union[list[StrBlock], "BlockStream"]):
+    def __radd__(self, other: Union[list[Block], "BlockStream"]):
         if isinstance(other, list):
             for i, b in enumerate(other):
-                if not isinstance(b, StrBlock):
+                if not isinstance(b, Block):
                     raise ValueError(f"Invalid block type: {type(b)} at index {i}")
             return BlockStream(other + self._blocks, run_id=self.run_id, prompt_name=self.prompt_name)
         elif isinstance(other, BlockStream):
@@ -69,11 +84,12 @@ class BlockStream(Generic[MODEL]):
             raise ValueError(f"Invalid type: {type(other)}")        
     
         
-    def _update_lookup(self, block: StrBlock):
-        if isinstance(block, StrBlock):
+    def _update_lookup(self, block: Block | BaseBlock | LLMBlock):
+        block = sanitize_block(block)
+        if isinstance(block, LLMBlock):
             if block.id:
                 self._block_lookup[block.id].append(block)
-            for b in block._items:
+            for b in block.items:
                 self._update_lookup(b)            
     
 
@@ -81,6 +97,7 @@ class BlockStream(Generic[MODEL]):
         self._blocks.append(block)
         # self._block_lookup[block.id].append(block)
         self._update_lookup(block)
+        
     def prepend(self, block):
         self._blocks.insert(0, block)
         # self._block_lookup[block.id].insert(0, block)
@@ -92,28 +109,7 @@ class BlockStream(Generic[MODEL]):
         self._update_lookup(block)
         
     def get(self, key: str | MessageView | list[str | MessageView] ):
-        _key: list[str | MessageView]
-        if type(key) == str or type(key) == MessageView:
-            _key = [key]
-        elif type(key) == list:
-            _key = key
-        else:
-            raise ValueError(f"Invalid key type: {type(key)}")
-        chat_blocks = []
-        for k in _key:            
-            if type(k) == str:
-                if k not in self._block_lookup:
-                    continue
-                    # raise ValueError(f"Block with id {k} not found")
-                target = self._block_lookup[k]
-                chat_blocks.extend(target)
-            elif type(k) == dict:                                
-                chat_blocks.append(
-                    StrBlock(
-                        content=self.get(k["content"]),
-                        role=k.get("role", "user")
-                    )
-                )
+        
                 
         return chat_blocks
         
@@ -128,17 +124,17 @@ class BlockStream(Generic[MODEL]):
     #     self.append(lb)
     #     return lb
     
-    async def push(self, block: StrBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):
+    async def push(self, block: Block | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):
         platform_id = None
-        action_calls = None        
+        tool_calls = None        
         
-        if isinstance(block, StrBlock):
+        if isinstance(block, Block):
             content = block.render()
             _role = role or block.role or "user"
             if action:
                 platform_id = action.id
-            if isinstance(block, ResponseBlock):
-                action_calls = [a.model_dump() for a in block.action_calls]
+            if isinstance(block, LLMBlock):
+                tool_calls = [a.model_dump() for a in block.tool_calls]
         elif isinstance(block, str) or isinstance(block, dict):
             content = block    
             _role = role or "user"
@@ -146,7 +142,7 @@ class BlockStream(Generic[MODEL]):
             
         else:
             raise ValueError(f"Invalid block type: {type(block)}")
-        block = StrBlock(content, role=_role, id=id, uuid=platform_id, tool_calls=action_calls)
+        block = LLMBlock(content, role=_role, id=id, uuid=platform_id, tool_calls=tool_calls)
         ctx = CURR_CONTEXT.get()
         model = ctx.from_blocks(block)
         await model.save()
@@ -415,12 +411,12 @@ class Context(Generic[MODEL], BaseContext):
         # await self.message_log.delete_message(id=id)
     
     @abstractmethod
-    def to_blocks(self, model: MODEL) -> StrBlock:
+    def to_blocks(self, model: MODEL) -> LLMBlock:
         pass
     
     
     @abstractmethod
-    def from_blocks(self, block: StrBlock) -> MODEL:
+    def from_blocks(self, block: LLMBlock) -> MODEL:
         pass
     
     

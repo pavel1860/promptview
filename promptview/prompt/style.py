@@ -6,7 +6,7 @@ import uuid
 
 
 
-BlockType = Literal["xml", "md"]
+BlockType = Literal["xml", "md", "li"]
 BulletType = Literal["number", "alpha", "roman", "roman_upper", "*", "-"] 
 ListType = Literal["list", "list:number", "list:alpha", "list:roman", "list:roman_lower", "list:*", "list:-"]
 # BlockType = Literal["list", "code", "table", "text"]
@@ -18,6 +18,10 @@ StyleValue = Union[str, int, bool, None]
 StyleDict = Dict[str, StyleValue]
 InlineStyle = List[ListType | BlockType]
 T = TypeVar('T')
+
+
+class UndefinedTagError(Exception):
+    pass
 
 
 class BlockStyle:    
@@ -35,7 +39,8 @@ class BlockStyle:
         for tag in self.style:
             if tag.startswith("list"):
                 self.is_list = True
-                self.bullet_type = tag.split(":")[1] # type: ignore
+                tag_parts = tag.split(":")
+                self.bullet_type = tag_parts[1] if len(tag_parts) > 1 else "number" # type: ignore
             elif tag == "md":
                 self.block_type = "md"
             elif tag == "xml":
@@ -49,7 +54,8 @@ class BlockStyle:
         for tag in style:
             if tag.startswith("list"):
                 self.is_list = True
-                self.bullet_type = tag.split(":")[1] # type: ignore
+                tag_parts = tag.split(":")
+                self.bullet_type = tag_parts[1] if len(tag_parts) > 1 else "number" # type: ignore
             elif tag == "md":
                 self.block_type = "md"
             elif tag == "xml":
