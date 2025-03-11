@@ -10,6 +10,9 @@ from promptview.prompt.style import style_manager
 
 
 class ContextStack:
+    """
+    A stack-based context for managing nested block structures.
+    """
     _ctx_stack: list[BaseBlock]
     
     def __init__(self):
@@ -38,6 +41,20 @@ class ContextStack:
 
 
 class Block(object):
+    """
+    the main class for building blocks.
+    Block is a builder class for creating and managing hierarchical block structures.
+    It serves as a high-level interface for constructing blocks of content with associated
+    tags, styles and nested relationships. The class maintains a context stack to track
+    the current block hierarchy and provides methods for building and manipulating blocks.
+
+    Key features:
+    - Creates blocks with content, tags and styles
+    - Maintains a context stack for nested block structures 
+    - Supports different block types through a registry
+    - Provides access to the root block and current context
+    - Allows appending child blocks and retrieving blocks by tags
+    """
     
     _block_type_registry: dict[Type, Type[BaseBlock]]
     _ctx: ContextStack | None
@@ -170,6 +187,9 @@ class Block(object):
         parent: "BaseBlock | None" = None, 
         dedent: bool = True
     ):
+        """
+        Create a new LLM block with the given parameters
+        """
         return cls(
             LLMBlock(
                 content=content,
