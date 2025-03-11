@@ -1,7 +1,7 @@
 from collections import defaultdict
 from abc import abstractmethod
 from typing import Any, List, Type
-from promptview.prompt.style import StyleConfig, style_manager
+from promptview.prompt.style import InlineStyle, StyleDict, style_manager
 
 
     
@@ -13,17 +13,17 @@ class BaseBlock:
     
     tags: list[str]
     items: list["BaseBlock"]
-    inline_style: StyleConfig
-    computed_style: StyleConfig
+    inline_style: StyleDict
+    computed_style: InlineStyle
     content: Any | None
     parent: "BaseBlock | None"
     
-    def __init__(self, content: Any | None = None, tags: list[str] | None = None, style: StyleConfig | None = None, depth: int = 0, parent: "BaseBlock | None" = None):
+    def __init__(self, content: Any | None = None, tags: list[str] | None = None, style: InlineStyle | None = None, depth: int = 0, parent: "BaseBlock | None" = None):
         self.content = content
         self.tags = tags or []
         self.items = []
         self.depth = depth or 0
-        self.inline_style: StyleConfig = style or []
+        self.inline_style = StyleDict(style)
         self.parent = parent
         
     def append(self, item: "BaseBlock | Any"):
@@ -33,6 +33,10 @@ class BaseBlock:
     @property
     def is_block(self) -> bool:
         return len(self.items) > 0
+    
+    @property
+    def is_wrapper(self) -> bool:
+        return self.content is None and len(self.items) > 0
     
     @property
     def is_inline(self) -> bool:

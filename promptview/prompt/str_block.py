@@ -2,7 +2,7 @@ import json
 import textwrap
 from typing import Literal, Type
 from promptview.prompt.block4 import BaseBlock, Block
-from promptview.prompt.style import StyleConfig
+from promptview.prompt.style import InlineStyle
 from promptview.utils.string_utils import int_to_roman
 
         
@@ -62,7 +62,7 @@ class StrBlock(BaseBlock):
         self,
         content: str,
         tags: list[str] | None = None,
-        style: StyleConfig | None = None,
+        style: InlineStyle | None = None,
         dedent: bool = True,
         depth: int = 1,
     ):
@@ -225,7 +225,7 @@ class block(Block):
         self,
         content: str | None = None,
         tags: list[str] | None = None,                
-        style: StyleConfig | None = None,
+        style: InlineStyle | None = None,
     ):
         super().__init__(content, tags, style)
         

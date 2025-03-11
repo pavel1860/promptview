@@ -1,4 +1,4 @@
-from typing import Dict, List, Any, Tuple, Optional, Union, Literal, TypeVar, cast
+from typing import Dict, List, Any, Tuple, Optional, TypedDict, Union, Literal, TypeVar, cast
 from collections import defaultdict
 import random
 import re
@@ -16,8 +16,55 @@ ListType = Literal["list", "list:number", "list:alpha", "list:roman", "list:roma
 # Define types for style properties
 StyleValue = Union[str, int, bool, None]
 # StyleDict = Dict[str, StyleValue]
-StyleConfig = List[ListType | BlockType]
+InlineStyle = List[ListType | BlockType]
 T = TypeVar('T')
+
+
+class StyleDict:    
+    depth: int
+    block_type: BlockType
+    is_list: bool
+    bullet_type: BulletType | None
+    style: InlineStyle
+    
+    def __init__(self, style: InlineStyle | None = None):
+        self.style = style or []
+        self.block_type = "md"
+        self.is_list = False
+        self.bullet_type = None
+        for tag in self.style:
+            if tag.startswith("list"):
+                self.is_list = True
+                self.bullet_type = tag.split(":")[1] # type: ignore
+            elif tag == "md":
+                self.block_type = "md"
+            elif tag == "xml":
+                self.block_type = "xml"
+                
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+        
+    def update(self, style: InlineStyle) -> None:
+        self.style.extend(style)
+        for tag in style:
+            if tag.startswith("list"):
+                self.is_list = True
+                self.bullet_type = tag.split(":")[1] # type: ignore
+            elif tag == "md":
+                self.block_type = "md"
+            elif tag == "xml":
+                self.block_type = "xml"
+                
+    def __or__(self, other: InlineStyle) -> "StyleDict":
+        self.update(other)
+        return self
+    
+    def __ior__(self, other: InlineStyle) -> "StyleDict":
+        self.update(other)
+        return self
+    
+    
+
 
 class StyleSelector:
     """
@@ -145,7 +192,7 @@ class StyleRule:
     """
     A style rule that combines a selector with style declarations
     """
-    def __init__(self, selector: str, declarations: StyleConfig):
+    def __init__(self, selector: str, declarations: InlineStyle):
         self.selector = StyleSelector(selector)
         self.declarations = declarations
         self.specificity = self.selector.specificity
@@ -166,10 +213,10 @@ class StyleManager:
         self.experiment_id: Optional[str] = None
         self.variant_id: Optional[str] = None
         self.ab_testing_enabled = False
-        self.ab_test_variants: Dict[str, List[Tuple[str, StyleConfig]]] = {}
+        self.ab_test_variants: Dict[str, List[Tuple[str, InlineStyle]]] = {}
         self.metrics: Dict[str, Dict[str, Any]] = defaultdict(dict)
     
-    def add_rule(self, selector: str, declarations: StyleConfig) -> None:
+    def add_rule(self, selector: str, declarations: InlineStyle) -> None:
         """
         Add a style rule to the manager
         """
@@ -182,7 +229,7 @@ class StyleManager:
         """
         self.rules = []
     
-    def apply_styles(self, block) -> StyleConfig:
+    def apply_styles(self, block) -> InlineStyle:
         """
         Apply matching style rules to a block and return the computed style
         """
@@ -229,7 +276,7 @@ class StyleManager:
         """
         self.ab_testing_enabled = False
     
-    def add_variant(self, variant_id: str, rules: List[Tuple[str, StyleConfig]]) -> None:
+    def add_variant(self, variant_id: str, rules: List[Tuple[str, InlineStyle]]) -> None:
         """
         Add a variant for A/B testing
         """
