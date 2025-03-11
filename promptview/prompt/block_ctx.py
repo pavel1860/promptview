@@ -39,7 +39,7 @@ class ContextStack:
 class Block(object):
     
     _block_type_registry: dict[Type, Type[BaseBlock]]
-    _ctx: ContextStack
+    _ctx: ContextStack | None
     
     
     def __new__(cls, *args, **kwargs):
@@ -53,15 +53,25 @@ class Block(object):
         value: Any | None = None,
         tags: list[str] | None = None,
         style: InlineStyle | None = None,
+        dedent: bool = True,
         # ctx_stack: "List[Block] | None" = None, 
     ):
-        self._ctx = ContextStack()
+        self._ctx = None
         inst = self._build_instance(value, tags, style)
         self._main_inst = inst
     
     @property
     def root(self):
+        if self._ctx is None:
+            return self._main_inst
         return self._ctx[0]
+    
+    @property
+    def ctx(self):
+        if self._ctx is None:
+            self._ctx =ContextStack()
+        return self._ctx
+    
     
     def __call__(self, value: Any, tags: list[str] | None = None, style: InlineStyle | None = None, **kwargs):       
         self._append(value, tags, style)
@@ -69,7 +79,7 @@ class Block(object):
     
     def _append(self, value: Any, tags: list[str] | None = None, style: InlineStyle | None = None):
         inst = self._build_instance(value, tags, style)        
-        self._ctx[-1].append(inst)
+        self.ctx[-1].append(inst)
         return inst
 
     
@@ -86,14 +96,14 @@ class Block(object):
         
     def __enter__(self):        
         if not self._ctx:
-            self._ctx.push(self._main_inst)
+            self.ctx.push(self._main_inst)
         else:
-            self._ctx.push(self.last)
+            self.ctx.push(self.last)
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
-        if len(self._ctx) > 1:
-            self._ctx.pop()
+        if len(self.ctx) > 1:
+            self.ctx.pop()
 
     
     @classmethod
@@ -103,16 +113,17 @@ class Block(object):
         cls._block_type_registry[typ] = block_type    
     
         
-    def _build_instance(self, content: Any, tags: list[str] | None = None, style: InlineStyle | None = None, parent: "BaseBlock | None" = None):
-        # if "depth" not in kwargs:
-            # kwargs["depth"] = depth
+    def _build_instance(self, content: Any, tags: list[str] | None = None, style: InlineStyle | None = None, parent: "BaseBlock | None" = None, dedent: bool = True):
+        """
+        Build an instance of a block based on the content type
+        """
         block_type = self.__class__._block_type_registry.get(type(content), BaseBlock)
         inst = block_type(
                 content=content, 
                 tags=tags, 
                 style=style, 
                 parent=parent,
-                depth=len(self._ctx) + 1
+                depth=len(self._ctx) if self._ctx else 0
             )
         return inst
         
@@ -123,6 +134,15 @@ class Block(object):
     def __iadd__(self, content: Any):
         self._append(content)
         return self
+    
+    def __truediv__(self, content: Any):
+        self._append(content)
+        return self
+    
+    def __itruediv__(self, content: Any):
+        self._append(content)
+        return self
+    
     
     def render(self):
         rndr = BlockRenderer(style_manager, RendererMeta._renderers)

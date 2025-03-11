@@ -1,7 +1,8 @@
 from collections import defaultdict
 from abc import abstractmethod
+import textwrap
 from typing import Any, List, Type
-from promptview.prompt.style import InlineStyle, StyleDict, style_manager
+from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
 
 
     
@@ -13,17 +14,19 @@ class BaseBlock:
     
     tags: list[str]
     items: list["BaseBlock"]
-    inline_style: StyleDict
+    inline_style: BlockStyle
     computed_style: InlineStyle
     content: Any | None
     parent: "BaseBlock | None"
     
-    def __init__(self, content: Any | None = None, tags: list[str] | None = None, style: InlineStyle | None = None, depth: int = 0, parent: "BaseBlock | None" = None):
+    def __init__(self, content: Any | None = None, tags: list[str] | None = None, style: InlineStyle | None = None, depth: int = 0, parent: "BaseBlock | None" = None, dedent: bool = True):
+        if dedent and isinstance(content, str):
+            content = textwrap.dedent(content).strip()
         self.content = content
         self.tags = tags or []
         self.items = []
         self.depth = depth or 0
-        self.inline_style = StyleDict(style)
+        self.inline_style = BlockStyle(style)
         self.parent = parent
         
     def append(self, item: "BaseBlock | Any"):

@@ -1,6 +1,6 @@
 from promptview.prompt.block4 import BaseBlock
 from promptview.prompt.renderer import ItemsRenderer, MarkdownListRenderer, MarkdownParagraphRenderer, MarkdownTitleRenderer, ContentRenderer, Renderer
-from promptview.prompt.style import InlineStyle, StyleDict, StyleManager
+from promptview.prompt.style import InlineStyle, BlockStyle, StyleManager
 from typing import List, Literal, Type, TypedDict, Union
 
 

@@ -1,8 +1,6 @@
 import pytest
-from promptview.prompt import BaseBlock, StrBlock, DictBlock
 from promptview.prompt import Block as blk
 from promptview.prompt.style import style_manager
-from promptview.prompt.block4 import print_block
 
 
 @pytest.fixture

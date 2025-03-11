@@ -15,12 +15,12 @@ ListType = Literal["list", "list:number", "list:alpha", "list:roman", "list:roma
 
 # Define types for style properties
 StyleValue = Union[str, int, bool, None]
-# StyleDict = Dict[str, StyleValue]
+StyleDict = Dict[str, StyleValue]
 InlineStyle = List[ListType | BlockType]
 T = TypeVar('T')
 
 
-class StyleDict:    
+class BlockStyle:    
     depth: int
     block_type: BlockType
     is_list: bool
@@ -55,11 +55,11 @@ class StyleDict:
             elif tag == "xml":
                 self.block_type = "xml"
                 
-    def __or__(self, other: InlineStyle) -> "StyleDict":
+    def __or__(self, other: InlineStyle) -> "BlockStyle":
         self.update(other)
         return self
     
-    def __ior__(self, other: InlineStyle) -> "StyleDict":
+    def __ior__(self, other: InlineStyle) -> "BlockStyle":
         self.update(other)
         return self
     
@@ -192,7 +192,7 @@ class StyleRule:
     """
     A style rule that combines a selector with style declarations
     """
-    def __init__(self, selector: str, declarations: InlineStyle):
+    def __init__(self, selector: str, declarations: StyleDict):
         self.selector = StyleSelector(selector)
         self.declarations = declarations
         self.specificity = self.selector.specificity
@@ -213,10 +213,10 @@ class StyleManager:
         self.experiment_id: Optional[str] = None
         self.variant_id: Optional[str] = None
         self.ab_testing_enabled = False
-        self.ab_test_variants: Dict[str, List[Tuple[str, InlineStyle]]] = {}
+        self.ab_test_variants: Dict[str, List[Tuple[str, StyleDict]]] = {}
         self.metrics: Dict[str, Dict[str, Any]] = defaultdict(dict)
     
-    def add_rule(self, selector: str, declarations: InlineStyle) -> None:
+    def add_rule(self, selector: str, declarations: StyleDict) -> None:
         """
         Add a style rule to the manager
         """
@@ -229,7 +229,7 @@ class StyleManager:
         """
         self.rules = []
     
-    def apply_styles(self, block) -> InlineStyle:
+    def apply_styles(self, block) -> StyleDict:
         """
         Apply matching style rules to a block and return the computed style
         """
@@ -276,7 +276,7 @@ class StyleManager:
         """
         self.ab_testing_enabled = False
     
-    def add_variant(self, variant_id: str, rules: List[Tuple[str, InlineStyle]]) -> None:
+    def add_variant(self, variant_id: str, rules: List[Tuple[str, StyleDict]]) -> None:
         """
         Add a variant for A/B testing
         """
