@@ -3,7 +3,7 @@ import textwrap
 from typing import Literal, Type, Any, Optional
 from promptview.prompt.block4 import BaseBlock, Block
 from promptview.utils.string_utils import int_to_roman
-from promptview.prompt.style import StyleDict
+from promptview.prompt.style import StyleConfig
 
         
         
@@ -230,7 +230,7 @@ class block(Block):
         bullet: BulletType | None = None,
         indent: int = 0,
         dedent: bool = True,
-        style: Optional[StyleDict] = None,
+        style: Optional[StyleConfig] = None,
         # depth: int = 1
     ):
         super().__init__(content, tags=tags, title=title, bullet=bullet, indent=indent, dedent=dedent)

@@ -1,7 +1,7 @@
 from collections import defaultdict
 from abc import abstractmethod
 from typing import Any, List, Type, Dict, Optional
-from promptview.prompt.style import StyleDict, style_manager
+from promptview.prompt.style import StyleConfig, style_manager
 
 
 
@@ -49,8 +49,8 @@ class BaseBlock:
         self.tags = tags or []
         self.items = []
         self.depth = depth or 0
-        self.inline_style: StyleDict = {}
-        self.computed_style: StyleDict = {}
+        self.inline_style: StyleConfig = {}
+        self.computed_style: StyleConfig = {}
         self.parent: Optional["BaseBlock"] = None
         
         
@@ -88,7 +88,7 @@ class BaseBlock:
         self.inline_style.update(style_props)
         return self
     
-    def compute_styles(self) -> StyleDict:
+    def compute_styles(self) -> StyleConfig:
         """
         Compute the final styles for this block by applying the style manager rules
         """

@@ -4,9 +4,19 @@ import random
 import re
 import uuid
 
+
+
+BlockType = Literal["xml", "md"]
+BulletType = Literal["number", "alpha", "roman", "roman_upper", "*", "-"] 
+ListType = Literal["list", "list:number", "list:alpha", "list:roman", "list:roman_lower", "list:*", "list:-"]
+# BlockType = Literal["list", "code", "table", "text"]
+
+
+
 # Define types for style properties
 StyleValue = Union[str, int, bool, None]
-StyleDict = Dict[str, StyleValue]
+# StyleDict = Dict[str, StyleValue]
+StyleConfig = List[ListType | BlockType]
 T = TypeVar('T')
 
 class StyleSelector:
@@ -135,7 +145,7 @@ class StyleRule:
     """
     A style rule that combines a selector with style declarations
     """
-    def __init__(self, selector: str, declarations: StyleDict):
+    def __init__(self, selector: str, declarations: StyleConfig):
         self.selector = StyleSelector(selector)
         self.declarations = declarations
         self.specificity = self.selector.specificity
@@ -156,10 +166,10 @@ class StyleManager:
         self.experiment_id: Optional[str] = None
         self.variant_id: Optional[str] = None
         self.ab_testing_enabled = False
-        self.ab_test_variants: Dict[str, List[Tuple[str, StyleDict]]] = {}
+        self.ab_test_variants: Dict[str, List[Tuple[str, StyleConfig]]] = {}
         self.metrics: Dict[str, Dict[str, Any]] = defaultdict(dict)
     
-    def add_rule(self, selector: str, declarations: StyleDict) -> None:
+    def add_rule(self, selector: str, declarations: StyleConfig) -> None:
         """
         Add a style rule to the manager
         """
@@ -172,7 +182,7 @@ class StyleManager:
         """
         self.rules = []
     
-    def apply_styles(self, block) -> StyleDict:
+    def apply_styles(self, block) -> StyleConfig:
         """
         Apply matching style rules to a block and return the computed style
         """
@@ -219,7 +229,7 @@ class StyleManager:
         """
         self.ab_testing_enabled = False
     
-    def add_variant(self, variant_id: str, rules: List[Tuple[str, StyleDict]]) -> None:
+    def add_variant(self, variant_id: str, rules: List[Tuple[str, StyleConfig]]) -> None:
         """
         Add a variant for A/B testing
         """

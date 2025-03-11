@@ -1,6 +1,6 @@
 from typing import Any, Type
 from promptview.prompt.block4 import BaseBlock
-from promptview.prompt.style import StyleDict
+from promptview.prompt.style import StyleConfig
 
 
 
@@ -50,7 +50,7 @@ class Block(object):
         self,
         value: Any | None = None,
         tags: list[str] | None = None,
-        style: StyleDict | None = None,
+        style: StyleConfig | None = None,
         # ctx_stack: "List[Block] | None" = None, 
     ):
         self._ctx = ContextStack()
@@ -61,11 +61,11 @@ class Block(object):
     def root(self):
         return self._ctx[0]
     
-    def __call__(self, value: Any, tags: list[str] | None = None, style: StyleDict | None = None, **kwargs):       
+    def __call__(self, value: Any, tags: list[str] | None = None, style: StyleConfig | None = None, **kwargs):       
         self._append(value, tags, style)
         return self
     
-    def _append(self, value: Any, tags: list[str] | None = None, style: StyleDict | None = None):
+    def _append(self, value: Any, tags: list[str] | None = None, style: StyleConfig | None = None):
         inst = self._build_instance(value, tags, style)        
         self._ctx[-1].append(inst)
         return inst
@@ -101,7 +101,7 @@ class Block(object):
         cls._block_type_registry[typ] = block_type    
     
         
-    def _build_instance(self, content: Any, tags: list[str] | None = None, style: StyleDict | None = None, parent: "BaseBlock | None" = None):
+    def _build_instance(self, content: Any, tags: list[str] | None = None, style: StyleConfig | None = None, parent: "BaseBlock | None" = None):
         # if "depth" not in kwargs:
             # kwargs["depth"] = depth
         block_type = self.__class__._block_type_registry.get(type(content), BaseBlock)
