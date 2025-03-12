@@ -8,16 +8,11 @@ from typing import (TYPE_CHECKING, Any, Awaitable, Callable, Concatenate, Dict, 
 from promptview.conversation.history import History
 
 
-from .block import BaseBlock
-from .context import BlockStream
+from .block4 import BaseBlock
 from .depends import Depends, DependsContainer, resolve_dependency
-from .mvc import ViewBlock, create_view_block
 from .context import Context, BaseContext
 from ..utils.function_utils import call_function, filter_args_by_exclude
-from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    from promptview.llms import LLM
 
 P = ParamSpec('P')
 R = TypeVar('R')
@@ -36,7 +31,8 @@ class Controller(Generic[P, R]):
     
     
     def _filter_args_for_trace(self, *args: P.args, **kwargs: P.kwargs) -> dict[str, Any]:
-        _args, _kwargs = filter_args_by_exclude(args, kwargs, (LLM, Context, BlockStream))
+        from promptview.llms import LLM
+        _args, _kwargs = filter_args_by_exclude(args, kwargs, (LLM, Context))
         return {"args": _args, "kwargs": _kwargs}
     
     

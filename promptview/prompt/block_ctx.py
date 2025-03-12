@@ -72,6 +72,7 @@ class Block(object):
         tags: list[str] | None = None,
         style: InlineStyle | None = None,
         dedent: bool = True,
+        items: list[BaseBlock] | None = None,
         # ctx_stack: "List[Block] | None" = None, 
     ):
         self._ctx = None
@@ -79,7 +80,8 @@ class Block(object):
             content=content, 
             tags=tags, 
             style=style, 
-            dedent=dedent
+            dedent=dedent,            
+            items=items,
         )
         self._main_inst = inst
     
@@ -139,7 +141,7 @@ class Block(object):
         cls._block_type_registry[typ] = block_type    
     
         
-    def _build_instance(self, content: Any, tags: list[str] | None = None, style: InlineStyle | None = None, parent: "BaseBlock | None" = None, dedent: bool = True):
+    def _build_instance(self, content: Any, tags: list[str] | None = None, style: InlineStyle | None = None, parent: "BaseBlock | None" = None, dedent: bool = True, items: list[BaseBlock] | None = None):
         """
         Build an instance of a block based on the content type
         """
@@ -151,13 +153,26 @@ class Block(object):
                 tags=tags, 
                 style=style, 
                 parent=parent,
-                depth=len(self._ctx) if self._ctx else 0
+                depth=len(self._ctx) if self._ctx else 0,
+                items=items,
             )
         return inst
+    
+    def copy(self, extra_items: list[BaseBlock] | None = None):
+        inst = self._build_instance(
+            content=self.root.content,
+            tags=self.root.tags,
+            style=self.root.inline_style.style,
+            parent=self.root.parent,
+            items=self.root.items + (extra_items or []),
+        )
+        return Block(inst)
         
-    def __add__(self, content: Any):
-        inst = self._append(content)
-        return inst
+    def __add__(self, other: Any):
+        # inst = self._append(content)
+        if isinstance(other, Block):
+            other = other.root
+        return self.copy(extra_items=[other])
     
     def __iadd__(self, content: Any):
         self._append(content)

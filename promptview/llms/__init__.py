@@ -5,7 +5,7 @@ from .llm3 import LLM
 from .exceptions import LlmError, LLMToolNotFound
 from .types import ToolChoice, ErrorMessage
 from .utils.completion_parsing import PromptParsingException
-from .tracer2 import Tracer
+
 __all__ = [
     "AzureOpenAiLLM", 
     "OpenAiLLM", 
@@ -16,5 +16,4 @@ __all__ = [
     "PromptParsingException", 
     "ToolChoice", 
     "ErrorMessage",
-    "Tracer",
 ]

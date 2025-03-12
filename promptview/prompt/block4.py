@@ -19,12 +19,21 @@ class BaseBlock:
     content: Any | None
     parent: "BaseBlock | None"
     
-    def __init__(self, content: Any | None = None, tags: list[str] | None = None, style: InlineStyle | None = None, depth: int = 0, parent: "BaseBlock | None" = None, dedent: bool = True):
+    def __init__(
+        self, 
+        content: Any | None = None, 
+        tags: list[str] | None = None, 
+        style: InlineStyle | None = None, 
+        depth: int = 0, 
+        parent: "BaseBlock | None" = None, 
+        dedent: bool = True, 
+        items: list["BaseBlock"] | None = None
+    ):
         if dedent and isinstance(content, str):
             content = textwrap.dedent(content).strip()
         self.content = content
         self.tags = tags or []
-        self.items = []
+        self.items = items or []
         self.depth = depth or 0
         self.inline_style = BlockStyle(style)
         self.parent = parent

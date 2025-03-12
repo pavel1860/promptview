@@ -2,8 +2,7 @@
 from typing import List, Type
 from uuid import uuid4
 from pydantic import BaseModel, Field
-from promptview.llms.types import ErrorMessage
-from promptview.llms.messages import AIMessage, ActionCall
+
 import xml.etree.ElementTree as ET
 
 
@@ -20,18 +19,20 @@ class XmlOutputParser:
         
         
     def find_actions(self, actions, root, action_tag="action", param_tag="param"):
+        from promptview.prompt import ToolCall
         action_calls = []        
         for action in root.findall(action_tag):
             action_cls = actions.get(action.attrib["name"])
             if not action_cls:
+                from promptview.llms import ErrorMessage
                 raise ErrorMessage(action.attrib["name"])
             params = {param.attrib["name"]: param.text for param in action.findall(param_tag)}
             action_inst = action_cls(**params)
             action_calls.append(
-                ActionCall(
+                ToolCall(
                     id=f"tool_call_{uuid4()}"[:40], 
                     name=action.attrib["name"], 
-                    action=action_inst
+                    tool=action_inst
                 )
             )
         return action_calls
@@ -54,7 +55,7 @@ class XmlOutputParser:
         child_only_fields = {k: v for k, v in child_fields.items() if k not in parent_fields}
         return child_only_fields
     
-    def parse(self, content: str, actions: List[BaseModel], ai_model_cls: Type[AIMessage]):
+    def parse(self, content: str, actions: List[BaseModel], ai_model_cls: Type[BaseModel]):
 
         root = ET.fromstring(content)
         fields = self.get_model_fields(ai_model_cls)

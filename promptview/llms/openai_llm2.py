@@ -1,7 +1,7 @@
 from abc import abstractmethod
 import json
 from typing import Any, List, Type
-from .llm3 import LLM, BaseLlmClient
+from .llm3 import LLM
 from pydantic import Field, BaseModel
 from .utils.action_manager import Actions
 # from ..prompt.block import BaseBlock, ResponseBlock

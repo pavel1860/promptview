@@ -99,10 +99,12 @@ class MarkdownListRenderer(ItemsRenderer):
     tags = ["list","list:number", "list:alpha", "list:roman", "list:roman_lower", "list:*", "list:-"]
         
     def __call__(self, block: BaseBlock, inner_content: List[str], depth: int) -> List[str]:
+        if not inner_content:
+            return []
         bullet_type = block.inline_style.get("bullet_type", "number")
         if not bullet_type:
             raise ValueError("Bullet type not found")
-        return [get_bullet_prefix(bullet_type, idx) + item for idx, item in enumerate(inner_content)]
+        return [get_bullet_prefix(bullet_type, idx + 1) + item for idx, item in enumerate(inner_content)]
 
 
 

@@ -47,7 +47,7 @@ class BlockStyle:
                 self.block_type = "xml"
                 
     def get(self, key: str, default: Any = None) -> Any:
-        return getattr(self, key, default)
+        return getattr(self, key, default) or default
         
     def update(self, style: InlineStyle) -> None:
         self.style.extend(style)

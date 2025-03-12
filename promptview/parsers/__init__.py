@@ -1,4 +1,4 @@
-from promptview.parsers.xml_parser import XmlOutputParser
+from promptview.parsers.xml_parser2 import XmlOutputParser
 
 
 

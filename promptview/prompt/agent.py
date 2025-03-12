@@ -1,7 +1,7 @@
 import inspect
 from typing import (Any, Callable,
                     TypeVar, ParamSpec, AsyncGenerator)
-from ..llms.tracer2 import Tracer
+from ..tracer import Tracer
 from .controller import Controller
 
 

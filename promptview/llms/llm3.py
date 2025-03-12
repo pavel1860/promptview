@@ -5,16 +5,11 @@ from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Type,
 from pydantic import BaseModel, ValidationError
 
 from promptview.llms.types import ErrorMessage
-from promptview.prompt.context import BlockStream
 from promptview.prompt.output_format import OutputModel
-
-from .messages import AIMessage, HumanMessage
-from .tracer2 import Tracer
-# from ..prompt.block import BaseBlock, ResponseBlock
-# from ..prompt import OutputModel, Block, BaseBlock
-from ..prompt import LLMBlock, Block, BaseBlock, BlockRole, ToolCall, LlmUsage
-
-
+from promptview.prompt import LLMBlock, Block, BaseBlock, BlockRole, ToolCall, LlmUsage
+from promptview.tracer import Tracer
+    
+    
 class LLMToolNotFound(Exception):
     
     def __init__(self, tool_name) -> None:
@@ -112,7 +107,7 @@ class LlmConfig(BaseModel):
 
 
 class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
-    ctx_blocks: Block
+    ctx_blocks: BaseBlock
     output_model: Type[OutputModel] | None = None
     actions: List[Type[BaseModel]] = []
     tools: List[dict] | None = None
@@ -336,14 +331,16 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     
     def __call__(
         self, 
-        blocks: Block | str,
+        blocks: Block | BaseBlock | str,
         retries: int = 3,
         smart_retry: bool = True,
         config: LlmConfig | None = None,
         is_traceable: bool | None = True,
     ) -> LlmExecution:
         if isinstance(blocks, str):
-            blocks = Block(blocks)    
+            blocks = Block(blocks)
+        if isinstance(blocks, Block):
+            blocks = blocks.root
                 
         llm_execution = LlmExecution(
             ctx_blocks=blocks,

@@ -4,13 +4,10 @@ from enum import Enum
 from typing import Any, Callable, Generic, List, Type, TypeVar, Union, Dict
 
 from promptview.artifact_log.artifact_log3 import ArtifactLog
-from promptview.conversation.message_log import MessageLog, SessionManager
-from promptview.conversation.models import Session
 from promptview.model.model import Model
 from promptview.prompt.block4 import BaseBlock
 from promptview.prompt.llm_block import BlockRole, LLMBlock
-from ..llms.messages import ActionCall
-# from .block import ActionBlock, BaseBlock, BulletType, ListBlock, ResponseBlock, TitleBlock, TitleType, BlockRole
+from .llm_block import ToolCall
 from .block_ctx import Block  
 from collections import defaultdict
 import datetime as dt
@@ -114,35 +111,33 @@ class BlockStream(Generic[MODEL]):
         return chat_blocks
         
         
-    # def block(self, title=None, ttype: TitleType="md", role: BlockRole = "user", name: str | None = None, id: str | None = None):
-    #     lb = StrBlock(title=title, ttype=ttype, id=id, role=role, name=name)
-    #     self.append(lb)
-    #     return lb
     
-    # def list(self, title=None, ttype: TitleType="md", bullet: BulletType = "-", role: BlockRole = "user", name: str | None = None, id: str | None = None):        
-    #     lb = ListBlock(title=title, ttype=ttype, bullet=bullet, id=id, role=role, name=name)
-    #     self.append(lb)
-    #     return lb
-    
-    async def push(self, block: Block | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):
+    async def push(self, block: Block | BaseBlock | str | dict, tool: ToolCall | None = None, role: BlockRole | None = None, id: str | None="history"):
         platform_id = None
         tool_calls = None        
         
         if isinstance(block, Block):
+            block = block.root
+        
+        
+        if isinstance(block, LLMBlock):
             content = block.render()
             _role = role or block.role or "user"
-            if action:
-                platform_id = action.id
+            if tool:
+                platform_id = tool.id
             if isinstance(block, LLMBlock):
                 tool_calls = [a.model_dump() for a in block.tool_calls]
+        elif isinstance(block, BaseBlock):
+            content = block.render()
+            _role = role or "user"
         elif isinstance(block, str) or isinstance(block, dict):
             content = block    
             _role = role or "user"
-            # block = StrBlock(block, role=_role, id=id,)
             
         else:
             raise ValueError(f"Invalid block type: {type(block)}")
-        block = LLMBlock(content, role=_role, id=id, uuid=platform_id, tool_calls=tool_calls)
+        
+        block = LLMBlock(content, role=_role, id=platform_id, tool_calls=tool_calls)
         ctx = CURR_CONTEXT.get()
         model = ctx.from_blocks(block)
         await model.save()
@@ -414,66 +409,21 @@ class Context(Generic[MODEL], BaseContext):
     def to_blocks(self, model: MODEL) -> LLMBlock:
         pass
     
-    
     @abstractmethod
     def from_blocks(self, block: LLMBlock) -> MODEL:
         pass
     
-    
     async def commit(self):
-        await self.artifact_log.commit_turn()
-        
-        
+        await self.artifact_log.commit_turn()   
 
-      
-    # def messages_to_blocks(self, messages: List[Message]):
-    #     blocks = []
-    #     for message in messages:
-    #         if message.role == "assistant":
-    #             blocks.append(
-    #                 ResponseBlock(
-    #                     db_msg_id=message.id,
-    #                     content=message.content, 
-    #                     action_calls=message.extra.get("action_calls", []),
-    #                     id="history",
-    #                     platform_id=message.platform_id,
-    #                     created_at=message.created_at
-    #                 ))
-    #         elif message.role == "tool":
-    #             blocks.append(
-    #                 ActionBlock(
-    #                     db_msg_id=message.id,
-    #                     content=message.content, 
-    #                     id="history",
-    #                     platform_id=message.platform_id,
-    #                     created_at=message.created_at
-    #                 ))
-    #         else:
-    #             blocks.append(
-    #                 TitleBlock(
-    #                     db_msg_id=message.id,
-    #                     content=message.content, 
-    #                     role=message.role, 
-    #                     id="history",
-    #                     platform_id=message.platform_id,
-    #                     created_at=message.created_at
-    #                 ))
-    #     return blocks
     async def last_artifacts(self, limit=10):
         records = await self._model.limit(limit).order_by("created_at", ascending=False)
         return records
         
-    async def last(self, limit=10):
+    async def last(self, limit=10) -> Block:
         records = await self._model.limit(limit).order_by("created_at", ascending=False)
-        blocks = [self.to_blocks(r) for r in reversed(records)]
-        block_stream = BlockStream(blocks)
-        return block_stream
-    
-    
-    # def last_messages(self, limit=10):
-        # return self.message_log.get_messages(limit)
-    
-    
-    # def clear_session(self):
-        # self.message_log.clear_session()
+        with Block() as blocks:
+            for r in reversed(records):
+                blocks += self.to_blocks(r)
+        return blocks
     

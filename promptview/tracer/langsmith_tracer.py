@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Literal, Optional
 # from langsmith import RunTree
 from langsmith.run_trees import RunTree
 
-from promptview.llms.messages import BaseMessage, AIMessage, HumanMessage
+
 
 # class RunTree(ls_schemas.RunBase):
 # outputs: Optional[Dict] = None
@@ -138,24 +138,24 @@ class Tracer:
                 print(f"Warning: failed to reset session id, probably because generator was closed improperly: ({self.name},{self.tracer_run.run_type}) {self.tracer_run.id}")
         
             
-    def add_outputs(self, output: Any):
-        if self.is_traceable and self.tracer_run is not None:
-            if isinstance(output, AIMessage):                
-                # output_dict = {}
-                # messages = self.outputs.get("messages", [])
-                # messages += [output]
-                # self.outputs["messages"] = messages                
-                # self.outputs["response"] = output.content
-                if output.content:                    
-                    self.outputs["response"] = output.content
-                # if output.tool_calls:
-                #     output_dict["tool_calls"] = output.tool_calls
-                #     messages += [output_dict]
+    # def add_outputs(self, output: Any):
+    #     if self.is_traceable and self.tracer_run is not None:
+    #         if isinstance(output, AIMessage):                
+    #             # output_dict = {}
+    #             # messages = self.outputs.get("messages", [])
+    #             # messages += [output]
+    #             # self.outputs["messages"] = messages                
+    #             # self.outputs["response"] = output.content
+    #             if output.content:                    
+    #                 self.outputs["response"] = output.content
+    #             # if output.tool_calls:
+    #             #     output_dict["tool_calls"] = output.tool_calls
+    #             #     messages += [output_dict]
                     
-                self.tracer_run.add_outputs(self.outputs)
-            else:
-                self.outputs.update(output)
-                self.tracer_run.add_outputs(self.outputs)
+    #             self.tracer_run.add_outputs(self.outputs)
+    #         else:
+    #             self.outputs.update(output)
+    #             self.tracer_run.add_outputs(self.outputs)
         
         
 

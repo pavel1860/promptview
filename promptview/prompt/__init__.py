@@ -7,6 +7,7 @@ from .renderer import ContentRenderer, ItemsRenderer
 from .output_format import OutputModel
 from .llm_block import LLMBlock, BlockRole, ToolCall, LlmUsage
 from .context import Context
+from .depends import Depends
 # Block.register(type(None), BaseBlock)
 # Block.register(str, StrBlock)
 # Block.register(dict, DictBlock)
@@ -28,4 +29,5 @@ __all__ = [
     "ToolCall",
     "LlmUsage",
     "Context",
+    "Depends",
 ]

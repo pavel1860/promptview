@@ -1,10 +1,9 @@
 from __future__ import annotations
-
+from promptview.prompt import Block
 from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field, PrivateAttr
-from promptview.parsers.xml_parser2 import XmlOutputParser
-if TYPE_CHECKING:
-    from promptview.prompt.block2 import StrBlock
+from promptview.parsers import XmlOutputParser
+
 
 
 
@@ -12,22 +11,21 @@ class OutputModel(BaseModel):
     _tool_calls: list[BaseModel] = PrivateAttr(default=[])
     
     @classmethod
-    def render(cls) -> StrBlock | None:
+    def render(cls) -> Block | None:
         return None
     
     @classmethod
-    def to_block(cls) -> StrBlock:
-        from promptview import block as b
-        with b.title("Output format", id="output_format") as output_format:
-            b += "you should use the following format for your output:"
+    def to_block(cls) -> Block:
+        with Block("Output format", id="output_format") as of:
+            of += "you should use the following format for your output:"
             for field, field_info in cls.model_fields.items():
-                with b.xml(field, type=field_info.annotation.__name__):
+                with of(field, type=field_info.annotation.__name__, style=["xml"]):
                     if field_info.description:
-                        b += field_info.description
+                        of += field_info.description
             cls.render()
             # if render_output is not None:
                 # output_format.append(render_output)
-            return output_format
+            return of
         
     @classmethod
     def parse(cls, text: str):
