@@ -83,6 +83,13 @@ class Block:
     # ):
     #     pass
     
+    @property
+    def ctx_items(self) -> list["Block"]:
+        if self._ctx:
+            return self._ctx[-1].items
+        else:
+            return self.items
+    
     def __enter__(self):
         if self._ctx is None:
             self._ctx = ContextStack()
@@ -136,6 +143,7 @@ class Block:
         inst = self.append(content=content, tags=tags, style=style, **kwargs)
         return inst
     
+    
     def append(
         self, 
         content: Any, 
@@ -149,16 +157,38 @@ class Block:
             style=style, 
             items=items,
         )
-        if self._ctx:
-            self._ctx[-1].items.append(inst)
-        else:
-            self.items.append(inst)
+        self.ctx_items.append(inst)
+        # if self._ctx:
+        #     self._ctx[-1].items.append(inst)
+        # else:
+        #     self.items.append(inst)
         return inst
+    
+    def merge(self, other: "Block"):
+        """
+        Merge another block into this one
+        """
+        self.ctx_items.extend(other.items)
+        return self
     
     
     def __itruediv__(self, content: Any):
+        """
+        Append a new item to the block
+        """
         self.append(content)
         return self    
+    
+    def __add__(self, other: "Block | Any"):
+        """
+        Append a new item to the block
+        """
+        # TODO: figure out how to merge block content
+        if isinstance(other, Block):
+            self.merge(other)
+        else:
+            self.append(other)
+        return self
         
     # def append(self, item: "Block | Any"):
     #     self.items.append(item)

@@ -1,6 +1,6 @@
 import pytest
 
-from promptview.prompt import Block as blk
+from promptview.prompt.block6 import Block as blk
 
 
 
