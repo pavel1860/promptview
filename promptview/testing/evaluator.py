@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
-from promptview.prompt import prompt, Depends, BaseBlock, Block, LLMBlock, OutputModel
-from promptview.prompt import Block as blk
+from promptview.prompt import prompt, Depends, Block, LLMBlock, OutputModel
+# from promptview.prompt import Block as blk
+from promptview.prompt import LLMBlock as blk
 from promptview.llms import OpenAiLLM
 from promptview.model.model import Model
 from promptview.model.fields import ModelField
@@ -31,10 +32,10 @@ async def evaluate_prompt(task: str, response: str, llm: OpenAiLLM = Depends(Ope
             sm += task
         EvalResponse.to_block(sm)
     
-    with blk.message("Response to evaluate", role="user") as target:
+    with blk("Response to evaluate", role="user") as target:
         target += response
     
-    res = await llm([sm, target]).output_format(EvalResponse)
+    res = await llm(sm + target).output_format(EvalResponse)
     return res
 
 

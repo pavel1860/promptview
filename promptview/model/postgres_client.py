@@ -369,13 +369,15 @@ CREATE TABLE IF NOT EXISTS {self.table_name} (
 
 class PostgresClient:
     def __init__(self, url=None, user=None, password=None, database=None, host=None, port=None):
-        self.url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/snackbot")
+        self.url = url or os.environ.get("POSTGRES_URL")
         if not self.url:
             self.user = user or os.environ.get("POSTGRES_USER", "postgres")
             self.password = password or os.environ.get("POSTGRES_PASSWORD", "postgres")
             self.database = database or os.environ.get("POSTGRES_DB", "postgres")
             self.host = host or os.environ.get("POSTGRES_HOST", "localhost")
             self.port = port or os.environ.get("POSTGRES_PORT", 5432)
+        if not self.url and not (self.user and self.password and self.database and self.host and self.port):
+            raise ValueError("Either url or user, password, database, host, and port must be provided")
         self.pool: asyncpg.Pool | None = None
 
     async def connect(self):

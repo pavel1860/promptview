@@ -1,5 +1,6 @@
-from .block4 import BaseBlock
-from .block_ctx import Block
+# from .block4 import BaseBlock
+# from .block_ctx import Block
+from .block6 import Block
 # from .str_block import BaseBlock, StrBlock, DictBlock
 from .base_prompt3 import prompt, Prompt
 from .agent import Agent, agent
@@ -16,7 +17,7 @@ from .depends import Depends
 
 __all__ = [
     "Block",
-    "BaseBlock",
+    # "BaseBlock",
     "prompt",
     "Prompt",
     "Agent",

@@ -6,7 +6,7 @@ from pydantic import BaseModel, ValidationError
 
 from promptview.llms.types import ErrorMessage
 from promptview.prompt.output_format import OutputModel
-from promptview.prompt import LLMBlock, Block, BaseBlock, BlockRole, ToolCall, LlmUsage
+from promptview.prompt import LLMBlock, Block, BlockRole, ToolCall, LlmUsage
 from promptview.tracer import Tracer
     
     
@@ -107,7 +107,7 @@ class LlmConfig(BaseModel):
 
 
 class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
-    ctx_blocks: BaseBlock
+    ctx_blocks: Block
     output_model: Type[OutputModel] | None = None
     actions: List[Type[BaseModel]] = []
     tools: List[dict] | None = None
@@ -314,7 +314,7 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
         ...
     
     # @abstractmethod
-    def to_chat(self, blocks: Block) -> List[BaseBlock]:
+    def to_chat(self, blocks: Block) -> List[Block]:
         return [blocks]
     
     @abstractmethod
@@ -331,7 +331,7 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     
     def __call__(
         self, 
-        blocks: Block | BaseBlock | str,
+        blocks: Block | str,
         retries: int = 3,
         smart_retry: bool = True,
         config: LlmConfig | None = None,
@@ -339,8 +339,7 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     ) -> LlmExecution:
         if isinstance(blocks, str):
             blocks = Block(blocks)
-        if isinstance(blocks, Block):
-            blocks = blocks.root
+        
                 
         llm_execution = LlmExecution(
             ctx_blocks=blocks,

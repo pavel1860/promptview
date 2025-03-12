@@ -1,11 +1,11 @@
 from abc import abstractmethod
 import contextvars
 from enum import Enum
-from typing import Any, Callable, Generic, List, Type, TypeVar, Union, Dict
+from typing import Any, Callable, Generic, List, Protocol, Type, TypeVar, Union, Dict
 
 from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model.model import Model
-from promptview.prompt.block4 import BaseBlock
+from promptview.prompt.block6 import Block
 from promptview.prompt.llm_block import BlockRole, LLMBlock
 from .llm_block import ToolCall
 from .block_ctx import Block  
@@ -24,16 +24,20 @@ class MessageView(TypedDict):
 CURR_CONTEXT = contextvars.ContextVar("curr_context")
 
 
+
+
+
+
 MODEL = TypeVar("MODEL", bound=Model)
 
 
 
-def sanitize_block(block: Block | BaseBlock | LLMBlock):
+def sanitize_block(block: Block | LLMBlock):
     if not isinstance(block, LLMBlock):
         if isinstance(block, Block):
-            block = LLMBlock.from_block(block.root)
-        elif isinstance(block, BaseBlock):
             block = LLMBlock.from_block(block)
+        else:
+            raise ValueError(f"Invalid block type: {type(block)}")
     return block
 
 
@@ -81,7 +85,7 @@ class BlockStream(Generic[MODEL]):
             raise ValueError(f"Invalid type: {type(other)}")        
     
         
-    def _update_lookup(self, block: Block | BaseBlock | LLMBlock):
+    def _update_lookup(self, block: Block | LLMBlock):
         block = sanitize_block(block)
         if isinstance(block, LLMBlock):
             if block.id:
@@ -112,7 +116,7 @@ class BlockStream(Generic[MODEL]):
         
         
     
-    async def push(self, block: Block | BaseBlock | str | dict, tool: ToolCall | None = None, role: BlockRole | None = None, id: str | None="history"):
+    async def push(self, block: Block | str | dict, tool: ToolCall | None = None, role: BlockRole | None = None, id: str | None="history"):
         platform_id = None
         tool_calls = None        
         
@@ -127,7 +131,7 @@ class BlockStream(Generic[MODEL]):
                 platform_id = tool.id
             if isinstance(block, LLMBlock):
                 tool_calls = [a.model_dump() for a in block.tool_calls]
-        elif isinstance(block, BaseBlock):
+        elif isinstance(block, Block):
             content = block.render()
             _role = role or "user"
         elif isinstance(block, str) or isinstance(block, dict):
@@ -405,13 +409,13 @@ class Context(Generic[MODEL], BaseContext):
     # async def delete_message(self, id: int):
         # await self.message_log.delete_message(id=id)
     
-    @abstractmethod
-    def to_blocks(self, model: MODEL) -> LLMBlock:
-        pass
+    # @abstractmethod
+    # def to_blocks(self, model: MODEL) -> LLMBlock:
+    #     pass
     
-    @abstractmethod
-    def from_blocks(self, block: LLMBlock) -> MODEL:
-        pass
+    # @abstractmethod
+    # def from_blocks(self, block: LLMBlock) -> MODEL:
+    #     pass
     
     async def commit(self):
         await self.artifact_log.commit_turn()   
@@ -419,11 +423,19 @@ class Context(Generic[MODEL], BaseContext):
     async def last_artifacts(self, limit=10):
         records = await self._model.limit(limit).order_by("created_at", ascending=False)
         return records
+    
+    async def push(self, value: Block | MODEL) -> LLMBlock:
+        if isinstance(value, Block):
+            msg = self._model.from_block(value)
+        else:
+            msg = value
+        saved_value = await msg.save()
+        return saved_value.to_block()
         
     async def last(self, limit=10) -> Block:
         records = await self._model.limit(limit).order_by("created_at", ascending=False)
         with Block() as blocks:
             for r in reversed(records):
-                blocks += self.to_blocks(r)
+                blocks /= r.to_block()
         return blocks
     

@@ -5,7 +5,7 @@ from .llm3 import LLM
 from pydantic import Field, BaseModel
 from .utils.action_manager import Actions
 # from ..prompt.block import BaseBlock, ResponseBlock
-from ..prompt import Block, BaseBlock, LLMBlock, ToolCall
+from ..prompt import Block, LLMBlock, ToolCall
 import openai
 import os
 
@@ -23,12 +23,10 @@ class OpenAiLLM(LLM):
     
     
 
-    def to_message(self, block: BaseBlock | LLMBlock | Block):
+    def to_message(self, block: LLMBlock | Block):
         if not isinstance(block, LLMBlock):
-            if isinstance(block, BaseBlock):
+            if isinstance(block, Block):
                 block = LLMBlock.from_block(block)
-            elif isinstance(block, Block):
-                block = LLMBlock.from_block(block.root)
                         
         if block.role == "user" or block.role == "system":
             return {

@@ -118,6 +118,9 @@ class Block:
     def __getitem__(self, idx: int) -> "Block":
         return self.items[idx]
     
+    def __len__(self) -> int:
+        return len(self.items)
+    
     
     def _build_instance(
         self, 

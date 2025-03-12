@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import copy
 import json
-from typing import Any, Callable, Dict, ForwardRef, Generic, List, Optional, Self, Type, TypeVar,  get_args, get_origin
+from typing import Any, Callable, Dict, ForwardRef, Generic, List, Optional, Protocol, Self, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import FieldInfo
@@ -13,6 +13,7 @@ from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model.head_model import HeadModel
 from promptview.model.postgres_client import camel_to_snake
 from promptview.model.query_types import QueryListType
+from promptview.prompt.block6 import Block
 from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QuerySetSingleAdapter, QueryType, parse_query_params
 from .vectors.base_vectorizer import BaseVectorizer
 from .fields import VectorSpaceMetrics, get_model_indices
@@ -104,7 +105,10 @@ model_manager = ModelManager()
 #     )
 
 
+
+
 MODEL = TypeVar("MODEL", bound="Model")
+
 
 def get_relation_model(cls):
     args = get_args(cls)
@@ -935,6 +939,11 @@ class Model(BaseModel, metaclass=ModelMeta):
         return head
     
 
+    @classmethod
+    def to_block(cls: Type[MODEL]):
+        raise NotImplementedError("Subclasses must implement this method")
     
-    
+    @classmethod
+    def from_block(cls, block: Any):
+        raise NotImplementedError("Subclasses must implement this method")
     

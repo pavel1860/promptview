@@ -3,7 +3,7 @@ import json
 from typing import Any, Literal
 import uuid
 from pydantic import BaseModel
-from promptview.prompt.block4 import BaseBlock
+from promptview.prompt.block6 import Block
 from promptview.prompt.style import InlineStyle
 
 
@@ -31,14 +31,14 @@ class ToolCall(BaseModel):
 
 
 
-class LLMBlock(BaseBlock):
+class LLMBlock(Block):
     """
     A block that represents an LLM call.
     """
     id: str
-    model: str    
-    run_id: str | None = None
-    name: str | None = None
+    model: str | None   
+    run_id: str | None
+    name: str | None
     role: BlockRole
     tool_calls: list[ToolCall]
     usage: LlmUsage
@@ -56,13 +56,13 @@ class LLMBlock(BaseBlock):
         tags: list[str] | None = None, 
         style: InlineStyle | None = None, 
         depth: int = 0, 
-        parent: "BaseBlock | None" = None, 
+        parent: "Block | None" = None, 
         dedent: bool = True
     ):
         super().__init__(content, tags, style, depth, parent, dedent)
         self.id = id or str(uuid.uuid4())
         self.name = name
-        self.model = model or "gpt-4o"
+        self.model = model
         self.run_id = run_id
         self.role = role
         self.tool_calls = tool_calls or []
@@ -72,7 +72,7 @@ class LLMBlock(BaseBlock):
     @classmethod
     def from_block(
         cls,
-        block: BaseBlock, 
+        block: Block, 
         role: BlockRole = "user", 
         name: str | None = None, 
         model: str | None = None, 
@@ -85,3 +85,14 @@ class LLMBlock(BaseBlock):
             run_id=run_id,
             name=name,
         )
+        
+        
+    def __repr__(self) -> str:
+        content = self.render()
+        params = {
+            "role": self.role,
+            "model": self.model,
+            "name": self.name,
+        }
+        param_string = ", ".join([f"{k}={v}" for k, v in params.items() if v is not None])
+        return f"{self.__class__.__name__}({param_string}):\n{content}"
