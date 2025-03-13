@@ -5,7 +5,7 @@ import anthropic
 import openai
 from promptview.llms.exceptions import LLMToolNotFound
 from promptview.utils.model_utils import schema_to_function
-from promptview.utils.string_utils import convert_camel_to_snake
+from promptview.utils.string_utils import camel_to_snake
 from pydantic import BaseModel, Field
 
 
@@ -37,7 +37,7 @@ class Actions(BaseModel):
         if hasattr(action_class, "_title"):
             return action_class._title.default
         if self.snake_case:            
-            return convert_camel_to_snake(action_class.__name__)
+            return camel_to_snake(action_class.__name__)
         return action_class.__name__
 
     
@@ -83,7 +83,7 @@ class Actions(BaseModel):
             name = action_class._title.default
         else:
             if self.snake_case:
-                name = convert_camel_to_snake(action_class.__name__)
+                name = camel_to_snake(action_class.__name__)
             else:
                 name = action_class.__name__
         schema["function"]["name"] = name
@@ -103,7 +103,7 @@ class Actions(BaseModel):
             name = action_class._title.default
         else:
             if self.snake_case:
-                name = convert_camel_to_snake(action_class.__name__)
+                name = camel_to_snake(action_class.__name__)
             else:
                 name = action_class.__name__
         return{

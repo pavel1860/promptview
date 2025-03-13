@@ -10,10 +10,16 @@ def add_tabs(content: str, tabs: int):
 
 
 
-def convert_camel_to_snake(name):    
-    """Convert CamelCase to snake_case"""
-    s1 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', name)
-    return s1.lower()
+# def camel_to_snake(name):    
+#     """Convert CamelCase to snake_case"""
+#     s1 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', name)
+#     return s1.lower()
+
+def camel_to_snake(name: str) -> str:
+    """Convert CamelCase to snake_case."""
+    import re
+    name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', name).lower()
 
 
 

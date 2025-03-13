@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from promptview.llms.messages import AIMessage, ActionCall, ActionMessage, BaseMessage, ContentType
 from promptview.llms.utils.action_manager import Actions
-from promptview.utils.string_utils import convert_camel_to_snake
+from promptview.utils.string_utils import camel_to_snake
 from pydantic import BaseModel, Field
 
 ViewWrapperType = Literal["xml", "markdown", None]
@@ -616,7 +616,7 @@ def validate_node(block: any):
 def get_action_name(action_class: Type[BaseModel]):
     if hasattr(action_class, "_title"):
         return action_class._title.default
-    return convert_camel_to_snake(action_class.__name__)
+    return camel_to_snake(action_class.__name__)
 
 
 def find_action(action_name, actions):

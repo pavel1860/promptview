@@ -1,5 +1,7 @@
+from enum import StrEnum
 import os
-os.environ["POSTGRES_URL"] = "postgresql://snack:Aa123456@localhost:5432/promptview_test"
+# os.environ["POSTGRES_URL"] = "postgresql://snack:Aa123456@localhost:5432/promptview_test"
+os.environ["POSTGRES_URL"] = "postgresql://ziggi:Aa123456@localhost:5432/promptview_test"
 import pytest
 import pytest_asyncio
 import datetime as dt
@@ -10,22 +12,44 @@ import datetime as dt
 from promptview.model import Model, Relation, ModelField, ModelRelation, connection_manager
 
 
-class Post(Model):
-    title: str = ModelField()
-    content: str = ModelField()
-    user_id: int = ModelField(default=None)
+
+
+
+class LikeType(StrEnum):
+    LIKE = "like"
+    DISLIKE = "dislike"
+
+
+
+class Like(Model):
+    type: LikeType = ModelField()
+    user_id: int = ModelField(is_foreign_key=True)
+    post_id: int = ModelField(is_foreign_key=True)
     
     class Config:
         database_type = "postgres"
+
+
+class Post(Model):
+    title: str = ModelField()
+    content: str = ModelField()
+    owner_id: int = ModelField(is_foreign_key=True)
+    likes: Relation[Like] = ModelRelation(key="post_id")
+    
+    class Config:
+        database_type = "postgres"
+
 
 
 class User(Model):
     name: str = ModelField()
     age: int = ModelField()
-    posts: Relation[Post] = ModelRelation(key="user_id")
+    posts: Relation[Post] = ModelRelation(key="owner_id")
+    likes: Relation[Like] = ModelRelation(key="user_id")
     
     class Config:
         database_type = "postgres"
+
 
 
     
@@ -74,4 +98,30 @@ async def test_seperate_query(seeded_database):
     posts = await user2.posts.limit(10)
     assert len(posts) == 1
     assert posts[0].title == "Post 3"
+    
+    
+@pytest.mark.asyncio
+async def test_many_to_many_relation(seeded_database):
+    user1 = await User.get(1)
+    assert user1 is not None
+    assert user1.name == "John Doe 1"
+    
+    post1 = await Post.get(1)
+    assert post1 is not None
+    assert post1.title == "Post 1"
+    user2 = await User.get(2)
+    assert user2 is not None
+    assert user2.name == "Jane Doe 2"
+    like = await user2.likes.add(Like(type=LikeType.LIKE, post_id=post1.id))
+    assert like is not None
+    assert like.type == LikeType.LIKE
+    assert like.user_id == user2.id
+    assert like.post_id == post1.id
+    
+    likes = await post1.likes.limit(10)
+    assert len(likes) == 1
+    assert likes[0].type == LikeType.LIKE
+    assert likes[0].user_id == user2.id
+    assert likes[0].post_id == post1.id
+    
     

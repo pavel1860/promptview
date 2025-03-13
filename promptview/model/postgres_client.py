@@ -23,7 +23,7 @@ from .fields import VectorSpaceMetrics
 
 
 if TYPE_CHECKING:
-    from .resource_manager import VectorSpace
+    from .resource_manager import VectorSpace, NamespaceManager, NamespaceParams
 from .query import QueryFilter, QueryProxy, FieldComparable, FieldOp, QueryOp, QueryProxyAny, QuerySet
 
 
@@ -45,15 +45,9 @@ class OrderBy(TypedDict):
     start_from: int | float | datetime
 
 
-def camel_to_snake(name: str) -> str:
-    """Convert CamelCase to snake_case."""
-    import re
-    name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
-    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', name).lower()
 
-def model_to_table_name(model) -> str:
-    """Convert a model to a table name."""
-    return camel_to_snake(model.__name__)
+
+
 
 
 def shorten_vector_strings(text: str):
@@ -419,33 +413,35 @@ class PostgresClient:
             
     def build_field_mapper(
         self, 
-        collection_name: str, 
-        model_cls: "Type[Model]", 
-        vector_spaces: list["VectorSpace"], 
-        indices: list[dict[str, str]] | None = None,
-        versioned: bool = False,
-        is_head: bool = False,
-        relations: dict[str, dict[str, str]] | None = None,
+        namespace_manager: "NamespaceManager",
+        namespace: "NamespaceParams",
+        # collection_name: str, 
+        # model_cls: "Type[Model]", 
+        # vector_spaces: list["VectorSpace"], 
+        # indices: list[dict[str, str]] | None = None,
+        # versioned: bool = False,
+        # is_head: bool = False,
+        
     ):
         """Create a table for vector storage with pgvector extension."""
 
-        table_name = camel_to_snake(collection_name)
+        table_name = namespace.table_name
         
-        if versioned and is_head:
+        if namespace.versioned and namespace.is_head:
             raise ValueError("Versioned and head models cannot be created at the same time")
 
         
         # Get model class from the collection name to inspect fields
-        field_mapper = FieldMapper(table_name, model_cls)
+        field_mapper = FieldMapper(table_name, namespace.model_cls)
         # Create table with proper columns for each field
         field_mapper.add_field(SqlKeyField(name="id", key_type="SERIAL", is_primary_key=True))
         field_mapper.add_field(SqlFieldType(name="created_at", sql_type="TIMESTAMP", index="btree", default="NOW()"))
         field_mapper.add_field(SqlFieldType(name="updated_at", sql_type="TIMESTAMP", index="btree", default="NOW()"))                
                 
-        if versioned:
+        if namespace.versioned:
             field_mapper.add_field(SqlForeignKeyField(name="turn_id", table=table_name, foreign_table="turns", foreign_key="id", index="btree"))
             field_mapper.add_field(SqlForeignKeyField(name="branch_id", table=table_name, foreign_table="branches", foreign_key="id", index="btree"))
-        if is_head:
+        if namespace.is_head:
             field_mapper.add_field(SqlForeignKeyField(name="head_id", table=table_name, foreign_table="heads", foreign_key="id", index="btree"))
             # create_table_sql += """
             # head_id INTEGER,
@@ -454,10 +450,10 @@ class PostgresClient:
 
         
         
-        index_lookup = {index['field']: index for index in indices} if indices else {}
+        index_lookup = {index['field']: index for index in namespace.indices} if namespace.indices else {}
         
         # Add columns for each model field
-        for field_name, field in model_cls.model_fields.items():            
+        for field_name, field in namespace.model_fields():            
             if field_name in ["id", "turn_id", "branch_id", "head_id", "_subspace", "score", "created_at", "updated_at"]:
                 continue
             # create_table_sql += "\n"
@@ -506,16 +502,18 @@ class PostgresClient:
             
 
         # Add vector columns for each vector space
-        for vs in vector_spaces:
+        for vs in namespace.vector_spaces.values():
             if vs.vectorizer.type == "dense":
                 index = "gist" if index_lookup.get(vs.name) else None
                 field_mapper.add_field(SqlVectorField(name=vs.name, size=vs.vectorizer.size, index=index, index_extra={"lists": 100}, is_optional=False))
             
-        for relation in relations.get(table_name, []):
+        for relation in namespace_manager.get_relations(table_name):
             source_table_name = relation["source_namespace"]
             column_name = relation["partition"]
             fk_name = f'fk_{column_name}'
-            index = "btree" if index_lookup.get(column_name) else None  
+            index = "btree" if index_lookup.get(column_name) else None              
+            ref_ns = namespace_manager.get_namespace(source_table_name)
+            ref_ns.add_foreign_key(column_name, table_name, "id")            
             # field_mapper.add_field(RelationField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
             field_mapper.add_field(SqlForeignKeyField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
 

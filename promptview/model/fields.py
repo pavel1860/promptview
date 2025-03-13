@@ -54,6 +54,7 @@ def ModelField(
     is_tenent: bool = False,
     auto_now_add: bool = False,
     auto_now: bool = False,
+    is_foreign_key: bool = False,
     db_type: str | None = None,
     default_factory: typing.Callable[[], Any] | None = _Unset,
     vec: str | list[str] | None = None,
@@ -123,6 +124,10 @@ def ModelField(
     elif vec is not None:
         raise ValueError(f"vec must be a string or list of strings, {vec}")    
     
+    if is_foreign_key:
+        if default == PydanticUndefined:
+            default = None
+            
     json_schema_extra={
             # "partition": partition,
             "type": "field",
@@ -133,6 +138,7 @@ def ModelField(
             "auto_now": auto_now,
             "vec": vec_list,
             "db_type": db_type,
+            "is_foreign_key": is_foreign_key,
         }
     
     return Field(

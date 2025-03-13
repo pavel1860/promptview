@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 import inspect
 import copy
 import json
@@ -11,7 +12,7 @@ from pydantic._internal._config import ConfigWrapper
 from pydantic_core import core_schema
 from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model.head_model import HeadModel
-from promptview.model.postgres_client import camel_to_snake
+from promptview.utils.string_utils import camel_to_snake
 from promptview.model.query_types import QueryListType
 from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QuerySetSingleAdapter, QueryType, parse_query_params
 from .vectors.base_vectorizer import BaseVectorizer
@@ -299,7 +300,7 @@ class ModelMeta(ModelMetaclass, type):
                 )
             else:
                 if db_type == "qdrant":                    
-                    ns = connection_manager.get_namespace2(namespace)                
+                    ns = connection_manager.get_namespace(namespace)                
                     if not ns:
                         raise ValueError("Vector Space not defined for Qdrant database")
                     vector_spaces = list(ns.vector_spaces.values())
@@ -423,32 +424,12 @@ class ModelMeta(ModelMetaclass, type):
                         
                         field_info.default_factory = make_default_factory(target_type, partition)
                         print("Found",field, partition)
-                    # if inspect.isclass(target_type) and issubclass(target_type, Model) or isinstance(target_type, ForwardRef): 
-                    #         field_info = dct.get(field)                            
-                    #         if not field_info:
-                    #             raise ValueError(f"Field {field} is not defined")
-                    #         partition = field_info.json_schema_extra.get("partition")
-                    #         if not partition:
-                    #             raise ValueError(f"Model Field {field} does not have partition")
-                    #         _target_type, _forward_ref = (target_type, None) if not isinstance(target_type, ForwardRef) else (None, target_type)
-                    #         cls_partitions[field] = {
-                    #             "type": _target_type,
-                    #             "origin": field_origin,
-                    #             "partition": partition,
-                    #             "field": field,
-                    #             "forward_ref": _forward_ref,
-                    #             "source_namespace": namespace,
-                    #             "target_namespace": target_type._namespace.default
-                    #         }
-                    #         connection_manager.add_relation(target_type, cls_partitions[field])
-                            
-                    #         field_info.default_factory = lambda: Relation(model_cls=target_type, rel_field=partition)
-                    #         print("Found",field, partition)
                 
             dct["_partitions"] = cls_partitions
             dct["_default_temporal_field"] = default_temporal_field
             dct["_vec_field_map"] = vec_field_map
             dct["_db_type"] = db_type
+            dct["_foreign_keys"] = {}
             if namespace:
                 dct["_namespace"] = namespace
             # dct["_vectorizers"] = connection_manager.get_vectorizers(namespace)
@@ -467,6 +448,13 @@ class ModelMeta(ModelMetaclass, type):
     #         return FieldComparable(name, field_info)
     #     return super().__getattr__(name)
 
+@dataclass
+class ForeignKey:
+    key: str # the name of the foreign key in the model
+    referenced_table: str # the name of the table that is referenced
+    referenced_column: str # the column of the referenced table
+    on_delete: str = "CASCADE" # the action to take when the referenced row is deleted
+    on_update: str = "CASCADE" # the action to take when the referenced row is updated
 
 
 
@@ -488,6 +476,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     _vector: dict[str, Any] = PrivateAttr(default_factory=dict)
     _db_type: DatabaseType = PrivateAttr(default="qdrant")
     _id: str | int | None = PrivateAttr(default=None)
+    _foreign_keys: dict[str, ForeignKey] = {}
     # _partitions: dict[str, str] = {}
     # _default_temporal_field: str | None = None
     # _namespace: str | None = None
@@ -550,8 +539,19 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def get_client(cls: Type["Model"]):
         if not cls._namespace:
             raise ValueError("Namespace not defined")
-        ns = await connection_manager.get_namespace(cls._namespace)
+        ns = await connection_manager.get_namespace_or_create(cls._namespace)
         return ns.conn
+    
+    
+    @classmethod
+    def add_foreign_key(cls: Type["Model"], key: str, referenced_table: str, referenced_column: str, on_delete: str = "CASCADE", on_update: str = "CASCADE"):
+        if key in cls.model_fields:
+            raise ValueError(f"Foreign key {key} already exists")
+        cls._foreign_keys[key] = ForeignKey(key, referenced_table, referenced_column, on_delete, on_update)
+        
+    @classmethod
+    def get_foreign_key(cls: Type["Model"], key: str):
+        return cls._foreign_keys.get(key)
         
     
     def _payload_dump(self):
@@ -601,7 +601,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         if not cls._namespace:
             raise ValueError("Namespace not defined")
         namespace = cls._namespace.default # type: ignore
-        return await connection_manager.get_namespace(namespace)
+        return await connection_manager.get_namespace_or_create(namespace)
     
     @classmethod
     def _get_vec_field_map(cls: Type[MODEL]):
@@ -792,7 +792,7 @@ class Model(BaseModel, metaclass=ModelMeta):
             "start_from": start_from
         }
         namespace = cls._namespace.default# type: ignore
-        ns = await connection_manager.get_namespace(namespace)
+        ns = await connection_manager.get_namespace_or_create(namespace)
         res = await ns.conn.scroll(
             collection_name=namespace,
             limit=limit,

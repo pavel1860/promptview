@@ -9,6 +9,7 @@ import grpc
 from contextvars import ContextVar
 
 from promptview.artifact_log.artifact_log3 import ArtifactLog
+from promptview.utils.string_utils import camel_to_snake
 
 # from promptview.artifact_log.artifact_log2 import BaseArtifact, create_artifact_table_for_model
 
@@ -17,7 +18,7 @@ from .qdrant_client import QdrantClient
 from .postgres_client import FieldMapper, PostgresClient
 from .vectors.base_vectorizer import BaseVectorizer
 if TYPE_CHECKING:
-    from promptview.model.model import Model
+    from promptview.model.model import Model, ForeignKey
 
 DatabaseType = Literal["qdrant", "postgres"]
 
@@ -80,6 +81,7 @@ class NamespaceParams:
     is_detached_head: bool
     versioned: bool
     field_mapper: FieldMapper | None = None
+    _model_cls: Type[Model] | None = None
     
     def __init__(
             self, 
@@ -94,6 +96,7 @@ class NamespaceParams:
             is_head: bool = False,
             is_detached_head: bool = False,
             field_mapper: FieldMapper | None = None,
+            model_cls: Type[Model] | None = None,
         ):
         self._name = name
         self.vector_spaces = {vs.name: vs for vs in vector_spaces}
@@ -106,9 +109,25 @@ class NamespaceParams:
         self.is_head = is_head
         self.is_detached_head = is_detached_head
         self.field_mapper = field_mapper
+        self._model_cls = model_cls
+        
     @property
     def name(self):
         return self.envs[ENV_CONTEXT.get()][self._name]
+    
+    @property
+    def model_cls(self):
+        if not self._model_cls:
+            raise ValueError(f"Model class not set for namespace {self.name}")
+        return self._model_cls
+    
+    @model_cls.setter
+    def model_cls(self, model_cls: Type[Model]):
+        self._model_cls = model_cls
+    
+    @property
+    def table_name(self):
+        return camel_to_snake(self.name)
 
     def get(self, vector_space: str):
         return self.vector_spaces[vector_space]
@@ -128,6 +147,16 @@ class NamespaceParams:
         self.field_mapper = field_mapper
         
     
+    def model_fields(self):
+        if not self.model_cls:
+            raise ValueError(f"Model class not set for namespace {self.name}")
+        return self.model_cls.model_fields.items()
+    
+    
+    def add_foreign_key(self, key: str, referenced_table: str, referenced_column: str, on_delete: str = "CASCADE", on_update: str = "CASCADE"):
+        if key in self.model_cls.model_fields:
+            raise ValueError(f"Foreign key {key} already exists")
+        self.model_cls.add_foreign_key(key, referenced_table, referenced_column, on_delete, on_update)
     
     
     
@@ -176,7 +205,7 @@ class VectorizersManager:
 
 ENV_CONTEXT = ContextVar("ENV_CONTEXT", default="default")
 
-class ConnectionManager:
+class NamespaceManager:
     _qdrant_connection: QdrantClient 
     _postgres_connection: PostgresClient
     _namespaces: Dict[str, NamespaceParams] = {}
@@ -253,6 +282,11 @@ class ConnectionManager:
         if target_namespace not in self._relations:
             self._relations[target_namespace] = []
         self._relations[target_namespace].append(relation_desc)
+        
+    def get_relations(self, namespace: str):
+        return self._relations.get(namespace, [])
+    
+    
     
     def add_model(self, model_cls: Type[Model]):
         self._models[model_cls._namespace.default] = model_cls # type: ignore
@@ -273,16 +307,21 @@ class ConnectionManager:
         table_sql = ""
         indices_sql = ""
         relations_sql = ""
+        for ns in self._namespaces.values():            
+            ns.model_cls = self.get_model(ns.name)  
+            ns.model_cls._foreign_keys = {}      
+        
         for ns in reversed(list(self._namespaces.values())): #TODO find a better way to check FOREIGN key dependencies           
             if ns.db_type == "postgres":
                 field_mapper = ns.conn.build_field_mapper(  # type: ignore
-                    collection_name=ns.name,
-                    model_cls=self.get_model(ns.name),
-                    vector_spaces=list(ns.vector_spaces.values()),
-                    indices=ns.indices,
-                    versioned=ns.versioned,
-                    is_head=ns.is_head,
-                    relations=self._relations,
+                    namespace_manager=self,
+                    namespace=ns,
+                    # collection_name=ns.name,
+                    # model_cls=self.get_model(ns.name),
+                    # vector_spaces=list(ns.vector_spaces.values()),
+                    # indices=ns.indices,
+                    # versioned=ns.versioned,
+                    # is_head=ns.is_head,
                 )
                 ns.field_mapper = field_mapper
                 self._active_namespaces[ns.name] = ns            
@@ -327,10 +366,13 @@ class ConnectionManager:
         except KeyError:
             raise ValueError(f"Collection {namespace} not found")
     
-    def get_namespace2(self, namespace: str):
-        return self._namespaces.get(namespace, None)
+    def get_namespace(self, namespace: str)->NamespaceParams:
+        ns = self._namespaces.get(namespace, None)
+        if not ns:
+            raise ValueError(f"Namespace {namespace} not found")
+        return ns
         
-    async def get_namespace(self, namespace: str)->NamespaceParams:
+    async def get_namespace_or_create(self, namespace: str)->NamespaceParams:
         try:
             ns = self._active_namespaces[namespace]          
             return ns
@@ -340,7 +382,7 @@ class ConnectionManager:
             # return await self._create_namespace(namespace)
     
     async def add_namespace_indices(self, namespace: str, indices: list[dict[str, str]]):
-        ns = await self.get_namespace(namespace)
+        ns = await self.get_namespace_or_create(namespace)
         ns.indices += indices        
         return ns    
         
@@ -380,7 +422,7 @@ class ConnectionManager:
         await self.drop_all_namespaces()
         await self.init_all_namespaces()
         
-connection_manager = ConnectionManager()
+connection_manager = NamespaceManager()
 
 
 
