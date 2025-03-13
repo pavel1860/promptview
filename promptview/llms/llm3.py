@@ -6,7 +6,7 @@ from pydantic import BaseModel, ValidationError
 
 from promptview.llms.types import ErrorMessage
 from promptview.prompt.output_format import OutputModel
-from promptview.prompt import LLMBlock, Block, BlockRole, ToolCall, LlmUsage
+from promptview.prompt import Block, BlockRole, ToolCall, LlmUsage
 from promptview.tracer import Tracer
     
     
@@ -212,7 +212,7 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
     async def run_complete(
         self, 
         retries=3,    
-    ) -> LLMBlock:
+    ) -> Block:
         if self._complete is None:
             raise ValueError("complete method is not set")
         if self._parse_response is None:
@@ -318,7 +318,7 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
         return [blocks]
     
     @abstractmethod
-    def parse_response(self, response: CLIENT_RESPONSE, actions: List[Type[BaseModel]] | None) -> LLMBlock:
+    def parse_response(self, response: CLIENT_RESPONSE, actions: List[Type[BaseModel]] | None) -> Block:
         ...
         
     @abstractmethod

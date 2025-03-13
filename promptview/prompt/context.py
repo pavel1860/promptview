@@ -5,11 +5,8 @@ from typing import Any, Callable, Generic, List, Protocol, Type, TypeVar, Union,
 
 from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model.model import Model
-from promptview.prompt.block6 import Block
-from promptview.prompt.llm_block import BlockRole, LLMBlock
-from .llm_block import ToolCall
-from .block_ctx import Block  
 from collections import defaultdict
+from promptview.prompt.block6 import BlockRole, ToolCall, LlmUsage, Block
 import datetime as dt
 
 from typing import TypedDict, List
@@ -32,12 +29,9 @@ MODEL = TypeVar("MODEL", bound=Model)
 
 
 
-def sanitize_block(block: Block | LLMBlock):
-    if not isinstance(block, LLMBlock):
-        if isinstance(block, Block):
-            block = LLMBlock.from_block(block)
-        else:
-            raise ValueError(f"Invalid block type: {type(block)}")
+def sanitize_block(block: Block):
+    # if not isinstance(block, Block):        
+    #     block = LLMBlock.from_block(block)        
     return block
 
 
@@ -85,9 +79,9 @@ class BlockStream(Generic[MODEL]):
             raise ValueError(f"Invalid type: {type(other)}")        
     
         
-    def _update_lookup(self, block: Block | LLMBlock):
+    def _update_lookup(self, block: Block):
         block = sanitize_block(block)
-        if isinstance(block, LLMBlock):
+        if isinstance(block, Block):
             if block.id:
                 self._block_lookup[block.id].append(block)
             for b in block.items:
@@ -124,12 +118,12 @@ class BlockStream(Generic[MODEL]):
             block = block.root
         
         
-        if isinstance(block, LLMBlock):
+        if isinstance(block, Block):
             content = block.render()
             _role = role or block.role or "user"
             if tool:
                 platform_id = tool.id
-            if isinstance(block, LLMBlock):
+            if isinstance(block, Block):
                 tool_calls = [a.model_dump() for a in block.tool_calls]
         elif isinstance(block, Block):
             content = block.render()
@@ -141,7 +135,7 @@ class BlockStream(Generic[MODEL]):
         else:
             raise ValueError(f"Invalid block type: {type(block)}")
         
-        block = LLMBlock(content, role=_role, id=platform_id, tool_calls=tool_calls)
+        block = Block(content, role=_role, id=platform_id, tool_calls=tool_calls)
         ctx = CURR_CONTEXT.get()
         model = ctx.from_blocks(block)
         await model.save()
@@ -424,7 +418,7 @@ class Context(Generic[MODEL], BaseContext):
         records = await self._model.limit(limit).order_by("created_at", ascending=False)
         return records
     
-    async def push(self, value: Block | MODEL) -> LLMBlock:
+    async def push(self, value: Block | MODEL) -> Block:
         if isinstance(value, Block):
             msg = self._model.from_block(value)
         else:

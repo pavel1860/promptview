@@ -376,6 +376,10 @@ class ConnectionManager:
         namespaces = list(self._active_namespaces.keys())   
         await self._artifact_log.drop_tables(namespaces)
         
+    async def recreate_all_namespaces(self):
+        await self.drop_all_namespaces()
+        await self.init_all_namespaces()
+        
 connection_manager = ConnectionManager()
 
 

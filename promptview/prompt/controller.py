@@ -8,7 +8,7 @@ from typing import (TYPE_CHECKING, Any, Awaitable, Callable, Concatenate, Dict, 
 from promptview.conversation.history import History
 
 
-from .block4 import BaseBlock
+from promptview.prompt.block6 import Block
 from .depends import Depends, DependsContainer, resolve_dependency
 from .context import Context, BaseContext
 from ..utils.function_utils import call_function, filter_args_by_exclude
@@ -37,7 +37,7 @@ class Controller(Generic[P, R]):
     
     
     def _sanitize_output(self, output: Any) -> Any:
-        if isinstance(output, BaseBlock):
+        if isinstance(output, Block):
             return output.content
         return output
     

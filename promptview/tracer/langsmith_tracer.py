@@ -137,6 +137,10 @@ class Tracer:
             except ValueError as e:
                 print(f"Warning: failed to reset session id, probably because generator was closed improperly: ({self.name},{self.tracer_run.run_type}) {self.tracer_run.id}")
         
+    def add_outputs(self, output: Any):
+        if self.is_traceable and self.tracer_run is not None:
+            self.outputs.update(output)
+            self.tracer_run.add_outputs(self.outputs)      
             
     # def add_outputs(self, output: Any):
     #     if self.is_traceable and self.tracer_run is not None:

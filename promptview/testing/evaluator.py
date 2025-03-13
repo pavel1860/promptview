@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field
-from promptview.prompt import prompt, Depends, Block, LLMBlock, OutputModel
-# from promptview.prompt import Block as blk
-from promptview.prompt import LLMBlock as blk
+from promptview.prompt import prompt, Depends, Block, OutputModel
+from promptview.prompt import Block as blk
 from promptview.llms import OpenAiLLM
 from promptview.model.model import Model
 from promptview.model.fields import ModelField

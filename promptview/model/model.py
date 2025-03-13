@@ -13,7 +13,6 @@ from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model.head_model import HeadModel
 from promptview.model.postgres_client import camel_to_snake
 from promptview.model.query_types import QueryListType
-from promptview.prompt.block6 import Block
 from .query import AllVecs, ModelFilterProxy, QueryFilter, ALL_VECS, QueryProxy, QuerySet, FusionType, QuerySetSingleAdapter, QueryType, parse_query_params
 from .vectors.base_vectorizer import BaseVectorizer
 from .fields import VectorSpaceMetrics, get_model_indices
@@ -115,6 +114,11 @@ def get_relation_model(cls):
     if len(args) != 1:
         raise ValueError("Relation model must have exactly one argument")
     return args[0]
+
+
+
+def make_default_factory(model_cls, rel_field):
+    return lambda: Relation(model_cls=model_cls, rel_field=rel_field)
 
 class Relation(Generic[MODEL]):
     model_cls: Type[MODEL]
@@ -412,11 +416,12 @@ class ModelMeta(ModelMetaclass, type):
                             "field": field,
                             "forward_ref": _forward_ref,
                             "source_namespace": namespace,
-                            "target_namespace": target_type._namespace.default
+                            "target_namespace": target_type._namespace.default,
+                            "field_info": field_info
                         }
                         connection_manager.add_relation(target_type, cls_partitions[field])
                         
-                        field_info.default_factory = lambda: Relation(model_cls=target_type, rel_field=partition)
+                        field_info.default_factory = make_default_factory(target_type, partition)
                         print("Found",field, partition)
                     # if inspect.isclass(target_type) and issubclass(target_type, Model) or isinstance(target_type, ForwardRef): 
                     #         field_info = dct.get(field)                            

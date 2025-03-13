@@ -16,7 +16,7 @@ class OutputModel(BaseModel):
     
     @classmethod
     def to_block(cls) -> Block:
-        with Block("Output format", id="output_format") as of:
+        with Block("Output format", tags=["output_format"]) as of:
             of += "you should use the following format for your output:"
             for field, field_info in cls.model_fields.items():
                 with of(field, type=field_info.annotation.__name__, style=["xml"]):

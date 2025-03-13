@@ -1,7 +1,9 @@
 from collections import defaultdict
 from abc import abstractmethod
 import textwrap
-from typing import Any, List, Type
+from typing import Any, List, Literal, Type
+
+from pydantic import BaseModel
 from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
 
 
@@ -38,17 +40,58 @@ class ContextStack:
 
 
 
+BlockRole = Literal["assistant", "user", "system", "tool"]
+
+class LlmUsage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class ToolCall(BaseModel):
+    id: str
+    name: str
+    tool: dict | BaseModel
     
+    @property
+    def type(self):
+        return type(self.tool)
+    
+    def to_json(self):
+        return self.tool.model_dump_json() if isinstance(self.tool, BaseModel) else json.dumps(self.tool)
+  
     
         
 class Block:
+    """
+    A block is a container for content and other blocks.
+    """
     
-    tags: list[str]
-    items: list["Block"]
-    inline_style: BlockStyle
-    computed_style: InlineStyle
-    content: Any | None
-    parent: "Block | None"
+    __slots__ = [
+        "content", 
+        "tags", 
+        "items", 
+        "inline_style", 
+        "computed_style", 
+        "parent",
+        "depth",
+        "_ctx",
+        "run_id",
+        "role",
+        "name",
+        "model",
+        "tool_calls",
+        "usage",
+        "id",
+        "db_id",
+    ]
+    # tags: list[str]
+    # items: list["Block"]
+    # inline_style: BlockStyle
+    # computed_style: InlineStyle
+    # content: Any | None
+    # parent: "Block | None"
+    # depth: int
     
     def __init__(
         self, 
@@ -60,6 +103,14 @@ class Block:
         dedent: bool = True, 
         items: list["Block"] | None = None,
         ctx: ContextStack | None = None,
+        run_id: str | None = None,
+        role: BlockRole | None = None,
+        name: str | None = None,
+        model: str | None = None,
+        tool_calls: list[ToolCall] | None = None,
+        usage: LlmUsage | None = None,
+        id: str | None = None,
+        db_id: str | None = None,
     ):
         if dedent and isinstance(content, str):
             content = textwrap.dedent(content).strip()
@@ -70,7 +121,14 @@ class Block:
         self.inline_style = BlockStyle(style)
         self.parent = parent
         self._ctx = ctx
-        
+        self.run_id = run_id
+        self.role = role
+        self.name = name
+        self.model = model
+        self.tool_calls = tool_calls
+        self.usage = usage
+        self.id = id
+        self.db_id = db_id
     # def __call__(
     #     self, 
     #     content: Any | None = None, 
@@ -142,7 +200,13 @@ class Block:
             )
         return inst
         
-    def __call__(self, content: Any, tags: list[str] | None = None, style: InlineStyle | None = None, **kwargs):
+    def __call__(
+        self, 
+        content: Any, 
+        tags: list[str] | None = None, 
+        style: InlineStyle | None = None, 
+        **kwargs
+    ):
         inst = self.append(content=content, tags=tags, style=style, **kwargs)
         return inst
     
