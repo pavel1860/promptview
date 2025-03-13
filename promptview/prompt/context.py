@@ -1,16 +1,12 @@
 from abc import abstractmethod
 import contextvars
 from enum import Enum
-from typing import Any, Callable, Generic, List, Type, TypeVar, Union, Dict
+from typing import Any, Callable, Generic, List, Protocol, Type, TypeVar, Union, Dict
 
 from promptview.artifact_log.artifact_log3 import ArtifactLog
-from promptview.conversation.message_log import MessageLog, SessionManager
-from promptview.conversation.models import Session
 from promptview.model.model import Model
-from ..llms.messages import ActionCall
-from .block import ActionBlock, BaseBlock, BulletType, ListBlock, ResponseBlock, TitleBlock, TitleType, BlockRole
-from .block2 import StrBlock  
 from collections import defaultdict
+from promptview.prompt.block6 import BlockRole, ToolCall, LlmUsage, Block
 import datetime as dt
 
 from typing import TypedDict, List
@@ -25,14 +21,25 @@ class MessageView(TypedDict):
 CURR_CONTEXT = contextvars.ContextVar("curr_context")
 
 
+
+
+
+
 MODEL = TypeVar("MODEL", bound=Model)
+
+
+
+def sanitize_block(block: Block):
+    # if not isinstance(block, Block):        
+    #     block = LLMBlock.from_block(block)        
+    return block
 
 
 class BlockStream(Generic[MODEL]):
     
     def __init__(
         self,         
-        blocks: List[StrBlock] | None = None,        
+        blocks: List[Block] | None = None,        
         run_id: str | None = None, 
         prompt_name: str | None = None
     ):
@@ -40,16 +47,19 @@ class BlockStream(Generic[MODEL]):
         self._block_lookup = defaultdict(list)        
         if blocks:
             for b in blocks:
-                self.append(b)        
+                self.append(sanitize_block(b))        
         self._dirty = True
         self.response = None
         self.run_id = run_id
         self.prompt_name = prompt_name  
+        
     
-    def __add__(self, other: Union[list[StrBlock] , "BlockStream"]):
+                
+    
+    def __add__(self, other: Union[list[Block] , "BlockStream"]):
         if isinstance(other, list):
             for i, b in enumerate(other):
-                if not isinstance(b, StrBlock):
+                if not isinstance(b, Block):
                     raise ValueError(f"Invalid block type: {type(b)} at index {i}")
             return BlockStream(self._blocks + other, run_id=self.run_id, prompt_name=self.prompt_name)
         elif isinstance(other, BlockStream):
@@ -57,10 +67,10 @@ class BlockStream(Generic[MODEL]):
         else:       
             raise ValueError(f"Invalid type: {type(other)}")
         
-    def __radd__(self, other: Union[list[StrBlock], "BlockStream"]):
+    def __radd__(self, other: Union[list[Block], "BlockStream"]):
         if isinstance(other, list):
             for i, b in enumerate(other):
-                if not isinstance(b, StrBlock):
+                if not isinstance(b, Block):
                     raise ValueError(f"Invalid block type: {type(b)} at index {i}")
             return BlockStream(other + self._blocks, run_id=self.run_id, prompt_name=self.prompt_name)
         elif isinstance(other, BlockStream):
@@ -69,11 +79,12 @@ class BlockStream(Generic[MODEL]):
             raise ValueError(f"Invalid type: {type(other)}")        
     
         
-    def _update_lookup(self, block: StrBlock):
-        if isinstance(block, StrBlock):
+    def _update_lookup(self, block: Block):
+        block = sanitize_block(block)
+        if isinstance(block, Block):
             if block.id:
                 self._block_lookup[block.id].append(block)
-            for b in block._items:
+            for b in block.items:
                 self._update_lookup(b)            
     
 
@@ -81,6 +92,7 @@ class BlockStream(Generic[MODEL]):
         self._blocks.append(block)
         # self._block_lookup[block.id].append(block)
         self._update_lookup(block)
+        
     def prepend(self, block):
         self._blocks.insert(0, block)
         # self._block_lookup[block.id].insert(0, block)
@@ -92,61 +104,38 @@ class BlockStream(Generic[MODEL]):
         self._update_lookup(block)
         
     def get(self, key: str | MessageView | list[str | MessageView] ):
-        _key: list[str | MessageView]
-        if type(key) == str or type(key) == MessageView:
-            _key = [key]
-        elif type(key) == list:
-            _key = key
-        else:
-            raise ValueError(f"Invalid key type: {type(key)}")
-        chat_blocks = []
-        for k in _key:            
-            if type(k) == str:
-                if k not in self._block_lookup:
-                    continue
-                    # raise ValueError(f"Block with id {k} not found")
-                target = self._block_lookup[k]
-                chat_blocks.extend(target)
-            elif type(k) == dict:                                
-                chat_blocks.append(
-                    StrBlock(
-                        content=self.get(k["content"]),
-                        role=k.get("role", "user")
-                    )
-                )
+        
                 
         return chat_blocks
         
         
-    # def block(self, title=None, ttype: TitleType="md", role: BlockRole = "user", name: str | None = None, id: str | None = None):
-    #     lb = StrBlock(title=title, ttype=ttype, id=id, role=role, name=name)
-    #     self.append(lb)
-    #     return lb
     
-    # def list(self, title=None, ttype: TitleType="md", bullet: BulletType = "-", role: BlockRole = "user", name: str | None = None, id: str | None = None):        
-    #     lb = ListBlock(title=title, ttype=ttype, bullet=bullet, id=id, role=role, name=name)
-    #     self.append(lb)
-    #     return lb
-    
-    async def push(self, block: StrBlock | str | dict, action: ActionCall | None = None, role: BlockRole | None = None, id: str | None="history"):
+    async def push(self, block: Block | str | dict, tool: ToolCall | None = None, role: BlockRole | None = None, id: str | None="history"):
         platform_id = None
-        action_calls = None        
+        tool_calls = None        
         
-        if isinstance(block, StrBlock):
+        if isinstance(block, Block):
+            block = block.root
+        
+        
+        if isinstance(block, Block):
             content = block.render()
             _role = role or block.role or "user"
-            if action:
-                platform_id = action.id
-            if isinstance(block, ResponseBlock):
-                action_calls = [a.model_dump() for a in block.action_calls]
+            if tool:
+                platform_id = tool.id
+            if isinstance(block, Block):
+                tool_calls = [a.model_dump() for a in block.tool_calls]
+        elif isinstance(block, Block):
+            content = block.render()
+            _role = role or "user"
         elif isinstance(block, str) or isinstance(block, dict):
             content = block    
             _role = role or "user"
-            # block = StrBlock(block, role=_role, id=id,)
             
         else:
             raise ValueError(f"Invalid block type: {type(block)}")
-        block = StrBlock(content, role=_role, id=id, uuid=platform_id, tool_calls=action_calls)
+        
+        block = Block(content, role=_role, id=platform_id, tool_calls=tool_calls)
         ctx = CURR_CONTEXT.get()
         model = ctx.from_blocks(block)
         await model.save()
@@ -414,70 +403,33 @@ class Context(Generic[MODEL], BaseContext):
     # async def delete_message(self, id: int):
         # await self.message_log.delete_message(id=id)
     
-    @abstractmethod
-    def to_blocks(self, model: MODEL) -> StrBlock:
-        pass
+    # @abstractmethod
+    # def to_blocks(self, model: MODEL) -> LLMBlock:
+    #     pass
     
-    
-    @abstractmethod
-    def from_blocks(self, block: StrBlock) -> MODEL:
-        pass
-    
+    # @abstractmethod
+    # def from_blocks(self, block: LLMBlock) -> MODEL:
+    #     pass
     
     async def commit(self):
-        await self.artifact_log.commit_turn()
-        
-        
+        await self.artifact_log.commit_turn()   
 
-      
-    # def messages_to_blocks(self, messages: List[Message]):
-    #     blocks = []
-    #     for message in messages:
-    #         if message.role == "assistant":
-    #             blocks.append(
-    #                 ResponseBlock(
-    #                     db_msg_id=message.id,
-    #                     content=message.content, 
-    #                     action_calls=message.extra.get("action_calls", []),
-    #                     id="history",
-    #                     platform_id=message.platform_id,
-    #                     created_at=message.created_at
-    #                 ))
-    #         elif message.role == "tool":
-    #             blocks.append(
-    #                 ActionBlock(
-    #                     db_msg_id=message.id,
-    #                     content=message.content, 
-    #                     id="history",
-    #                     platform_id=message.platform_id,
-    #                     created_at=message.created_at
-    #                 ))
-    #         else:
-    #             blocks.append(
-    #                 TitleBlock(
-    #                     db_msg_id=message.id,
-    #                     content=message.content, 
-    #                     role=message.role, 
-    #                     id="history",
-    #                     platform_id=message.platform_id,
-    #                     created_at=message.created_at
-    #                 ))
-    #     return blocks
     async def last_artifacts(self, limit=10):
         records = await self._model.limit(limit).order_by("created_at", ascending=False)
         return records
+    
+    async def push(self, value: Block | MODEL) -> Block:
+        if isinstance(value, Block):
+            msg = self._model.from_block(value)
+        else:
+            msg = value
+        saved_value = await msg.save()
+        return saved_value.to_block()
         
-    async def last(self, limit=10):
+    async def last(self, limit=10) -> Block:
         records = await self._model.limit(limit).order_by("created_at", ascending=False)
-        blocks = [self.to_blocks(r) for r in reversed(records)]
-        block_stream = BlockStream(blocks)
-        return block_stream
-    
-    
-    # def last_messages(self, limit=10):
-        # return self.message_log.get_messages(limit)
-    
-    
-    # def clear_session(self):
-        # self.message_log.clear_session()
+        with Block() as blocks:
+            for r in reversed(records):
+                blocks /= r.to_block()
+        return blocks
     

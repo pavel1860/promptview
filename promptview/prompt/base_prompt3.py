@@ -2,8 +2,7 @@ import inspect
 from typing import (Any, Awaitable, Callable, Concatenate, Generic, List, Literal, Type,
                     TypedDict, TypeVar, ParamSpec)
 
-from ..llms.tracer2 import Tracer
-from ..llms.utils.action_manager import Actions
+from ..tracer import Tracer
 from .controller import Controller
 from ..utils.function_utils import call_function
 

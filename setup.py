@@ -2,11 +2,11 @@ from setuptools import setup, find_packages, find_namespace_packages
 
 setup(
     name="promptview",
-    version="0.1",
+    version="0.1.0",
     author='Pavel Schudel',
     author_email='pavel1860@gmail.com',
     url='https://github.com/pavel1860/promptview',
-    description="A modular chatboard package",
+    description="A framework for generating prompts for LLMs",
     packages=find_packages(),
     install_requires=[
         "numpy==1.26.4",
@@ -24,6 +24,7 @@ setup(
         "iso-639==0.4.5",
         "aiohttp==3.10.0",
         "langsmith==0.1.95",
+        "asyncpg==0.30.0"
     ],    
     classifiers=[
         # Classifiers help users find your project by categorizing it.
@@ -32,5 +33,6 @@ setup(
         "Operating System :: OS Independent",
     ],
     python_requires='>=3.10',
+    keywords="prompt, llm, generation",
 )
 

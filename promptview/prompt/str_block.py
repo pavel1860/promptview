@@ -1,7 +1,8 @@
 import json
 import textwrap
 from typing import Literal, Type
-from promptview.prompt.block4 import BaseBlock, BlockContext
+from promptview.prompt.block4 import BaseBlock, Block
+from promptview.prompt.style import InlineStyle
 from promptview.utils.string_utils import int_to_roman
 
         
@@ -13,48 +14,45 @@ BulletType = Literal["number", "alpha", "roman", "roman_upper", "*", "-"]
 
 
 
-class Block(BaseBlock):    
-    indent: int = 0
-    title: TitleType | None = None
-    bullet: BulletType | None = None
+# class BaseBlock(ProtoBlock):    
+#     indent: int = 0
+#     title: TitleType | None = None
+#     bullet: BulletType | None = None
     
     
-    def __init__(
-        self,
-        _: Type[None] | None = None,
-        tags: list[str] | None = None,                
-        bullet: BulletType | None = None,
-        indent: int = 0,
-        depth: int = 1,
-    ):
-        super().__init__(tags, depth)                
-        self.bullet = bullet
-        self.indent = indent
+#     def __init__(
+#         self,
+#         _: Type[None] | None = None,
+#         tags: list[str] | None = None,
+#         style: StyleDict | None = None,
+#         depth: int = 1,
+#     ):
+#         super().__init__(None,tags, style, depth)                
     
-    def _get_prefix(self, idx: int):
-        bullet_type = self.bullet
-        if bullet_type is None:
-            return ""
-        elif bullet_type == "number":
-            return f"{idx}. "
-        elif bullet_type == "alpha":
-            return f"{chr(96+idx)}. "
-        elif bullet_type == "roman_upper":
-            return int_to_roman(idx, upper=True) + ". "
-        elif bullet_type == "roman":
-            return int_to_roman(idx, upper=False) + ". "
-        return f"{bullet_type} "
+#     def _get_prefix(self, idx: int):
+#         bullet_type = self.get_style('bullet', self.bullet)
+#         if bullet_type is None:
+#             return ""
+#         elif bullet_type == "number":
+#             return f"{idx}. "
+#         elif bullet_type == "alpha":
+#             return f"{chr(96+idx)}. "
+#         elif bullet_type == "roman_upper":
+#             return int_to_roman(idx, upper=True) + ". "
+#         elif bullet_type == "roman":
+#             return int_to_roman(idx, upper=False) + ". "
+#         return f"{bullet_type} "
     
-    def render(self) -> str:        
-        return "\n".join([self._get_prefix(i) + item.render() for i, item in enumerate(self.items)])
+#     def render(self) -> str:        
+#         return "\n".join([self._get_prefix(i) + item.render() for i, item in enumerate(self.items)])
     
-    def parse(self, text: str):
-        return text
+#     def parse(self, text: str):
+#         return text
 
 
 
          
-class StrBlock(Block):    
+class StrBlock(BaseBlock):    
     content: str
     indent: int = 0
     title: TitleType | None = None
@@ -63,32 +61,58 @@ class StrBlock(Block):
     def __init__(
         self,
         content: str,
-        tags: list[str] | None = None,                
-        title: TitleType | None = None,
-        bullet: BulletType | None = None,
-        indent: int = 0,
+        tags: list[str] | None = None,
+        style: InlineStyle | None = None,
         dedent: bool = True,
         depth: int = 1,
     ):
-        super().__init__(tags, bullet, indent, depth)
+        super().__init__(None, tags, style, depth)
         
         if content is not None:
             content = textwrap.dedent(content).strip() if dedent else content
         self.content = content
-        self.title = title
         
+    # def _render_title(self, item_content: str) -> str:        
+    #     content = self.content
+    #     title_style = self.get_style('title', self.title)
+    #     if content:
+    #         if title_style == "md":
+    #             heading_level = self.get_style('heading_level', self.depth)
+    #             return f"{'#' * heading_level} {content}" + "\n" + item_content                
+    #         elif title_style == "xml":                
+    #             return f"<{content}>{item_content}</{content}>"
+    #         return content + "\n" + item_content
+        
+        
+    # def render(self) -> str:                        
+    #     item_content = super().render()
+    #     if item_content:
+    #         return self._render_title(item_content)
+    #     return item_content
+    
+    
     def render(self) -> str:
         content = self.content
-        if content and self.title:
-            if self.title == "md":
-                content = f"{'#' * self.depth} {self.content}"
-            elif self.title == "xml":
-                content = f"<{self.content}>"
         item_content = super().render()
-        if item_content:
-            content = content + "\n" + item_content
         
-        return content
+        title_style = self.get_style('title', self.title)
+        if content:
+            if item_content:
+                if title_style == "md":
+                    heading_level = self.get_style('heading_level', self.depth)
+                    return f"{'#' * heading_level} {content}" + "\n" + item_content                
+                elif title_style == "xml":                
+                    return f"<{content}>{item_content}</{content}>"
+                return content + "\n" + item_content
+            else:
+                if title_style == "md":
+                    heading_level = self.get_style('heading_level', self.depth)
+                    return f"{'#' * heading_level} {content}"
+                elif title_style == "xml":                
+                    return f"<{content} />"
+                return content
+        else:
+            return item_content
     
     
     
@@ -188,7 +212,7 @@ class DictBlock(BaseBlock):
     
 
 
-class block(BlockContext):
+class block(Block):
     
     
     def __new__(cls, *args, **kwargs):
@@ -201,13 +225,9 @@ class block(BlockContext):
         self,
         content: str | None = None,
         tags: list[str] | None = None,                
-        title: TitleType | None = None,
-        bullet: BulletType | None = None,
-        indent: int = 0,
-        dedent: bool = True,
-        # depth: int = 1
+        style: InlineStyle | None = None,
     ):
-        super().__init__(content, tags, title, bullet, indent, dedent)
+        super().__init__(content, tags, style)
         
         
     def __call__(

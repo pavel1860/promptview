@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import copy
 import json
-from typing import Any, Callable, Dict, ForwardRef, Generic, List, Optional, Self, Type, TypeVar,  get_args, get_origin
+from typing import Any, Callable, Dict, ForwardRef, Generic, List, Optional, Protocol, Self, Type, TypeVar,  get_args, get_origin
 from uuid import uuid4
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import FieldInfo
@@ -104,13 +104,21 @@ model_manager = ModelManager()
 #     )
 
 
+
+
 MODEL = TypeVar("MODEL", bound="Model")
+
 
 def get_relation_model(cls):
     args = get_args(cls)
     if len(args) != 1:
         raise ValueError("Relation model must have exactly one argument")
     return args[0]
+
+
+
+def make_default_factory(model_cls, rel_field):
+    return lambda: Relation(model_cls=model_cls, rel_field=rel_field)
 
 class Relation(Generic[MODEL]):
     model_cls: Type[MODEL]
@@ -408,11 +416,12 @@ class ModelMeta(ModelMetaclass, type):
                             "field": field,
                             "forward_ref": _forward_ref,
                             "source_namespace": namespace,
-                            "target_namespace": target_type._namespace.default
+                            "target_namespace": target_type._namespace.default,
+                            "field_info": field_info
                         }
                         connection_manager.add_relation(target_type, cls_partitions[field])
                         
-                        field_info.default_factory = lambda: Relation(model_cls=target_type, rel_field=partition)
+                        field_info.default_factory = make_default_factory(target_type, partition)
                         print("Found",field, partition)
                     # if inspect.isclass(target_type) and issubclass(target_type, Model) or isinstance(target_type, ForwardRef): 
                     #         field_info = dct.get(field)                            
@@ -935,6 +944,11 @@ class Model(BaseModel, metaclass=ModelMeta):
         return head
     
 
+    @classmethod
+    def to_block(cls: Type[MODEL]):
+        raise NotImplementedError("Subclasses must implement this method")
     
-    
+    @classmethod
+    def from_block(cls, block: Any):
+        raise NotImplementedError("Subclasses must implement this method")
     

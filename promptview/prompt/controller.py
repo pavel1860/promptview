@@ -2,19 +2,16 @@ import enum
 import functools
 import inspect
 from functools import wraps
-from typing import (Any, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, Type,
+from typing import (TYPE_CHECKING, Any, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, Type,
                     TypedDict, TypeVar, ParamSpec)
 
 from promptview.conversation.history import History
-from promptview.llms.llm3 import LLM
 
-from .block import BaseBlock
-from .context import BlockStream
+
+from promptview.prompt.block6 import Block
 from .depends import Depends, DependsContainer, resolve_dependency
-from .mvc import ViewBlock, create_view_block
 from .context import Context, BaseContext
 from ..utils.function_utils import call_function, filter_args_by_exclude
-from pydantic import BaseModel, Field
 
 
 P = ParamSpec('P')
@@ -34,12 +31,13 @@ class Controller(Generic[P, R]):
     
     
     def _filter_args_for_trace(self, *args: P.args, **kwargs: P.kwargs) -> dict[str, Any]:
-        _args, _kwargs = filter_args_by_exclude(args, kwargs, (LLM, Context, BlockStream))
+        from promptview.llms import LLM
+        _args, _kwargs = filter_args_by_exclude(args, kwargs, (LLM, Context))
         return {"args": _args, "kwargs": _kwargs}
     
     
     def _sanitize_output(self, output: Any) -> Any:
-        if isinstance(output, BaseBlock):
+        if isinstance(output, Block):
             return output.content
         return output
     
