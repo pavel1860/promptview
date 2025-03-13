@@ -228,11 +228,15 @@ def get_model_indices(cls_, prefix=""):
 def ModelRelation(
     # model: "Type[Model]",
     key: str,
+    on_delete: str = "CASCADE",
+    on_update: str = "CASCADE",
 ):
     json_schema_extra={
         "type": "relation",
         "is_relation": True,
-        "partition": key,
+        "key": key,
+        "on_delete": on_delete,
+        "on_update": on_update,
         # "model": model,
     }
     return Field(

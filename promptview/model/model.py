@@ -83,8 +83,35 @@ class ModelManager:
 model_manager = ModelManager()  
 
 
+def build_namespace(model_cls_name: str, db_type: DatabaseType):
+    return f"{camel_to_snake(model_cls_name)}s" if db_type == "postgres" else model_cls_name
 
+@dataclass
+class ForeignKey:
+    key: str # the name of the foreign key in the model
+    referenced_table: str # the name of the table that is referenced
+    referenced_column: str # the column of the referenced table
+    on_delete: str = "CASCADE" # the action to take when the referenced row is deleted
+    on_update: str = "CASCADE" # the action to take when the referenced row is updated
+    target_db_type: DatabaseType = "postgres"
+
+
+@dataclass
+class RelationBlueprint(ForeignKey):
+    namespace: str | None = None            
+    target_forward_ref: ForwardRef | None = None
+    target_db_type: DatabaseType = "qdrant"
     
+    
+    def get_target_namespace(self) -> str:
+        if self.namespace:
+            return self.namespace
+        elif self.target_forward_ref:
+            return build_namespace(self.target_forward_ref.__forward_arg__, self.target_db_type)
+        else:
+            raise ValueError("Target namespace not defined")
+    
+    # target_type.__forward_arg__
 
 # AssetBase = TypeVar('AssetBase')
 
@@ -252,7 +279,8 @@ class ModelMeta(ModelMetaclass, type):
             model_base = bases[0]
             if not namespace:
                 if model_base == Model:
-                    namespace = f"{camel_to_snake(name)}s" if db_type == "postgres" else name
+                    # namespace = f"{camel_to_snake(name)}s" if db_type == "postgres" else name
+                    namespace = build_namespace(name, db_type)
                     dct["_subspace"] = None
                 else:
                     if not hasattr(model_base, "_namespace"):
@@ -406,24 +434,36 @@ class ModelMeta(ModelMetaclass, type):
                         field_info = dct.get(field)                            
                         if not field_info:
                             raise ValueError(f"Field {field} is not defined")
-                        partition = field_info.json_schema_extra.get("partition")
-                        if not partition:
+                        key = field_info.json_schema_extra.get("key")
+                        if not key:
                             raise ValueError(f"Model Field {field} does not have partition")
                         _target_type, _forward_ref = (target_type, None) if not isinstance(target_type, ForwardRef) else (None, target_type)
-                        cls_partitions[field] = {
-                            "type": _target_type,
-                            "origin": field_origin,
-                            "partition": partition,
-                            "field": field,
-                            "forward_ref": _forward_ref,
-                            "source_namespace": namespace,
-                            "target_namespace": target_type._namespace.default,
-                            "field_info": field_info
-                        }
-                        connection_manager.add_relation(target_type, cls_partitions[field])
                         
-                        field_info.default_factory = make_default_factory(target_type, partition)
-                        print("Found",field, partition)
+                        cls_partitions[field] = RelationBlueprint(                            
+                            referenced_column= field,
+                            referenced_table= namespace,
+                            key= key,
+                            # target_model_cls= _target_type,
+                            namespace= target_type._namespace.default if _target_type is not None else None,                            
+                            target_db_type= db_type, #TODO: check if this is correct
+                            on_delete= field_info.json_schema_extra.get("on_delete", "CASCADE"),
+                            on_update= field_info.json_schema_extra.get("on_update", "CASCADE"),
+                            target_forward_ref= _forward_ref
+                        )
+                        # cls_partitions[field] = {                            
+                            # "type": _target_type,
+                            # "origin": field_origin,
+                            # "partition": partition,
+                            # "field": field,
+                            # "forward_ref": _forward_ref,
+                            # "source_namespace": namespace,
+                            # "target_namespace": target_type._namespace.default if target_type._namespace else None,
+                            # "field_info": field_info
+                        # }
+                        connection_manager.add_relation(cls_partitions[field])
+                        
+                        field_info.default_factory = make_default_factory(target_type, key)
+                        print("Found",field, key)
                 
             dct["_partitions"] = cls_partitions
             dct["_default_temporal_field"] = default_temporal_field
@@ -448,13 +488,6 @@ class ModelMeta(ModelMetaclass, type):
     #         return FieldComparable(name, field_info)
     #     return super().__getattr__(name)
 
-@dataclass
-class ForeignKey:
-    key: str # the name of the foreign key in the model
-    referenced_table: str # the name of the table that is referenced
-    referenced_column: str # the column of the referenced table
-    on_delete: str = "CASCADE" # the action to take when the referenced row is deleted
-    on_update: str = "CASCADE" # the action to take when the referenced row is updated
 
 
 

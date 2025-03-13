@@ -18,7 +18,7 @@ from .qdrant_client import QdrantClient
 from .postgres_client import FieldMapper, PostgresClient
 from .vectors.base_vectorizer import BaseVectorizer
 if TYPE_CHECKING:
-    from promptview.model.model import Model, ForeignKey
+    from promptview.model.model import Model, ForeignKey, RelationBlueprint
 
 DatabaseType = Literal["qdrant", "postgres"]
 
@@ -211,7 +211,7 @@ class NamespaceManager:
     _namespaces: Dict[str, NamespaceParams] = {}
     _active_namespaces: Dict[str, NamespaceParams] = {}
     _models: Dict[str, Type[Model]] = {}
-    _relations: Dict[str, Any] = {}
+    _relations: Dict[str, list[RelationBlueprint]] = {}
     _artifact_log: ArtifactLog
     
     def __init__(self):        
@@ -277,13 +277,19 @@ class NamespaceManager:
     def get_env(self):
         return ENV_CONTEXT.get()
     
-    def add_relation(self, target_type: Type[Model], relation_desc: str):
-        target_namespace = target_type._namespace.default
+    # def add_relation(self, target_type: Type[Model], rel_bp: RelationBlueprint):
+    #     target_namespace = target_type._namespace.default
+    #     if target_namespace not in self._relations:
+    #         self._relations[target_namespace] = []
+    #     self._relations[target_namespace].append(rel_bp)
+    
+    def add_relation(self, relation_blueprint: RelationBlueprint):
+        target_namespace = relation_blueprint.get_target_namespace()
         if target_namespace not in self._relations:
             self._relations[target_namespace] = []
-        self._relations[target_namespace].append(relation_desc)
+        self._relations[target_namespace].append(relation_blueprint)
         
-    def get_relations(self, namespace: str):
+    def get_relations(self, namespace: str) -> list[RelationBlueprint]:
         return self._relations.get(namespace, [])
     
     

@@ -220,8 +220,14 @@ class RelationField(SqlFieldBase):
     foreign_key: str = "id"   
     type: FieldTypes = field(default="relation")
     
+    def render_placeholder(self, idx: int) -> str:
+        return f"${idx}"
+    
     def render_create(self) -> str:
         raise NotImplementedError("Relation field CREATE is not supported in CREATE TABLE statements")
+    
+    def render_insert_value(self, value: Any) -> str:
+        return value
     
     def render_augment(self) -> str:
         return f"""
@@ -506,16 +512,26 @@ class PostgresClient:
             if vs.vectorizer.type == "dense":
                 index = "gist" if index_lookup.get(vs.name) else None
                 field_mapper.add_field(SqlVectorField(name=vs.name, size=vs.vectorizer.size, index=index, index_extra={"lists": 100}, is_optional=False))
-            
+                
+                
         for relation in namespace_manager.get_relations(table_name):
-            source_table_name = relation["source_namespace"]
-            column_name = relation["partition"]
-            fk_name = f'fk_{column_name}'
-            index = "btree" if index_lookup.get(column_name) else None              
-            ref_ns = namespace_manager.get_namespace(source_table_name)
-            ref_ns.add_foreign_key(column_name, table_name, "id")            
-            # field_mapper.add_field(RelationField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
-            field_mapper.add_field(SqlForeignKeyField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
+            fk_name = f'fk_{relation.key}'
+            index = "btree" if index_lookup.get(relation.key) else None              
+            ref_ns = namespace_manager.get_namespace(relation.get_target_namespace())
+            ref_ns.add_foreign_key(relation.referenced_column, relation.referenced_table, "id")            
+            field_mapper.add_field(RelationField(name=relation.key, table=table_name, foreign_table=relation.referenced_table, foreign_key="id", index=index, is_optional=False))
+            # field_mapper.add_field(SqlForeignKeyField(name=relation.key, table=table_name, foreign_table=relation.referenced_table, foreign_key="id", index=index, is_optional=False))
+    
+        # for relation in namespace_manager.get_relations(table_name):
+        #     source_table_name = relation["source_namespace"]
+        #     column_name = relation["partition"]
+        #     fk_name = f'fk_{column_name}'
+        #     index = "btree" if index_lookup.get(column_name) else None              
+        #     ref_ns = namespace_manager.get_namespace(source_table_name)
+        #     ref_ns.add_foreign_key(column_name, table_name, "id")            
+        #     # field_mapper.add_field(RelationField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
+        #     field_mapper.add_field(SqlForeignKeyField(name=column_name, table=table_name, foreign_table=source_table_name, foreign_key="id", index=index, is_optional=False))
+        
 
         return field_mapper
 
@@ -768,10 +784,13 @@ class PostgresClient:
                         if is_head:
                             head = await artifact_log.create_head(init_repo=not is_detached_head)
                             item.update({"head_id": head["id"]})                        
-                    item_values = field_mapper.render_insert_values(item, exclude_types=["relation", "key"], exclude_fields=["_subspace"])
+                    # item_values = field_mapper.render_insert_values(item, exclude_types=["relation", "key"], exclude_fields=["_subspace"])
+                    item_values = field_mapper.render_insert_values(item, exclude_types=["key"], exclude_fields=["_subspace"])
                     values.extend(item_values)
-                fields_sql = field_mapper.render_insert_fields(chunk[0], exclude_types=["relation", "key"], exclude_fields=["_subspace"])
-                place_holders_sql = field_mapper.render_placeholders(chunk, exclude_types=["relation", "key"], exclude_fields=["_subspace"])
+                # fields_sql = field_mapper.render_insert_fields(chunk[0], exclude_types=["relation", "key"], exclude_fields=["_subspace"])
+                # place_holders_sql = field_mapper.render_placeholders(chunk, exclude_types=["relation", "key"], exclude_fields=["_subspace"])
+                fields_sql = field_mapper.render_insert_fields(chunk[0], exclude_types=["key"], exclude_fields=["_subspace"])
+                place_holders_sql = field_mapper.render_placeholders(chunk, exclude_types=["key"], exclude_fields=["_subspace"])
                 sql = f"{fields_sql}\n{place_holders_sql}\nRETURNING *;"
                 try:
                     results.extend(await conn.fetch(sql, *values))
