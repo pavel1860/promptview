@@ -1,5 +1,5 @@
 from typing import Any, Dict, Optional, Type, TypeVar, Callable, cast
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr
 from pydantic.config import JsonDict
 
 from promptview.model2.namespace_manager import NamespaceManager
@@ -26,7 +26,7 @@ class ModelFactory:
             namespace_name = namespace or f"{model_name.lower()}s"
             
             # Build namespace
-            ns = NamespaceManager.build_namespace(model_name, db_type)
+            ns = NamespaceManager.build_namespace(namespace_name, db_type)
             
             # Process fields
             for field_name, field_info in cls.model_fields.items():
@@ -50,46 +50,49 @@ class ModelFactory:
                 # Add field to namespace
                 ns.add_field(field_name, field_info.annotation, extra)
             
-            # Add namespace reference to the class
-            cls._namespace_name = namespace_name  # type: ignore
+            # Create a new class that inherits from the original class
+            class ModelWithORM(cls):  # type: ignore
+                _namespace_name: str = namespace_name
+                
+                @classmethod
+                def get_namespace_name(cls) -> str:
+                    return str(cls._namespace_name.default) #type: ignore
+                
+                @classmethod
+                async def initialize(cls):
+                    """Initialize the model (create table)"""
+                    ns = NamespaceManager.get_namespace(cls.get_namespace_name())
+                    await ns.create_namespace()
+                
+                async def save(self):
+                    """Save the model instance to the database"""
+                    ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
+                    data = self.model_dump()
+                    result = await ns.save(data)
+                    # Update instance with returned data (e.g., ID)
+                    for key, value in result.items():
+                        setattr(self, key, value)
+                    return self
+                
+                @classmethod
+                async def get(cls, id: Any):
+                    """Get a model instance by ID"""
+                    ns = NamespaceManager.get_namespace(cls.get_namespace_name())
+                    data = await ns.get(id)
+                    return cls(**data) if data else None
+                
+                @classmethod
+                def query(cls):
+                    """Create a query for this model"""
+                    ns = NamespaceManager.get_namespace(cls.get_namespace_name())
+                    return ns.query()
             
-            # Add ORM methods to the class
-            @classmethod
-            async def initialize(cls):
-                """Initialize the model (create table)"""
-                ns = NamespaceManager.get_namespace(cls._namespace_name)  # type: ignore
-                await ns.create_namespace()
+            # Set the name and module of the new class to match the original class
+            ModelWithORM.__name__ = cls.__name__
+            ModelWithORM.__module__ = cls.__module__
             
-            async def save(self):
-                """Save the model instance to the database"""
-                ns = NamespaceManager.get_namespace(self.__class__._namespace_name)  # type: ignore
-                data = self.model_dump()
-                result = await ns.save(data)
-                # Update instance with returned data (e.g., ID)
-                for key, value in result.items():
-                    setattr(self, key, value)
-                return self
-            
-            @classmethod
-            async def get(cls, id: Any):
-                """Get a model instance by ID"""
-                ns = NamespaceManager.get_namespace(cls._namespace_name)  # type: ignore
-                data = await ns.get(id)
-                return cls(**data) if data else None
-            
-            @classmethod
-            def query(cls):
-                """Create a query for this model"""
-                ns = NamespaceManager.get_namespace(cls._namespace_name)  # type: ignore
-                return ns.query()
-            
-            # Add the methods to the class
-            setattr(cls, 'initialize', initialize)
-            setattr(cls, 'save', save)
-            setattr(cls, 'get', get)
-            setattr(cls, 'query', query)
-            
-            return cls
+            # Cast the new class to the expected return type
+            return cast(Type[T], ModelWithORM)
         
         return decorator
 

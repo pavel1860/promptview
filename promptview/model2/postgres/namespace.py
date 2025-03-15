@@ -2,6 +2,7 @@ from typing import Any, Dict, Literal, Type, Optional, List
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from promptview.model2.postgres.builder import SQLBuilder
+from promptview.model2.postgres.operations import PostgresOperations
 from promptview.utils.model_utils import get_list_type, is_list_type
 from promptview.model2.base_namespace import Namespace, NSFieldInfo, QuerySet
 from promptview.utils.db_connections import PGConnectionManager
@@ -71,7 +72,14 @@ class PostgresNamespace(Namespace):
             field_type: The type of the field
             extra: Extra metadata for the field
         """
-        db_field_type = SQLBuilder.map_field_to_sql_type(field_type, extra)
+        # Check if this is a primary key field
+        is_primary_key = extra and extra.get("primary_key", False)
+        
+        # For auto-incrementing integer primary keys, use SERIAL instead of INTEGER
+        if is_primary_key and name == "id" and field_type == int:
+            db_field_type = SQLBuilder.SERIAL_TYPE  # Use the constant from SQLBuilder
+        else:
+            db_field_type = SQLBuilder.map_field_to_sql_type(field_type, extra)
         
         # Get index from extra if available
         index = None
@@ -131,10 +139,7 @@ class PostgresNamespace(Namespace):
         Returns:
             The saved data with any additional fields (e.g., ID)
         """
-        # Implementation for saving data
-        # This would use SQLBuilder to generate and execute INSERT/UPDATE SQL
-        # For now, just return the data with an ID
-        return {"id": 1, **data}
+        return await PostgresOperations.save(self, data)
     
     async def get(self, id: Any) -> Optional[Dict[str, Any]]:
         """
@@ -146,10 +151,7 @@ class PostgresNamespace(Namespace):
         Returns:
             The data if found, None otherwise
         """
-        # Implementation for getting data
-        # This would use SQLBuilder to generate and execute SELECT SQL
-        # For now, just return dummy data
-        return {"id": id, "name": "Example", "age": 30}
+        return await PostgresOperations.get(self, id)
     
     def query(self) -> QuerySet:
         """
@@ -158,7 +160,5 @@ class PostgresNamespace(Namespace):
         Returns:
             A query set for this namespace
         """
-        # Implementation for creating a query
-        # This would return a QuerySet for this namespace
         return PostgresQuerySet(self)
         

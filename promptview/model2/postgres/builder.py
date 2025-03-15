@@ -12,9 +12,14 @@ if TYPE_CHECKING:
 
 
 class SQLBuilder:
+    """SQL builder for PostgreSQL"""
 
+    # PostgreSQL type constants
+    SERIAL_TYPE = "SERIAL"
+    
     @classmethod
     async def execute(cls, sql: str):
+        """Execute a SQL statement"""
         try:
             res = await PGConnectionManager.execute(sql)
             return res
@@ -24,6 +29,7 @@ class SQLBuilder:
 
     @classmethod
     async def fetch(cls, sql: str):
+        """Fetch results from a SQL query"""
         try:
             res = await PGConnectionManager.fetch(sql)
             return res
@@ -80,10 +86,7 @@ class SQLBuilder:
             
             # Add primary key if specified
             if field.extra and field.extra.get("primary_key"):
-                if field.name == "id" and field.db_field_type == "INTEGER":
-                    sql += " SERIAL PRIMARY KEY"
-                else:
-                    sql += " PRIMARY KEY"
+                sql += " PRIMARY KEY"
             
             # Add index if specified
             elif field.index:

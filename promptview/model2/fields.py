@@ -55,22 +55,3 @@ class Model(BaseModel, metaclass=ModelMeta):
     # Namespace reference - will be set by the decorator
     _namespace_name: str = PrivateAttr(default=None)
 
-
-class KeyModel(Model):
-    """Model with a primary key
-    
-    This class adds an ID field to the model.
-    """
-    id: int = KeyField(default=None, primary_key=True)
-
-
-class VectorModel(Model):
-    """Model with vector embedding support"""
-    pass
-
-
-class VersionedModel(Model):
-    """Model with versioning support"""
-    pass
-    pass
-

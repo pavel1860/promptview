@@ -48,4 +48,4 @@ class PGConnectionManager:
     @classmethod
     async def drop_tables(cls, table_names: list[str]) -> None:
         for table_name in table_names:
-            await cls.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE")
+            await cls.execute(f"""DROP TABLE IF EXISTS "{table_name}" CASCADE""")
