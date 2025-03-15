@@ -2,6 +2,7 @@ from promptview.model2.base_namespace import DatabaseType, Namespace
 from typing import TYPE_CHECKING, Type, TypeVar, Dict, List, Any, Optional
 
 from promptview.model2.postgres.namespace import PostgresNamespace
+from promptview.model2.postgres.operations import PostgresOperations
 
 
 if TYPE_CHECKING:
@@ -20,13 +21,14 @@ class NamespaceManager:
         cls._namespaces = {}
         
     @classmethod
-    def build_namespace(cls, model_name: str, db_type: DatabaseType) -> Namespace:
+    def build_namespace(cls, model_name: str, db_type: DatabaseType, is_versioned: bool = True) -> Namespace:
         """
         Build a namespace for a model.
         
         Args:
             model_name: The name of the model
             db_type: The type of database to use
+            is_versioned: Whether the namespace should be versioned
             
         Returns:
             The namespace for the model
@@ -36,7 +38,7 @@ class NamespaceManager:
         if db_type == "qdrant":
             raise NotImplementedError("Qdrant is not implemented")
         elif db_type == "postgres":
-            namespace = PostgresNamespace(model_name)
+            namespace = PostgresNamespace(model_name, is_versioned)
         else:
            raise ValueError(f"Invalid database type: {db_type}")
         cls._namespaces[model_name] = namespace
@@ -63,7 +65,7 @@ class NamespaceManager:
         return cls._namespaces[model_name]
     
     @classmethod
-    async def create_all_namespaces(cls):
+    async def create_all_namespaces(cls, versioning: bool = True):
         """
         Create all registered namespaces in the database.
         
@@ -71,7 +73,8 @@ class NamespaceManager:
         """
         if not cls._namespaces:
             raise ValueError("No namespaces registered")
-        
+        if versioning:
+            await PostgresOperations.initialize_versioning()
         for namespace in cls._namespaces.values():
             await namespace.create_namespace()
     
@@ -84,3 +87,6 @@ class NamespaceManager:
             A list of all registered namespaces
         """
         return list(cls._namespaces.values())
+
+
+    

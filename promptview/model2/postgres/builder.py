@@ -79,7 +79,10 @@ class SQLBuilder:
     @classmethod
     async def create_table(cls, namespace: "PostgresNamespace") -> str:
         """Create a table for a namespace"""
-        sql = f"""CREATE TABLE IF NOT EXISTS "{namespace.name}" (\n"""
+        if not namespace.table_name:
+            raise ValueError("Table name is not set")
+        
+        sql = f"""CREATE TABLE IF NOT EXISTS "{namespace.table_name}" (\n"""
         
         for field in namespace.iter_fields():
             sql += f'"{field.name}" {field.db_field_type}'
@@ -93,12 +96,32 @@ class SQLBuilder:
                 sql += f" {field.index}"
                 
             sql += ",\n"
+        
+        # Add versioning fields only if the namespace is versioned
+        if hasattr(namespace, "is_versioned") and namespace.is_versioned:
+            sql += '"branch_id" INTEGER,\n'
+            sql += '"turn_id" INTEGER,\n'
             
         # Remove trailing comma
         sql = sql[:-2]
         sql += "\n);"
         
-        return await cls.execute(sql)
+        # Execute the SQL to create the table
+        await cls.execute(sql)
+        
+        # Create indices for versioning fields if the namespace is versioned
+        if hasattr(namespace, "is_versioned") and namespace.is_versioned:
+            await cls.create_index_for_column(namespace, "branch_id")
+            await cls.create_index_for_column(namespace, "turn_id")
+        
+        return sql
+    
+    @classmethod
+    async def create_index_for_column(cls, namespace: "PostgresNamespace", column_name: str) -> None:
+        """Create an index for a column"""
+        index_name = f"{namespace.table_name}_{column_name}_idx"
+        sql = f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{namespace.table_name}" ("{column_name}");'
+        await cls.execute(sql)
 
 
 

@@ -5,8 +5,20 @@ from pydantic._internal._model_construction import ModelMetaclass
 
 from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.base_namespace import DatabaseType
+from promptview.model2.versioning import Branch
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def get_dct_private_attributes(dct: dict[str, Any], key: str, default: Any=None) -> Any:
+    """Get the private attributes of a class"""
+    res = dct['__private_attributes__'].get(key)
+    if hasattr(res, "default"):
+        res = res.default
+    if not res:
+        return default    
+    return res
+
 
 class ModelMeta(ModelMetaclass, type):
     """Metaclass for Model
@@ -25,11 +37,12 @@ class ModelMeta(ModelMetaclass, type):
         
         # Get model name and namespace
         model_name = name
-        namespace_name = dct.get("_namespace_name", f"{model_name.lower()}s")
-        db_type = dct.get("_db_type", "postgres")
+        namespace_name = get_dct_private_attributes(dct, "_namespace_name", f"{model_name.lower()}s")
+        db_type = get_dct_private_attributes(dct, "_db_type", "postgres")
+        is_versioned = get_dct_private_attributes(dct, "_is_versioned", False)
         
         # Build namespace
-        ns = NamespaceManager.build_namespace(namespace_name, db_type)
+        ns = NamespaceManager.build_namespace(namespace_name, db_type, is_versioned)
         
         # Process fields
         for field_name, field_info in cls_obj.model_fields.items():
@@ -68,6 +81,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     # Namespace reference - will be set by the metaclass
     _namespace_name: str = PrivateAttr(default=None)
     _db_type: DatabaseType = PrivateAttr(default="postgres")
+    _is_versioned: bool = PrivateAttr(default=False)
     
     @classmethod
     def get_namespace_name(cls) -> str:
@@ -80,11 +94,23 @@ class Model(BaseModel, metaclass=ModelMeta):
         ns = NamespaceManager.get_namespace(cls.get_namespace_name())
         await ns.create_namespace()
     
-    async def save(self):
-        """Save the model instance to the database"""
+    async def save(self, branch: Optional[int | Branch] = None):
+        """
+        Save the model instance to the database
+        
+        Args:
+            branch: Optional branch ID to save to
+        """
+        
+        
+        if branch:
+            if not self._is_versioned:
+                raise ValueError("Model is not versioned but branch is provided")
+            if isinstance(branch, Branch):
+                branch = branch.id
         ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
         data = self.model_dump()
-        result = await ns.save(data)
+        result = await ns.save(data, branch)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)
@@ -98,10 +124,15 @@ class Model(BaseModel, metaclass=ModelMeta):
         return cls(**data) if data else None
     
     @classmethod
-    def query(cls):
-        """Create a query for this model"""
+    def query(cls, branch: Optional[int] = None):
+        """
+        Create a query for this model
+        
+        Args:
+            branch: Optional branch ID to query from
+        """
         ns = NamespaceManager.get_namespace(cls.get_namespace_name())
-        return ns.query()
+        return ns.query(branch)
 
 
 # No need for the ModelFactory class anymore

@@ -35,10 +35,12 @@ class QuerySet:
 class Namespace:
     _name: str
     _fields: dict[str, NSFieldInfo]
+    is_versioned: bool
     
-    def __init__(self, name: str):
+    def __init__(self, name: str, is_versioned: bool = False):
         self._name = name
         self._fields = {}
+        self.is_versioned = is_versioned
         
     @property
     def name(self) -> str:
@@ -73,7 +75,7 @@ class Namespace:
         """Drop the namespace from the database"""
         raise NotImplementedError("Not implemented")
     
-    async def save(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def save(self, data: Dict[str, Any], branch: Optional[int] = None) -> Dict[str, Any]:
         """Save data to the namespace"""
         raise NotImplementedError("Not implemented")
     
@@ -81,7 +83,12 @@ class Namespace:
         """Get data from the namespace by ID"""
         raise NotImplementedError("Not implemented")
     
-    def query(self) -> QuerySet:
-        """Create a query for this namespace"""
+    def query(self, branch: Optional[int] = None) -> QuerySet:
+        """
+        Create a query for this namespace
+        
+        Args:
+            branch: Optional branch ID to query from
+        """
         raise NotImplementedError("Not implemented")
     

@@ -19,8 +19,9 @@ class PgFieldInfo(NSFieldInfo[PgIndexType]):
 class PostgresQuerySet(QuerySet):
     """PostgreSQL implementation of QuerySet"""
     
-    def __init__(self, namespace: "PostgresNamespace"):
+    def __init__(self, namespace: "PostgresNamespace", branch_id: Optional[int] = None):
         self.namespace = namespace
+        self.branch_id = branch_id
         self.filters = {}
         self.limit_value = None
         self.offset_value = None
@@ -38,10 +39,13 @@ class PostgresQuerySet(QuerySet):
     
     async def execute(self) -> List[Dict[str, Any]]:
         """Execute the query"""
-        # Implementation would execute the query
-        # This would use SQLBuilder to generate and execute SELECT SQL
-        # For now, just return dummy data
-        return [{"id": 1, "name": "Example", "age": 30}]
+        # Use PostgresOperations to execute the query with versioning support
+        return await PostgresOperations.query(
+            self.namespace,
+            branch_id=self.branch_id,
+            filters=self.filters,
+            limit=self.limit_value
+        )
     
     def __await__(self):
         """Make the query awaitable"""
@@ -51,8 +55,8 @@ class PostgresQuerySet(QuerySet):
 class PostgresNamespace(Namespace):
     """PostgreSQL implementation of Namespace"""
     
-    def __init__(self, name: str):
-        super().__init__(name)
+    def __init__(self, name: str, is_versioned: bool = True):
+        super().__init__(name, is_versioned)
         
     @property
     def table_name(self) -> str:
@@ -116,6 +120,9 @@ class PostgresNamespace(Namespace):
         Returns:
             The result of the create operation
         """
+        # if self.is_versioned:
+        #     self.add_field("branch_id", int)
+        #     self.add_field("turn_id", int)
         res = await SQLBuilder.create_table(self)
         return res
 
@@ -129,17 +136,18 @@ class PostgresNamespace(Namespace):
         res = await SQLBuilder.drop_table(self)
         return res
     
-    async def save(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def save(self, data: Dict[str, Any], branch: Optional[int] = None) -> Dict[str, Any]:
         """
         Save data to the namespace.
         
         Args:
             data: The data to save
+            branch: Optional branch ID to save to
             
         Returns:
             The saved data with any additional fields (e.g., ID)
         """
-        return await PostgresOperations.save(self, data)
+        return await PostgresOperations.save(self, data, branch)
     
     async def get(self, id: Any) -> Optional[Dict[str, Any]]:
         """
@@ -153,12 +161,15 @@ class PostgresNamespace(Namespace):
         """
         return await PostgresOperations.get(self, id)
     
-    def query(self) -> QuerySet:
+    def query(self, branch: Optional[int] = None) -> QuerySet:
         """
         Create a query for this namespace.
         
+        Args:
+            branch: Optional branch ID to query from
+            
         Returns:
             A query set for this namespace
         """
-        return PostgresQuerySet(self)
+        return PostgresQuerySet(self, branch)
         
