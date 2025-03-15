@@ -6,20 +6,29 @@ import os
 # Add the parent directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from promptview.model2.model import model
-from promptview.model2.fields import ModelField
-from pydantic import BaseModel
+from promptview.model2.model import Model
+from promptview.model2.fields import ModelField, KeyField
 import asyncio
 
 
-@model.postgres()
-class User(BaseModel):
+class User(Model):
+    # Set namespace name and database type
+    _namespace_name = "users"
+    _db_type = "postgres"
+    
+    # Fields
+    id: int = KeyField(primary_key=True)
     name: str = ModelField()
     age: int = ModelField()
 
 
-@model.postgres()
-class Post(BaseModel):
+class Post(Model):
+    # Set namespace name and database type
+    _namespace_name = "posts"
+    _db_type = "postgres"
+    
+    # Fields
+    id: int = KeyField(primary_key=True)
     title: str = ModelField()
     content: str = ModelField()
     author_id: int = ModelField()

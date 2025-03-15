@@ -1,100 +1,107 @@
 from typing import Any, Dict, Optional, Type, TypeVar, Callable, cast
 from pydantic import BaseModel, PrivateAttr
 from pydantic.config import JsonDict
+from pydantic._internal._model_construction import ModelMetaclass
 
 from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.base_namespace import DatabaseType
 
 T = TypeVar('T', bound=BaseModel)
 
-class ModelFactory:
-    """Factory for creating model decorators"""
+class ModelMeta(ModelMetaclass, type):
+    """Metaclass for Model
     
-    def postgres(self, namespace: Optional[str] = None, **options):
-        """Create a PostgreSQL model decorator"""
-        return self._create_decorator("postgres", namespace, **options)
+    This metaclass handles the registration of models with the namespace manager
+    and the processing of fields.
+    """
     
-    def qdrant(self, namespace: Optional[str] = None, **options):
-        """Create a Qdrant model decorator"""
-        return self._create_decorator("qdrant", namespace, **options)
-    
-    def _create_decorator(self, db_type: DatabaseType, namespace: Optional[str] = None, **options):
-        """Create a model decorator for the specified database type"""
-        def decorator(cls: Type[T]) -> Type[T]:
-            # Get model name and namespace
-            model_name = cls.__name__
-            namespace_name = namespace or f"{model_name.lower()}s"
-            
-            # Build namespace
-            ns = NamespaceManager.build_namespace(namespace_name, db_type)
-            
-            # Process fields
-            for field_name, field_info in cls.model_fields.items():
-                # Skip fields without a type annotation
-                if field_info.annotation is None:
-                    continue
-                
-                # Extract field metadata
-                extra_json = field_info.json_schema_extra
-                extra: Dict[str, Any] = {}
-                
-                # Convert json_schema_extra to a dictionary
-                if extra_json is not None:
-                    if isinstance(extra_json, dict):
-                        extra = dict(extra_json)
-                    elif callable(extra_json):
-                        # If it's a callable, create an empty dict
-                        # In a real implementation, we might want to call it
-                        extra = {}
-                
-                # Add field to namespace
-                ns.add_field(field_name, field_info.annotation, extra)
-            
-            # Create a new class that inherits from the original class
-            class ModelWithORM(cls):  # type: ignore
-                _namespace_name: str = namespace_name
-                
-                @classmethod
-                def get_namespace_name(cls) -> str:
-                    return str(cls._namespace_name.default) #type: ignore
-                
-                @classmethod
-                async def initialize(cls):
-                    """Initialize the model (create table)"""
-                    ns = NamespaceManager.get_namespace(cls.get_namespace_name())
-                    await ns.create_namespace()
-                
-                async def save(self):
-                    """Save the model instance to the database"""
-                    ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
-                    data = self.model_dump()
-                    result = await ns.save(data)
-                    # Update instance with returned data (e.g., ID)
-                    for key, value in result.items():
-                        setattr(self, key, value)
-                    return self
-                
-                @classmethod
-                async def get(cls, id: Any):
-                    """Get a model instance by ID"""
-                    ns = NamespaceManager.get_namespace(cls.get_namespace_name())
-                    data = await ns.get(id)
-                    return cls(**data) if data else None
-                
-                @classmethod
-                def query(cls):
-                    """Create a query for this model"""
-                    ns = NamespaceManager.get_namespace(cls.get_namespace_name())
-                    return ns.query()
-            
-            # Set the name and module of the new class to match the original class
-            ModelWithORM.__name__ = cls.__name__
-            ModelWithORM.__module__ = cls.__module__
-            
-            # Cast the new class to the expected return type
-            return cast(Type[T], ModelWithORM)
+    def __new__(cls, name, bases, dct):
+        # Use the standard Pydantic metaclass to create the class
+        cls_obj = super().__new__(cls, name, bases, dct)
         
-        return decorator
+        # Skip processing for the base Model class
+        if name == "Model":
+            return cls_obj
+        
+        # Get model name and namespace
+        model_name = name
+        namespace_name = dct.get("_namespace_name", f"{model_name.lower()}s")
+        db_type = dct.get("_db_type", "postgres")
+        
+        # Build namespace
+        ns = NamespaceManager.build_namespace(namespace_name, db_type)
+        
+        # Process fields
+        for field_name, field_info in cls_obj.model_fields.items():
+            # Skip fields without a type annotation
+            if field_info.annotation is None:
+                continue
+            
+            # Extract field metadata
+            extra_json = field_info.json_schema_extra
+            extra: Dict[str, Any] = {}
+            
+            # Convert json_schema_extra to a dictionary
+            if extra_json is not None:
+                if isinstance(extra_json, dict):
+                    extra = dict(extra_json)
+                elif callable(extra_json):
+                    # If it's a callable, create an empty dict
+                    # In a real implementation, we might want to call it
+                    extra = {}
+            
+            # Add field to namespace
+            ns.add_field(field_name, field_info.annotation, extra)
+        
+        # Set namespace name on the class
+        cls_obj._namespace_name = namespace_name
+        
+        return cls_obj
 
-# Create a singleton instance
-model = ModelFactory()
+
+class Model(BaseModel, metaclass=ModelMeta):
+    """Base class for all models
+    
+    This class is a simple Pydantic model with a custom metaclass.
+    The ORM functionality is added by the metaclass.
+    """
+    # Namespace reference - will be set by the metaclass
+    _namespace_name: str = PrivateAttr(default=None)
+    _db_type: DatabaseType = PrivateAttr(default="postgres")
+    
+    @classmethod
+    def get_namespace_name(cls) -> str:
+        """Get the namespace name for this model"""
+        return cls._namespace_name
+    
+    @classmethod
+    async def initialize(cls):
+        """Initialize the model (create table)"""
+        ns = NamespaceManager.get_namespace(cls.get_namespace_name())
+        await ns.create_namespace()
+    
+    async def save(self):
+        """Save the model instance to the database"""
+        ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
+        data = self.model_dump()
+        result = await ns.save(data)
+        # Update instance with returned data (e.g., ID)
+        for key, value in result.items():
+            setattr(self, key, value)
+        return self
+    
+    @classmethod
+    async def get(cls, id: Any):
+        """Get a model instance by ID"""
+        ns = NamespaceManager.get_namespace(cls.get_namespace_name())
+        data = await ns.get(id)
+        return cls(**data) if data else None
+    
+    @classmethod
+    def query(cls):
+        """Create a query for this model"""
+        ns = NamespaceManager.get_namespace(cls.get_namespace_name())
+        return ns.query()
+
+
+# No need for the ModelFactory class anymore

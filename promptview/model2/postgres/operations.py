@@ -9,6 +9,11 @@ if TYPE_CHECKING:
     from promptview.model2.postgres.namespace import PostgresNamespace
 
 
+def print_error_sql(sql: str, values: list[Any] | None = None):
+    print("SQL:\n", sql)
+    if values:
+        print("VALUES:\n", values)
+
 class PostgresOperations:
     """Operations for PostgreSQL database"""
 
@@ -65,7 +70,11 @@ class PostgresOperations:
         """
         
         # Execute query
-        result = await PGConnectionManager.fetch_one(sql, *values)
+        try:
+            result = await PGConnectionManager.fetch_one(sql, *values)
+        except Exception as e:
+            print_error_sql(sql, values)
+            raise e
         
         # Convert result to dictionary
         return dict(result) if result else {"id": 1, **data}
