@@ -1,11 +1,8 @@
-
-
-from typing import Any, Generic, Iterator, Literal, Type, TypeVar, TypedDict
+from typing import Any, Dict, Generic, Iterator, Literal, Type, TypeVar, TypedDict, Optional
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
 DatabaseType = Literal["qdrant", "postgres"]
-
 
 
 INDEX_TYPES = TypeVar("INDEX_TYPES", bound=str)
@@ -19,9 +16,24 @@ class NSFieldInfo(BaseModel, Generic[INDEX_TYPES]):
     extra: dict[str, Any] | None = None
 
 
+class QuerySet:
+    """Base query set interface"""
+    
+    def filter(self, **kwargs):
+        """Filter the query"""
+        raise NotImplementedError("Not implemented")
+    
+    def limit(self, limit: int):
+        """Limit the query results"""
+        raise NotImplementedError("Not implemented")
+    
+    async def execute(self):
+        """Execute the query"""
+        raise NotImplementedError("Not implemented")
+
 
 class Namespace:
-    _name: str    
+    _name: str
     _fields: dict[str, NSFieldInfo]
     
     def __init__(self, name: str):
@@ -37,34 +49,39 @@ class Namespace:
             yield field
     
     def add_field(
-        self, 
-        name: str, 
+        self,
+        name: str,
         field_type: type[Any],
         extra: dict[str, Any] | None = None,
     ):
+        """Add a field to the namespace"""
         raise NotImplementedError("Not implemented")
     
     def add_relation(
-        self, 
-        name: str, 
+        self,
+        name: str,
         field_info: FieldInfo,
     ):
+        """Add a relation to the namespace"""
         raise NotImplementedError("Not implemented")
     
-        
     async def create_namespace(self):
+        """Create the namespace in the database"""
         raise NotImplementedError("Not implemented")
-    
     
     async def drop_namespace(self):
+        """Drop the namespace from the database"""
         raise NotImplementedError("Not implemented")
     
+    async def save(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Save data to the namespace"""
+        raise NotImplementedError("Not implemented")
     
+    async def get(self, id: Any) -> Optional[Dict[str, Any]]:
+        """Get data from the namespace by ID"""
+        raise NotImplementedError("Not implemented")
     
-    
-    
-    
-    
-    
-    
+    def query(self) -> QuerySet:
+        """Create a query for this namespace"""
+        raise NotImplementedError("Not implemented")
     

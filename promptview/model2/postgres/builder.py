@@ -33,13 +33,14 @@ class SQLBuilder:
 
     @classmethod
     def map_field_to_sql_type(cls, field_type: type[Any], extra: dict[str, Any] | None = None) -> str:
+        """Map a Python type to a SQL type"""
         if is_list_type(field_type):
             list_type = get_list_type(field_type)
-            if isinstance(list_type, int):                
+            if isinstance(list_type, int):
                 db_field_type = "INTEGER[]"
             elif isinstance(list_type, float):
                 db_field_type = "FLOAT[]"
-            elif isinstance(list_type, str): 
+            elif isinstance(list_type, str):
                 db_field_type = "TEXT[]"
             # elif isinstance(list_type, Model):
             #     partition = field.json_schema_extra.get("partition")
@@ -51,7 +52,7 @@ class SQLBuilder:
                 custom_type = extra.get("db_type")
                 if type(custom_type) != str:
                     raise ValueError(f"Custom type is not a string: {custom_type}")
-                db_field_type = custom_type                
+                db_field_type = custom_type
             elif field_type == bool:
                 db_field_type = "BOOLEAN"
             elif field_type == int:
@@ -69,17 +70,31 @@ class SQLBuilder:
                 raise ValueError(f"Unsupported field type: {field_type}")
         return db_field_type
 
-
-
     @classmethod
     async def create_table(cls, namespace: "PostgresNamespace") -> str:
-        sql = f"CREATE TABLE IF NOT EXISTS {namespace.name} (\n"
+        """Create a table for a namespace"""
+        sql = f"""CREATE TABLE IF NOT EXISTS "{namespace.name}" (\n"""
         
         for field in namespace.iter_fields():
-            sql += f"{field.name} {field.db_field_type}"
+            sql += f'"{field.name}" {field.db_field_type}'
+            
+            # Add primary key if specified
+            if field.extra and field.extra.get("primary_key"):
+                if field.name == "id" and field.db_field_type == "INTEGER":
+                    sql += " SERIAL PRIMARY KEY"
+                else:
+                    sql += " PRIMARY KEY"
+            
+            # Add index if specified
+            elif field.index:
+                sql += f" {field.index}"
+                
             sql += ",\n"
+            
+        # Remove trailing comma
         sql = sql[:-2]
-        sql += ")"
+        sql += "\n);"
+        
         return await cls.execute(sql)
 
 
