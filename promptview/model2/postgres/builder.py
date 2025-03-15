@@ -98,9 +98,9 @@ class SQLBuilder:
             sql += ",\n"
         
         # Add versioning fields only if the namespace is versioned
-        if hasattr(namespace, "is_versioned") and namespace.is_versioned:
-            sql += '"branch_id" INTEGER,\n'
-            sql += '"turn_id" INTEGER,\n'
+        # if hasattr(namespace, "is_versioned") and namespace.is_versioned:
+        #     sql += '"branch_id" INTEGER,\n'
+        #     sql += '"turn_id" INTEGER,\n'
             
         # Remove trailing comma
         sql = sql[:-2]

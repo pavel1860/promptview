@@ -120,9 +120,6 @@ class PostgresNamespace(Namespace):
         Returns:
             The result of the create operation
         """
-        # if self.is_versioned:
-        #     self.add_field("branch_id", int)
-        #     self.add_field("turn_id", int)
         res = await SQLBuilder.create_table(self)
         return res
 

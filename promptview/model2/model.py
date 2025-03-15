@@ -1,5 +1,5 @@
 from typing import Any, Dict, Optional, Type, TypeVar, Callable, cast
-from pydantic import BaseModel, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr
 from pydantic.config import JsonDict
 from pydantic._internal._model_construction import ModelMetaclass
 
@@ -32,7 +32,7 @@ class ModelMeta(ModelMetaclass, type):
         cls_obj = super().__new__(cls, name, bases, dct)
         
         # Skip processing for the base Model class
-        if name == "Model":
+        if name == "Model" or name == "RepoModel" or name == "ArtifactModel":
             return cls_obj
         
         # Get model name and namespace
@@ -124,15 +124,39 @@ class Model(BaseModel, metaclass=ModelMeta):
         return cls(**data) if data else None
     
     @classmethod
-    def query(cls, branch: Optional[int] = None):
+    def query(cls, branch: Optional[int | Branch] = None):
         """
         Create a query for this model
         
         Args:
             branch: Optional branch ID to query from
         """
+        if branch:
+            if not cls._is_versioned:
+                raise ValueError("Model is not versioned but branch is provided")
+            if isinstance(branch, Branch):
+                branch = branch.id
         ns = NamespaceManager.get_namespace(cls.get_namespace_name())
         return ns.query(branch)
 
 
 # No need for the ModelFactory class anymore
+
+
+
+
+class ArtifactModel(Model):
+    branch_id: int = Field(default=None)
+    turn_id: int = Field(default=None)
+
+
+
+class RepoModel(Model):
+    main_branch_id: int = Field(default=None)
+    
+    
+    
+    
+    
+    
+    
