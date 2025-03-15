@@ -137,7 +137,7 @@ class Model(BaseModel, metaclass=ModelMeta):
             if isinstance(branch, Branch):
                 branch = branch.id
         ns = NamespaceManager.get_namespace(cls.get_namespace_name())
-        return ns.query(branch)
+        return ns.query(branch, model_class=cls)
 
 
 # No need for the ModelFactory class anymore

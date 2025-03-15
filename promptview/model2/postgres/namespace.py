@@ -19,7 +19,8 @@ class PgFieldInfo(NSFieldInfo[PgIndexType]):
 class PostgresQuerySet(QuerySet):
     """PostgreSQL implementation of QuerySet"""
     
-    def __init__(self, namespace: "PostgresNamespace", branch_id: Optional[int] = None):
+    def __init__(self, namespace: "PostgresNamespace", branch_id: Optional[int] = None, model_class=None):
+        super().__init__(model_class=model_class)
         self.namespace = namespace
         self.branch_id = branch_id
         self.filters = {}
@@ -37,15 +38,21 @@ class PostgresQuerySet(QuerySet):
         self.limit_value = limit
         return self
     
-    async def execute(self) -> List[Dict[str, Any]]:
+    async def execute(self) -> List[Any]:
         """Execute the query"""
         # Use PostgresOperations to execute the query with versioning support
-        return await PostgresOperations.query(
+        results = await PostgresOperations.query(
             self.namespace,
             branch_id=self.branch_id,
             filters=self.filters,
             limit=self.limit_value
         )
+        
+        # Convert results to model instances if model_class is provided
+        if self.model_class:
+            return [self.model_class(**data) for data in results]
+        else:
+            return results
     
     def __await__(self):
         """Make the query awaitable"""
@@ -158,15 +165,16 @@ class PostgresNamespace(Namespace):
         """
         return await PostgresOperations.get(self, id)
     
-    def query(self, branch: Optional[int] = None) -> QuerySet:
+    def query(self, branch: Optional[int] = None, model_class=None) -> QuerySet:
         """
         Create a query for this namespace.
         
         Args:
             branch: Optional branch ID to query from
+            model_class: Optional model class to use for instantiating results
             
         Returns:
             A query set for this namespace
         """
-        return PostgresQuerySet(self, branch)
+        return PostgresQuerySet(self, branch, model_class=model_class)
         

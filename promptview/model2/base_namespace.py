@@ -19,6 +19,15 @@ class NSFieldInfo(BaseModel, Generic[INDEX_TYPES]):
 class QuerySet:
     """Base query set interface"""
     
+    def __init__(self, model_class=None):
+        """
+        Initialize the query set
+        
+        Args:
+            model_class: Optional model class to use for instantiating results
+        """
+        self.model_class = model_class
+    
     def filter(self, **kwargs):
         """Filter the query"""
         raise NotImplementedError("Not implemented")
@@ -83,12 +92,13 @@ class Namespace:
         """Get data from the namespace by ID"""
         raise NotImplementedError("Not implemented")
     
-    def query(self, branch: Optional[int] = None) -> QuerySet:
+    def query(self, branch: Optional[int] = None, model_class=None) -> QuerySet:
         """
         Create a query for this namespace
         
         Args:
             branch: Optional branch ID to query from
+            model_class: Optional model class to use for instantiating results
         """
         raise NotImplementedError("Not implemented")
     

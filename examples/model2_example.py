@@ -93,11 +93,15 @@ async def main():
     print("Querying users from main branch...")
     main_users = await User.query(branch=main_branch.id).filter(name="John Doe").execute()
     print(f"User in main branch: {main_users[0]}")
+    print(f"User type: {type(main_users[0])}")  # Should be User, not dict
+    print(f"User age: {main_users[0].age}")  # Can access attributes directly
     
     # Query users from feature branch
     print("Querying users from feature branch...")
     feature_users = await User.query(branch=feature_branch.id).filter(name="John Doe").execute()
     print(f"User in feature branch: {feature_users[0]}")
+    print(f"User type: {type(feature_users[0])}")  # Should be User, not dict
+    print(f"User age: {feature_users[0].age}")  # Can access attributes directly
 
 
 if __name__ == "__main__":
