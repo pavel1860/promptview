@@ -7,7 +7,8 @@ import pydantic_core
 
 from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.base_namespace import DatabaseType
-from promptview.model2.versioning import Branch
+from promptview.model2.versioning import Branch, Turn
+from promptview.model2.postgres.operations import PostgresOperations
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -17,10 +18,10 @@ def get_dct_private_attributes(dct: dict[str, Any], key: str, default: Any=None)
     """Get the private attributes of a class"""
     # res = dct['__private_attributes__'].get(key)
     res = dct.get(key)
-    if hasattr(res, "default"):
+    if res is not None and hasattr(res, "default"):
         res = res.default
     if not res:
-        return default    
+        return default
     return res
 
 
@@ -44,14 +45,19 @@ class ModelMeta(ModelMetaclass, type):
         model_name = name
         namespace_name = get_dct_private_attributes(dct, "_namespace_name", f"{model_name.lower()}s")
         db_type = get_dct_private_attributes(dct, "_db_type", "postgres")
-        is_versioned = get_dct_private_attributes(dct, "_is_versioned", False) or (len(bases) > 1 and bases[0].__name__ == "ArtifactModel")
         
-        is_repo = len(bases) > 1 and bases[0].__name__ == "RepoModel"
+        # Check if this is a repo model or an artifact model
+        is_repo = len(bases) >= 1 and bases[0].__name__ == "RepoModel"
+        repo_namespace = get_dct_private_attributes(dct, "_repo", None)
+        
+        # If _repo is specified, the model is automatically versioned
+        is_versioned = repo_namespace is not None or get_dct_private_attributes(dct, "_is_versioned", False) or (len(bases) > 1 and bases[0].__name__ == "ArtifactModel")
+        
         if is_repo and is_versioned:
             raise ValueError("RepoModel cannot be versioned")
         
         # Build namespace
-        ns = NamespaceManager.build_namespace(namespace_name, db_type, is_versioned, is_repo)
+        ns = NamespaceManager.build_namespace(namespace_name, db_type, is_versioned, is_repo, repo_namespace)
         # Process fields and relations
         relations = {}
         for field_name, field_info in dct.items():
@@ -108,6 +114,7 @@ class ModelMeta(ModelMetaclass, type):
         cls_obj = super().__new__(cls, name, bases, dct)
         cls_obj._namespace_name = namespace_name
         cls_obj._relations = relations
+        cls_obj._is_versioned = is_versioned
         
         # Register relations with the namespace manager
         for relation_name, relation_info in relations.items():
@@ -163,8 +170,8 @@ class Model(BaseModel, metaclass=ModelMeta):
         """Get the names of relation fields."""
         return list(self.__class__._relations.keys())
     
-    def _update_relation_instance_id(self):
-        """Update the instance ID for all relations."""
+    def _update_relation_instance(self):
+        """Update the instance for all relations."""
         # Get the ID from the model instance
         # The ID field should be defined by the user
         if not hasattr(self, "id"):
@@ -173,7 +180,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         for field_name in self._get_relation_fields():
             relation = getattr(self, field_name)
             if relation:
-                relation.set_instance_id(getattr(self, "id"))
+                relation.set_instance(self)
                 
     def model_dump(self, *args, **kwargs):
         relation_fields = self._get_relation_fields()
@@ -192,27 +199,38 @@ class Model(BaseModel, metaclass=ModelMeta):
         dump = self.model_dump(exclude={"id", "score", "_vector", *relation_fields, *version_fields})
         return dump
     
-    async def save(self, branch: Optional[int | Branch] = None):
+    async def save(self, branch: Optional[int | Branch] = 1, turn: Optional[int | Turn] = None):
         """
         Save the model instance to the database
         
         Args:
             branch: Optional branch ID to save to
-        """
+        """        
+        branch_id = None
+        turn_id = None
         if branch:
             if not self._is_versioned:
                 raise ValueError("Model is not versioned but branch is provided")
-            if isinstance(branch, Branch):
-                branch = branch.id
+            if isinstance(branch, int):
+                if not turn:
+                    raise ValueError("Branch ID is provided but turn is not provided")
+            elif isinstance(branch, Branch):
+                branch_id = branch.id
+                if not turn:
+                    turn_id = branch.last_turn.id
+                else:
+                    if isinstance(turn, Turn):
+                        turn_id = turn.id
+                
         ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
         data = self._payload_dump()
-        result = await ns.save(data, branch)
+        result = await ns.save(data, branch_id=branch_id, turn_id=turn_id)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)
         
         # Update relation instance IDs
-        self._update_relation_instance_id()
+        self._update_relation_instance()
         
         return self
     
@@ -246,13 +264,51 @@ class Model(BaseModel, metaclass=ModelMeta):
 
 
 class ArtifactModel(Model):
+    """
+    A model that is versioned and belongs to a repo.
+    """
     branch_id: int = Field(default=None)
     turn_id: int = Field(default=None)
-
+    _repo: str = PrivateAttr(default=None)  # Namespace of the repo model
 
 
 class RepoModel(Model):
+    """
+    A model that represents a repository with branches and turns.
+    """
     main_branch_id: int = Field(default=None)
+    
+    async def get_branch(self) -> Branch:
+        """Get the main branch for this repo."""
+        if not self.main_branch_id:
+            raise ValueError("Main branch ID is not set. The model has not been saved yet.")
+        
+        return await PostgresOperations.get_branch(self.main_branch_id)
+    
+    async def get_current_turn(self) -> Optional[Turn]:
+        """
+        Get the current turn for this repo.
+        
+        Returns:
+            The current turn, or None if no turn exists
+        """
+        branch = await self.get_branch()
+        return branch.last_turn
+    
+    async def commit_turn(self, message: Optional[str] = None) -> int:
+        """
+        Commit the current turn and create a new one.
+        
+        Args:
+            message: Optional message for the turn
+            
+        Returns:
+            The ID of the new turn
+        """
+        if not self.main_branch_id:
+            raise ValueError("Main branch ID is not set. The model has not been saved yet.")
+        
+        return await PostgresOperations.commit_turn(self.main_branch_id, message)
     
     
 MODEL = TypeVar("MODEL", bound="Model")
@@ -267,22 +323,22 @@ class Relation(Generic[MODEL]):
     """
     model_cls: Type[MODEL]
     rel_field: str
-    instance_id: Any = None
+    instance: Model | None = None
     
     def __init__(self, model_cls: Type[MODEL], rel_field: str):
         self.model_cls = model_cls
         self.rel_field = rel_field
-        self.instance_id = None
+        self.instance = None
     
-    def set_instance_id(self, instance_id: Any):
+    def set_instance(self, instance: Model):
         """Set the instance ID for this relation."""
-        self.instance_id = instance_id
+        self.instance = instance
     
     def _build_query_set(self):
         """Build a query set for this relation."""
-        if not self.instance_id:
-            raise ValueError("Instance ID is not set")
-        return self.model_cls.query().filter(**{self.rel_field: self.instance_id})
+        if not self.instance:
+            raise ValueError("Instance is not set")
+        return self.model_cls.query().filter(**{self.rel_field: self.instance.id})
     
     def all(self):
         """Get all related models."""
@@ -299,9 +355,20 @@ class Relation(Generic[MODEL]):
         return qs.limit(limit)
     
     async def add(self, obj: MODEL):
-        """Add a related model."""
-        setattr(obj, self.rel_field, self.instance_id)
-        await obj.save()
+        """
+        Add a related model.
+        
+        If the model has a _repo attribute, it will be saved with the appropriate branch.
+        """
+        # Set the relation field
+        setattr(obj, self.rel_field, self.instance.id)
+        branch = None
+        if isinstance(self.instance, RepoModel):
+            branch = await self.instance.get_branch()
+        
+        # Save the object (branch will be determined by the model's repo)
+        await obj.save(branch=branch)
+        
         return obj
     
     

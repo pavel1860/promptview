@@ -1,19 +1,22 @@
-from typing import Any, Dict, Generic, Iterator, Literal, Type, TypeVar, TypedDict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Generic, Iterator, Literal, Type, TypeVar, TypedDict, Optional
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
 DatabaseType = Literal["qdrant", "postgres"]
 
+if TYPE_CHECKING:
+    from promptview.model2.namespace_manager import NamespaceManager
 
 INDEX_TYPES = TypeVar("INDEX_TYPES", bound=str)
 
 
 class NSFieldInfo(BaseModel, Generic[INDEX_TYPES]):
     name: str
-    field_type: type[Any]
+    field_type: Any
     db_field_type: str
     index: INDEX_TYPES | None = None
     extra: dict[str, Any] | None = None
+    is_optional: bool = False
 
 
 class QuerySet:
@@ -46,14 +49,37 @@ class Namespace:
     _fields: dict[str, NSFieldInfo]
     is_versioned: bool
     
-    def __init__(self, name: str, is_versioned: bool = False):
+    def __init__(
+        self, 
+        name: str, 
+        is_versioned: bool = False, 
+        is_repo: bool = False, 
+        repo_namespace: Optional[str] = None, 
+        namespace_manager: Optional["NamespaceManager"] = None
+    ):
         self._name = name
         self._fields = {}
         self.is_versioned = is_versioned
+        self.is_repo = is_repo
+        self.repo_namespace = repo_namespace
+        self.namespace_manager = namespace_manager
         
     @property
     def name(self) -> str:
         return self._name
+    
+    @property
+    def table_name(self) -> str:
+        """Get the table name for this namespace."""
+        return self._name
+    
+    
+    def get_repo_namespace(self) -> Optional["Namespace"]:
+        if not self.namespace_manager:
+            raise ValueError("Namespace manager not set")
+        if self.repo_namespace:
+            return self.namespace_manager.get_namespace(self.repo_namespace)
+        return None
     
     def iter_fields(self) -> Iterator[NSFieldInfo]:
         for field in self._fields.values():
@@ -96,7 +122,7 @@ class Namespace:
         """Drop the namespace from the database"""
         raise NotImplementedError("Not implemented")
     
-    async def save(self, data: Dict[str, Any], branch: Optional[int] = None) -> Dict[str, Any]:
+    async def save(self, data: Dict[str, Any], branch_id: Optional[int] = None, turn_id: Optional[int] = None) -> Dict[str, Any]:
         """Save data to the namespace"""
         raise NotImplementedError("Not implemented")
     

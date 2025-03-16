@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Type, Optional, List
+from typing import TYPE_CHECKING, Any, Dict, Literal, Type, Optional, List, get_args
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from promptview.model2.postgres.builder import SQLBuilder
@@ -7,6 +7,8 @@ from promptview.utils.model_utils import get_list_type, is_list_type
 from promptview.model2.base_namespace import Namespace, NSFieldInfo, QuerySet
 from promptview.utils.db_connections import PGConnectionManager
 import datetime as dt
+if TYPE_CHECKING:
+    from promptview.model2.namespace_manager import NamespaceManager
 
 PgIndexType = Literal["btree", "hash", "gin", "gist", "spgist", "brin"]
 
@@ -62,9 +64,15 @@ class PostgresQuerySet(QuerySet):
 class PostgresNamespace(Namespace):
     """PostgreSQL implementation of Namespace"""
     
-    def __init__(self, name: str, is_versioned: bool = True, is_repo: bool = False):
-        super().__init__(name, is_versioned)
-        self.is_repo = is_repo
+    def __init__(
+        self, 
+        name: str, 
+        is_versioned: bool = True, 
+        is_repo: bool = False, 
+        repo_namespace: Optional[str] = None, 
+        namespace_manager: Optional["NamespaceManager"] = None
+    ):
+        super().__init__(name, is_versioned, is_repo, repo_namespace, namespace_manager)
         
     @property
     def table_name(self) -> str:
@@ -86,6 +94,13 @@ class PostgresNamespace(Namespace):
         """
         # Check if this is a primary key field
         is_primary_key = extra and extra.get("primary_key", False)
+        is_optional = False
+        if type(None) in get_args(field_type):
+            nn_types = [t for t in get_args(field_type) if t is not type(None)]
+            if len(nn_types) != 1:
+                raise ValueError(f"Field {name} has multiple non-None types: {nn_types}")
+            field_type = nn_types[0]
+            is_optional = True
         
         # For auto-incrementing integer primary keys, use SERIAL instead of INTEGER
         if is_primary_key and name == "id" and field_type == int:
@@ -97,13 +112,14 @@ class PostgresNamespace(Namespace):
         index = None
         if extra and "index" in extra:
             index = extra["index"]
-
+        print(name)
         self._fields[name] = PgFieldInfo(
             name=name,
             field_type=field_type,
             db_field_type=db_field_type,
             index=index,
             extra=extra or {},
+            is_optional=is_optional
         )
         
     def add_relation(
@@ -158,6 +174,7 @@ class PostgresNamespace(Namespace):
                 )
         
         return res
+    
 
     async def drop_namespace(self):
         """
@@ -169,18 +186,19 @@ class PostgresNamespace(Namespace):
         res = await SQLBuilder.drop_table(self)
         return res
     
-    async def save(self, data: Dict[str, Any], branch: Optional[int] = None) -> Dict[str, Any]:
+    async def save(self, data: Dict[str, Any], branch_id: Optional[int] = None, turn_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Save data to the namespace.
         
         Args:
             data: The data to save
-            branch: Optional branch ID to save to
+            branch_id: Optional branch ID to save to
+            turn_id: Optional turn ID to save to
             
         Returns:
             The saved data with any additional fields (e.g., ID)
         """
-        return await PostgresOperations.save(self, data, branch)
+        return await PostgresOperations.save(self, data, branch_id, turn_id)
     
     async def get(self, id: Any) -> Optional[Dict[str, Any]]:
         """

@@ -1,12 +1,12 @@
 from pydantic._internal._model_construction import ModelMetaclass
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from typing import Any, Callable, Dict, ForwardRef, Generic, List, Optional, Protocol, Self, Type, TypeVar, get_args, get_origin
-
+from pydantic_core import PydanticUndefined
 
 
 
 def ModelField(
-    default: Any = None,
+    default: Any = PydanticUndefined,
     *,
     index: Optional[str] = None,
     **kwargs
@@ -21,7 +21,7 @@ def ModelField(
 
 
 def KeyField(
-    default: Any = None,
+    default: Any = PydanticUndefined,
     *,
     primary_key: bool = True,
     **kwargs

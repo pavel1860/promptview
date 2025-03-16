@@ -1,6 +1,7 @@
 
 
 from enum import Enum
+import inspect
 from typing import TYPE_CHECKING, Any
 from promptview.utils.db_connections import PGConnectionManager
 from promptview.utils.model_utils import get_list_type, is_list_type
@@ -50,11 +51,9 @@ class SQLBuilder:
                 db_field_type = "FLOAT[]"
             elif isinstance(list_type, str):
                 db_field_type = "TEXT[]"
-            # elif isinstance(list_type, Model):
-            #     partition = field.json_schema_extra.get("partition")
-            #     create_table_sql += f'"{field_name}" UUID FOREIGN KEY REFERENCES {model_to_table_name(field_type)} ("{partition}")'
-            else:
-                raise ValueError(f"Unsupported list type: {list_type}")
+            elif inspect.isclass(list_type):
+                if issubclass(list_type, BaseModel):
+                    db_field_type = "JSONB"                        
         else:
             if extra and extra.get("db_type"):
                 custom_type = extra.get("db_type")
@@ -93,6 +92,10 @@ class SQLBuilder:
         
         for field in namespace.iter_fields():
             sql += f'"{field.name}" {field.db_field_type}'
+            if field.is_optional:
+                sql += " NULL"
+            else:
+                sql += " NOT NULL"
             
             # Add primary key if specified
             if field.extra and field.extra.get("primary_key"):

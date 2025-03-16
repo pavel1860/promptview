@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from promptview.utils.db_connections import PGConnectionManager
 from promptview.model2.versioning import Turn, Branch, TurnStatus
 
+
 if TYPE_CHECKING:
     from promptview.model2.postgres.namespace import PostgresNamespace
 
@@ -48,6 +49,8 @@ class PostgresOperations:
             FOREIGN KEY (branch_id) REFERENCES branches(id)
         );
         """)
+        
+        # await cls.create_branch(name="main")
     
     @classmethod
     async def create_branch(cls, name: Optional[str] = None, forked_from_turn_id: Optional[int] = None) -> Branch:
@@ -160,7 +163,7 @@ class PostgresOperations:
         return new_turn.id
 
     @classmethod
-    async def save(cls, namespace: "PostgresNamespace", data: Dict[str, Any], branch_id: Optional[int] = None) -> Dict[str, Any]:
+    async def save(cls, namespace: "PostgresNamespace", data: Dict[str, Any], branch_id: Optional[int] = None, turn_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Save data to the database with versioning support.
         
@@ -168,23 +171,54 @@ class PostgresOperations:
             namespace: The namespace to save to
             data: The data to save
             branch_id: The branch ID to save to (optional)
-            
+            turn_id: The turn ID to save to (optional)
         Returns:
             The saved data with any additional fields (e.g., ID)
         """
-        # If branch_id is provided, get the current turn
-        if branch_id is not None:
-            branch = await cls.get_branch(branch_id)
-            # Add branch_id to the data
-            data["branch_id"] = branch_id
+        # If this is a repo namespace, create a main branch if needed
+        if namespace.is_repo and "id" not in data and "main_branch_id" not in data:
+            # Create a new main branch
+            branch = await cls.create_branch(name="main")
+            # Add main_branch_id to the data
+            data["main_branch_id"] = branch.id
             
-            # Add turn_id to the data if last_turn exists
-            if branch.last_turn is not None:
-                data["turn_id"] = branch.last_turn.id
-            else:
-                # Create a new turn if none exists
-                turn = await cls.create_turn(branch_id, 1, TurnStatus.STAGED)
-                data["turn_id"] = turn.id
+        if namespace.repo_namespace:
+            if branch_id is None:
+                raise ValueError("Versioned model cannot be saved without a branch_id")
+            if turn_id is None:
+                raise ValueError("Versioned model cannot be saved without a turn_id")
+        
+        # If branch_id is provided, get the current turn
+        if branch_id is not None and turn_id is not None:        
+            data["branch_id"] = branch_id
+            data["turn_id"] = turn_id
+
+
+        
+        # # If this is an artifact model with a repo, get the branch from the repo
+        # elif namespace.repo_namespace and not branch_id:
+        #     # Get the repo namespace
+        #     repo_namespace = namespace.get_repo_namespace()
+        #     if repo_namespace:
+        #         # Get the latest repo model
+        #         repo_query = f'SELECT * FROM "{repo_namespace.table_name}" ORDER BY id DESC LIMIT 1;'
+        #         repo_result = await PGConnectionManager.fetch_one(repo_query)
+                
+        #         if repo_result and "main_branch_id" in repo_result:
+        #             repo_branch_id = repo_result["main_branch_id"]
+        #             if repo_branch_id is not None:
+        #                 branch = await cls.get_branch(repo_branch_id)
+                        
+        #                 # Add branch_id to the data
+        #                 data["branch_id"] = repo_branch_id
+                        
+        #                 # Add turn_id to the data if last_turn exists
+        #                 if branch.last_turn is not None:
+        #                     data["turn_id"] = branch.last_turn.id
+        #                 else:
+        #                     # Create a new turn if none exists
+        #                     turn = await cls.create_turn(repo_branch_id, 1, TurnStatus.STAGED)
+        #                     data["turn_id"] = turn.id
         
         # Check if the data has an ID
         has_id = "id" in data and data["id"] is not None

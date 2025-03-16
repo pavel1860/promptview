@@ -6,7 +6,7 @@ from promptview.model2.postgres.operations import PostgresOperations
 
 
 if TYPE_CHECKING:
-    from promptview.model2.fields import Model
+    from promptview.model2.model import Model
 
 
 MODEL = TypeVar("MODEL", bound="Model")
@@ -23,7 +23,7 @@ class NamespaceManager:
         cls._relations = {}
         
     @classmethod
-    def build_namespace(cls, model_name: str, db_type: DatabaseType, is_versioned: bool = True, is_repo: bool = False) -> Namespace:
+    def build_namespace(cls, model_name: str, db_type: DatabaseType, is_versioned: bool = True, is_repo: bool = False, repo_namespace: Optional[str] = None) -> Namespace:
         """
         Build a namespace for a model.
         
@@ -32,6 +32,8 @@ class NamespaceManager:
             db_type: The type of database to use
             is_versioned: Whether the namespace should be versioned
             is_repo: Whether the namespace should be a repo
+            repo_namespace: The namespace of the repo this model belongs to
+            
         Returns:
             The namespace for the model
         """
@@ -40,7 +42,7 @@ class NamespaceManager:
         if db_type == "qdrant":
             raise NotImplementedError("Qdrant is not implemented")
         elif db_type == "postgres":
-            namespace = PostgresNamespace(model_name, is_versioned, is_repo)
+            namespace = PostgresNamespace(model_name, is_versioned, is_repo, repo_namespace, namespace_manager=cls)
         else:
            raise ValueError(f"Invalid database type: {db_type}")
         cls._namespaces[model_name] = namespace
@@ -79,6 +81,12 @@ class NamespaceManager:
             await PostgresOperations.initialize_versioning()
         for namespace in cls._namespaces.values():
             await namespace.create_namespace()
+        
+        try:
+            main_branch = await PostgresOperations.get_branch(1)
+        except ValueError as e:        
+            await PostgresOperations.create_branch(name="main")
+        
     @classmethod
     def get_all_namespaces(cls) -> List[Namespace]:
         """

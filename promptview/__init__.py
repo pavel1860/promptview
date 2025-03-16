@@ -61,3 +61,12 @@
 
 
 
+import promptview.model2 as model
+import promptview.prompt as prompt
+
+__all__ = [
+    "model",
+    "prompt"
+]
+
+
