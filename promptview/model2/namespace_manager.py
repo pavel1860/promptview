@@ -23,7 +23,7 @@ class NamespaceManager:
         cls._relations = {}
         
     @classmethod
-    def build_namespace(cls, model_name: str, db_type: DatabaseType, is_versioned: bool = True) -> Namespace:
+    def build_namespace(cls, model_name: str, db_type: DatabaseType, is_versioned: bool = True, is_repo: bool = False) -> Namespace:
         """
         Build a namespace for a model.
         
@@ -31,7 +31,7 @@ class NamespaceManager:
             model_name: The name of the model
             db_type: The type of database to use
             is_versioned: Whether the namespace should be versioned
-            
+            is_repo: Whether the namespace should be a repo
         Returns:
             The namespace for the model
         """
@@ -40,7 +40,7 @@ class NamespaceManager:
         if db_type == "qdrant":
             raise NotImplementedError("Qdrant is not implemented")
         elif db_type == "postgres":
-            namespace = PostgresNamespace(model_name, is_versioned)
+            namespace = PostgresNamespace(model_name, is_versioned, is_repo)
         else:
            raise ValueError(f"Invalid database type: {db_type}")
         cls._namespaces[model_name] = namespace

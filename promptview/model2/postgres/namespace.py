@@ -62,8 +62,9 @@ class PostgresQuerySet(QuerySet):
 class PostgresNamespace(Namespace):
     """PostgreSQL implementation of Namespace"""
     
-    def __init__(self, name: str, is_versioned: bool = True):
+    def __init__(self, name: str, is_versioned: bool = True, is_repo: bool = False):
         super().__init__(name, is_versioned)
+        self.is_repo = is_repo
         
     @property
     def table_name(self) -> str:

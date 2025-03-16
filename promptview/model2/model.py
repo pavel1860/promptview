@@ -2,6 +2,7 @@ from typing import Any, Dict, Generic, Optional, Type, TypeVar, Callable, cast, 
 from pydantic import BaseModel, Field, PrivateAttr
 from pydantic.config import JsonDict
 from pydantic._internal._model_construction import ModelMetaclass
+from pydantic.fields import FieldInfo
 import pydantic_core
 
 from promptview.model2.namespace_manager import NamespaceManager
@@ -14,7 +15,8 @@ T = TypeVar('T', bound=BaseModel)
 
 def get_dct_private_attributes(dct: dict[str, Any], key: str, default: Any=None) -> Any:
     """Get the private attributes of a class"""
-    res = dct['__private_attributes__'].get(key)
+    # res = dct['__private_attributes__'].get(key)
+    res = dct.get(key)
     if hasattr(res, "default"):
         res = res.default
     if not res:
@@ -31,25 +33,34 @@ class ModelMeta(ModelMetaclass, type):
     
     def __new__(cls, name, bases, dct):
         # Use the standard Pydantic metaclass to create the class
-        cls_obj = super().__new__(cls, name, bases, dct)
+        
         
         # Skip processing for the base Model class
         if name == "Model" or name == "RepoModel" or name == "ArtifactModel":
+            cls_obj = super().__new__(cls, name, bases, dct)
             return cls_obj
         
         # Get model name and namespace
         model_name = name
         namespace_name = get_dct_private_attributes(dct, "_namespace_name", f"{model_name.lower()}s")
         db_type = get_dct_private_attributes(dct, "_db_type", "postgres")
-        is_versioned = get_dct_private_attributes(dct, "_is_versioned", False)
+        is_versioned = get_dct_private_attributes(dct, "_is_versioned", False) or (len(bases) > 1 and bases[0].__name__ == "ArtifactModel")
+        
+        is_repo = len(bases) > 1 and bases[0].__name__ == "RepoModel"
+        if is_repo and is_versioned:
+            raise ValueError("RepoModel cannot be versioned")
         
         # Build namespace
-        ns = NamespaceManager.build_namespace(namespace_name, db_type, is_versioned)
+        ns = NamespaceManager.build_namespace(namespace_name, db_type, is_versioned, is_repo)
         # Process fields and relations
         relations = {}
-        for field_name, field_info in cls_obj.model_fields.items():
+        for field_name, field_info in dct.items():
             # Skip fields without a type annotation
-            if field_info.annotation is None:
+            if not isinstance(field_info, FieldInfo):
+                continue
+            
+            field_type = dct["__annotations__"].get(field_name)
+            if field_type is None:
                 continue
             
             # Extract field metadata
@@ -66,7 +77,6 @@ class ModelMeta(ModelMetaclass, type):
                     extra = {}
             
             # Check if this is a relation field
-            field_type = field_info.annotation
             field_origin = get_origin(field_type)
             if field_origin and field_origin == Relation:
                 # Get the model class from the relation
@@ -92,9 +102,10 @@ class ModelMeta(ModelMetaclass, type):
                 continue
             
             # Add field to namespace
-            ns.add_field(field_name, field_info.annotation, extra)
+            ns.add_field(field_name, field_type, extra)
         
         # Set namespace name and relations on the class
+        cls_obj = super().__new__(cls, name, bases, dct)
         cls_obj._namespace_name = namespace_name
         cls_obj._relations = relations
         
@@ -163,6 +174,23 @@ class Model(BaseModel, metaclass=ModelMeta):
             relation = getattr(self, field_name)
             if relation:
                 relation.set_instance_id(getattr(self, "id"))
+                
+    def model_dump(self, *args, **kwargs):
+        relation_fields = self._get_relation_fields()
+        exclude = kwargs.get("exclude", set())
+        if not isinstance(exclude, set):
+            exclude = set()
+        exclude.update(relation_fields)
+        kwargs["exclude"] = exclude
+        res = super().model_dump(*args, **kwargs)
+        return res
+                
+    def _payload_dump(self):
+        relation_fields = self._get_relation_fields()
+        version_fields = ["turn_id", "branch_id", "main_branch_id", "head_id"]
+            
+        dump = self.model_dump(exclude={"id", "score", "_vector", *relation_fields, *version_fields})
+        return dump
     
     async def save(self, branch: Optional[int | Branch] = None):
         """
@@ -177,7 +205,7 @@ class Model(BaseModel, metaclass=ModelMeta):
             if isinstance(branch, Branch):
                 branch = branch.id
         ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
-        data = self.model_dump()
+        data = self._payload_dump()
         result = await ns.save(data, branch)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
@@ -277,29 +305,28 @@ class Relation(Generic[MODEL]):
         return obj
     
     
-    @classmethod
-    def __get_pydantic_core_schema__(
-        cls, 
-        _source_type: Any, 
-        _handler: Callable[[Any], pydantic_core.core_schema.CoreSchema]
-    ) -> pydantic_core.core_schema.CoreSchema:
-        from pydantic_core import core_schema
-        # Use a simple any schema since we're handling serialization ourselves
-        return core_schema.any_schema()
-    
     # @classmethod
-    # def __get_pydantic_core_schema__(cls, source, handler):
-    #     print("get_pydantic_core_schema", source, handler)
-    #     def validate_custom(value, info):
-    #         if isinstance(value, cls):
-    #             relation_model = get_relation_model(value)
-    #             if issubclass(relation_model, Model):
-    #                 return value
-    #             else:
-    #                 raise TypeError("Relation must be a Model")
-    #         else:
-    #             raise TypeError("Invalid type for Relation; expected Relation instance")
-    #     return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
+    # def __get_pydantic_core_schema__(
+    #     cls, 
+    #     _source_type: Any, 
+    #     _handler: Callable[[Any], pydantic_core.core_schema.CoreSchema]
+    # ) -> pydantic_core.core_schema.CoreSchema:
+    #     from pydantic_core import core_schema
+    #     # Use a simple any schema since we're handling serialization ourselves
+    #     return core_schema.any_schema()
+    
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source, handler):
+        def validate_custom(value, info):
+            if isinstance(value, cls):
+                relation_model = get_relation_model(value)
+                if issubclass(relation_model, Model):
+                    return value
+                else:
+                    raise TypeError("Relation must be a Model")
+            else:
+                raise TypeError("Invalid type for Relation; expected Relation instance")
+        return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
 
 def get_relation_model(cls):
     """Get the model class from a relation type."""
