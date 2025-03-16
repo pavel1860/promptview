@@ -1,5 +1,6 @@
 
 
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 from promptview.utils.db_connections import PGConnectionManager
 from promptview.utils.model_utils import get_list_type, is_list_type
@@ -40,6 +41,7 @@ class SQLBuilder:
     @classmethod
     def map_field_to_sql_type(cls, field_type: type[Any], extra: dict[str, Any] | None = None) -> str:
         """Map a Python type to a SQL type"""
+        db_field_type = None
         if is_list_type(field_type):
             list_type = get_list_type(field_type)
             if isinstance(list_type, int):
@@ -70,10 +72,15 @@ class SQLBuilder:
             elif field_type == dt.datetime:
                 # TODO: sql_type = "TIMESTAMP WITH TIME ZONE"
                 db_field_type = "TIMESTAMP"
-            elif isinstance(field_type, dict) or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
+            elif isinstance(field_type, dict):
                 db_field_type = "JSONB"
-            else:
-                raise ValueError(f"Unsupported field type: {field_type}")
+            elif isinstance(field_type, type):
+                if issubclass(field_type, BaseModel):
+                    db_field_type = "JSONB"
+                if issubclass(field_type, Enum):
+                    db_field_type = "TEXT"                                        
+        if db_field_type is None:
+            raise ValueError(f"Unsupported field type: {field_type}")
         return db_field_type
 
     @classmethod
@@ -135,8 +142,7 @@ class SQLBuilder:
     async def drop_many_tables(cls, table_names: list[str]) -> None:
         sql = f"DROP TABLE IF EXISTS {', '.join(table_names)}"
         await cls.execute(sql)
-
-
+        
     @classmethod
     async def get_tables(cls, schema: str | None = "public") -> list[str]:
         sql = "SELECT table_name FROM information_schema.tables"
@@ -145,7 +151,61 @@ class SQLBuilder:
         res = await cls.fetch(sql)
         return [row["table_name"] for row in res]
 
-
+    @classmethod
+    async def create_foreign_key(
+        cls,
+        table_name: str,
+        column_name: str,
+        referenced_table: str,
+        referenced_column: str = "id",
+        on_delete: str = "CASCADE",
+        on_update: str = "CASCADE",
+    ) -> None:
+        """
+        Create a foreign key constraint.
+        
+        Args:
+            table_name: The name of the table
+            column_name: The name of the column
+            referenced_table: The name of the referenced table
+            referenced_column: The name of the referenced column
+            on_delete: The action to take when the referenced row is deleted
+            on_update: The action to take when the referenced row is updated
+        """
+        # Check if the column exists
+        sql = f"""
+        DO $$
+        BEGIN
+            -- Check if the column exists; if not, add it.
+            IF NOT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                AND table_name = '{table_name}'
+                AND column_name = '{column_name}'
+            ) THEN
+                EXECUTE 'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" INTEGER';
+            END IF;
+            
+            -- Check if the foreign key constraint exists; if not, add it.
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'fk_{table_name}_{column_name}'
+                AND conrelid = '{table_name}'::regclass
+            ) THEN
+                EXECUTE '
+                ALTER TABLE "{table_name}"
+                ADD CONSTRAINT fk_{table_name}_{column_name}
+                FOREIGN KEY ("{column_name}")
+                REFERENCES "{referenced_table}"("{referenced_column}")
+                ON DELETE {on_delete}
+                ON UPDATE {on_update}
+                ';
+            END IF;
+        END $$;
+        """
+        await cls.execute(sql)
 
 
 

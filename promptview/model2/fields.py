@@ -3,6 +3,8 @@ from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from typing import Any, Callable, Dict, ForwardRef, Generic, List, Optional, Protocol, Self, Type, TypeVar, get_args, get_origin
 
 
+
+
 def ModelField(
     default: Any = None,
     *,
@@ -33,25 +35,31 @@ def KeyField(
     return Field(default, json_schema_extra=extra, **kwargs)
 
 
-class ModelMeta(ModelMetaclass, type):
-    """Metaclass for Model"""
-    
-    def __new__(cls, name, bases, dct):
-        """Create a new Model class"""
-        # Use the standard Pydantic metaclass to create the class
-        cls_obj = super().__new__(cls, name, bases, dct)
-        # Initialize the fields dictionary
-        cls_obj._fields = {}
-        # The decorator will handle the ORM functionality
-        return cls_obj
-
-
-class Model(BaseModel, metaclass=ModelMeta):
-    """Base class for all models
-    
-    This class is a simple Pydantic model with a custom metaclass.
-    The ORM functionality will be added by the decorator.
+def RelationField(
+    *,
+    key: str,
+    on_delete: str = "CASCADE",
+    on_update: str = "CASCADE",
+    **kwargs
+) -> Any:
     """
-    # Namespace reference - will be set by the decorator
-    _namespace_name: str = PrivateAttr(default=None)
+    Define a relation field with ORM-specific metadata.
+    
+    Args:
+        key: The name of the foreign key in the related model
+        on_delete: The action to take when the referenced row is deleted
+        on_update: The action to take when the referenced row is updated
+    """
+    # Create extra metadata for the field
+    extra = kwargs.pop("json_schema_extra", {}) or {}
+    extra["is_relation"] = True
+    extra["key"] = key
+    extra["on_delete"] = on_delete
+    extra["on_update"] = on_update
+    
+    # Create the field with the extra metadata and make it optional
+    return Field(json_schema_extra=extra)
+    # return Field(json_schema_extra=extra, **kwargs)
+    # return Field(json_schema_extra=extra, default_factory=lambda: None, **kwargs)
+
 

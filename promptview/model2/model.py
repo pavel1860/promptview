@@ -1,13 +1,15 @@
-from typing import Any, Dict, Optional, Type, TypeVar, Callable, cast
+from typing import Any, Dict, Generic, Optional, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
 from pydantic import BaseModel, Field, PrivateAttr
 from pydantic.config import JsonDict
 from pydantic._internal._model_construction import ModelMetaclass
+import pydantic_core
 
 from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.base_namespace import DatabaseType
 from promptview.model2.versioning import Branch
 
 T = TypeVar('T', bound=BaseModel)
+
 
 
 def get_dct_private_attributes(dct: dict[str, Any], key: str, default: Any=None) -> Any:
@@ -43,8 +45,8 @@ class ModelMeta(ModelMetaclass, type):
         
         # Build namespace
         ns = NamespaceManager.build_namespace(namespace_name, db_type, is_versioned)
-        
-        # Process fields
+        # Process fields and relations
+        relations = {}
         for field_name, field_info in cls_obj.model_fields.items():
             # Skip fields without a type annotation
             if field_info.annotation is None:
@@ -63,11 +65,61 @@ class ModelMeta(ModelMetaclass, type):
                     # In a real implementation, we might want to call it
                     extra = {}
             
+            # Check if this is a relation field
+            field_type = field_info.annotation
+            field_origin = get_origin(field_type)
+            if field_origin and field_origin == Relation:
+                # Get the model class from the relation
+                target_type = get_relation_model(field_type)
+                
+                # Get the relation key
+                key = extra.get("key")
+                if not key:
+                    continue
+                
+                # Create a relation blueprint
+                relations[field_name] = {
+                    "key": key,
+                    "target_type": target_type,
+                    "on_delete": extra.get("on_delete", "CASCADE"),
+                    "on_update": extra.get("on_update", "CASCADE"),
+                }
+                
+                # Set the default factory for the field
+                field_info.default_factory = make_default_factory(target_type, key)
+                
+                # Skip adding this field to the namespace
+                continue
+            
             # Add field to namespace
             ns.add_field(field_name, field_info.annotation, extra)
         
-        # Set namespace name on the class
+        # Set namespace name and relations on the class
         cls_obj._namespace_name = namespace_name
+        cls_obj._relations = relations
+        
+        # Register relations with the namespace manager
+        for relation_name, relation_info in relations.items():
+            target_type: Any = relation_info["target_type"]
+            # If target_type is a ForwardRef, we need to resolve it later
+            target_namespace = None
+            if not isinstance(target_type, ForwardRef) and hasattr(target_type, "_namespace_name"):
+                target_namespace = target_type._namespace_name
+            
+            # Get the key, on_delete, and on_update values
+            key = relation_info.get("key", "id")
+            on_delete = relation_info.get("on_delete", "CASCADE")
+            on_update = relation_info.get("on_update", "CASCADE")
+            # Register the relation
+            NamespaceManager.register_relation(
+                source_namespace=namespace_name,
+                relation_name=relation_name,
+                target_namespace=target_namespace,
+                target_forward_ref=target_type if isinstance(target_type, ForwardRef) else None,
+                key=key,
+                on_delete=on_delete,
+                on_update=on_update,
+            )
         
         return cls_obj
 
@@ -82,6 +134,8 @@ class Model(BaseModel, metaclass=ModelMeta):
     _namespace_name: str = PrivateAttr(default=None)
     _db_type: DatabaseType = PrivateAttr(default="postgres")
     _is_versioned: bool = PrivateAttr(default=False)
+    _relations: Dict[str, Dict[str, Any]] = PrivateAttr(default_factory=dict)
+    
     
     @classmethod
     def get_namespace_name(cls) -> str:
@@ -94,6 +148,22 @@ class Model(BaseModel, metaclass=ModelMeta):
         ns = NamespaceManager.get_namespace(cls.get_namespace_name())
         await ns.create_namespace()
     
+    def _get_relation_fields(self):
+        """Get the names of relation fields."""
+        return list(self.__class__._relations.keys())
+    
+    def _update_relation_instance_id(self):
+        """Update the instance ID for all relations."""
+        # Get the ID from the model instance
+        # The ID field should be defined by the user
+        if not hasattr(self, "id"):
+            return
+        
+        for field_name in self._get_relation_fields():
+            relation = getattr(self, field_name)
+            if relation:
+                relation.set_instance_id(getattr(self, "id"))
+    
     async def save(self, branch: Optional[int | Branch] = None):
         """
         Save the model instance to the database
@@ -101,8 +171,6 @@ class Model(BaseModel, metaclass=ModelMeta):
         Args:
             branch: Optional branch ID to save to
         """
-        
-        
         if branch:
             if not self._is_versioned:
                 raise ValueError("Model is not versioned but branch is provided")
@@ -114,6 +182,10 @@ class Model(BaseModel, metaclass=ModelMeta):
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)
+        
+        # Update relation instance IDs
+        self._update_relation_instance_id()
+        
         return self
     
     @classmethod
@@ -155,6 +227,93 @@ class RepoModel(Model):
     main_branch_id: int = Field(default=None)
     
     
+MODEL = TypeVar("MODEL", bound="Model")
+
+
+
+class Relation(Generic[MODEL]):
+    """
+    A relation between models.
+    
+    This class provides methods for querying related models.
+    """
+    model_cls: Type[MODEL]
+    rel_field: str
+    instance_id: Any = None
+    
+    def __init__(self, model_cls: Type[MODEL], rel_field: str):
+        self.model_cls = model_cls
+        self.rel_field = rel_field
+        self.instance_id = None
+    
+    def set_instance_id(self, instance_id: Any):
+        """Set the instance ID for this relation."""
+        self.instance_id = instance_id
+    
+    def _build_query_set(self):
+        """Build a query set for this relation."""
+        if not self.instance_id:
+            raise ValueError("Instance ID is not set")
+        return self.model_cls.query().filter(**{self.rel_field: self.instance_id})
+    
+    def all(self):
+        """Get all related models."""
+        return self._build_query_set()
+    
+    def filter(self, **kwargs):
+        """Filter related models."""
+        qs = self._build_query_set()
+        return qs.filter(**kwargs)
+    
+    def limit(self, limit: int):
+        """Limit the number of related models."""
+        qs = self._build_query_set()
+        return qs.limit(limit)
+    
+    async def add(self, obj: MODEL):
+        """Add a related model."""
+        setattr(obj, self.rel_field, self.instance_id)
+        await obj.save()
+        return obj
+    
+    
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, 
+        _source_type: Any, 
+        _handler: Callable[[Any], pydantic_core.core_schema.CoreSchema]
+    ) -> pydantic_core.core_schema.CoreSchema:
+        from pydantic_core import core_schema
+        # Use a simple any schema since we're handling serialization ourselves
+        return core_schema.any_schema()
+    
+    # @classmethod
+    # def __get_pydantic_core_schema__(cls, source, handler):
+    #     print("get_pydantic_core_schema", source, handler)
+    #     def validate_custom(value, info):
+    #         if isinstance(value, cls):
+    #             relation_model = get_relation_model(value)
+    #             if issubclass(relation_model, Model):
+    #                 return value
+    #             else:
+    #                 raise TypeError("Relation must be a Model")
+    #         else:
+    #             raise TypeError("Invalid type for Relation; expected Relation instance")
+    #     return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
+
+def get_relation_model(cls):
+    """Get the model class from a relation type."""
+    args = get_args(cls)
+    if len(args) != 1:
+        raise ValueError("Relation model must have exactly one argument")
+    return args[0]
+
+def make_default_factory(model_cls, rel_field):
+    """Create a default factory for a relation field."""
+    def default_factory():
+        return Relation(model_cls=model_cls, rel_field=rel_field)
+    return default_factory
+    # return lambda: Relation(model_cls=model_cls, rel_field=rel_field)
     
     
     

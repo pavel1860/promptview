@@ -9,7 +9,7 @@ import datetime as dt
 # from promptview.model.model import Model, Relation
 # from promptview.model.resource_manager import connection_manager
 
-from promptview.model import Model, Relation, ModelField, ModelRelation, connection_manager
+from promptview.model import Model, Relation, ModelField, RelationField, connection_manager
 
 
 
@@ -34,7 +34,7 @@ class Post(Model):
     title: str = ModelField()
     content: str = ModelField()
     owner_id: int = ModelField(is_foreign_key=True)
-    likes: Relation[Like] = ModelRelation(key="post_id")
+    likes: Relation[Like] = RelationField(key="post_id")
     
     class Config:
         database_type = "postgres"
@@ -44,8 +44,8 @@ class Post(Model):
 class User(Model):
     name: str = ModelField()
     age: int = ModelField()
-    posts: Relation[Post] = ModelRelation(key="owner_id")
-    likes: Relation[Like] = ModelRelation(key="user_id")
+    posts: Relation[Post] = RelationField(key="owner_id")
+    likes: Relation[Like] = RelationField(key="user_id")
     
     class Config:
         database_type = "postgres"

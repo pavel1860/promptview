@@ -108,17 +108,31 @@ class PostgresNamespace(Namespace):
     def add_relation(
         self,
         name: str,
-        field_info: FieldInfo,
+        target_namespace: str,
+        key: str,
+        on_delete: str = "CASCADE",
+        on_update: str = "CASCADE",
     ):
         """
         Add a relation to the namespace.
         
         Args:
             name: The name of the relation
-            field_info: The field information for the relation
+            target_namespace: The namespace of the target model
+            key: The name of the foreign key in the target model
+            on_delete: The action to take when the referenced row is deleted
+            on_update: The action to take when the referenced row is updated
         """
-        # Implementation for relations
-        pass
+        # Store the relation information
+        if not hasattr(self, "_relations"):
+            self._relations = {}
+        
+        self._relations[name] = {
+            "target_namespace": target_namespace,
+            "key": key,
+            "on_delete": on_delete,
+            "on_update": on_update,
+        }
 
     async def create_namespace(self):
         """
@@ -127,7 +141,21 @@ class PostgresNamespace(Namespace):
         Returns:
             The result of the create operation
         """
+        # Create the table
         res = await SQLBuilder.create_table(self)
+        
+        # Create foreign key constraints for relations
+        if hasattr(self, "_relations"):
+            for relation_name, relation_info in self._relations.items():
+                await SQLBuilder.create_foreign_key(
+                    table_name=self.table_name,
+                    column_name=relation_info["key"],
+                    referenced_table=relation_info["target_namespace"],
+                    referenced_column="id",
+                    on_delete=relation_info["on_delete"],
+                    on_update=relation_info["on_update"],
+                )
+        
         return res
 
     async def drop_namespace(self):

@@ -225,7 +225,7 @@ def get_model_indices(cls_, prefix=""):
 
 
 
-def ModelRelation(
+def RelationField(
     # model: "Type[Model]",
     key: str,
     on_delete: str = "CASCADE",

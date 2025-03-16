@@ -71,9 +71,21 @@ class Namespace:
     def add_relation(
         self,
         name: str,
-        field_info: FieldInfo,
+        target_namespace: str,
+        key: str,
+        on_delete: str = "CASCADE",
+        on_update: str = "CASCADE",
     ):
-        """Add a relation to the namespace"""
+        """
+        Add a relation to the namespace.
+        
+        Args:
+            name: The name of the relation
+            target_namespace: The namespace of the target model
+            key: The name of the foreign key in the target model
+            on_delete: The action to take when the referenced row is deleted
+            on_update: The action to take when the referenced row is updated
+        """
         raise NotImplementedError("Not implemented")
     
     async def create_namespace(self):
