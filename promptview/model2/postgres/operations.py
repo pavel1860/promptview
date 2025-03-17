@@ -129,15 +129,29 @@ class PostgresOperations:
         
         return Turn(**dict(turn_row))
     
+    
     @classmethod
-    async def get_branch(cls, branch_id: int) -> Branch:
+    async def get_branch_or_none(cls, branch_id: int) -> Branch | None:
         """Get a branch by ID"""
         # Get the branch
         query = "SELECT * FROM branches WHERE id = $1;"
         branch_row = await PGConnectionManager.fetch_one(query, branch_id)
         if branch_row is None:
+            return None
+        return Branch(**dict(branch_row))
+    
+    
+    @classmethod
+    async def get_branch(cls, branch_id: int) -> Branch:
+        """Get a branch by ID"""
+        # Get the branch
+        branch = await cls.get_branch_or_none(branch_id)
+        if branch is None:
             raise ValueError(f"Branch {branch_id} not found")        
-        return Branch(**dict(branch_row))  
+        return branch  
+    
+
+      
     
     @classmethod
     async def commit_turn(cls, turn_id: int, message: Optional[str] = None) -> Turn:
@@ -189,11 +203,17 @@ class PostgresOperations:
                 raise ValueError("Versioned model cannot be saved without a branch_id")
             if turn_id is None:
                 raise ValueError("Versioned model cannot be saved without a turn_id")
+            
+            
         
         # If branch_id is provided, get the current turn
         if branch_id is not None and turn_id is not None:        
             data["branch_id"] = branch_id
             data["turn_id"] = turn_id
+            turn = await cls.get_turn(turn_id)
+            if turn.status != TurnStatus.STAGED:
+                raise ValueError(f"Turn {turn_id} is {turn.status.value}, not STAGED.")
+            
 
 
         

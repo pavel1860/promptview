@@ -5,6 +5,7 @@ from pydantic._internal._model_construction import ModelMetaclass
 from pydantic.fields import FieldInfo
 import pydantic_core
 
+from promptview.model2.context import Context
 from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.base_namespace import DatabaseType
 from promptview.model2.versioning import Branch, Turn
@@ -31,6 +32,32 @@ def build_namespace(model_cls_name: str, db_type: DatabaseType = "postgres"):
     return f"{camel_to_snake(model_cls_name)}s" if db_type == "postgres" else model_cls_name
 
 
+def parse_version_params(turn: Optional[int | Turn] = None, branch: Optional[int | Branch] = None) -> tuple[Optional[int], Optional[int]]:
+    branch_id = None
+    turn_id = None    
+    ctx = Context.get_current(raise_error=False)    
+    
+    if branch:
+        if isinstance(branch, int):
+            branch_id = branch
+        elif isinstance(branch, Branch):
+            branch_id = branch.id
+    else:
+        if ctx:
+            branch_id = ctx.branch.id
+        else:
+            branch_id = 1
+    if not turn:
+        if ctx:
+            turn_id = ctx.turn.id
+        else:
+            raise ValueError("Turn is not provided")
+    elif isinstance(turn, Turn):
+        turn_id = turn.id
+    else:
+        turn_id = turn
+    return turn_id, branch_id
+            
 class ModelMeta(ModelMetaclass, type):
     """Metaclass for Model
     
@@ -230,6 +257,15 @@ class Model(BaseModel, metaclass=ModelMeta):
         """Get a model instance by ID"""
         ns = NamespaceManager.get_namespace(cls.get_namespace_name())
         data = await ns.get(id)
+        if data is None:
+            raise ValueError(f"Model with ID {id} not found")
+        return cls(**data)
+    
+    @classmethod
+    async def get_or_none(cls, id: Any):
+        """Get a model instance by ID or None if it doesn't exist"""
+        ns = NamespaceManager.get_namespace(cls.get_namespace_name())
+        data = await ns.get(id)
         return cls(**data) if data else None
     
     @classmethod
@@ -267,7 +303,7 @@ class ArtifactModel(Model):
     _repo: str = PrivateAttr(default=None)  # Namespace of the repo model
     
     
-    async def save(self, turn: Optional[int | Turn], branch: Optional[int | Branch] = 1):
+    async def save(self, turn: Optional[int | Turn], branch: Optional[int | Branch] = None):
         """
         Save the artifact model instance to the database
         
@@ -275,20 +311,7 @@ class ArtifactModel(Model):
             branch: Optional branch ID to save to
             turn: Optional turn ID to save to
         """        
-        branch_id = None
-        turn_id = None
-        if branch:
-            if isinstance(branch, int):
-                branch_id = branch
-                if not turn:
-                    raise ValueError("Branch ID is provided but turn is not provided")
-            elif isinstance(branch, Branch):
-                branch_id = branch.id
-                              
-        if isinstance(turn, Turn):
-            turn_id = turn.id
-        else:
-            turn_id = turn
+        turn_id, branch_id = parse_version_params(turn, branch)
                 
         ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
         data = self._payload_dump()
@@ -301,6 +324,10 @@ class ArtifactModel(Model):
         self._update_relation_instance()
         
         return self
+
+    
+    
+    
 
 class RepoModel(Model):
     """
@@ -384,22 +411,26 @@ class Relation(Generic[MODEL]):
         qs = self._build_query_set()
         return qs.limit(limit)
     
-    async def add(self, obj: MODEL):
+    async def add(self, obj: MODEL, turn: Optional[int | Turn] = None, branch: Optional[int | Branch] = None) -> MODEL:
         """
         Add a related model.
         
         If the model has a _repo attribute, it will be saved with the appropriate branch.
         """
+        if not isinstance(obj, self.model_cls):
+            raise ValueError("Object is not of type {}".format(self.model_cls.__name__))
         # Set the relation field
         setattr(obj, self.rel_field, self.instance.id)
-        branch = None
-        if isinstance(self.instance, RepoModel):
-            branch = await self.instance.get_branch()
         
+        if self.model_cls._is_versioned:
+            turn_id, branch_id = parse_version_params(turn, branch)
+            return await obj.save(turn=turn_id, branch=branch_id)
+        else:
+            return await obj.save()
         # Save the object (branch will be determined by the model's repo)
-        await obj.save(branch=branch)
         
-        return obj
+        
+    
     
     
     # @classmethod

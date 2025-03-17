@@ -8,6 +8,7 @@ from pydantic_core import PydanticUndefined
 def ModelField(
     default: Any = PydanticUndefined,
     *,
+    foreign_key: bool = False,
     index: Optional[str] = None,
     **kwargs
 ) -> Any:
@@ -15,25 +16,40 @@ def ModelField(
     # Create extra metadata for the field
     extra = kwargs.pop("json_schema_extra", {}) or {}
     extra["index"] = index
-    
+    if foreign_key:
+        extra["foreign_key"] = True
+        default = None
     # Create the field with the extra metadata
     return Field(default, json_schema_extra=extra, **kwargs)
 
 
 def KeyField(
     default: Any = None,
-    *,
+    # *,
     primary_key: bool = True,
-    **kwargs
+    # **kwargs
 ) -> Any:
     """Define a key field with ORM-specific metadata"""
     # Create extra metadata for the field
-    extra = kwargs.pop("json_schema_extra", {}) or {}
+    extra = {}
     extra["primary_key"] = primary_key
     
     # Create the field with the extra metadata
-    return Field(default, json_schema_extra=extra, **kwargs)
+    return Field(default, json_schema_extra=extra)
 
+
+def RefField(
+    default: Any = None,
+    *,
+    key: str = "id",
+    **kwargs
+) -> Any:
+    """Define a reference field with ORM-specific metadata"""
+    # Create extra metadata for the field
+    extra = kwargs.pop("json_schema_extra", {}) or {}
+    extra["key"] = key
+    
+    return Field(default, json_schema_extra=extra, **kwargs)
 
 def RelationField(
     *,

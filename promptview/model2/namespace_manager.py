@@ -8,6 +8,7 @@ from promptview.model2.postgres.operations import PostgresOperations
 
 if TYPE_CHECKING:
     from promptview.model2.model import Model
+    from promptview.model2.versioning import Branch, Turn
 
 
 MODEL = TypeVar("MODEL", bound="Model")
@@ -149,5 +150,44 @@ class NamespaceManager:
         return cls._relations.get(namespace, {})
 
 
-
+    @classmethod
+    async def create_turn(cls, partition_id: int, branch_id: int) -> "Turn":
+        """
+        Create a turn for a partition.
+        """
+        return await PostgresOperations.create_turn(partition_id, branch_id)
+    
+    @classmethod
+    async def get_turn(cls, turn_id: int) -> "Turn":
+        """
+        Get a turn by id.
+        """
+        return await PostgresOperations.get_turn(turn_id)
+    
+    @classmethod
+    async def create_branch(cls, name: Optional[str] = None, forked_from_turn_id: Optional[int] = None) -> "Branch":
+        """
+        Create a branch.
+        """
+        return await PostgresOperations.create_branch(name, forked_from_turn_id)
+    
+    @classmethod
+    async def get_branch(cls, branch_id: int, raise_error: bool = False) -> "Branch | None":
+        """
+        Get a branch by id.
+        """
+        if raise_error:
+            return await PostgresOperations.get_branch(branch_id)
+        else:
+            return await PostgresOperations.get_branch_or_none(branch_id)
+    
+    @classmethod
+    async def commit_turn(cls, turn_id: int, message: Optional[str] = None) -> "Turn":
+        """
+        Commit a turn.
+        """
+        return await PostgresOperations.commit_turn(turn_id, message)
+    
+    
+    
     
