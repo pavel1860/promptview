@@ -21,9 +21,10 @@ class PgFieldInfo(NSFieldInfo[PgIndexType]):
 class PostgresQuerySet(QuerySet):
     """PostgreSQL implementation of QuerySet"""
     
-    def __init__(self, namespace: "PostgresNamespace", branch_id: Optional[int] = None, model_class=None):
+    def __init__(self, namespace: "PostgresNamespace", partition_id: int | None = None, branch_id: int | None = None, model_class=None):
         super().__init__(model_class=model_class)
         self.namespace = namespace
+        self.partition_id = partition_id
         self.branch_id = branch_id
         self.filters = {}
         self.limit_value = None
@@ -45,6 +46,7 @@ class PostgresQuerySet(QuerySet):
         # Use PostgresOperations to execute the query with versioning support
         results = await PostgresOperations.query(
             self.namespace,
+            partition_id=self.partition_id,
             branch_id=self.branch_id,
             filters=self.filters,
             limit=self.limit_value
@@ -186,7 +188,7 @@ class PostgresNamespace(Namespace):
         res = await SQLBuilder.drop_table(self)
         return res
     
-    async def save(self, data: Dict[str, Any], branch_id: Optional[int] = None, turn_id: Optional[int] = None) -> Dict[str, Any]:
+    async def save(self, data: Dict[str, Any], turn_id: Optional[int] = None, branch_id: Optional[int] = None ) -> Dict[str, Any]:
         """
         Save data to the namespace.
         
@@ -198,7 +200,7 @@ class PostgresNamespace(Namespace):
         Returns:
             The saved data with any additional fields (e.g., ID)
         """
-        return await PostgresOperations.save(self, data, branch_id, turn_id)
+        return await PostgresOperations.save(self, data, turn_id, branch_id )
     
     async def get(self, id: Any) -> Optional[Dict[str, Any]]:
         """
@@ -212,7 +214,7 @@ class PostgresNamespace(Namespace):
         """
         return await PostgresOperations.get(self, id)
     
-    def query(self, branch: Optional[int] = None, model_class=None) -> QuerySet:
+    def query(self, partition_id: Optional[int] = None, branch: Optional[int] = None, model_class=None) -> QuerySet:
         """
         Create a query for this namespace.
         
@@ -223,5 +225,5 @@ class PostgresNamespace(Namespace):
         Returns:
             A query set for this namespace
         """
-        return PostgresQuerySet(self, branch, model_class=model_class)
+        return PostgresQuerySet(self, partition_id, branch, model_class=model_class)
         

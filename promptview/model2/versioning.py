@@ -22,6 +22,7 @@ class Turn(BaseModel):
     status: TurnStatus
     message: Optional[str] = None
     branch_id: int
+    partition_id: int
     metadata: Optional[Dict[str, Any]] = None
     
     def __init__(
@@ -45,7 +46,6 @@ class Branch(BaseModel):
     updated_at: datetime
     forked_from_turn_index: Optional[int] = None
     forked_from_branch_id: Optional[int] = None
-    last_turn: Optional[Turn] = None
 
 
 # We don't need the Repo class anymore since we're using branch_id directly

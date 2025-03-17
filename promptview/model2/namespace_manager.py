@@ -1,6 +1,7 @@
 from promptview.model2.base_namespace import DatabaseType, Namespace
 from typing import TYPE_CHECKING, Type, TypeVar, Dict, List, Any, Optional, ForwardRef
 
+from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.namespace import PostgresNamespace
 from promptview.model2.postgres.operations import PostgresOperations
 
@@ -69,7 +70,7 @@ class NamespaceManager:
         return cls._namespaces[model_name]
     
     @classmethod
-    async def create_all_namespaces(cls, versioning: bool = True):
+    async def create_all_namespaces(cls, partition_table: str, key: str = "id", versioning: bool = True):
         """
         Create all registered namespaces in the database.
         
@@ -78,9 +79,12 @@ class NamespaceManager:
         if not cls._namespaces:
             raise ValueError("No namespaces registered")
         if versioning:
-            await PostgresOperations.initialize_versioning()
+            await SQLBuilder.initialize_versioning()
         for namespace in cls._namespaces.values():
             await namespace.create_namespace()
+        
+        if versioning:
+            await SQLBuilder.add_partition_id_to_turns(partition_table, key)
         
         try:
             main_branch = await PostgresOperations.get_branch(1)

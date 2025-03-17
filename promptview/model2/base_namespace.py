@@ -122,7 +122,7 @@ class Namespace:
         """Drop the namespace from the database"""
         raise NotImplementedError("Not implemented")
     
-    async def save(self, data: Dict[str, Any], branch_id: Optional[int] = None, turn_id: Optional[int] = None) -> Dict[str, Any]:
+    async def save(self, data: Dict[str, Any], turn_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
         """Save data to the namespace"""
         raise NotImplementedError("Not implemented")
     
@@ -130,7 +130,7 @@ class Namespace:
         """Get data from the namespace by ID"""
         raise NotImplementedError("Not implemented")
     
-    def query(self, branch: Optional[int] = None, model_class=None) -> QuerySet:
+    def query(self, partition_id: Optional[int] = None, branch: Optional[int] = None, model_class=None) -> QuerySet:
         """
         Create a query for this namespace
         

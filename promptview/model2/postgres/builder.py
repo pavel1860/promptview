@@ -38,6 +38,50 @@ class SQLBuilder:
         except Exception as e:
             print(sql)
             raise e
+        
+    @classmethod
+    async def initialize_versioning(cls):
+        """Initialize versioning tables"""
+        await PGConnectionManager.initialize()
+        # Create required tables
+        await PGConnectionManager.execute("""
+        CREATE TABLE IF NOT EXISTS branches (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW(),
+            forked_from_turn_index INTEGER,
+            forked_from_branch_id INTEGER,
+            current_index INTEGER DEFAULT 0,
+            FOREIGN KEY (forked_from_branch_id) REFERENCES branches(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS turns (
+            id SERIAL PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT NOW(),
+            ended_at TIMESTAMP,
+            index INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            message TEXT,
+            metadata JSONB DEFAULT '{}',            
+            branch_id INTEGER NOT NULL,
+            FOREIGN KEY (branch_id) REFERENCES branches(id)
+        );
+                
+        CREATE INDEX IF NOT EXISTS idx_turns_branch_id ON turns (branch_id);
+        CREATE INDEX IF NOT EXISTS idx_turns_index ON turns (index DESC);
+        """)
+        
+        # partition_id INTEGER NOT NULL REFERENCES "{partition_table}" ({key}) ON DELETE CASCADE,
+        
+        # await cls.create_branch(name="main")
+    @classmethod
+    async def add_partition_id_to_turns(cls, partition_table: str, key: str):
+        """Add a partition_id column to the table"""
+        await PGConnectionManager.execute(f"""
+        ALTER TABLE turns ADD COLUMN IF NOT EXISTS partition_id INTEGER NOT NULL REFERENCES "{partition_table}" ({key}) ON DELETE CASCADE;
+        CREATE INDEX IF NOT EXISTS idx_turns_partition_id ON turns (partition_id);
+        """)
 
     @classmethod
     def map_field_to_sql_type(cls, field_type: type[Any], extra: dict[str, Any] | None = None) -> str:
@@ -109,11 +153,11 @@ class SQLBuilder:
         
         # Add versioning fields only if the namespace is versioned
         if hasattr(namespace, "is_versioned") and namespace.is_versioned:
-            sql += '"branch_id" INTEGER,\n'
-            sql += '"turn_id" INTEGER,\n'
+            sql += '"branch_id" INTEGER NOT NULL REFERENCES "branches" (id),\n'
+            sql += '"turn_id" INTEGER NOT NULL REFERENCES "turns" (id),\n'
             
         if hasattr(namespace, "is_repo") and namespace.is_repo:
-            sql += '"main_branch_id" INTEGER,\n'
+            sql += '"main_branch_id" INTEGER NOT NULL REFERENCES "branches" (id),\n'
             
         # Remove trailing comma
         sql = sql[:-2]

@@ -21,7 +21,7 @@ def ModelField(
 
 
 def KeyField(
-    default: Any = PydanticUndefined,
+    default: Any = None,
     *,
     primary_key: bool = True,
     **kwargs

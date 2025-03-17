@@ -9,6 +9,7 @@ from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.base_namespace import DatabaseType
 from promptview.model2.versioning import Branch, Turn
 from promptview.model2.postgres.operations import PostgresOperations
+from promptview.utils.string_utils import camel_to_snake
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -23,6 +24,11 @@ def get_dct_private_attributes(dct: dict[str, Any], key: str, default: Any=None)
     if not res:
         return default
     return res
+
+
+
+def build_namespace(model_cls_name: str, db_type: DatabaseType = "postgres"):
+    return f"{camel_to_snake(model_cls_name)}s" if db_type == "postgres" else model_cls_name
 
 
 class ModelMeta(ModelMetaclass, type):
@@ -43,15 +49,18 @@ class ModelMeta(ModelMetaclass, type):
         
         # Get model name and namespace
         model_name = name
-        namespace_name = get_dct_private_attributes(dct, "_namespace_name", f"{model_name.lower()}s")
         db_type = get_dct_private_attributes(dct, "_db_type", "postgres")
+        namespace_name = get_dct_private_attributes(dct, "_namespace_name", build_namespace(model_name))        
         
         # Check if this is a repo model or an artifact model
         is_repo = len(bases) >= 1 and bases[0].__name__ == "RepoModel"
-        repo_namespace = get_dct_private_attributes(dct, "_repo", None)
+        
         
         # If _repo is specified, the model is automatically versioned
-        is_versioned = repo_namespace is not None or get_dct_private_attributes(dct, "_is_versioned", False) or (len(bases) > 1 and bases[0].__name__ == "ArtifactModel")
+        is_versioned = get_dct_private_attributes(dct, "_is_versioned", False) or (len(bases) >= 1 and bases[0].__name__ == "ArtifactModel")
+        repo_namespace = get_dct_private_attributes(dct, "_repo", "main" if is_versioned else None)
+        if repo_namespace is None and is_versioned:
+            raise ValueError("RepoModel must have a repo namespace")
         
         if is_repo and is_versioned:
             raise ValueError("RepoModel cannot be versioned")
@@ -199,32 +208,14 @@ class Model(BaseModel, metaclass=ModelMeta):
         dump = self.model_dump(exclude={"id", "score", "_vector", *relation_fields, *version_fields})
         return dump
     
-    async def save(self, branch: Optional[int | Branch] = 1, turn: Optional[int | Turn] = None):
+    async def save(self, *args, **kwargs):
         """
         Save the model instance to the database
-        
-        Args:
-            branch: Optional branch ID to save to
         """        
-        branch_id = None
-        turn_id = None
-        if branch:
-            if not self._is_versioned:
-                raise ValueError("Model is not versioned but branch is provided")
-            if isinstance(branch, int):
-                if not turn:
-                    raise ValueError("Branch ID is provided but turn is not provided")
-            elif isinstance(branch, Branch):
-                branch_id = branch.id
-                if not turn:
-                    turn_id = branch.last_turn.id
-                else:
-                    if isinstance(turn, Turn):
-                        turn_id = turn.id
                 
         ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
         data = self._payload_dump()
-        result = await ns.save(data, branch_id=branch_id, turn_id=turn_id)
+        result = await ns.save(data)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)
@@ -242,7 +233,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         return cls(**data) if data else None
     
     @classmethod
-    def query(cls, branch: Optional[int | Branch] = None):
+    def query(cls, partition_id: Optional[int] = None, branch: Optional[int | Branch] = None):
         """
         Create a query for this model
         
@@ -254,8 +245,12 @@ class Model(BaseModel, metaclass=ModelMeta):
                 raise ValueError("Model is not versioned but branch is provided")
             if isinstance(branch, Branch):
                 branch = branch.id
+        else:
+            if cls._is_versioned:
+                branch = 1
+            
         ns = NamespaceManager.get_namespace(cls.get_namespace_name())
-        return ns.query(branch, model_class=cls)
+        return ns.query(partition_id, branch, model_class=cls)
 
 
 # No need for the ModelFactory class anymore
@@ -270,7 +265,42 @@ class ArtifactModel(Model):
     branch_id: int = Field(default=None)
     turn_id: int = Field(default=None)
     _repo: str = PrivateAttr(default=None)  # Namespace of the repo model
-
+    
+    
+    async def save(self, turn: Optional[int | Turn], branch: Optional[int | Branch] = 1):
+        """
+        Save the artifact model instance to the database
+        
+        Args:
+            branch: Optional branch ID to save to
+            turn: Optional turn ID to save to
+        """        
+        branch_id = None
+        turn_id = None
+        if branch:
+            if isinstance(branch, int):
+                branch_id = branch
+                if not turn:
+                    raise ValueError("Branch ID is provided but turn is not provided")
+            elif isinstance(branch, Branch):
+                branch_id = branch.id
+                              
+        if isinstance(turn, Turn):
+            turn_id = turn.id
+        else:
+            turn_id = turn
+                
+        ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
+        data = self._payload_dump()
+        result = await ns.save(data, branch_id=branch_id, turn_id=turn_id)
+        # Update instance with returned data (e.g., ID)
+        for key, value in result.items():
+            setattr(self, key, value)
+        
+        # Update relation instance IDs
+        self._update_relation_instance()
+        
+        return self
 
 class RepoModel(Model):
     """
@@ -338,7 +368,7 @@ class Relation(Generic[MODEL]):
         """Build a query set for this relation."""
         if not self.instance:
             raise ValueError("Instance is not set")
-        return self.model_cls.query().filter(**{self.rel_field: self.instance.id})
+        return self.model_cls.query(partition_id=self.instance.id)
     
     def all(self):
         """Get all related models."""

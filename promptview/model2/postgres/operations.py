@@ -20,43 +20,14 @@ def print_error_sql(sql: str, values: list[Any] | None = None):
 class PostgresOperations:
     """Operations for PostgreSQL database"""
     
-    @classmethod
-    async def initialize_versioning(cls):
-        """Initialize versioning tables"""
-        await PGConnectionManager.initialize()
         
-        # Create required tables
-        await PGConnectionManager.execute("""
-        CREATE TABLE IF NOT EXISTS branches (
-            id SERIAL PRIMARY KEY,
-            name TEXT,
-            created_at TIMESTAMP DEFAULT NOW(),
-            updated_at TIMESTAMP DEFAULT NOW(),
-            forked_from_turn_index INTEGER,
-            forked_from_branch_id INTEGER,
-            FOREIGN KEY (forked_from_branch_id) REFERENCES branches(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS turns (
-            id SERIAL PRIMARY KEY,
-            created_at TIMESTAMP DEFAULT NOW(),
-            ended_at TIMESTAMP,
-            index INTEGER NOT NULL,
-            status TEXT NOT NULL,
-            message TEXT,
-            metadata JSONB DEFAULT '{}',
-            branch_id INTEGER NOT NULL,
-            FOREIGN KEY (branch_id) REFERENCES branches(id)
-        );
-        """)
-        
-        # await cls.create_branch(name="main")
+    
     
     @classmethod
     async def create_branch(cls, name: Optional[str] = None, forked_from_turn_id: Optional[int] = None) -> Branch:
         """Create a new branch"""
         # Initialize versioning if needed
-        await cls.initialize_versioning()
+        # await cls.initialize_versioning()
         
         turn = None
         if forked_from_turn_id is not None:
@@ -79,18 +50,72 @@ class PostgresOperations:
         if branch_row is None:
             raise ValueError("Failed to create branch")
         
-        # Create a turn for the branch
-        new_turn = await cls.create_turn(branch_row['id'], 1 if turn is None else turn.index + 1, TurnStatus.STAGED)
         
-        return Branch(**dict(branch_row), last_turn=new_turn)
+        return Branch(**dict(branch_row))
+        # Create a turn for the branch
+        # new_turn = await cls.create_turn(branch_row['id'], 1 if turn is None else turn.index + 1, TurnStatus.STAGED)
+        
+        # return Branch(**dict(branch_row), last_turn=new_turn)
+        
+        
+    @classmethod
+    async def create_turn(cls, partition_id: int, branch_id: int = 1, status: TurnStatus=TurnStatus.STAGED) -> Turn:
+        """
+        Create a new turn
+        
+        Args:
+            partition_id: The partition ID
+            branch_id: The branch ID
+            status: The status of the turn
+        """
+        query = """
+        WITH updated_branch AS (
+            UPDATE branches
+            SET current_index = current_index + 1
+            WHERE id = $1
+            RETURNING id, current_index
+        ),
+        new_turn AS (
+            INSERT INTO turns (partition_id, branch_id, index, status)
+            SELECT $2, id, current_index, $3
+            FROM updated_branch
+            RETURNING *
+        )
+        SELECT * FROM new_turn;
+        """
+        
+        # Use a transaction to ensure atomicity
+        async with PGConnectionManager.transaction() as tx:
+            turn_row = await tx.fetch_one(query, branch_id, partition_id, status.value)
+            if turn_row is None:
+                raise ValueError(f"Failed to create turn for branch {branch_id}")
+        
+        return Turn(**dict(turn_row))
     
     @classmethod
-    async def create_turn(cls, branch_id: int, index: int, status: TurnStatus) -> Turn:
+    async def create_turn2(cls, branch_id: int, status: TurnStatus) -> Turn:
         """Create a new turn"""
-        query = "INSERT INTO turns (branch_id, index, status) VALUES ($1, $2, $3) RETURNING *;"
-        turn_row = await PGConnectionManager.fetch_one(query, branch_id, index, status.value)
-        if turn_row is None:
-            raise ValueError("Failed to create turn")
+        query = """
+        WITH updated_branch AS (
+            UPDATE branches
+            SET current_index = current_index + 1
+            WHERE id = $1
+            RETURNING id, current_index
+        ),
+        new_turn AS (
+            INSERT INTO turns (branch_id, index, status)
+            SELECT id, current_index, $2
+            FROM updated_branch
+            RETURNING *
+        )
+        SELECT * FROM new_turn;
+        """
+        
+        # Use a transaction to ensure atomicity
+        async with PGConnectionManager.transaction() as tx:
+            turn_row = await tx.fetch_one(query, branch_id, status.value)
+            if turn_row is None:
+                raise ValueError(f"Failed to create turn for branch {branch_id}")
         
         return Turn(**dict(turn_row))
     
@@ -111,59 +136,36 @@ class PostgresOperations:
         query = "SELECT * FROM branches WHERE id = $1;"
         branch_row = await PGConnectionManager.fetch_one(query, branch_id)
         if branch_row is None:
-            raise ValueError(f"Branch {branch_id} not found")
-        
-        # Get the last turn
-        query = """
-        SELECT * FROM turns
-        WHERE branch_id = $1
-        ORDER BY index DESC
-        LIMIT 1;
-        """
-        turn_row = await PGConnectionManager.fetch_one(query, branch_id)
-        if turn_row is None:
-            # Create a new turn for the branch
-            turn = await cls.create_turn(branch_id, 1, TurnStatus.STAGED)
-            return Branch(**dict(branch_row), last_turn=turn)
-        
-        return Branch(**dict(branch_row), last_turn=Turn(**dict(turn_row)))
+            raise ValueError(f"Branch {branch_id} not found")        
+        return Branch(**dict(branch_row))  
     
     @classmethod
-    async def commit_turn(cls, branch_id: int, message: Optional[str] = None) -> int:
-        """Commit the current turn and create a new one"""
-        # Get the branch
-        branch = await cls.get_branch(branch_id)
-        
-        # Get the current turn
-        turn = branch.last_turn
-        if turn is None:
-            # Create a new turn if none exists
-            turn = await cls.create_turn(branch_id, 1, TurnStatus.STAGED)
-            return turn.id
-        
+    async def commit_turn(cls, turn_id: int, message: Optional[str] = None) -> Turn:
+        """Commit the current turn and create a new one"""        
         # Update the turn
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         query = """
         UPDATE turns
         SET status = $1, ended_at = $2, message = $3
         WHERE id = $4
-        RETURNING branch_id, index;
+        RETURNING *;
         """
-        result = await PGConnectionManager.fetch_one(query, TurnStatus.COMMITTED.value, now, message, turn.id)
+        result = await PGConnectionManager.fetch_one(query, TurnStatus.COMMITTED.value, now, message, turn_id)
         if result is None:
-            raise ValueError(f"Turn {turn.id if turn else 'unknown'} not found")
+            raise ValueError(f"Turn {turn_id} not found")
+        return Turn(**dict(result))
         
-        branch_id = result['branch_id']
-        current_index = result['index']
+        # branch_id = result['branch_id']
+        # current_index = result['index']
         
         # Create a new turn
-        new_index = current_index + 1
-        new_turn = await cls.create_turn(branch_id, new_index, TurnStatus.STAGED)
+        # new_index = current_index + 1
+        # new_turn = await cls.create_turn(branch_id, new_index, TurnStatus.STAGED)
         
         return new_turn.id
 
     @classmethod
-    async def save(cls, namespace: "PostgresNamespace", data: Dict[str, Any], branch_id: Optional[int] = None, turn_id: Optional[int] = None) -> Dict[str, Any]:
+    async def save(cls, namespace: "PostgresNamespace", data: Dict[str, Any], turn_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Save data to the database with versioning support.
         
@@ -330,7 +332,14 @@ class PostgresOperations:
         return dict(result) if result else None
     
     @classmethod
-    async def query(cls, namespace: "PostgresNamespace", branch_id: Optional[int] = None, filters: Optional[Dict[str, Any]] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def query(
+        cls, 
+        namespace: "PostgresNamespace", 
+        partition_id: int | None = None, 
+        branch_id: int | None = None, 
+        filters: Dict[str, Any] | None = None, 
+        limit: int | None = None
+    ) -> List[Dict[str, Any]]:
         """
         Query records with versioning support.
         
@@ -344,6 +353,8 @@ class PostgresOperations:
             A list of records matching the query
         """
         # If branch_id is provided, use versioning query
+        if partition_id is not None and branch_id is None:
+            branch_id = 1
         if branch_id is not None:
             # Get the branch
             branch = await cls.get_branch(branch_id)
@@ -363,6 +374,8 @@ class PostgresOperations:
             # Build limit clause
             limit_clause = f"LIMIT {limit}" if limit else ""
             
+            partition_clause = f"AND t.partition_id = {partition_id}" if partition_id else ""
+            
             # Build the recursive CTE query
             sql = f"""
             WITH RECURSIVE branch_hierarchy AS (
@@ -371,7 +384,7 @@ class PostgresOperations:
                     name,
                     forked_from_turn_index,
                     forked_from_branch_id,
-                    {branch.last_turn.index if branch.last_turn else 1} AS start_turn_index
+                    current_index AS start_turn_index
                 FROM branches
                 WHERE id = {branch_id}
                 
@@ -392,7 +405,7 @@ class PostgresOperations:
                 FROM branch_hierarchy bh
                 JOIN turns t ON bh.id = t.branch_id
                 JOIN "{namespace.table_name}" m ON t.id = m.turn_id
-                WHERE t.index <= bh.start_turn_index
+                WHERE t.index <= bh.start_turn_index {partition_clause}
             )
             SELECT DISTINCT ON (id) *
             FROM filtered_records
