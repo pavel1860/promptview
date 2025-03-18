@@ -1,16 +1,22 @@
-from typing import Any, Dict, Generic, Optional, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Dict, Generic, Optional, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
 from pydantic import BaseModel, Field, PrivateAttr
 from pydantic.config import JsonDict
 from pydantic._internal._model_construction import ModelMetaclass
 from pydantic.fields import FieldInfo
 import pydantic_core
+import datetime as dt
 
 from promptview.model2.context import Context
+from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.base_namespace import DatabaseType
 from promptview.model2.versioning import Branch, Turn
 from promptview.model2.postgres.operations import PostgresOperations
 from promptview.utils.string_utils import camel_to_snake
+
+
+if TYPE_CHECKING:
+    from promptview.prompt.block6 import Block
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -84,7 +90,7 @@ class ModelMeta(ModelMetaclass, type):
         
         
         # If _repo is specified, the model is automatically versioned
-        is_versioned = get_dct_private_attributes(dct, "_is_versioned", False) or (len(bases) >= 1 and bases[0].__name__ == "ArtifactModel")
+        is_versioned = get_dct_private_attributes(dct, "_is_versioned", False) or (len(bases) >= 1 and (bases[0].__name__ == "ArtifactModel" or bases[0].__name__ == "ContextModel"))
         repo_namespace = get_dct_private_attributes(dct, "_repo", "main" if is_versioned else None)
         if repo_namespace is None and is_versioned:
             raise ValueError("RepoModel must have a repo namespace")
@@ -298,8 +304,8 @@ class ArtifactModel(Model):
     """
     A model that is versioned and belongs to a repo.
     """
-    branch_id: int = Field(default=None)
-    turn_id: int = Field(default=None)
+    branch_id: int = ModelField(default=None)
+    turn_id: int = ModelField(default=None)
     _repo: str = PrivateAttr(default=None)  # Namespace of the repo model
     
     
@@ -326,6 +332,17 @@ class ArtifactModel(Model):
         return self
 
     
+    
+class ContextModel(ArtifactModel):
+    # id: int = KeyField(primary_key=True)
+    # created_at: dt.datetime = ModelField(default=None)
+    
+    @classmethod
+    def from_block(cls, block: "Block") -> "ContextModel":
+        raise NotImplementedError("ContextModel.from_block is not implemented")
+    
+    def to_block(self) -> "Block":
+        raise NotImplementedError("ContextModel.to_block is not implemented")
     
     
 

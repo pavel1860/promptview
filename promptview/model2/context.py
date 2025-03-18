@@ -5,11 +5,15 @@ from typing import TYPE_CHECKING, Generic, Type, TypeVar
 
 from promptview.model2.namespace_manager import NamespaceManager
 
+    
+
 if TYPE_CHECKING:
-    from promptview.model2.model import Model
+    from promptview.model2.model import Model, ContextModel
     from promptview.model2.versioning import Branch, Turn
+    from promptview.prompt.block6 import Block
     
 PARTITION_MODEL = TypeVar("PARTITION_MODEL", bound="Model")
+CONTEXT_MODEL = TypeVar("CONTEXT_MODEL", bound="ContextModel")
 
 
 CURR_CONTEXT = contextvars.ContextVar("curr_context")
@@ -19,19 +23,21 @@ class InitStrategy(StrEnum):
     BRANCH_FROM = "branch_from"
     
 
-class Context(Generic[PARTITION_MODEL]):
+class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     partition_model: Type[PARTITION_MODEL]
-    partition_id: int
+    context_model: Type[CONTEXT_MODEL]
+    _partition_id: int | None
     
     _ctx_token: contextvars.Token | None
     _branch: "Branch | None"
     _turn: "Turn | None"
     
-    def __init__(self, partition_id: int):
-        self.partition_id = partition_id
+    def __init__(self, partition_id: int | None = None, span_name: str | None = None):
+        self._partition_id = partition_id
         self._init_method = None
         self._init_params = {}
         self._ctx_token = None
+        self._span_name = span_name
         
     @classmethod
     def get_current(cls, raise_error: bool = True):
@@ -51,6 +57,12 @@ class Context(Generic[PARTITION_MODEL]):
     @property
     def is_initialized(self):
         return self._branch is not None and self._turn is not None
+    
+    @property
+    def partition_id(self):
+        if self._partition_id is None:
+            raise ValueError("Partition ID not set")
+        return self._partition_id
     
     @property
     def branch(self):
@@ -76,8 +88,8 @@ class Context(Generic[PARTITION_MODEL]):
         self._init_params["turn_id"] = turn_id
         return self
     
-    def build_child(self):
-        child = Context(self.partition_id)
+    def build_child(self, span_name: str | None = None):
+        child = Context(self.partition_id, span_name)
         child._branch = self._branch
         child._turn = self._turn
         return child
@@ -109,5 +121,24 @@ class Context(Generic[PARTITION_MODEL]):
     async def __aexit__(self, exc_type, exc_value, traceback):
         self._reset_context()
         return self
+    
+    async def push(self, value: "Block | CONTEXT_MODEL") -> "Block":
+        from promptview.prompt.block6 import Block
+        if isinstance(value, Block):
+            msg = self.context_model.from_block(value)
+        else:
+            msg = value
+        saved_value = await msg.save(turn=self.turn.id, branch=self.branch.id)
+        return saved_value.to_block()
         
-        
+    
+    async def last(self, limit=10) -> "Block":
+        from promptview.prompt.block6 import Block
+        records = await self.context_model.query(
+            self.partition_id, 
+            self.branch
+        ).limit(limit).order_by("created_at", ascending=False)
+        with Block() as blocks:
+            for r in reversed(records):
+                blocks /= r.to_block()
+        return blocks

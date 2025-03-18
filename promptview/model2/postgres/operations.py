@@ -12,10 +12,12 @@ if TYPE_CHECKING:
     from promptview.model2.postgres.namespace import PostgresNamespace
 
 
-def print_error_sql(sql: str, values: list[Any] | None = None):
+def print_error_sql(sql: str, values: list[Any] | None = None, error: Exception | None = None):
     print("SQL:\n", sql)
     if values:
         print("VALUES:\n", values)
+    if error:
+        print("ERROR:\n", error)
 
 class PostgresOperations:
     """Operations for PostgreSQL database"""
@@ -286,7 +288,7 @@ class PostgresOperations:
         try:
             result = await PGConnectionManager.fetch_one(sql, *values)
         except Exception as e:
-            print_error_sql(sql, values)
+            print_error_sql(sql, values, e)
             raise e
         
         # Convert result to dictionary

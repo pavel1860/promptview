@@ -1,23 +1,17 @@
-import enum
-import functools
 import inspect
-from functools import wraps
-from typing import (TYPE_CHECKING, Any, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, Type,
-                    TypedDict, TypeVar, ParamSpec)
+from typing import (Any, Callable, Dict, Generic, TypeVar, ParamSpec)
 
 from promptview.conversation.history import History
 
 
 from promptview.prompt.block6 import Block
-from .depends import Depends, DependsContainer, resolve_dependency
-from .context import Context, BaseContext
-from ..utils.function_utils import call_function, filter_args_by_exclude
+from .depends import  DependsContainer, resolve_dependency
+from ..model2.context import Context
+from ..utils.function_utils import filter_args_by_exclude
 
 
 P = ParamSpec('P')
 R = TypeVar('R')
-
-
 
 
 class Controller(Generic[P, R]):
@@ -41,14 +35,14 @@ class Controller(Generic[P, R]):
             return output.content
         return output
     
-    def build_execution_ctx(self) -> BaseContext:
+    def build_execution_ctx(self) -> Context:
         curr_ctx: Context | None = Context.get_current()
         if curr_ctx is not None:
             ctx = curr_ctx.build_child(self._name)
         else:
             # raise ValueError("Context is not set")
             # ctx = Context().start()
-            ctx = BaseContext()
+            ctx = Context()
         return ctx    
         
 
