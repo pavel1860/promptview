@@ -41,12 +41,13 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         
     @classmethod
     def get_current(cls, raise_error: bool = True):
-        ctx = CURR_CONTEXT.get()
-        if ctx is None:
+        try:            
+            ctx = CURR_CONTEXT.get()
+        except LookupError:
             if raise_error:
                 raise ValueError("Context not set")
             else:
-                return None
+                return None        
         if not isinstance(ctx, Context):
             if raise_error:
                 raise ValueError("Context is not a Context")
@@ -120,7 +121,9 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     
     async def __aexit__(self, exc_type, exc_value, traceback):
         self._reset_context()
-        return self
+        if exc_type is not None:
+            return False
+        return True
     
     async def push(self, value: "Block | CONTEXT_MODEL") -> "Block":
         from promptview.prompt.block6 import Block

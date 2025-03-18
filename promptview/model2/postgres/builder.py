@@ -17,7 +17,7 @@ class SQLBuilder:
     """SQL builder for PostgreSQL"""
 
     # PostgreSQL type constants
-    SERIAL_TYPE = "SERIAL"
+    
     
     @classmethod
     async def execute(cls, sql: str):
@@ -83,48 +83,7 @@ class SQLBuilder:
         CREATE INDEX IF NOT EXISTS idx_turns_partition_id ON turns (partition_id);
         """)
 
-    @classmethod
-    def map_field_to_sql_type(cls, field_type: type[Any], extra: dict[str, Any] | None = None) -> str:
-        """Map a Python type to a SQL type"""
-        db_field_type = None
-        if is_list_type(field_type):
-            list_type = get_list_type(field_type)
-            if isinstance(list_type, int):
-                db_field_type = "INTEGER[]"
-            elif isinstance(list_type, float):
-                db_field_type = "FLOAT[]"
-            elif isinstance(list_type, str):
-                db_field_type = "TEXT[]"
-            elif inspect.isclass(list_type):
-                if issubclass(list_type, BaseModel):
-                    db_field_type = "JSONB"                        
-        else:
-            if extra and extra.get("db_type"):
-                custom_type = extra.get("db_type")
-                if type(custom_type) != str:
-                    raise ValueError(f"Custom type is not a string: {custom_type}")
-                db_field_type = custom_type
-            elif field_type == bool:
-                db_field_type = "BOOLEAN"
-            elif field_type == int:
-                db_field_type = "INTEGER"
-            elif field_type == float:
-                db_field_type = "FLOAT"
-            elif field_type == str:
-                db_field_type = "TEXT"
-            elif field_type == dt.datetime:
-                # TODO: sql_type = "TIMESTAMP WITH TIME ZONE"
-                db_field_type = "TIMESTAMP"
-            elif isinstance(field_type, dict):
-                db_field_type = "JSONB"
-            elif isinstance(field_type, type):
-                if issubclass(field_type, BaseModel):
-                    db_field_type = "JSONB"
-                if issubclass(field_type, Enum):
-                    db_field_type = "TEXT"                                        
-        if db_field_type is None:
-            raise ValueError(f"Unsupported field type: {field_type}")
-        return db_field_type
+    
 
     @classmethod
     async def create_table(cls, namespace: "PostgresNamespace") -> str:
@@ -135,7 +94,7 @@ class SQLBuilder:
         sql = f"""CREATE TABLE IF NOT EXISTS "{namespace.table_name}" (\n"""
         
         for field in namespace.iter_fields():
-            sql += f'"{field.name}" {field.db_field_type}'
+            sql += f'"{field.name}" {field.sql_type}'
             if field.is_optional:
                 sql += " NULL"
             else:
@@ -179,8 +138,42 @@ class SQLBuilder:
         index_name = f"{namespace.table_name}_{column_name}_idx"
         sql = f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{namespace.table_name}" ("{column_name}");'
         await cls.execute(sql)
+        
+        
+    @classmethod
+    async def list_enum_types(cls) -> list[str]:
+        """Get all enum types"""
+        sql = """
+        SELECT typname, typcategory, typnamespace::regnamespace 
+        FROM pg_type 
+        WHERE typcategory IN ('E')
+        ORDER BY typname;
+        """
+        res = await cls.fetch(sql)
+        return [row["typname"] for row in res]
 
-
+    @classmethod
+    async def create_enum_types(cls, namespace: "PostgresNamespace") -> None:
+        """Create an enum for a namespace"""
+        for field in namespace.iter_fields():
+            if field.is_enum:
+                print("Building enum", field.enum_name, "with values", field.get_enum_values_safe())
+                enum_values = ", ".join([f"'{v}'" for v in field.get_enum_values_safe()])
+                query = f"""
+                    DO $$ 
+                    BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = '{field.enum_name}') THEN
+                            CREATE TYPE {field.enum_name} AS ENUM ({enum_values});
+                        END IF;
+                    END $$;
+                    """
+                await cls.execute(query)
+                
+    @classmethod
+    async def drop_enum_types(cls) -> None:
+        """Drop an enum for a namespace"""
+        for enum_name in await cls.list_enum_types():
+            await cls.execute(f"DROP TYPE IF EXISTS {enum_name};")
 
     @classmethod
     async def drop_table(cls, namespace: "PostgresNamespace") -> str:

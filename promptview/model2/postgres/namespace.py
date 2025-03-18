@@ -1,10 +1,13 @@
-from typing import TYPE_CHECKING, Any, Dict, Literal, Type, Optional, List, get_args
+from enum import Enum
+import inspect
+import json
+from typing import TYPE_CHECKING, Any, Dict, Literal, Type, Optional, List, get_args, get_origin
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.operations import PostgresOperations
 from promptview.utils.model_utils import get_list_type, is_list_type
-from promptview.model2.base_namespace import Namespace, NSFieldInfo, QuerySet
+from promptview.model2.base_namespace import DatabaseType, Namespace, NSFieldInfo, QuerySet
 from promptview.utils.db_connections import PGConnectionManager
 import datetime as dt
 if TYPE_CHECKING:
@@ -13,9 +16,134 @@ if TYPE_CHECKING:
 PgIndexType = Literal["btree", "hash", "gin", "gist", "spgist", "brin"]
 
 
-class PgFieldInfo(NSFieldInfo[PgIndexType]):
+class PgFieldInfo(NSFieldInfo):
     """PostgreSQL field information"""
-    pass
+    index: PgIndexType | None = None
+    sql_type: str
+    
+    SERIAL_TYPE = "SERIAL"
+    
+    def __init__(
+        self,
+        name: str,
+        field_type: type[Any],
+        extra: dict[str, Any] | None = None,
+    ):
+        super().__init__(name, field_type, extra)
+        is_primary_key = extra and extra.get("primary_key", False)
+        if is_primary_key and name == "id" and field_type is int:
+            self.sql_type = PgFieldInfo.SERIAL_TYPE  # Use the constant from SQLBuilder
+        else:
+            # self.sql_type = PgFieldInfo.to_sql_type(self.data_type, self.is_list)
+            self.sql_type = self.build_sql_type()
+        if extra and "index" in extra:
+            self.index = extra["index"]
+            
+    def serialize(self, value: Any) -> Any:
+        """Serialize the value for the database"""
+        if self.sql_type == "JSONB":
+            if self.is_list:
+                value = json.dumps(value)
+            elif self.field_type is BaseModel:
+                value = value.model_dump()
+        return value
+    
+    def get_placeholder(self, index: int) -> str:
+        """Get the placeholder for the value"""
+        if self.sql_type == "JSONB":
+            if self.is_list:
+                return f'${index}::JSONB'
+            else:
+                return f'${index}::JSONB'
+        elif self.is_temporal:
+            return f'${index}::TIMESTAMP'
+        else:
+            return f'${index}'
+    
+    def deserialize(self, value: Any) -> Any:
+        """Deserialize the value from the database"""
+        if self.is_list and type(value) is str:
+            return json.loads(value)
+        return value
+            
+    
+    def build_sql_type(self) -> str:
+        sql_type = None
+        
+        # if inspect.isclass(self.data_type):
+        #     if issubclass(self.data_type, BaseModel):
+        #         sql_type = "JSONB"
+        #     elif issubclass(self.data_type, Enum):
+        #         sql_type = "TEXT"        
+        if self.is_temporal:
+            sql_type = "TIMESTAMP"
+        elif self.is_enum:
+            sql_type = self.enum_name
+        elif self.is_enum:
+            sql_type = "TEXT"
+        elif self.data_type is int:
+            sql_type = "INTEGER[]" if self.is_list else "INTEGER"
+        elif self.data_type is float:
+            sql_type = "FLOAT[]" if self.is_list else "FLOAT"
+        elif self.data_type is str:
+            sql_type = "TEXT[]" if self.is_list else "TEXT"
+        elif self.data_type is bool:
+            sql_type = "BOOLEAN[]" if self.is_list else "BOOLEAN"
+        elif self.data_type is dict:
+            sql_type = "JSONB"
+        elif issubclass(self.data_type, BaseModel):
+            sql_type = "JSONB"
+        elif issubclass(self.data_type, Enum):
+            sql_type = "TEXT"        
+                
+        
+        if sql_type is None:
+            raise ValueError(f"Unsupported field type: {self.data_type}")
+        return sql_type
+    
+    
+    @classmethod
+    def to_sql_type(cls, field_type: type[Any], extra: dict[str, Any] | None = None) -> str:
+        """Map a Python type to a SQL type"""
+        db_field_type = None
+        if is_list_type(field_type):
+            list_type = get_list_type(field_type)
+            if list_type is int:
+                db_field_type = "INTEGER[]"
+            elif list_type is float:
+                db_field_type = "FLOAT[]"
+            elif list_type is str:
+                db_field_type = "TEXT[]"
+            elif inspect.isclass(list_type):
+                if issubclass(list_type, BaseModel):
+                    db_field_type = "JSONB"                        
+        else:
+            if extra and extra.get("db_type"):
+                custom_type = extra.get("db_type")
+                if type(custom_type) != str:
+                    raise ValueError(f"Custom type is not a string: {custom_type}")
+                db_field_type = custom_type
+            elif field_type == bool:
+                db_field_type = "BOOLEAN"
+            elif field_type == int:
+                db_field_type = "INTEGER"
+            elif field_type == float:
+                db_field_type = "FLOAT"
+            elif field_type == str:
+                db_field_type = "TEXT"
+            elif field_type == dt.datetime:
+                # TODO: sql_type = "TIMESTAMP WITH TIME ZONE"
+                db_field_type = "TIMESTAMP"
+            elif isinstance(field_type, dict):
+                db_field_type = "JSONB"
+            elif isinstance(field_type, type):
+                if issubclass(field_type, BaseModel):
+                    db_field_type = "JSONB"
+                if issubclass(field_type, Enum):
+                    db_field_type = "TEXT"                                        
+        if db_field_type is None:
+            raise ValueError(f"Unsupported field type: {field_type}")
+        return db_field_type
 
 
 class PostgresQuerySet(QuerySet):
@@ -54,16 +182,20 @@ class PostgresQuerySet(QuerySet):
         
         # Convert results to model instances if model_class is provided
         if self.model_class:
-            return [self.model_class(**data) for data in results]
+            return [self.model_class(**self.pack_record(data)) for data in results]
         else:
             return results
+    
+    def pack_record(self, data: Any) -> Any:
+        """Pack the record for the model"""
+        return self.namespace.pack_record(data)
     
     def __await__(self):
         """Make the query awaitable"""
         return self.execute().__await__()
 
 
-class PostgresNamespace(Namespace):
+class PostgresNamespace(Namespace[PgFieldInfo]):
     """PostgreSQL implementation of Namespace"""
     
     def __init__(
@@ -74,11 +206,15 @@ class PostgresNamespace(Namespace):
         repo_namespace: Optional[str] = None, 
         namespace_manager: Optional["NamespaceManager"] = None
     ):
-        super().__init__(name, is_versioned, is_repo, repo_namespace, namespace_manager)
+        super().__init__(name, "postgres", is_versioned, is_repo, repo_namespace, namespace_manager)
         
     @property
     def table_name(self) -> str:
         return self.name
+    
+    
+    # def get_field(self, name: str) -> PgFieldInfo:
+    #     return super().get_field(name)
         
     def add_field(
         self,
@@ -94,35 +230,42 @@ class PostgresNamespace(Namespace):
             field_type: The type of the field
             extra: Extra metadata for the field
         """
-        # Check if this is a primary key field
-        is_primary_key = extra and extra.get("primary_key", False)
-        is_optional = False
-        if type(None) in get_args(field_type):
-            nn_types = [t for t in get_args(field_type) if t is not type(None)]
-            if len(nn_types) != 1:
-                raise ValueError(f"Field {name} has multiple non-None types: {nn_types}")
-            field_type = nn_types[0]
-            is_optional = True
-        
-        # For auto-incrementing integer primary keys, use SERIAL instead of INTEGER
-        if is_primary_key and name == "id" and field_type == int:
-            db_field_type = SQLBuilder.SERIAL_TYPE  # Use the constant from SQLBuilder
-        else:
-            db_field_type = SQLBuilder.map_field_to_sql_type(field_type, extra)
-        
-        # Get index from extra if available
-        index = None
-        if extra and "index" in extra:
-            index = extra["index"]
-        print(name)
-        self._fields[name] = PgFieldInfo(
+        pg_field = PgFieldInfo(
             name=name,
             field_type=field_type,
-            db_field_type=db_field_type,
-            index=index,
-            extra=extra or {},
-            is_optional=is_optional
+            extra=extra,
         )
+        self._fields[name] = pg_field
+        return pg_field
+        # Check if this is a primary key field
+        # is_primary_key = extra and extra.get("primary_key", False)
+        # is_optional = False
+        # if type(None) in get_args(field_type):
+        #     nn_types = [t for t in get_args(field_type) if t is not type(None)]
+        #     if len(nn_types) != 1:
+        #         raise ValueError(f"Field {name} has multiple non-None types: {nn_types}")
+        #     field_type = nn_types[0]
+        #     is_optional = True
+        
+        # For auto-incrementing integer primary keys, use SERIAL instead of INTEGER
+        # if is_primary_key and name == "id" and field_type is int:
+        #     db_field_type = SQLBuilder.SERIAL_TYPE  # Use the constant from SQLBuilder
+        # else:
+        #     db_field_type = SQLBuilder.map_field_to_sql_type(field_type, extra)
+        
+        # Get index from extra if available
+        # index = None
+        # if extra and "index" in extra:
+        #     index = extra["index"]
+        # print(name)
+        # self._fields[name] = PgFieldInfo(
+        #     name=name,
+        #     field_type=field_type,
+        #     db_field_type=db_field_type,
+        #     index=index,
+        #     # extra=extra or {},
+        #     # is_optional=is_optional
+        # )
         
     def add_relation(
         self,
@@ -176,6 +319,18 @@ class PostgresNamespace(Namespace):
                 )
         
         return res
+    
+    
+    def pack_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Pack the record for the database"""
+        rec = {}
+        for key, value in record.items():
+            if key in ("id", "branch_id", "turn_id"):
+                rec[key] = value
+            else:
+                field_info = self.get_field(key)
+                rec[key] = field_info.deserialize(value)
+        return rec
     
 
     async def drop_namespace(self):

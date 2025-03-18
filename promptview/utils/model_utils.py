@@ -9,7 +9,7 @@ from enum import Enum
 
 
 def is_list_type(pydantic_model):
-    return get_origin(pydantic_model) == list
+    return get_origin(pydantic_model) is list
 
 
 def unpack_list_model(pydantic_model):

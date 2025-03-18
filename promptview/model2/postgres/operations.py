@@ -7,6 +7,10 @@ from pydantic import BaseModel
 from promptview.utils.db_connections import PGConnectionManager
 from promptview.model2.versioning import Turn, Branch, TurnStatus
 
+if TYPE_CHECKING:
+    from promptview.model2.postgres.namespace import PgFieldInfo
+
+
 
 if TYPE_CHECKING:
     from promptview.model2.postgres.namespace import PostgresNamespace
@@ -265,17 +269,23 @@ class PostgresOperations:
         for key, value in data.items():
             if key == "id" and value is None:
                 continue
+            
+            if key == "branch_id" or key == "turn_id":
+                keys.append(f'"{key}"')
+                placeholders.append(f'${len(values) + 1}')
+                values.append(value)
+                continue
+            
+            field_info = namespace.get_field(key)
+            if field_info.validate_value(value):
+                placeholder = field_info.get_placeholder(len(values) + 1)
+                processed_value = field_info.serialize(value)
                 
-            # Handle complex types
-            if isinstance(value, dict) or isinstance(value, BaseModel):
-                value = json.dumps(value)
-            elif isinstance(value, dt.datetime):
-                # Format datetime for PostgreSQL
-                value = value.isoformat()
-                
-            keys.append(f'"{key}"')
-            placeholders.append(f'${len(values) + 1}')
-            values.append(value)
+                keys.append(f'"{key}"')
+                placeholders.append(placeholder)
+                values.append(processed_value)
+            else:
+                raise ValueError(f"Field {key} is not valid")
             
         # Build SQL query
         sql = f"""
@@ -305,16 +315,19 @@ class PostgresOperations:
             if key == "id":
                 continue
             
-            # Handle complex types
-            if isinstance(value, dict) or isinstance(value, BaseModel):
-                value = json.dumps(value)
-            elif isinstance(value, dt.datetime):
-                # Format datetime for PostgreSQL
-                value = value.isoformat()
-                
-            set_parts.append(f'"{key}" = ${len(values) + 1}')
-            values.append(value)
+            if key == "branch_id" or key == "turn_id":
+                continue
             
+            field_info = namespace.get_field(key)
+            if field_info.validate_value(value):
+                placeholder = field_info.get_placeholder(len(values) + 1)
+                processed_value = field_info.serialize(value)
+                
+                set_parts.append(f'"{key}" = {placeholder}')
+                values.append(processed_value)
+            else:
+                raise ValueError(f"Field {key} is not valid")
+
         # Add ID to values
         values.append(data["id"])
         
@@ -330,7 +343,10 @@ class PostgresOperations:
         result = await PGConnectionManager.fetch_one(sql, *values)
         
         # Convert result to dictionary
-        return dict(result) if result else {"id": data["id"], **data}
+        return dict(result) if result else {"id": data["id"], **data}        
+    
+    
+    
     
     @classmethod
     async def get(cls, namespace: "PostgresNamespace", id: Any) -> Optional[Dict[str, Any]]:

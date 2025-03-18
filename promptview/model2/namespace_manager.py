@@ -1,5 +1,5 @@
 from promptview.model2.base_namespace import DatabaseType, Namespace
-from typing import TYPE_CHECKING, Type, TypeVar, Dict, List, Any, Optional, ForwardRef
+from typing import TYPE_CHECKING, Iterator, Type, TypeVar, Dict, List, Any, Optional, ForwardRef
 
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.namespace import PostgresNamespace
@@ -44,7 +44,13 @@ class NamespaceManager:
         if db_type == "qdrant":
             raise NotImplementedError("Qdrant is not implemented")
         elif db_type == "postgres":
-            namespace = PostgresNamespace(model_name, is_versioned, is_repo, repo_namespace, namespace_manager=cls)
+            namespace = PostgresNamespace(
+                name=model_name, 
+                is_versioned=is_versioned, 
+                is_repo=is_repo, 
+                repo_namespace=repo_namespace,                 
+                namespace_manager=cls
+            )
         else:
            raise ValueError(f"Invalid database type: {db_type}")
         cls._namespaces[model_name] = namespace
@@ -79,13 +85,18 @@ class NamespaceManager:
         """
         if not cls._namespaces:
             raise ValueError("No namespaces registered")
+        for namespace in cls.iter_namespaces("postgres"):
+            await SQLBuilder.create_enum_types(namespace)
         if versioning:
-            await SQLBuilder.initialize_versioning()
+            await SQLBuilder.initialize_versioning()            
+            
         for namespace in cls._namespaces.values():
             await namespace.create_namespace()
         
         if versioning:
             await SQLBuilder.add_partition_id_to_turns(partition_table, key)
+            
+        
         
         try:
             main_branch = await PostgresOperations.get_branch(1)
@@ -101,6 +112,15 @@ class NamespaceManager:
             A list of all registered namespaces
         """
         return list(cls._namespaces.values())
+    
+    @classmethod
+    def iter_namespaces(cls, db_type: DatabaseType | None = None) -> Iterator[Namespace]:
+        """
+        Iterate over all registered namespaces.
+        """
+        for namespace in cls._namespaces.values():
+            if db_type is None or namespace.db_type == db_type:
+                yield namespace
     
     @classmethod
     def register_relation(
