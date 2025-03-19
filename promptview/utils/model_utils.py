@@ -4,7 +4,7 @@ import jsonref
 from types import UnionType
 from typing import Any, Literal, Optional, Union, get_args, get_origin
 from pydantic import BaseModel, create_model
-from enum import Enum
+from enum import Enum, StrEnum
 
 
 
@@ -229,7 +229,7 @@ def serialize_class(cls_: Any):
 
 
 
-def describe_enum(enum_cls: Enum, delimiter: str = ", ") -> str:
+def describe_enum(enum_cls: Enum | StrEnum, delimiter: str = ", ") -> str:
     return delimiter.join([v.value for v in enum_cls])
 
 def describe_literal(literal, delimiter="|"):

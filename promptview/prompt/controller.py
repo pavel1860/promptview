@@ -36,7 +36,7 @@ class Controller(Generic[P, R]):
         return output
     
     def build_execution_ctx(self) -> Context:
-        curr_ctx: Context | None = Context.get_current()
+        curr_ctx: Context | None = Context.get_current(False)
         if curr_ctx is not None:
             ctx = curr_ctx.build_child(self._name)
         else:

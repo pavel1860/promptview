@@ -226,6 +226,9 @@ class LlmExecution(BaseModel, Generic[CLIENT_PARAMS, CLIENT_RESPONSE]):
         
         
         messages = [self._to_message(b) for b in self._to_chat(self.ctx_blocks)]
+        for msg in messages:
+            if not msg.get("role"):
+                raise ValueError("role is not set")
         for message in messages:
             print(f"----------------------{message['role']}-------------------------")
             print(message['content'])            
@@ -331,22 +334,24 @@ class LLM(BaseModel, Generic[LLM_CLIENT, CLIENT_PARAMS, CLIENT_RESPONSE]):
     
     def __call__(
         self, 
-        blocks: Block | str,
-        retries: int = 3,
-        smart_retry: bool = True,
-        config: LlmConfig | None = None,
-        is_traceable: bool | None = True,
+        *args: Block | str,
     ) -> LlmExecution:
-        if isinstance(blocks, str):
-            blocks = Block(blocks)
-        
-                
+
+        with Block() as ctx_blocks:
+            for block in args:
+                if isinstance(block, str):
+                    ctx_blocks.append(block, role="user")
+                elif isinstance(block, Block):
+                    if not block.role:
+                        block.role = "user"
+                    ctx_blocks.append(block)
+                        
         llm_execution = LlmExecution(
-            ctx_blocks=blocks,
+            ctx_blocks=ctx_blocks,
             model=self.model,
             name=self.name,
             # config=config,
-            is_traceable=is_traceable
+            # is_traceable=is_traceable
         )
         llm_execution._complete = self.complete
         llm_execution._parse_response = self.parse_response

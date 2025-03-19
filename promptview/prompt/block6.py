@@ -5,6 +5,7 @@ from typing import Any, List, Literal, Type
 
 from pydantic import BaseModel
 from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
+from promptview.utils.model_utils import schema_to_ts
 
 
     
@@ -84,6 +85,7 @@ class Block:
         "usage",
         "id",
         "db_id",
+        "attrs",
     ]
     # tags: list[str]
     # items: list["Block"]
@@ -98,6 +100,7 @@ class Block:
         content: Any | None = None, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None, 
+        attrs: dict | None = None,
         depth: int = 0, 
         parent: "Block | None" = None, 
         dedent: bool = True, 
@@ -129,6 +132,7 @@ class Block:
         self.usage = usage
         self.id = id
         self.db_id = db_id
+        self.attrs = attrs
     # def __call__(
     #     self, 
     #     content: Any | None = None, 
@@ -185,7 +189,9 @@ class Block:
         content: Any, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None,
+        attrs: dict | None = None,
         items: list["Block"] | None = None,
+        role: BlockRole | None = None,
     ):
         if isinstance(content, Block):
             return content
@@ -197,7 +203,10 @@ class Block:
                 depth=len(self._ctx) if self._ctx else 0,
                 items=items,
                 ctx=self._ctx,
+                attrs=attrs,
             )
+        if role:
+            inst.role = role
         return inst
         
     def __call__(
@@ -205,9 +214,10 @@ class Block:
         content: Any, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None, 
+        attrs: dict | None = None,
         **kwargs
     ):
-        inst = self.append(content=content, tags=tags, style=style, **kwargs)
+        inst = self.append(content=content, tags=tags, style=style, attrs=attrs, **kwargs)
         return inst
     
     
@@ -216,13 +226,17 @@ class Block:
         content: Any, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None,
-        items: list["Block"] | None = None
+        attrs: dict | None = None,
+        items: list["Block"] | None = None,
+        role: BlockRole | None = None,
     ):
         inst = self._build_instance(
             content=content, 
             tags=tags, 
             style=style, 
             items=items,
+            attrs=attrs,
+            role=role,
         )
         self.ctx_items.append(inst)
         # if self._ctx:
@@ -279,6 +293,13 @@ class Block:
         """
         self.inline_style.update(style_props)
         return self
+    
+    def model_dump(self, model: Type[BaseModel], format: str = "ts"):    
+        if format == "ts":
+            content = schema_to_ts(model)
+        else:
+            content = model.model_json_schema()        
+        return self.append(content)
 
     
     def get_style(self, property_name: str, default: Any = None) -> Any:
@@ -297,7 +318,11 @@ class Block:
       
     def __repr__(self) -> str:
         content = self.render()
-        return f"{self.__class__.__name__}():\n{content}"
+        tags = ", ".join(self.tags)
+        tag = f"[{tags}]" if tags else ""
+        role = f" role={self.role}" if self.role else ""
+        
+        return f"{self.__class__.__name__}({tags}{role}):\n{content}"
 
 
 
@@ -313,8 +338,8 @@ class BlockContext:
         self.ctx = ContextStack()
         self.ctx.push(root)
         
-    def __call__(self, content: Any, tags: list[str] | None = None, style: InlineStyle | None = None, **kwargs):       
-        self._append(content, tags, style)
+    def __call__(self, content: Any, tags: list[str] | None = None, style: InlineStyle | None = None, attrs: dict | None = None, **kwargs):       
+        self._append(content, tags, style, attrs)
         return self
     
     @property
@@ -339,6 +364,7 @@ class BlockContext:
         content: Any, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None,
+        attrs: dict | None = None,
         items: list["Block"] | None = None
     ):
         inst = Block(
@@ -348,6 +374,7 @@ class BlockContext:
             parent=self.ctx[-1],
             depth=len(self.ctx) if self.ctx else 0,
             items=items,
+            attrs=attrs,
         )        
         self.ctx[-1].append(inst)
         return inst

@@ -25,9 +25,7 @@ def print_error_sql(sql: str, values: list[Any] | None = None, error: Exception 
 
 class PostgresOperations:
     """Operations for PostgreSQL database"""
-    
-        
-    
+
     
     @classmethod
     async def create_branch(cls, name: Optional[str] = None, forked_from_turn_id: Optional[int] = None) -> Branch:

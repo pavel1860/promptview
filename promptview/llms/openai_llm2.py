@@ -28,9 +28,9 @@ class OpenAiLLM(LLM):
             if isinstance(block, Block):
                 block = Block.from_block(block)
                         
-        if block.role == "user" or block.role == "system":
+        if block.role == "user" or block.role == "system" or block.role == None:
             return {
-                "role": block.role, # type: ignore
+                "role": block.role or "user", # type: ignore
                 "content": block.render(),
             }
         elif block.role == "assistant":

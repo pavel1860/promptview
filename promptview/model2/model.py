@@ -423,6 +423,17 @@ class Relation(Generic[MODEL]):
         qs = self._build_query_set()
         return qs.filter(**kwargs)
     
+    def first(self):
+        """Get the first related model."""
+        qs = self._build_query_set()
+        return qs.first()
+    
+    def last(self):
+        """Get the last related model."""
+        qs = self._build_query_set()
+        return qs.last()
+    
+    
     def limit(self, limit: int):
         """Limit the number of related models."""
         qs = self._build_query_set()

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 import datetime as dt
 from promptview.utils.model_utils import is_list_type, unpack_list_model
+from promptview.utils.string_utils import camel_to_snake
 
 DatabaseType = Literal["qdrant", "postgres"]
 
@@ -47,9 +48,9 @@ class NSFieldInfo:
         
         if self.is_enum:
             if self.is_literal:
-                self.enum_name = name
+                self.enum_name = camel_to_snake(name) + "_literal"
             else:
-                self.enum_name = self.data_type.__name__
+                self.enum_name = camel_to_snake(self.data_type.__name__) + "_enum"
             
         if field_type is dt.datetime:
             self.is_temporal = True
@@ -146,6 +147,23 @@ class QuerySet:
     def limit(self, limit: int):
         """Limit the query results"""
         raise NotImplementedError("Not implemented")
+    
+    def order_by(self, field: str, direction: Literal["asc", "desc"] = "asc"):
+        """Order the query results"""
+        raise NotImplementedError("Not implemented")
+    
+    def offset(self, offset: int):
+        """Offset the query results"""
+        raise NotImplementedError("Not implemented")
+    
+    def last(self):
+        """Get the last result"""
+        raise NotImplementedError("Not implemented")
+    
+    def first(self):
+        """Get the first result"""
+        raise NotImplementedError("Not implemented")
+    
     
     async def execute(self):
         """Execute the query"""

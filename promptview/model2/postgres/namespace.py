@@ -169,6 +169,27 @@ class PostgresQuerySet(QuerySet):
         self.limit_value = limit
         return self
     
+    def order_by(self, field: str, direction: Literal["asc", "desc"] = "asc"):
+        """Order the query results"""
+        self.order_by_value = f"{field} {direction}"
+        return self
+    
+    def offset(self, offset: int):
+        """Offset the query results"""
+        self.offset_value = offset
+        return self
+    
+    def last(self):
+        """Get the last result"""
+        self.limit_value = 1
+        return self
+    
+    def first(self):
+        """Get the first result"""
+        self.limit_value = 1
+        return self
+    
+    
     async def execute(self) -> List[Any]:
         """Execute the query"""
         # Use PostgresOperations to execute the query with versioning support

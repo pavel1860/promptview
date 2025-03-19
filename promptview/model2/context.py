@@ -21,6 +21,7 @@ CURR_CONTEXT = contextvars.ContextVar("curr_context")
 class InitStrategy(StrEnum):
     START_TURN = "start_turn"    
     BRANCH_FROM = "branch_from"
+    NO_PARTITION = "no_partition"
     
 
 class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
@@ -34,7 +35,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     
     def __init__(self, partition_id: int | None = None, span_name: str | None = None):
         self._partition_id = partition_id
-        self._init_method = None
+        self._init_method = InitStrategy.NO_PARTITION
         self._init_params = {}
         self._ctx_token = None
         self._span_name = span_name
@@ -77,6 +78,9 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             raise ValueError("Turn not set")
         return self._turn
     
+    @property
+    def can_push(self):
+        return self._init_method != InitStrategy.NO_PARTITION
     
     def start_turn(self, branch_id: int = 1):
         self._init_method = InitStrategy.START_TURN
@@ -114,6 +118,8 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     async def __aenter__(self):
         if self._init_method == InitStrategy.START_TURN:
             await self._start_new_turn()
+        elif self._init_method == InitStrategy.NO_PARTITION:
+            pass
         else:
             raise ValueError(f"Invalid init method: {self._init_method}")
         self._set_context()
@@ -126,6 +132,8 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         return True
     
     async def push(self, value: "Block | CONTEXT_MODEL") -> "Block":
+        if not self.can_push:
+            raise ValueError("Cannot push to context")
         from promptview.prompt.block6 import Block
         if isinstance(value, Block):
             msg = self.context_model.from_block(value)
@@ -136,6 +144,8 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         
     
     async def last(self, limit=10) -> "Block":
+        if not self.can_push:
+            raise ValueError("Cannot load last messages from context")
         from promptview.prompt.block6 import Block
         records = await self.context_model.query(
             self.partition_id, 
