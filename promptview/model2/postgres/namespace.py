@@ -2,17 +2,18 @@ from enum import Enum
 import inspect
 import json
 from typing import TYPE_CHECKING, Any, Dict, Literal, Type, Optional, List, get_args, get_origin
+from typing_extensions import TypeVar
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.operations import PostgresOperations
 from promptview.utils.model_utils import get_list_type, is_list_type
-from promptview.model2.base_namespace import DatabaseType, Namespace, NSFieldInfo, QuerySet
+from promptview.model2.base_namespace import DatabaseType, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter
 from promptview.utils.db_connections import PGConnectionManager
 import datetime as dt
 if TYPE_CHECKING:
     from promptview.model2.namespace_manager import NamespaceManager
-
+    from promptview.model2.model import Model
 PgIndexType = Literal["btree", "hash", "gin", "gist", "spgist", "brin"]
 
 
@@ -145,11 +146,13 @@ class PgFieldInfo(NSFieldInfo):
             raise ValueError(f"Unsupported field type: {field_type}")
         return db_field_type
 
+MODEL = TypeVar("MODEL", bound="Model")
 
-class PostgresQuerySet(QuerySet):
+
+class PostgresQuerySet(QuerySet[MODEL]):
     """PostgreSQL implementation of QuerySet"""
     
-    def __init__(self, namespace: "PostgresNamespace", partition_id: int | None = None, branch_id: int | None = None, model_class=None):
+    def __init__(self, model_class: Type[MODEL], namespace: "PostgresNamespace", partition_id: int | None = None, branch_id: int | None = None):
         super().__init__(model_class=model_class)
         self.namespace = namespace
         self.partition_id = partition_id
@@ -158,39 +161,47 @@ class PostgresQuerySet(QuerySet):
         self.limit_value = None
         self.offset_value = None
         self.order_by_value = None
+        self.include_fields = None
     
-    def filter(self, **kwargs):
+    def filter(self, **kwargs) -> "PostgresQuerySet[MODEL]":
         """Filter the query"""
         self.filters.update(kwargs)
         return self
     
-    def limit(self, limit: int):
+    def limit(self, limit: int) -> "PostgresQuerySet[MODEL]":
         """Limit the query results"""
         self.limit_value = limit
         return self
     
-    def order_by(self, field: str, direction: Literal["asc", "desc"] = "asc"):
+    def order_by(self, field: str, direction: Literal["asc", "desc"] = "asc") -> "PostgresQuerySet[MODEL]":
         """Order the query results"""
         self.order_by_value = f"{field} {direction}"
         return self
     
-    def offset(self, offset: int):
+    def offset(self, offset: int) -> "PostgresQuerySet[MODEL]":
         """Offset the query results"""
         self.offset_value = offset
         return self
     
-    def last(self):
+    def last(self) -> "QuerySetSingleAdapter[MODEL]":
         """Get the last result"""
         self.limit_value = 1
-        return self
+        self.order_by_value = "created_at desc"
+        return QuerySetSingleAdapter(self)
     
-    def first(self):
+    def first(self) -> "QuerySetSingleAdapter[MODEL]":
         """Get the first result"""
         self.limit_value = 1
+        self.order_by_value = "created_at asc"
+        return QuerySetSingleAdapter(self)
+    
+    def include(self, fields: list[str]) -> "PostgresQuerySet[MODEL]":
+        """Include a relation field in the query results."""
+        self.include_fields = fields
         return self
     
     
-    async def execute(self) -> List[Any]:
+    async def execute(self) -> List[MODEL]:
         """Execute the query"""
         # Use PostgresOperations to execute the query with versioning support
         results = await PostgresOperations.query(
@@ -198,7 +209,9 @@ class PostgresQuerySet(QuerySet):
             partition_id=self.partition_id,
             branch_id=self.branch_id,
             filters=self.filters,
-            limit=self.limit_value
+            limit=self.limit_value,
+            order_by=self.order_by_value,
+            offset=self.offset_value
         )
         
         # Convert results to model instances if model_class is provided
@@ -211,12 +224,10 @@ class PostgresQuerySet(QuerySet):
         """Pack the record for the model"""
         return self.namespace.pack_record(data)
     
-    def __await__(self):
-        """Make the query awaitable"""
-        return self.execute().__await__()
 
 
-class PostgresNamespace(Namespace[PgFieldInfo]):
+
+class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
     """PostgreSQL implementation of Namespace"""
     
     def __init__(
@@ -390,7 +401,7 @@ class PostgresNamespace(Namespace[PgFieldInfo]):
         """
         return await PostgresOperations.get(self, id)
     
-    def query(self, partition_id: Optional[int] = None, branch: Optional[int] = None, model_class=None) -> QuerySet:
+    def query(self, partition_id: Optional[int] = None, branch: Optional[int] = None, model_class: Type[MODEL] | None = None) -> QuerySet:
         """
         Create a query for this namespace.
         
@@ -401,5 +412,4 @@ class PostgresNamespace(Namespace[PgFieldInfo]):
         Returns:
             A query set for this namespace
         """
-        return PostgresQuerySet(self, partition_id, branch, model_class=model_class)
-        
+        return PostgresQuerySet(self.model_class, self, partition_id, branch)

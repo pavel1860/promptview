@@ -9,7 +9,7 @@ import datetime as dt
 from promptview.model2.context import Context
 from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.base_namespace import DatabaseType
+from promptview.model2.base_namespace import DatabaseType, QuerySet
 from promptview.model2.versioning import Branch, Turn
 from promptview.model2.postgres.operations import PostgresOperations
 from promptview.utils.string_utils import camel_to_snake
@@ -154,6 +154,7 @@ class ModelMeta(ModelMetaclass, type):
         
         # Set namespace name and relations on the class
         cls_obj = super().__new__(cls, name, bases, dct)
+        ns.set_model_class(cls_obj)
         cls_obj._namespace_name = namespace_name
         cls_obj._relations = relations
         cls_obj._is_versioned = is_versioned
@@ -182,7 +183,11 @@ class ModelMeta(ModelMetaclass, type):
             )
         
         return cls_obj
-
+    
+    
+    
+    
+MODEL = TypeVar("MODEL", bound="Model")
 
 class Model(BaseModel, metaclass=ModelMeta):
     """Base class for all models
@@ -259,7 +264,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         return self
     
     @classmethod
-    async def get(cls, id: Any):
+    async def get(cls: Type[MODEL], id: Any) -> MODEL:
         """Get a model instance by ID"""
         ns = NamespaceManager.get_namespace(cls.get_namespace_name())
         data = await ns.get(id)
@@ -268,14 +273,14 @@ class Model(BaseModel, metaclass=ModelMeta):
         return cls(**data)
     
     @classmethod
-    async def get_or_none(cls, id: Any):
+    async def get_or_none(cls: Type[MODEL], id: Any) -> MODEL | None:
         """Get a model instance by ID or None if it doesn't exist"""
         ns = NamespaceManager.get_namespace(cls.get_namespace_name())
         data = await ns.get(id)
         return cls(**data) if data else None
     
     @classmethod
-    def query(cls, partition_id: Optional[int] = None, branch: Optional[int | Branch] = None):
+    def query(cls: Type[MODEL], partition_id: Optional[int] = None, branch: Optional[int | Branch] = None) -> "QuerySet[MODEL]":
         """
         Create a query for this model
         
@@ -385,7 +390,7 @@ class RepoModel(Model):
         return await PostgresOperations.commit_turn(self.main_branch_id, message)
     
     
-MODEL = TypeVar("MODEL", bound="Model")
+
 
 
 

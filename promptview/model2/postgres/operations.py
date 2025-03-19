@@ -374,16 +374,21 @@ class PostgresOperations:
         partition_id: int | None = None, 
         branch_id: int | None = None, 
         filters: Dict[str, Any] | None = None, 
-        limit: int | None = None
+        limit: int | None = None,
+        order_by: str | None = None,
+        offset: int | None = None
     ) -> List[Dict[str, Any]]:
         """
         Query records with versioning support.
         
         Args:
             namespace: The namespace to query
+            partition_id: The partition ID to query from (optional)
             branch_id: The branch ID to query from (optional)
             filters: Filters to apply to the query
             limit: Maximum number of records to return
+            order_by: Field and direction to order by (e.g., "created_at desc")
+            offset: Number of records to skip
             
         Returns:
             A list of records matching the query
@@ -409,6 +414,17 @@ class PostgresOperations:
             
             # Build limit clause
             limit_clause = f"LIMIT {limit}" if limit else ""
+            
+            # Build offset clause
+            offset_clause = f"OFFSET {offset}" if offset else ""
+            
+            # Build order by clause
+            order_by_clause = ""
+            if order_by:
+                order_by_clause = f"ORDER BY {order_by}"
+            else:
+                # Default ordering by id and turn_id
+                order_by_clause = "ORDER BY id, turn_id DESC"
             
             partition_clause = f"AND t.partition_id = {partition_id}" if partition_id else ""
             
@@ -443,11 +459,12 @@ class PostgresOperations:
                 JOIN "{namespace.table_name}" m ON t.id = m.turn_id
                 WHERE t.index <= bh.start_turn_index {partition_clause}
             )
-            SELECT DISTINCT ON (id) *
+            SELECT *
             FROM filtered_records
             {filter_clause}
-            ORDER BY id, turn_id DESC
+            {order_by_clause}
             {limit_clause}
+            {offset_clause}
             """
             
             # Execute query
@@ -468,10 +485,18 @@ class PostgresOperations:
                     values.append(value)
                     
                 sql += f" WHERE {' AND '.join(where_parts)}"
-                
+            
+            # Add order by
+            if order_by:
+                sql += f" ORDER BY {order_by}"
+            
             # Add limit
             if limit:
                 sql += f" LIMIT {limit}"
+            
+            # Add offset
+            if offset:
+                sql += f" OFFSET {offset}"
                 
             # Execute query
             results = await PGConnectionManager.fetch(sql, *values)

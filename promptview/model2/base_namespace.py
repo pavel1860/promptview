@@ -1,7 +1,7 @@
 from abc import abstractmethod
 from enum import Enum
 import inspect
-from typing import TYPE_CHECKING, Any, Dict, Generic, Iterator, List, Literal, Type, TypeVar, TypedDict, Optional, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Dict, Generator, Generic, Iterator, List, Literal, Type, TypeVar, TypedDict, Optional, get_args, get_origin
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 import datetime as dt
@@ -12,7 +12,7 @@ DatabaseType = Literal["qdrant", "postgres"]
 
 if TYPE_CHECKING:
     from promptview.model2.namespace_manager import NamespaceManager
-
+    from promptview.model2.model import Model
 INDEX_TYPES = TypeVar("INDEX_TYPES", bound=str)
 
 
@@ -126,12 +126,35 @@ class NSFieldInfo:
     def deserialize(self, value: Any) -> Any:
         """Deserialize the value from the database"""
         raise NotImplementedError("Not implemented")
+
+
+
+
+T_co = TypeVar("T_co", covariant=True)
+
+class QuerySetSingleAdapter(Generic[T_co]):
+    def __init__(self, queryset: "QuerySet[T_co]"):
+        self.queryset = queryset
+
+    def __await__(self) -> Generator[Any, None, T_co]:
+        async def await_query():
+            results = await self.queryset.execute()
+            if results:
+                return results[0]
+            return None
+            # raise ValueError("No results found")
+            # return None
+            # raise DoesNotExist(self.queryset.model)
+        return await_query().__await__()  
+
+
+MODEL = TypeVar("MODEL", bound="Model")
     
-    
-class QuerySet:
+class QuerySet(Generic[MODEL]):
     """Base query set interface"""
+    model_class: Type[MODEL]
     
-    def __init__(self, model_class=None):
+    def __init__(self, model_class: Type[MODEL]):
         """
         Initialize the query set
         
@@ -139,33 +162,36 @@ class QuerySet:
             model_class: Optional model class to use for instantiating results
         """
         self.model_class = model_class
+        
+    def __await__(self):
+        """Make the query awaitable"""
+        return self.execute().__await__()
     
-    def filter(self, **kwargs):
+    def filter(self, **kwargs) -> "QuerySet[MODEL]":
         """Filter the query"""
         raise NotImplementedError("Not implemented")
     
-    def limit(self, limit: int):
+    def limit(self, limit: int) -> "QuerySet[MODEL]":
         """Limit the query results"""
         raise NotImplementedError("Not implemented")
     
-    def order_by(self, field: str, direction: Literal["asc", "desc"] = "asc"):
+    def order_by(self, field: str, direction: Literal["asc", "desc"] = "asc") -> "QuerySet[MODEL]":
         """Order the query results"""
         raise NotImplementedError("Not implemented")
     
-    def offset(self, offset: int):
+    def offset(self, offset: int) -> "QuerySet[MODEL]":
         """Offset the query results"""
         raise NotImplementedError("Not implemented")
     
-    def last(self):
+    def last(self)-> "QuerySetSingleAdapter[MODEL]":
         """Get the last result"""
         raise NotImplementedError("Not implemented")
     
-    def first(self):
+    def first(self) -> "QuerySetSingleAdapter[MODEL]":
         """Get the first result"""
         raise NotImplementedError("Not implemented")
     
-    
-    async def execute(self):
+    async def execute(self) -> List[MODEL]:
         """Execute the query"""
         raise NotImplementedError("Not implemented")
 
@@ -173,7 +199,9 @@ class QuerySet:
 
 FIELD_INFO = TypeVar("FIELD_INFO", bound=NSFieldInfo)
 
-class Namespace(Generic[FIELD_INFO]):
+
+class Namespace(Generic[MODEL, FIELD_INFO]):
+    _model_cls: Type[MODEL] | None = None
     _name: str
     _fields: dict[str, FIELD_INFO]
     is_versioned: bool
@@ -195,6 +223,9 @@ class Namespace(Generic[FIELD_INFO]):
         self.repo_namespace = repo_namespace
         self.namespace_manager = namespace_manager
         self.db_type = db_type
+        self._model_cls = None
+        
+        
     @property
     def name(self) -> str:
         return self._name
@@ -203,6 +234,16 @@ class Namespace(Generic[FIELD_INFO]):
     def table_name(self) -> str:
         """Get the table name for this namespace."""
         return self._name
+    
+    @property
+    def model_class(self) -> Type[MODEL]:
+        if self._model_cls is None:
+            raise ValueError("Model class not set")
+        return self._model_cls
+    
+    def set_model_class(self, model_class: Type[MODEL]):
+        self._model_cls = model_class
+    
     
     
     def get_field(self, name: str) -> FIELD_INFO:
