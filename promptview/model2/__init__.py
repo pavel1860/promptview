@@ -1,4 +1,4 @@
-from .model import Model, Relation, RepoModel, ArtifactModel, ContextModel
+from .model import Model, Relation, ManyRelation, RepoModel, ArtifactModel, ContextModel
 from .fields import ModelField, RelationField, KeyField
 from .postgres.namespace import PostgresNamespace
 from .namespace_manager import NamespaceManager
@@ -11,6 +11,7 @@ __all__ = [
     "ArtifactModel",
     "ContextModel",
     "Relation", 
+    "ManyRelation",
     "PostgresNamespace", 
     "NamespaceManager",
     "ModelField",

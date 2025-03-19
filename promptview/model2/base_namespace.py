@@ -26,6 +26,7 @@ class NSFieldInfo:
     list_origin_type: Type[Any] | None = None
     is_temporal: bool = False
     is_enum: bool = False
+    is_foreign_key: bool = False
     is_literal: bool = False
     enum_values: List[Any] | None = None
     enum_name: str | None = None
@@ -38,6 +39,7 @@ class NSFieldInfo:
     ):
         self.name = name        
         self.extra = extra
+        self.is_foreign_key = extra and extra.get("foreign_key", False)
         self.field_type = field_type
         self.origin_type, self.is_optional = NSFieldInfo.parse_optional(field_type)
         self.list_origin_type, self.is_list = NSFieldInfo.parse_list(self.origin_type)
@@ -112,7 +114,7 @@ class NSFieldInfo:
     def validate_value(self, value: Any) -> bool:
         """Validate the value"""
         if value is None:
-            if not self.is_optional:
+            if not self.is_optional and not self.is_foreign_key:
                 return False
             return True
         return True
@@ -297,7 +299,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         """Drop the namespace from the database"""
         raise NotImplementedError("Not implemented")
     
-    async def save(self, data: Dict[str, Any], turn_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
+    async def save(self, data: Dict[str, Any], id: Any | None = None, turn_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
         """Save data to the namespace"""
         raise NotImplementedError("Not implemented")
     

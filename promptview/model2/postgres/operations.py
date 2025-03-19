@@ -178,24 +178,59 @@ class PostgresOperations:
         
         # Create a new turn
         # new_index = current_index + 1
-        # new_turn = await cls.create_turn(branch_id, new_index, TurnStatus.STAGED)
-        
-        return new_turn.id
+        # new_turn = await cls.create_turn(branch_id, new_index, TurnStatus.STAGED)        
+        # return new_turn.id
 
-    @classmethod
-    async def save(cls, namespace: "PostgresNamespace", data: Dict[str, Any], turn_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Save data to the database with versioning support.
+    # @classmethod
+    # async def save(cls, namespace: "PostgresNamespace", data: Dict[str, Any], turn_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
+    #     """
+    #     Save data to the database with versioning support.
         
-        Args:
-            namespace: The namespace to save to
-            data: The data to save
-            branch_id: The branch ID to save to (optional)
-            turn_id: The turn ID to save to (optional)
-        Returns:
-            The saved data with any additional fields (e.g., ID)
-        """
-        # If this is a repo namespace, create a main branch if needed
+    #     Args:
+    #         namespace: The namespace to save to
+    #         data: The data to save
+    #         branch_id: The branch ID to save to (optional)
+    #         turn_id: The turn ID to save to (optional)
+    #     Returns:
+    #         The saved data with any additional fields (e.g., ID)
+    #     """
+    #     # If this is a repo namespace, create a main branch if needed
+    #     if namespace.is_repo and "id" not in data and "main_branch_id" not in data:
+    #         # Create a new main branch
+    #         branch = await cls.create_branch(name="main")
+    #         # Add main_branch_id to the data
+    #         data["main_branch_id"] = branch.id
+            
+    #     if namespace.repo_namespace:
+    #         if branch_id is None:
+    #             raise ValueError("Versioned model cannot be saved without a branch_id")
+    #         if turn_id is None:
+    #             raise ValueError("Versioned model cannot be saved without a turn_id")
+            
+            
+        
+    #     # If branch_id is provided, get the current turn
+    #     if branch_id is not None and turn_id is not None:        
+    #         data["branch_id"] = branch_id
+    #         data["turn_id"] = turn_id
+    #         turn = await cls.get_turn(turn_id)
+    #         if turn.status != TurnStatus.STAGED:
+    #             raise ValueError(f"Turn {turn_id} is {turn.status.value}, not STAGED.")
+            
+        
+    #     # Check if the data has an ID
+    #     has_id = "id" in data and data["id"] is not None
+        
+    #     if has_id:
+    #         # Update existing record
+    #         return await cls.update(namespace, data)
+    #     else:
+    #         # Insert new record
+    #         return await cls.insert(namespace, data)
+        
+        
+    @classmethod
+    async def _update_version_params(cls, namespace: "PostgresNamespace", data: Dict[str, Any], turn_id: Optional[int] = None, branch_id: Optional[int] = None):
         if namespace.is_repo and "id" not in data and "main_branch_id" not in data:
             # Create a new main branch
             branch = await cls.create_branch(name="main")
@@ -217,53 +252,18 @@ class PostgresOperations:
             turn = await cls.get_turn(turn_id)
             if turn.status != TurnStatus.STAGED:
                 raise ValueError(f"Turn {turn_id} is {turn.status.value}, not STAGED.")
-            
-
-
-        
-        # # If this is an artifact model with a repo, get the branch from the repo
-        # elif namespace.repo_namespace and not branch_id:
-        #     # Get the repo namespace
-        #     repo_namespace = namespace.get_repo_namespace()
-        #     if repo_namespace:
-        #         # Get the latest repo model
-        #         repo_query = f'SELECT * FROM "{repo_namespace.table_name}" ORDER BY id DESC LIMIT 1;'
-        #         repo_result = await PGConnectionManager.fetch_one(repo_query)
-                
-        #         if repo_result and "main_branch_id" in repo_result:
-        #             repo_branch_id = repo_result["main_branch_id"]
-        #             if repo_branch_id is not None:
-        #                 branch = await cls.get_branch(repo_branch_id)
-                        
-        #                 # Add branch_id to the data
-        #                 data["branch_id"] = repo_branch_id
-                        
-        #                 # Add turn_id to the data if last_turn exists
-        #                 if branch.last_turn is not None:
-        #                     data["turn_id"] = branch.last_turn.id
-        #                 else:
-        #                     # Create a new turn if none exists
-        #                     turn = await cls.create_turn(repo_branch_id, 1, TurnStatus.STAGED)
-        #                     data["turn_id"] = turn.id
-        
-        # Check if the data has an ID
-        has_id = "id" in data and data["id"] is not None
-        
-        if has_id:
-            # Update existing record
-            return await cls._update(namespace, data)
-        else:
-            # Insert new record
-            return await cls._insert(namespace, data)
+        return data
+    
     
     @classmethod
-    async def _insert(cls, namespace: "PostgresNamespace", data: Dict[str, Any]) -> Dict[str, Any]:
+    async def insert(cls, namespace: "PostgresNamespace", data: Dict[str, Any], turn_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
         """Insert a new record"""
         # Prepare data for insertion
         keys = []
         placeholders = []
         values = []
         
+        data = await cls._update_version_params(namespace, data, turn_id, branch_id)
         for key, value in data.items():
             if key == "id" and value is None:
                 continue
@@ -303,11 +303,13 @@ class PostgresOperations:
         return dict(result) if result else {"id": 1, **data}
     
     @classmethod
-    async def _update(cls, namespace: "PostgresNamespace", data: Dict[str, Any]) -> Dict[str, Any]:
+    async def update(cls, namespace: "PostgresNamespace", id: Any, data: Dict[str, Any], turn_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
         """Update an existing record"""
         # Prepare data for update
         set_parts = []
         values = []
+        
+        data = await cls._update_version_params(namespace, data, turn_id, branch_id)
         
         for key, value in data.items():
             if key == "id":
@@ -327,7 +329,7 @@ class PostgresOperations:
                 raise ValueError(f"Field {key} is not valid")
 
         # Add ID to values
-        values.append(data["id"])
+        values.append(id)
         
         # Build SQL query
         sql = f"""
@@ -396,9 +398,9 @@ class PostgresOperations:
         # If branch_id is provided, use versioning query
         if partition_id is not None and branch_id is None:
             branch_id = 1
-        if branch_id is not None:
+        if branch_id is not None and namespace.is_versioned:
             # Get the branch
-            branch = await cls.get_branch(branch_id)
+            # branch = await cls.get_branch(branch_id)
             
             # Build filter clause
             filter_clause = ""

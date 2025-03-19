@@ -95,7 +95,7 @@ class SQLBuilder:
         
         for field in namespace.iter_fields():
             sql += f'"{field.name}" {field.sql_type}'
-            if field.is_optional:
+            if field.is_optional or field.is_foreign_key:
                 sql += " NULL"
             else:
                 sql += " NOT NULL"

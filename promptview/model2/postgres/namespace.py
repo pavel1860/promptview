@@ -216,7 +216,10 @@ class PostgresQuerySet(QuerySet[MODEL]):
         
         # Convert results to model instances if model_class is provided
         if self.model_class:
-            return [self.model_class(**self.pack_record(data)) for data in results]
+            instances = [self.model_class(**self.pack_record(data)) for data in results]
+            for instance in instances:
+                instance._update_relation_instance()
+            return instances
         else:
             return results
     
@@ -375,7 +378,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         res = await SQLBuilder.drop_table(self)
         return res
     
-    async def save(self, data: Dict[str, Any], turn_id: Optional[int] = None, branch_id: Optional[int] = None ) -> Dict[str, Any]:
+    async def save(self, data: Dict[str, Any], id: Any | None = None, turn_id: Optional[int] = None, branch_id: Optional[int] = None ) -> Dict[str, Any]:
         """
         Save data to the namespace.
         
@@ -387,7 +390,11 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         Returns:
             The saved data with any additional fields (e.g., ID)
         """
-        return await PostgresOperations.save(self, data, turn_id, branch_id )
+        if id is None:
+            return await PostgresOperations.insert(self, data, turn_id, branch_id )
+        else:
+            return await PostgresOperations.update(self, id, data, turn_id, branch_id )
+    
     
     async def get(self, id: Any) -> Optional[Dict[str, Any]]:
         """

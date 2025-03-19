@@ -126,25 +126,38 @@ class ModelMeta(ModelMetaclass, type):
             
             # Check if this is a relation field
             field_origin = get_origin(field_type)
-            if field_origin and field_origin == Relation:
+            if field_origin and (field_origin == Relation or field_origin == ManyRelation):
                 # Get the model class from the relation
-                target_type = get_relation_model(field_type)
+                relation_type = "relation" if field_origin == Relation else "many_relation"
+                relation_cls = None
+                target_cls = None
+                if relation_type == "relation":
+                    target_cls = get_relation_model(field_type)
+                else: 
+                    target_cls, relation_cls = get_many_relation_model(field_type)
                 
-                # Get the relation key
+                # Get the relation key                
+                rel_keys = extra.get("rel_keys", None)
                 key = extra.get("key")
-                if not key:
+                if not key and not rel_keys:
                     continue
                 
                 # Create a relation blueprint
                 relations[field_name] = {
+                    "type": relation_type,
                     "key": key,
-                    "target_type": target_type,
+                    "rel_keys": rel_keys,
+                    "relation_cls": relation_cls,
+                    "target_type": target_cls,
                     "on_delete": extra.get("on_delete", "CASCADE"),
                     "on_update": extra.get("on_update", "CASCADE"),
                 }
                 
                 # Set the default factory for the field
-                field_info.default_factory = make_default_factory(target_type, key)
+                if relation_type == "relation":
+                    field_info.default_factory = make_relation_default_factory(target_cls, key)
+                else:
+                    field_info.default_factory = make_many_relation_default_factory(target_cls, key, rel_keys, relation_cls)
                 
                 # Skip adding this field to the namespace
                 continue
@@ -161,11 +174,11 @@ class ModelMeta(ModelMetaclass, type):
         
         # Register relations with the namespace manager
         for relation_name, relation_info in relations.items():
-            target_type: Any = relation_info["target_type"]
+            target_cls: Any = relation_info["target_type"]
             # If target_type is a ForwardRef, we need to resolve it later
             target_namespace = None
-            if not isinstance(target_type, ForwardRef) and hasattr(target_type, "_namespace_name"):
-                target_namespace = target_type._namespace_name
+            if not isinstance(target_cls, ForwardRef) and hasattr(target_cls, "_namespace_name"):
+                target_namespace = target_cls._namespace_name
             
             # Get the key, on_delete, and on_update values
             key = relation_info.get("key", "id")
@@ -176,7 +189,7 @@ class ModelMeta(ModelMetaclass, type):
                 source_namespace=namespace_name,
                 relation_name=relation_name,
                 target_namespace=target_namespace,
-                target_forward_ref=target_type if isinstance(target_type, ForwardRef) else None,
+                target_forward_ref=target_cls if isinstance(target_cls, ForwardRef) else None,
                 key=key,
                 on_delete=on_delete,
                 on_update=on_update,
@@ -206,6 +219,16 @@ class Model(BaseModel, metaclass=ModelMeta):
     def get_namespace_name(cls) -> str:
         """Get the namespace name for this model"""
         return cls._namespace_name
+    
+    @classmethod
+    def get_key_field(cls) -> str:
+        """Get the key field for this model"""
+        return "id"
+    
+    @property
+    def primary_key(self) -> Any:
+        """Get the key for this model"""
+        return getattr(self, self.get_key_field())
     
     @classmethod
     async def initialize(cls):
@@ -253,7 +276,7 @@ class Model(BaseModel, metaclass=ModelMeta):
                 
         ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
         data = self._payload_dump()
-        result = await ns.save(data)
+        result = await ns.save(data, id=self.primary_key)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)
@@ -270,14 +293,20 @@ class Model(BaseModel, metaclass=ModelMeta):
         data = await ns.get(id)
         if data is None:
             raise ValueError(f"Model with ID {id} not found")
-        return cls(**data)
+        instance = cls(**data)
+        instance._update_relation_instance()
+        return instance
     
     @classmethod
     async def get_or_none(cls: Type[MODEL], id: Any) -> MODEL | None:
         """Get a model instance by ID or None if it doesn't exist"""
         ns = NamespaceManager.get_namespace(cls.get_namespace_name())
         data = await ns.get(id)
-        return cls(**data) if data else None
+        instance = cls(**data) if data else None
+        if not instance:
+            return None
+        instance._update_relation_instance()
+        return instance
     
     @classmethod
     def query(cls: Type[MODEL], partition_id: Optional[int] = None, branch: Optional[int | Branch] = None) -> "QuerySet[MODEL]":
@@ -326,7 +355,7 @@ class ArtifactModel(Model):
                 
         ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
         data = self._payload_dump()
-        result = await ns.save(data, branch_id=branch_id, turn_id=turn_id)
+        result = await ns.save(data, id=self.primary_key, branch_id=branch_id, turn_id=turn_id)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)
@@ -401,23 +430,35 @@ class Relation(Generic[MODEL]):
     This class provides methods for querying related models.
     """
     model_cls: Type[MODEL]
-    rel_field: str
-    instance: Model | None = None
+    key: str
+    _instance: Model | None = None
     
-    def __init__(self, model_cls: Type[MODEL], rel_field: str):
+    def __init__(self, model_cls: Type[MODEL], key: str):
         self.model_cls = model_cls
-        self.rel_field = rel_field
-        self.instance = None
-    
+        self.key = key
+        self._instance = None
+        
+        
+    @property
+    def instance(self) -> Model:
+        if self._instance is None:
+            raise ValueError("Instance is not set")
+        return self._instance
+        
+    @property
+    def target_key(self) -> str:
+        return self.key
+        
+
     def set_instance(self, instance: Model):
         """Set the instance ID for this relation."""
-        self.instance = instance
+        self._instance = instance
     
     def _build_query_set(self):
         """Build a query set for this relation."""
         if not self.instance:
             raise ValueError("Instance is not set")
-        return self.model_cls.query(partition_id=self.instance.id)
+        return self.model_cls.query(partition_id=self.instance.primary_key)
     
     def all(self):
         """Get all related models."""
@@ -450,10 +491,12 @@ class Relation(Generic[MODEL]):
         
         If the model has a _repo attribute, it will be saved with the appropriate branch.
         """
+        if self.instance is None:
+            raise ValueError("Instance is not set")
         if not isinstance(obj, self.model_cls):
             raise ValueError("Object is not of type {}".format(self.model_cls.__name__))
         # Set the relation field
-        setattr(obj, self.rel_field, self.instance.id)
+        setattr(obj, self.key, self.instance.primary_key)
         
         if self.model_cls._is_versioned:
             turn_id, branch_id = parse_version_params(turn, branch)
@@ -461,9 +504,126 @@ class Relation(Generic[MODEL]):
         else:
             return await obj.save()
         # Save the object (branch will be determined by the model's repo)
+
+    
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source, handler):
+        def validate_custom(value, info):
+            if isinstance(value, cls):
+                relation_model = get_relation_model(value)
+                if issubclass(relation_model, Model):
+                    return value
+                else:
+                    raise TypeError("Relation must be a Model")
+            else:
+                raise TypeError("Invalid type for Relation; expected Relation instance")
+        return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
+
+
+
+
+REL_MODEL = TypeVar("REL_MODEL", bound="Model")
+
+class ManyRelation(Generic[MODEL, REL_MODEL], Relation[MODEL]):
+    """
+    A relation between models.
+    
+    This class provides methods for querying related models.
+    """    
+    rel_keys: list[str] | None = None
+    many_relation_cls: Type[REL_MODEL] | None = None
+    
+    def __init__(self, model_cls: Type[MODEL], key: str, rel_keys: list[str], many_relation_cls: Type[REL_MODEL] | None = None):
+        super().__init__(model_cls, key=key)
+        self.rel_keys = rel_keys
+        self.many_relation_cls = many_relation_cls    
         
+    @property
+    def target_key(self) -> str:
+        if self.rel_keys:
+            return self.rel_keys[1]
+        else:
+            return self.key
+        
+    @property
+    def source_key(self) -> str:
+        if self.rel_keys:
+            return self.rel_keys[0]
+        else:
+            raise ValueError("Relation is not a many-to-many relation")   
+    
+    def get_relation_key_params(self, obj: MODEL, kwargs: dict[str, Any]):
+        params = {}
+        params[self.source_key] = self.instance.primary_key
+        params[self.target_key] = obj.primary_key
+        for key, value in kwargs.items():
+            params[key] = value
+        return params
+            
+    
+    def set_instance(self, instance: Model):
+        """Set the instance ID for this relation."""
+        self._instance = instance
+    
+    def _build_query_set(self):
+        """Build a query set for this relation."""
+        if not self.instance:
+            raise ValueError("Instance is not set")
+        return self.model_cls.query(partition_id=self.instance.primary_key)
+    
+    def all(self):
+        """Get all related models."""
+        return self._build_query_set()
+    
+    def filter(self, **kwargs):
+        """Filter related models."""
+        qs = self._build_query_set()
+        return qs.filter(**kwargs)
+    
+    def first(self):
+        """Get the first related model."""
+        qs = self._build_query_set()
+        return qs.first()
+    
+    def last(self):
+        """Get the last related model."""
+        qs = self._build_query_set()
+        return qs.last()
+    
+    
+    def limit(self, limit: int):
+        """Limit the number of related models."""
+        qs = self._build_query_set()
+        return qs.limit(limit)
         
     
+    async def add(self, obj: MODEL, turn: Optional[int | Turn] = None, branch: Optional[int | Branch] = None, **kwargs) -> MODEL:
+        """
+        Add a list of related models.
+        """
+        if self.instance is None or self.many_relation_cls is None:
+            raise ValueError("Instance or many_relation_cls is not set")
+
+        # obj = await super(ManyRelation, self).add(obj, turn, branch)        
+        if self.model_cls._is_versioned:
+            turn_id, branch_id = parse_version_params(turn, branch)
+            obj = await obj.save(turn=turn_id, branch=branch_id)
+        else:
+            obj = await obj.save()
+        # if relation is None:
+        relation = self.many_relation_cls(**self.get_relation_key_params(obj, kwargs))
+        # else:
+        #     setattr(relation, self.rel_key, self.instance.primary_key)
+        #     setattr(relation, self.target_key, obj.primary_key)
+            
+        if self.model_cls._is_versioned:
+            turn_id, branch_id = parse_version_params(turn, branch)
+            relation = await relation.save(turn=turn_id, branch=branch_id)
+        else:
+            relation = await relation.save()
+        setattr(obj, self.key, relation.primary_key)
+        await obj.save()
+        return obj
     
     
     # @classmethod
@@ -480,14 +640,17 @@ class Relation(Generic[MODEL]):
     def __get_pydantic_core_schema__(cls, source, handler):
         def validate_custom(value, info):
             if isinstance(value, cls):
-                relation_model = get_relation_model(value)
-                if issubclass(relation_model, Model):
+                relation_model, target_model = get_many_relation_model(value)
+                if issubclass(relation_model, Model) and issubclass(target_model, Model):
                     return value
                 else:
                     raise TypeError("Relation must be a Model")
             else:
                 raise TypeError("Invalid type for Relation; expected Relation instance")
         return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
+
+
+
 
 def get_relation_model(cls):
     """Get the model class from a relation type."""
@@ -496,13 +659,28 @@ def get_relation_model(cls):
         raise ValueError("Relation model must have exactly one argument")
     return args[0]
 
-def make_default_factory(model_cls, rel_field):
+
+def get_many_relation_model(cls):
+    """Get the model class from a relation type."""
+    args = get_args(cls)
+    if len(args) != 2:
+        raise ValueError("Relation model must have exactly one argument")
+    return args[0], args[1]
+
+
+
+def make_relation_default_factory(model_cls, key):
     """Create a default factory for a relation field."""
     def default_factory():
-        return Relation(model_cls=model_cls, rel_field=rel_field)
+        return Relation(model_cls=model_cls, key=key)
     return default_factory
     # return lambda: Relation(model_cls=model_cls, rel_field=rel_field)
     
+def make_many_relation_default_factory(model_cls, key, rel_keys, many_relation_cls):
+    """Create a default factory for a relation field."""
+    def default_factory():
+        return ManyRelation(model_cls=model_cls, key=key, rel_keys=rel_keys, many_relation_cls=many_relation_cls)
+    return default_factory
     
     
     
