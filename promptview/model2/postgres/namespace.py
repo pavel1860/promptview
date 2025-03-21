@@ -7,13 +7,16 @@ from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.operations import PostgresOperations
+from promptview.model2.versioning import Branch, Turn
 from promptview.utils.model_utils import get_list_type, is_list_type
-from promptview.model2.base_namespace import DatabaseType, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter
+from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter
 from promptview.utils.db_connections import PGConnectionManager
 import datetime as dt
 if TYPE_CHECKING:
     from promptview.model2.namespace_manager import NamespaceManager
     from promptview.model2.model import Model
+    
+    
 PgIndexType = Literal["btree", "hash", "gin", "gist", "spgist", "brin"]
 
 
@@ -146,22 +149,32 @@ class PgFieldInfo(NSFieldInfo):
             raise ValueError(f"Unsupported field type: {field_type}")
         return db_field_type
 
-MODEL = TypeVar("MODEL", bound="Model")
 
+MODEL = TypeVar("MODEL", bound="Model")
+FOREIGN_MODEL = TypeVar("FOREIGN_MODEL", bound="Model")
 
 class PostgresQuerySet(QuerySet[MODEL]):
     """PostgreSQL implementation of QuerySet"""
     
-    def __init__(self, model_class: Type[MODEL], namespace: "PostgresNamespace", partition_id: int | None = None, branch_id: int | None = None):
+    def __init__(
+        self, 
+        model_class: Type[MODEL], 
+        namespace: "PostgresNamespace", 
+        partition_id: int | None = None, 
+        branch_id: int | None = None, 
+        joins: list[NSRelationInfo] | None = None,
+        filters: dict[str, Any] | None = None
+    ):
         super().__init__(model_class=model_class)
         self.namespace = namespace
         self.partition_id = partition_id
         self.branch_id = branch_id
-        self.filters = {}
+        self.filters = filters or {}
         self.limit_value = None
         self.offset_value = None
         self.order_by_value = None
         self.include_fields = None
+        self.joins = joins or []
     
     def filter(self, **kwargs) -> "PostgresQuerySet[MODEL]":
         """Filter the query"""
@@ -238,15 +251,15 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         name: str, 
         is_versioned: bool = True, 
         is_repo: bool = False, 
+        is_context: bool = False,
         repo_namespace: Optional[str] = None, 
         namespace_manager: Optional["NamespaceManager"] = None
     ):
-        super().__init__(name, "postgres", is_versioned, is_repo, repo_namespace, namespace_manager)
+        super().__init__(name, "postgres", is_versioned, is_repo, is_context, repo_namespace, namespace_manager)
         
     @property
     def table_name(self) -> str:
         return self.name
-    
     
     # def get_field(self, name: str) -> PgFieldInfo:
     #     return super().get_field(name)
@@ -271,7 +284,8 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             extra=extra,
         )
         self._fields[name] = pg_field
-        return pg_field
+        return pg_field    
+    
         # Check if this is a primary key field
         # is_primary_key = extra and extra.get("primary_key", False)
         # is_optional = False
@@ -305,32 +319,74 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
     def add_relation(
         self,
         name: str,
-        target_namespace: str,
-        key: str,
+        primary_key: str,
+        foreign_key: str,
+        foreign_cls: "Type[Model]",
         on_delete: str = "CASCADE",
         on_update: str = "CASCADE",
-    ):
+    ) -> NSRelationInfo:
         """
         Add a relation to the namespace.
         
         Args:
             name: The name of the relation
-            target_namespace: The namespace of the target model
-            key: The name of the foreign key in the target model
+            primary_key: The name of the primary key in the target model
+            foreign_key: The name of the foreign key in the target model
+            foreign_cls: The class of the target model
             on_delete: The action to take when the referenced row is deleted
             on_update: The action to take when the referenced row is updated
         """
         # Store the relation information
-        if not hasattr(self, "_relations"):
-            self._relations = {}
         
-        self._relations[name] = {
-            "target_namespace": target_namespace,
-            "key": key,
-            "on_delete": on_delete,
-            "on_update": on_update,
-        }
+        relation_info = NSRelationInfo(
+            namespace=self,
+            name=name,
+            primary_key=primary_key,
+            foreign_key=foreign_key,
+            foreign_cls=foreign_cls,
+            on_delete=on_delete,
+            on_update=on_update,
+        )
+        self._relations[name] = relation_info
+        return relation_info
+    
+    def add_many_relation(
+        self,
+        name: str,
+        primary_key: str,
+        foreign_key: str,
+        foreign_cls: Type["Model"],
+        junction_cls: Type["Model"],
+        junction_keys: list[str],
+        on_delete: str = "CASCADE",
+        on_update: str = "CASCADE",
+    ) -> NSManyToManyRelationInfo:
+        """
+        Add a many-to-many relation to the namespace.
+        
+        Args:
+            name: The name of the relation
+            primary_key: The name of the primary key in the target model
+            foreign_key: The name of the foreign key in the target model
+            foreign_cls: The class of the target model
+            junction_cls: The class of the junction model
+            junction_keys: The keys of the junction model
+        """
+        relation_info = NSManyToManyRelationInfo(
+            namespace=self,
+            name=name,
+            primary_key=primary_key,
+            foreign_key=foreign_key,
+            foreign_cls=foreign_cls,
+            junction_cls=junction_cls,
+            junction_keys=junction_keys,
+            on_delete=on_delete,
+            on_update=on_update,
+        )
+        self._relations[name] = relation_info
+        return relation_info
 
+    
     async def create_namespace(self):
         """
         Create the namespace in the database.
@@ -342,15 +398,15 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         res = await SQLBuilder.create_table(self)
         
         # Create foreign key constraints for relations
-        if hasattr(self, "_relations"):
+        if self._relations:
             for relation_name, relation_info in self._relations.items():
                 await SQLBuilder.create_foreign_key(
                     table_name=self.table_name,
-                    column_name=relation_info["key"],
-                    referenced_table=relation_info["target_namespace"],
-                    referenced_column="id",
-                    on_delete=relation_info["on_delete"],
-                    on_update=relation_info["on_update"],
+                    column_name=relation_info.primary_key,
+                    referenced_table=relation_info.primary_table,
+                    referenced_column=relation_info.primary_key,
+                    on_delete=relation_info.on_delete,
+                    on_update=relation_info.on_update,
                 )
         
         return res
@@ -378,18 +434,21 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         res = await SQLBuilder.drop_table(self)
         return res
     
-    async def save(self, data: Dict[str, Any], id: Any | None = None, turn_id: Optional[int] = None, branch_id: Optional[int] = None ) -> Dict[str, Any]:
+    async def save(self, data: Dict[str, Any], id: Any | None = None, turn: int | Turn | None = None, branch: int | Branch | None = None ) -> Dict[str, Any]:
         """
         Save data to the namespace.
         
         Args:
             data: The data to save
-            branch_id: Optional branch ID to save to
-            turn_id: Optional turn ID to save to
+            id: Optional ID to save to
+            turn: Optional turn to save to
+            branch: Optional branch to save to
             
         Returns:
             The saved data with any additional fields (e.g., ID)
         """
+        
+        turn_id, branch_id = self.get_current_ctx_head(turn, branch) if self.is_versioned else (None, None)
         if id is None:
             return await PostgresOperations.insert(self, data, turn_id, branch_id )
         else:
@@ -408,15 +467,26 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         """
         return await PostgresOperations.get(self, id)
     
-    def query(self, partition_id: Optional[int] = None, branch: Optional[int] = None, model_class: Type[MODEL] | None = None) -> QuerySet:
+    def query(self, partition_id: Optional[int] = None, branch: int | Branch | None = None, joins: list[NSRelationInfo] | None = None) -> QuerySet:
         """
         Create a query for this namespace.
         
         Args:
-            branch: Optional branch ID to query from
-            model_class: Optional model class to use for instantiating results
+            branch: Optional branch or branch ID to query from            
             
         Returns:
             A query set for this namespace
         """
-        return PostgresQuerySet(self.model_class, self, partition_id, branch)
+        branch = self.get_current_ctx_branch(branch) if self.is_versioned else None
+        if self.is_context:            
+            return PostgresQuerySet(self.model_class, self, partition_id, branch, joins=joins)
+        else:
+            return PostgresQuerySet(self.model_class, self, partition_id, branch, joins=joins, filters={})
+        
+        
+        
+    def partition_query(self, partition_id: int | None = None, branch: int | Branch | None = None, joins: list[NSRelationInfo] | None = None) -> QuerySet:
+        """
+        Create a query for this namespace.
+        """
+        return PostgresQuerySet(self.model_class, self, partition_id, branch, joins=joins)

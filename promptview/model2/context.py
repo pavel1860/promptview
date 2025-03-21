@@ -56,6 +56,44 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
                 return None
         return ctx
     
+    @classmethod
+    def get_current_head(cls, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> tuple[int | None, int | None]: 
+        ctx = Context.get_current(raise_error=False)    
+        turn_id = cls.get_current_turn(turn, ctx)
+        branch_id = cls.get_current_branch(branch, ctx)
+        return turn_id, branch_id
+    
+    @classmethod
+    def get_current_branch(cls, branch: "int | Branch | None" = None, ctx: "Context | None" = None):
+        branch_id = 1
+        if ctx is None:
+            ctx = Context.get_current(raise_error=False)
+        if branch:
+            if isinstance(branch, int):
+                branch_id = branch
+            elif isinstance(branch, Branch):
+                branch_id = branch.id
+        else:
+            if ctx:
+                branch_id = ctx.branch.id
+        return branch_id
+    
+    @classmethod
+    def get_current_turn(cls, turn: "int | Turn | None" = None, ctx: "Context | None" = None):
+        turn_id = None
+        if ctx is None:
+            ctx = Context.get_current(raise_error=False)
+        if turn:
+            if isinstance(turn, int):
+                turn_id = turn
+            elif isinstance(turn, Turn):
+                turn_id = turn.id
+        else:
+            if ctx:
+                turn_id = ctx.turn.id
+        return turn_id
+                
+    
     @property
     def is_initialized(self):
         return self._branch is not None and self._turn is not None
@@ -155,3 +193,13 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             for r in reversed(records):
                 blocks /= r.to_block()
         return blocks
+    
+    
+    
+    
+    
+    
+    
+    
+    
+

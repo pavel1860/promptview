@@ -16,7 +16,7 @@ class User(Model):
     age: int = ModelField()
     
     # Define a relation to Post
-    posts: Relation["Post"] = RelationField(key="author_id")
+    posts: Relation["Post"] = RelationField(primary_key="author_id")
 
 
 class Post(Model):

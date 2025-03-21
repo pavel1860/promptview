@@ -8,12 +8,8 @@ from promptview.utils.db_connections import PGConnectionManager
 from promptview.model2.versioning import Turn, Branch, TurnStatus
 
 if TYPE_CHECKING:
-    from promptview.model2.postgres.namespace import PgFieldInfo
-
-
-
-if TYPE_CHECKING:
-    from promptview.model2.postgres.namespace import PostgresNamespace
+    from promptview.model2.postgres.namespace import PgFieldInfo, NSRelationInfo, PostgresNamespace
+    
 
 
 def print_error_sql(sql: str, values: list[Any] | None = None, error: Exception | None = None):
@@ -378,7 +374,8 @@ class PostgresOperations:
         filters: Dict[str, Any] | None = None, 
         limit: int | None = None,
         order_by: str | None = None,
-        offset: int | None = None
+        offset: int | None = None,
+        joins: "list[NSRelationInfo] | None" = None
     ) -> List[Dict[str, Any]]:
         """
         Query records with versioning support.
@@ -499,6 +496,11 @@ class PostgresOperations:
             # Add offset
             if offset:
                 sql += f" OFFSET {offset}"
+                
+                
+            if joins:
+                for join in joins:
+                    sql += f" JOIN {join.foreign_table} ON {join.primary_table}.{join.primary_key} = {join.foreign_table}.{join.foreign_key}"
                 
             # Execute query
             results = await PGConnectionManager.fetch(sql, *values)

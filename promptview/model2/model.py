@@ -9,7 +9,7 @@ import datetime as dt
 from promptview.model2.context import Context
 from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.base_namespace import DatabaseType, QuerySet
+from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet
 from promptview.model2.versioning import Branch, Turn
 from promptview.model2.postgres.operations import PostgresOperations
 from promptview.utils.string_utils import camel_to_snake
@@ -38,31 +38,6 @@ def build_namespace(model_cls_name: str, db_type: DatabaseType = "postgres"):
     return f"{camel_to_snake(model_cls_name)}s" if db_type == "postgres" else model_cls_name
 
 
-def parse_version_params(turn: Optional[int | Turn] = None, branch: Optional[int | Branch] = None) -> tuple[Optional[int], Optional[int]]:
-    branch_id = None
-    turn_id = None    
-    ctx = Context.get_current(raise_error=False)    
-    
-    if branch:
-        if isinstance(branch, int):
-            branch_id = branch
-        elif isinstance(branch, Branch):
-            branch_id = branch.id
-    else:
-        if ctx:
-            branch_id = ctx.branch.id
-        else:
-            branch_id = 1
-    if not turn:
-        if ctx:
-            turn_id = ctx.turn.id
-        else:
-            raise ValueError("Turn is not provided")
-    elif isinstance(turn, Turn):
-        turn_id = turn.id
-    else:
-        turn_id = turn
-    return turn_id, branch_id
             
 class ModelMeta(ModelMetaclass, type):
     """Metaclass for Model
@@ -76,7 +51,7 @@ class ModelMeta(ModelMetaclass, type):
         
         
         # Skip processing for the base Model class
-        if name == "Model" or name == "RepoModel" or name == "ArtifactModel":
+        if name == "Model" or name == "RepoModel" or name == "ArtifactModel" or name == "ContextModel":
             cls_obj = super().__new__(cls, name, bases, dct)
             return cls_obj
         
@@ -87,8 +62,7 @@ class ModelMeta(ModelMetaclass, type):
         
         # Check if this is a repo model or an artifact model
         is_repo = len(bases) >= 1 and bases[0].__name__ == "RepoModel"
-        
-        
+                
         # If _repo is specified, the model is automatically versioned
         is_versioned = get_dct_private_attributes(dct, "_is_versioned", False) or (len(bases) >= 1 and (bases[0].__name__ == "ArtifactModel" or bases[0].__name__ == "ContextModel"))
         repo_namespace = get_dct_private_attributes(dct, "_repo", "main" if is_versioned else None)
@@ -127,38 +101,46 @@ class ModelMeta(ModelMetaclass, type):
             # Check if this is a relation field
             field_origin = get_origin(field_type)
             if field_origin and (field_origin == Relation or field_origin == ManyRelation):
-                # Get the model class from the relation
-                relation_type = "relation" if field_origin == Relation else "many_relation"
-                relation_cls = None
-                target_cls = None
-                if relation_type == "relation":
-                    target_cls = get_relation_model(field_type)
-                else: 
-                    target_cls, relation_cls = get_many_relation_model(field_type)
+                # Get the model class from the relation                                
                 
-                # Get the relation key                
-                rel_keys = extra.get("rel_keys", None)
-                key = extra.get("key")
-                if not key and not rel_keys:
-                    continue
+                primary_key = extra.get("primary_key") or "id"
+                foreign_key = extra.get("foreign_key")
+                on_delete=extra.get("on_delete", "CASCADE")
+                on_update=extra.get("on_update", "CASCADE")
                 
-                # Create a relation blueprint
-                relations[field_name] = {
-                    "type": relation_type,
-                    "key": key,
-                    "rel_keys": rel_keys,
-                    "relation_cls": relation_cls,
-                    "target_type": target_cls,
-                    "on_delete": extra.get("on_delete", "CASCADE"),
-                    "on_update": extra.get("on_update", "CASCADE"),
-                }
+                if not foreign_key:
+                    raise ValueError("foreign_key is required for one_to_many relation")
                 
-                # Set the default factory for the field
-                if relation_type == "relation":
-                    field_info.default_factory = make_relation_default_factory(target_cls, key)
-                else:
-                    field_info.default_factory = make_many_relation_default_factory(target_cls, key, rel_keys, relation_cls)
-                
+                print(primary_key, foreign_key, on_delete, on_update)
+                if not foreign_key:
+                    raise ValueError("foreign_key is required for one_to_many relation")
+                if field_origin == Relation:
+                    foreign_cls = get_one_to_many_relation_model(field_type)                    
+                    relation_field = ns.add_relation(
+                        name=field_name,
+                        primary_key=primary_key,
+                        foreign_key=foreign_key,
+                        foreign_cls=foreign_cls,
+                        on_delete=on_delete,
+                        on_update=on_update,
+                    )
+
+                else:  # many to many relation
+                    foreign_cls, junction_cls = get_many_to_many_relation_model(field_type)
+                    junction_keys = extra.get("junction_keys", None)
+                    relation_field = ns.add_many_relation(
+                        name=field_name,
+                        primary_key=primary_key,
+                        foreign_key=foreign_key,
+                        foreign_cls=foreign_cls,
+                        junction_cls=junction_cls,
+                        junction_keys=junction_keys,
+                        on_delete=on_delete,
+                        on_update=on_update,
+                    )                
+                                
+                field_info.default_factory = make_relation_default_factory(ns, relation_field)
+                relations[field_name] = relation_field
                 # Skip adding this field to the namespace
                 continue
             
@@ -169,31 +151,33 @@ class ModelMeta(ModelMetaclass, type):
         cls_obj = super().__new__(cls, name, bases, dct)
         ns.set_model_class(cls_obj)
         cls_obj._namespace_name = namespace_name
-        cls_obj._relations = relations
         cls_obj._is_versioned = is_versioned
         
         # Register relations with the namespace manager
-        for relation_name, relation_info in relations.items():
-            target_cls: Any = relation_info["target_type"]
-            # If target_type is a ForwardRef, we need to resolve it later
-            target_namespace = None
-            if not isinstance(target_cls, ForwardRef) and hasattr(target_cls, "_namespace_name"):
-                target_namespace = target_cls._namespace_name
+        # for relation_name, relation_info in relations.items():
+            # target_cls: Any = relation_info["target_type"]
+            # # If target_type is a ForwardRef, we need to resolve it later
+            # target_namespace = None
+            # if not isinstance(target_cls, ForwardRef) and hasattr(target_cls, "_namespace_name"):
+            #     target_namespace = target_cls._namespace_name
             
-            # Get the key, on_delete, and on_update values
-            key = relation_info.get("key", "id")
-            on_delete = relation_info.get("on_delete", "CASCADE")
-            on_update = relation_info.get("on_update", "CASCADE")
+            # # Get the key, on_delete, and on_update values
+            # key = relation_info.get("key", "id")
+            # on_delete = relation_info.get("on_delete", "CASCADE")
+            # on_update = relation_info.get("on_update", "CASCADE")
             # Register the relation
-            NamespaceManager.register_relation(
-                source_namespace=namespace_name,
-                relation_name=relation_name,
-                target_namespace=target_namespace,
-                target_forward_ref=target_cls if isinstance(target_cls, ForwardRef) else None,
-                key=key,
-                on_delete=on_delete,
-                on_update=on_update,
-            )
+            
+            
+            # NamespaceManager.register_relation(
+            #     source_namespace=namespace_name,
+            #     relation_name=relation_name,
+            #     target_namespace=target_namespace,
+            #     target_forward_ref=target_cls if isinstance(target_cls, ForwardRef) else None,
+            #     key=key,
+            #     on_delete=on_delete,
+            #     on_update=on_update,
+            # )
+
         
         return cls_obj
     
@@ -221,24 +205,30 @@ class Model(BaseModel, metaclass=ModelMeta):
         return cls._namespace_name
     
     @classmethod
+    def get_namespace(cls) -> Namespace:
+        """Get the namespace for this model"""
+        return NamespaceManager.get_namespace(cls.get_namespace_name())
+    
+    @classmethod
     def get_key_field(cls) -> str:
         """Get the key field for this model"""
         return "id"
     
     @property
-    def primary_key(self) -> Any:
+    def primary_id(self) -> Any:
         """Get the key for this model"""
         return getattr(self, self.get_key_field())
     
     @classmethod
     async def initialize(cls):
         """Initialize the model (create table)"""
-        ns = NamespaceManager.get_namespace(cls.get_namespace_name())
+        ns = cls.get_namespace()
         await ns.create_namespace()
     
     def _get_relation_fields(self):
         """Get the names of relation fields."""
-        return list(self.__class__._relations.keys())
+        ns = self.get_namespace()
+        return list(ns._relations.keys())
     
     def _update_relation_instance(self):
         """Update the instance for all relations."""
@@ -250,7 +240,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         for field_name in self._get_relation_fields():
             relation = getattr(self, field_name)
             if relation:
-                relation.set_instance(self)
+                relation.set_primary_instance(self)
                 
     def model_dump(self, *args, **kwargs):
         relation_fields = self._get_relation_fields()
@@ -274,9 +264,9 @@ class Model(BaseModel, metaclass=ModelMeta):
         Save the model instance to the database
         """        
                 
-        ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
+        ns = self.get_namespace()
         data = self._payload_dump()
-        result = await ns.save(data, id=self.primary_key)
+        result = await ns.save(data, id=self.primary_id)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)
@@ -289,7 +279,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     @classmethod
     async def get(cls: Type[MODEL], id: Any) -> MODEL:
         """Get a model instance by ID"""
-        ns = NamespaceManager.get_namespace(cls.get_namespace_name())
+        ns = cls.get_namespace()
         data = await ns.get(id)
         if data is None:
             raise ValueError(f"Model with ID {id} not found")
@@ -300,7 +290,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     @classmethod
     async def get_or_none(cls: Type[MODEL], id: Any) -> MODEL | None:
         """Get a model instance by ID or None if it doesn't exist"""
-        ns = NamespaceManager.get_namespace(cls.get_namespace_name())
+        ns = cls.get_namespace()
         data = await ns.get(id)
         instance = cls(**data) if data else None
         if not instance:
@@ -309,24 +299,15 @@ class Model(BaseModel, metaclass=ModelMeta):
         return instance
     
     @classmethod
-    def query(cls: Type[MODEL], partition_id: Optional[int] = None, branch: Optional[int | Branch] = None) -> "QuerySet[MODEL]":
+    def query(cls: Type[MODEL], partition_id: int | None = None, branch: int | Branch | None = None) -> "QuerySet[MODEL]":
         """
         Create a query for this model
         
         Args:
             branch: Optional branch ID to query from
-        """
-        if branch:
-            if not cls._is_versioned:
-                raise ValueError("Model is not versioned but branch is provided")
-            if isinstance(branch, Branch):
-                branch = branch.id
-        else:
-            if cls._is_versioned:
-                branch = 1
-            
-        ns = NamespaceManager.get_namespace(cls.get_namespace_name())
-        return ns.query(partition_id, branch, model_class=cls)
+        """            
+        ns = cls.get_namespace()
+        return ns.query(partition_id, branch)
 
 
 # No need for the ModelFactory class anymore
@@ -351,11 +332,11 @@ class ArtifactModel(Model):
             branch: Optional branch ID to save to
             turn: Optional turn ID to save to
         """        
-        turn_id, branch_id = parse_version_params(turn, branch)
+        
                 
         ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
         data = self._payload_dump()
-        result = await ns.save(data, id=self.primary_key, branch_id=branch_id, turn_id=turn_id)
+        result = await ns.save(data, id=self.primary_id, branch_id=branch_id, turn_id=turn_id)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)
@@ -421,44 +402,75 @@ class RepoModel(Model):
     
 
 
+PRIMARY_MODEL = TypeVar("PRIMARY_MODEL", bound="Model")
+FOREIGN_MODEL = TypeVar("FOREIGN_MODEL", bound="Model")
 
 
-class Relation(Generic[MODEL]):
+class BaseRelation:
+    _primary_instance: Model | None = None
+    _partition_id: int | None = None
+    namespace: Namespace
+    
+    def __init__(self, namespace: Namespace):
+        self._primary_instance = None
+        self.namespace = namespace
+        
+    @property
+    def primary_cls(self) -> Type[Model]:
+        if self._primary_instance is None:
+            raise ValueError("Primary class is not set")
+        return self._primary_instance.__class__
+    
+    @property
+    def primary_instance(self) -> Model:
+        if self._primary_instance is None:
+            raise ValueError("Instance is not set")
+        return self._primary_instance
+    
+    def set_primary_instance(self, instance: Model):
+        """Set the instance ID for this relation."""
+        self._primary_instance = instance
+        
+    def _build_query_set(self):
+        raise NotImplementedError("Subclasses must implement this method")
+    
+    @classmethod
+    def validate_models(cls, value: Any) -> bool:
+        raise NotImplementedError("Subclasses must implement this method")
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source, handler):
+        def validate_custom(value, info):
+            if isinstance(value, cls):
+                if cls.validate_models(value):
+                    return value
+                else:
+                    raise TypeError("Relation must be a Model")
+            else:
+                raise TypeError("Invalid type for Relation; expected Relation instance")
+        return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
+
+
+class Relation(Generic[FOREIGN_MODEL], BaseRelation):
     """
     A relation between models.
     
     This class provides methods for querying related models.
-    """
-    model_cls: Type[MODEL]
-    key: str
-    _instance: Model | None = None
+    """    
+    relation_field: NSRelationInfo
     
-    def __init__(self, model_cls: Type[MODEL], key: str):
-        self.model_cls = model_cls
-        self.key = key
-        self._instance = None
-        
-        
-    @property
-    def instance(self) -> Model:
-        if self._instance is None:
-            raise ValueError("Instance is not set")
-        return self._instance
-        
-    @property
-    def target_key(self) -> str:
-        return self.key
-        
-
-    def set_instance(self, instance: Model):
-        """Set the instance ID for this relation."""
-        self._instance = instance
+    
+    def __init__(self, namespace: Namespace, relation_field: NSRelationInfo):
+        super().__init__(namespace)
+        self.relation_field = relation_field
     
     def _build_query_set(self):
         """Build a query set for this relation."""
-        if not self.instance:
+        if not self.primary_instance:
             raise ValueError("Instance is not set")
-        return self.model_cls.query(partition_id=self.instance.primary_key)
+        # return self.namespace.query(None)
+        # return self.primary_cls.query(partition_id=self.primary_instance.primary_id)
+        self.relation_field.foreign_namespace.query(partition_id=self.primary_instance.primary_id)
     
     def all(self):
         """Get all related models."""
@@ -485,22 +497,21 @@ class Relation(Generic[MODEL]):
         qs = self._build_query_set()
         return qs.limit(limit)
     
-    async def add(self, obj: MODEL, turn: Optional[int | Turn] = None, branch: Optional[int | Branch] = None) -> MODEL:
+    async def add(self, obj: FOREIGN_MODEL, turn: Optional[int | Turn] = None, branch: Optional[int | Branch] = None) -> FOREIGN_MODEL:
         """
         Add a related model.
         
         If the model has a _repo attribute, it will be saved with the appropriate branch.
         """
-        if self.instance is None:
+        if self.primary_instance is None:
             raise ValueError("Instance is not set")
-        if not isinstance(obj, self.model_cls):
-            raise ValueError("Object is not of type {}".format(self.model_cls.__name__))
+        if not isinstance(obj, self.relation_field.foreign_cls):
+            raise ValueError("Object is not of type {}".format(self.relation_field.foreign_cls.__name__))
         # Set the relation field
-        setattr(obj, self.key, self.instance.primary_key)
+        setattr(obj, self.relation_field.foreign_key, self.primary_instance.primary_id)
         
-        if self.model_cls._is_versioned:
-            turn_id, branch_id = parse_version_params(turn, branch)
-            return await obj.save(turn=turn_id, branch=branch_id)
+        if self.primary_cls._is_versioned:
+            return await obj.save(turn=turn, branch=branch)
         else:
             return await obj.save()
         # Save the object (branch will be determined by the model's repo)
@@ -510,7 +521,7 @@ class Relation(Generic[MODEL]):
     def __get_pydantic_core_schema__(cls, source, handler):
         def validate_custom(value, info):
             if isinstance(value, cls):
-                relation_model = get_relation_model(value)
+                relation_model = get_one_to_many_relation_model(value)
                 if issubclass(relation_model, Model):
                     return value
                 else:
@@ -522,54 +533,32 @@ class Relation(Generic[MODEL]):
 
 
 
-REL_MODEL = TypeVar("REL_MODEL", bound="Model")
+JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
 
-class ManyRelation(Generic[MODEL, REL_MODEL], Relation[MODEL]):
+class ManyRelation(Generic[FOREIGN_MODEL, JUNCTION_MODEL], BaseRelation):
     """
     A relation between models.
     
     This class provides methods for querying related models.
-    """    
-    rel_keys: list[str] | None = None
-    many_relation_cls: Type[REL_MODEL] | None = None
-    
-    def __init__(self, model_cls: Type[MODEL], key: str, rel_keys: list[str], many_relation_cls: Type[REL_MODEL] | None = None):
-        super().__init__(model_cls, key=key)
-        self.rel_keys = rel_keys
-        self.many_relation_cls = many_relation_cls    
-        
-    @property
-    def target_key(self) -> str:
-        if self.rel_keys:
-            return self.rel_keys[1]
-        else:
-            return self.key
-        
-    @property
-    def source_key(self) -> str:
-        if self.rel_keys:
-            return self.rel_keys[0]
-        else:
-            raise ValueError("Relation is not a many-to-many relation")   
-    
-    def get_relation_key_params(self, obj: MODEL, kwargs: dict[str, Any]):
+    """        
+    relation_field: NSManyToManyRelationInfo
+    def __init__(self, namespace: Namespace, relation_field: NSManyToManyRelationInfo):
+        super().__init__(namespace)  
+        self.relation_field = relation_field      
+            
+    def get_relation_key_params(self, obj: FOREIGN_MODEL, kwargs: dict[str, Any]):
         params = {}
-        params[self.source_key] = self.instance.primary_key
-        params[self.target_key] = obj.primary_key
+        params[self.relation_field.primary_key] = self.primary_instance.primary_id
+        params[self.relation_field.foreign_key] = obj.primary_id
         for key, value in kwargs.items():
             params[key] = value
         return params
-            
-    
-    def set_instance(self, instance: Model):
-        """Set the instance ID for this relation."""
-        self._instance = instance
-    
+
     def _build_query_set(self):
         """Build a query set for this relation."""
-        if not self.instance:
+        if not self.primary_instance:
             raise ValueError("Instance is not set")
-        return self.model_cls.query(partition_id=self.instance.primary_key)
+        return self.primary_cls.query(partition_id=self.primary_instance.primary_id)
     
     def all(self):
         """Get all related models."""
@@ -597,31 +586,27 @@ class ManyRelation(Generic[MODEL, REL_MODEL], Relation[MODEL]):
         return qs.limit(limit)
         
     
-    async def add(self, obj: MODEL, turn: Optional[int | Turn] = None, branch: Optional[int | Branch] = None, **kwargs) -> MODEL:
+    async def add(self, obj: FOREIGN_MODEL, turn: Optional[int | Turn] = None, branch: Optional[int | Branch] = None, **kwargs) -> FOREIGN_MODEL:
         """
         Add a list of related models.
         """
-        if self.instance is None or self.many_relation_cls is None:
+        if self.primary_instance is None or self.relation_field.junction_cls is None:
             raise ValueError("Instance or many_relation_cls is not set")
 
         # obj = await super(ManyRelation, self).add(obj, turn, branch)        
-        if self.model_cls._is_versioned:
+        if self.primary_cls._is_versioned:
             turn_id, branch_id = parse_version_params(turn, branch)
             obj = await obj.save(turn=turn_id, branch=branch_id)
         else:
             obj = await obj.save()
-        # if relation is None:
-        relation = self.many_relation_cls(**self.get_relation_key_params(obj, kwargs))
-        # else:
-        #     setattr(relation, self.rel_key, self.instance.primary_key)
-        #     setattr(relation, self.target_key, obj.primary_key)
             
-        if self.model_cls._is_versioned:
+        relation = self.relation_field.junction_cls(**self.get_relation_key_params(obj, kwargs))            
+        if self.primary_cls._is_versioned:
             turn_id, branch_id = parse_version_params(turn, branch)
             relation = await relation.save(turn=turn_id, branch=branch_id)
         else:
             relation = await relation.save()
-        setattr(obj, self.key, relation.primary_key)
+        setattr(obj, self.relation_field.foreign_key, relation.primary_key)
         await obj.save()
         return obj
     
@@ -640,7 +625,7 @@ class ManyRelation(Generic[MODEL, REL_MODEL], Relation[MODEL]):
     def __get_pydantic_core_schema__(cls, source, handler):
         def validate_custom(value, info):
             if isinstance(value, cls):
-                relation_model, target_model = get_many_relation_model(value)
+                relation_model, target_model = get_many_to_many_relation_model(value)
                 if issubclass(relation_model, Model) and issubclass(target_model, Model):
                     return value
                 else:
@@ -652,7 +637,7 @@ class ManyRelation(Generic[MODEL, REL_MODEL], Relation[MODEL]):
 
 
 
-def get_relation_model(cls):
+def get_one_to_many_relation_model(cls):
     """Get the model class from a relation type."""
     args = get_args(cls)
     if len(args) != 1:
@@ -660,7 +645,7 @@ def get_relation_model(cls):
     return args[0]
 
 
-def get_many_relation_model(cls):
+def get_many_to_many_relation_model(cls):
     """Get the model class from a relation type."""
     args = get_args(cls)
     if len(args) != 2:
@@ -669,19 +654,17 @@ def get_many_relation_model(cls):
 
 
 
-def make_relation_default_factory(model_cls, key):
+def make_relation_default_factory(namespace: Namespace, relation_field: NSRelationInfo | NSManyToManyRelationInfo):
     """Create a default factory for a relation field."""
-    def default_factory():
-        return Relation(model_cls=model_cls, key=key)
-    return default_factory
-    # return lambda: Relation(model_cls=model_cls, rel_field=rel_field)
     
-def make_many_relation_default_factory(model_cls, key, rel_keys, many_relation_cls):
-    """Create a default factory for a relation field."""
-    def default_factory():
-        return ManyRelation(model_cls=model_cls, key=key, rel_keys=rel_keys, many_relation_cls=many_relation_cls)
-    return default_factory
-    
-    
-    
+    if isinstance(relation_field, NSRelationInfo):
+        def relation_default_factory():
+            return Relation(namespace, relation_field)
+        return relation_default_factory
+    elif isinstance(relation_field, NSManyToManyRelationInfo):
+        def many_relation_default_factory():
+            return ManyRelation(namespace, relation_field)
+        return many_relation_default_factory
+    else:
+        raise ValueError("Invalid relation field type")
     

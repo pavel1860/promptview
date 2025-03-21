@@ -53,8 +53,9 @@ def RefField(
 
 def RelationField(
     *,
-    key: str | None = None,
-    rel_keys: list[str] | None = None,
+    primary_key: str | None = None,
+    foreign_key: str | None = None,
+    junction_keys: list[str] | None = None,
     on_delete: str = "CASCADE",
     on_update: str = "CASCADE",
     # **kwargs
@@ -63,19 +64,23 @@ def RelationField(
     Define a relation field with ORM-specific metadata.
     
     Args:
-        key: The name of the foreign key in the related model
+        primary_key: The name of the primary key in the related model
+        foreign_key: The name of the foreign key in the related model
+        junction_keys: The names of the junction keys in the related model
         on_delete: The action to take when the referenced row is deleted
         on_update: The action to take when the referenced row is updated
     """
     # Create extra metadata for the field
     
-    if not key and not rel_keys:
-        raise ValueError("key or rel_keys must be provided")
+    if not primary_key and not foreign_key and not junction_keys:
+        raise ValueError("primary_key or foreign_key or junction_keys must be provided")
+
     
     extra = {}
     extra["is_relation"] = True
-    extra["key"] = key
-    extra["rel_keys"] = rel_keys
+    extra["primary_key"] = primary_key
+    extra["foreign_key"] = foreign_key
+    extra["junction_keys"] = junction_keys
     extra["on_delete"] = on_delete
     extra["on_update"] = on_update
     

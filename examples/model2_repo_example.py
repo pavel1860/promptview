@@ -23,7 +23,7 @@ class Post(ArtifactModel):
     content: str = ModelField()
     author_id: int = ModelField()
     blog_id: int = ModelField(default=None)  # Foreign key to Blog
-    comments: Relation["Comment"] = RelationField(key="post_id")
+    comments: Relation["Comment"] = RelationField(primary_key="post_id")
 
 
 class Comment(ArtifactModel):
@@ -43,7 +43,7 @@ class Blog(RepoModel):
     id: int = KeyField(primary_key=True)
     name: str = ModelField()
     description: str = ModelField()
-    posts: Relation[Post] = RelationField(key="blog_id")
+    posts: Relation[Post] = RelationField(primary_key="blog_id")
 
 
 async def main():

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Dict, Generator, Generic, Iterator, List,
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 import datetime as dt
+
 from promptview.utils.model_utils import is_list_type, unpack_list_model
 from promptview.utils.string_utils import camel_to_snake
 
@@ -13,6 +14,7 @@ DatabaseType = Literal["qdrant", "postgres"]
 if TYPE_CHECKING:
     from promptview.model2.namespace_manager import NamespaceManager
     from promptview.model2.model import Model
+    from promptview.model2.versioning import Branch, Turn
 INDEX_TYPES = TypeVar("INDEX_TYPES", bound=str)
 
 
@@ -77,6 +79,9 @@ class NSFieldInfo:
             return self.enum_values
         else:
             raise ValueError("Field is not an enum")
+        
+    
+        
     
     @classmethod
     def parse_enum(cls, field_type: type[Any]) -> tuple[bool, List[Any] | None, bool]:
@@ -130,7 +135,93 @@ class NSFieldInfo:
         raise NotImplementedError("Not implemented")
 
 
+MODEL = TypeVar("MODEL", bound="Model")
+FOREIGN_MODEL = TypeVar("FOREIGN_MODEL", bound="Model")
+class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
+    name: str
+    foreign_cls: Type[FOREIGN_MODEL]
+    primary_key: str
+    foreign_key: str
+    on_delete: str
+    on_update: str
+    namespace: "Namespace"
+    _primary_cls: Type[MODEL] | None = None
+    
+    def __init__(
+        self, 
+        namespace: "Namespace",
+        name: str,         
+        primary_key: str,
+        foreign_key: str,
+        foreign_cls: Type[FOREIGN_MODEL],
+        on_delete: str = "CASCADE", 
+        on_update: str = "CASCADE",        
+    ):
+        self.name = name
+        self.primary_key = primary_key
+        self.foreign_key = foreign_key
+        self.foreign_cls = foreign_cls
+        self.on_delete = on_delete
+        self.on_update = on_update
+        self.namespace = namespace
+    @property
+    def primary_cls(self) -> Type[MODEL]:
+        if self._primary_cls is None:
+            raise ValueError("Primary class not set")
+        return self._primary_cls
+    
+    def set_primary_cls(self, primary_cls: Type[MODEL]):
+        self._primary_cls = primary_cls
+        
+    @property
+    def foreign_table(self) -> str:
+        return self.foreign_cls.get_namespace_name()
+    
+    @property
+    def primary_table(self) -> str:
+        return self.primary_cls.get_namespace_name()
+    
+    @property
+    def primary_namespace(self) -> "Namespace":
+        return self.primary_cls.get_namespace()
+    
+    @property
+    def foreign_namespace(self) -> "Namespace":
+        return self.foreign_cls.get_namespace()
+    
+     
+    
+JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
 
+class NSManyToManyRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL], NSRelationInfo[MODEL, FOREIGN_MODEL]):
+    """Many to many relation"""
+    junction_cls: Type[JUNCTION_MODEL]
+    junction_keys: list[str]
+
+    def __init__(
+        self,
+        namespace: "Namespace",
+        name: str,
+        primary_key: str,
+        foreign_key: str,
+        foreign_cls: Type[FOREIGN_MODEL],
+        junction_cls: Type[JUNCTION_MODEL],
+        junction_keys: list[str],
+        on_delete: str = "CASCADE",
+        on_update: str = "CASCADE"
+    ):
+        super().__init__(namespace, name, primary_key, foreign_key, foreign_cls, on_delete, on_update)
+        self.junction_cls = junction_cls
+        self.junction_keys = junction_keys
+
+    
+    @property
+    def junction_table(self) -> str:
+        return self.junction_cls.get_namespace_name()
+
+    @property  
+    def junction_namespace(self) -> "Namespace":
+        return self.junction_cls.get_namespace()
 
 T_co = TypeVar("T_co", covariant=True)
 
@@ -150,7 +241,7 @@ class QuerySetSingleAdapter(Generic[T_co]):
         return await_query().__await__()  
 
 
-MODEL = TypeVar("MODEL", bound="Model")
+# MODEL = TypeVar("MODEL", bound="Model")
     
 class QuerySet(Generic[MODEL]):
     """Base query set interface"""
@@ -206,6 +297,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     _model_cls: Type[MODEL] | None = None
     _name: str
     _fields: dict[str, FIELD_INFO]
+    _relations: dict[str, NSRelationInfo]
     is_versioned: bool
     db_type: DatabaseType
     
@@ -215,13 +307,16 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         db_type: DatabaseType,
         is_versioned: bool = False, 
         is_repo: bool = False, 
+        is_context: bool = False,
         repo_namespace: Optional[str] = None,         
         namespace_manager: Optional["NamespaceManager"] = None
     ):
         self._name = name
         self._fields = {}
+        self._relations = {}
         self.is_versioned = is_versioned
         self.is_repo = is_repo
+        self.is_context = is_context
         self.repo_namespace = repo_namespace
         self.namespace_manager = namespace_manager
         self.db_type = db_type
@@ -245,6 +340,8 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     def set_model_class(self, model_class: Type[MODEL]):
         self._model_cls = model_class
+        for relation_info in self._relations.values():
+            relation_info.set_primary_cls(model_class)
     
     
     
@@ -274,8 +371,9 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     def add_relation(
         self,
         name: str,
-        target_namespace: str,
-        key: str,
+        primary_key: str,
+        foreign_key: str,
+        foreign_cls: Type["Model"],        
         on_delete: str = "CASCADE",
         on_update: str = "CASCADE",
     ):
@@ -284,12 +382,48 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         
         Args:
             name: The name of the relation
-            target_namespace: The namespace of the target model
-            key: The name of the foreign key in the target model
+            primary_key: The name of the primary key in the target model
+            foreign_key: The name of the foreign key in the target model
+            foreign_cls: The class of the target model
             on_delete: The action to take when the referenced row is deleted
             on_update: The action to take when the referenced row is updated
         """
         raise NotImplementedError("Not implemented")
+    
+    def add_many_relation(
+        self,
+        name: str,
+        primary_key: str,
+        foreign_key: str,
+        foreign_cls: Type["Model"],
+        junction_cls: Type["Model"],
+        junction_keys: list[str],
+        on_delete: str = "CASCADE",
+        on_update: str = "CASCADE",
+    ):
+        """
+        Add a many to many relation to the namespace.
+        
+        Args:
+            name: The name of the relation
+            primary_key: The name of the primary key in the target model
+            foreign_key: The name of the foreign key in the target model
+            foreign_cls: The class of the target model
+            junction_cls: The class of the junction model
+            junction_keys: The keys of the junction model
+            on_delete: The action to take when the referenced row is deleted
+            on_update: The action to take when the referenced row is updated
+        """
+        raise NotImplementedError("Not implemented")
+    
+    def get_current_ctx_head(self, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> tuple[int | None, int | None]:
+        from promptview.model2.context import Context
+        return Context.get_current_head(turn, branch)
+    
+        
+    def get_current_ctx_branch(self, branch: "int | Branch | None" = None) -> int | None:
+        from promptview.model2.context import Context
+        return Context.get_current_branch(branch)
     
     async def create_namespace(self):
         """Create the namespace in the database"""
@@ -299,7 +433,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         """Drop the namespace from the database"""
         raise NotImplementedError("Not implemented")
     
-    async def save(self, data: Dict[str, Any], id: Any | None = None, turn_id: Optional[int] = None, branch_id: Optional[int] = None) -> Dict[str, Any]:
+    async def save(self, data: Dict[str, Any], id: Any | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
         """Save data to the namespace"""
         raise NotImplementedError("Not implemented")
     
@@ -307,13 +441,12 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         """Get data from the namespace by ID"""
         raise NotImplementedError("Not implemented")
     
-    def query(self, partition_id: Optional[int] = None, branch: Optional[int] = None, model_class=None) -> QuerySet:
+    def query(self, partition_id: int | None = None, branch: "int | Branch | None" = None, joins: list[NSRelationInfo] | None = None) -> QuerySet:
         """
         Create a query for this namespace
         
         Args:
-            branch: Optional branch ID to query from
-            model_class: Optional model class to use for instantiating results
+            branch: Optional branch or branch ID to query from            
         """
         raise NotImplementedError("Not implemented")
     
