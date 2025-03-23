@@ -336,7 +336,7 @@ class ArtifactModel(Model):
                 
         ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
         data = self._payload_dump()
-        result = await ns.save(data, id=self.primary_id, branch_id=branch_id, turn_id=turn_id)
+        result = await ns.save(data, id=self.primary_id, branch=branch, turn=turn)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)
@@ -525,11 +525,11 @@ class Relation(Generic[FOREIGN_MODEL], BaseRelation):
         if self.primary_instance is None:
             raise ValueError("Instance is not set")
         if not isinstance(obj, self.relation_field.foreign_cls):
-            raise ValueError("Object is not of type {}".format(self.relation_field.foreign_cls.__name__))
+            raise ValueError("Object ({}) is not of type {}".format(obj.__class__.__name__, self.relation_field.foreign_cls.__name__))
         # Set the relation field
         setattr(obj, self.relation_field.foreign_key, self.primary_instance.primary_id)
         
-        if self.primary_cls._is_versioned:
+        if obj._is_versioned:
             return await obj.save(turn=turn, branch=branch)
         else:
             return await obj.save()
@@ -665,13 +665,26 @@ class ManyRelation(Generic[FOREIGN_MODEL, JUNCTION_MODEL], BaseRelation):
     @classmethod
     def __get_pydantic_core_schema__(cls, source, handler):
         def validate_custom(value, info):
+            # print(value)
+            # print("---------------")
+            # print(info)
+            # print(source)
+            # print(handler)
             if isinstance(value, cls):
                 relation_model, target_model = get_many_to_many_relation_model(value)
                 if issubclass(relation_model, Model) and issubclass(target_model, Model):
                     return value
                 else:
                     raise TypeError("Relation must be a Model")
+            elif isinstance(value, list):
+                for item in value:
+                    relation_model, target_model = get_many_to_many_relation_model(item)
+                    if not issubclass(relation_model, Model) or not issubclass(target_model, Model):
+                        raise TypeError("Relation must be a Model")
+                return ManyRelation(cls.namespace, self.relation_field)
+            
             else:
+                print(value)
                 raise TypeError("Invalid type for Relation; expected Relation instance")
         return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
 

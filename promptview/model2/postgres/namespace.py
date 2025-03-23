@@ -50,6 +50,9 @@ class PgFieldInfo(NSFieldInfo):
                 value = json.dumps(value)
             elif self.field_type is BaseModel:
                 value = value.model_dump()
+            elif self.data_type is dict and not value:
+                return "{}"
+                
         return value
     
     def get_placeholder(self, index: int) -> str:

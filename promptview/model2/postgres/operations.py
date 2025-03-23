@@ -258,11 +258,11 @@ class PostgresOperations:
         
     @classmethod
     async def _update_version_params(cls, namespace: "PostgresNamespace", data: Dict[str, Any], turn_id: Optional[int] = None, branch_id: Optional[int] = None):
-        if namespace.is_repo and "id" not in data and "main_branch_id" not in data:
-            # Create a new main branch
-            branch = await cls.create_branch(name="main")
-            # Add main_branch_id to the data
-            data["main_branch_id"] = branch.id
+        # if namespace.is_repo and "id" not in data and "main_branch_id" not in data:
+        #     # Create a new main branch
+        #     branch = await cls.create_branch(name="main")
+        #     # Add main_branch_id to the data
+        #     data["main_branch_id"] = branch.id
             
         if namespace.repo_namespace:
             if branch_id is None:
@@ -396,8 +396,125 @@ class PostgresOperations:
         # Convert result to dictionary
         return dict(result) if result else None
     
+    
     @classmethod
     async def query(
+        cls, 
+        namespace: "PostgresNamespace", 
+        partition_id: int | None = None, 
+        branch_id: int | None = None, 
+        select: list[SelectType] | None = None,
+        filters: Dict[str, Any] | None = None, 
+        limit: int | None = None,
+        order_by: str | None = None,
+        offset: int | None = None,
+        joins: list[JoinType] | None = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Query records with versioning support.
+        
+        Args:
+            namespace: The namespace to query
+            partition_id: The partition ID to query from (optional)
+            branch_id: The branch ID to query from (optional)
+            filters: Filters to apply to the query
+            limit: Maximum number of records to return
+            order_by: Field and direction to order by (e.g., "created_at desc")
+            offset: Number of records to skip
+            joins: List of joins to apply to the query
+            
+            
+        Returns:
+            A list of records matching the query
+        """
+        
+            # Regular query without versioning
+        select_clause = "*"
+        
+        if select:
+            select_parts = []
+            for select_type in select:
+                select_parts.append(f"{select_type['namespace']}.{', '.join(select_type['fields'])}")
+            select_clause = ",".join(select_parts)
+        
+        
+        sql = f'SELECT {select_clause} FROM "{namespace.table_name}"'
+        
+        if joins:
+            for join in joins:
+                # sql += f" JOIN {join['foreign_table']} ON {join['primary_table']}.{join['primary_key']} = {join['foreign_table']}.{join['foreign_key']}"
+                sql += f" JOIN {join['foreign_table']} ON {join['primary_table']}.{join['primary_key']} = {join['foreign_table']}.{join['foreign_key']}"
+        
+        # Add filters
+        values = []
+        if filters:
+            where_parts = []
+            for key, value in filters.items():
+                where_parts.append(f'"{key}" = ${len(values) + 1}')
+                values.append(value)
+                
+            sql += f" WHERE {' AND '.join(where_parts)}"
+        
+        # Add order by
+        if order_by:
+            sql += f" ORDER BY {order_by}"
+        
+        # Add limit
+        if limit:
+            sql += f" LIMIT {limit}"
+        
+        # Add offset
+        if offset:
+            sql += f" OFFSET {offset}"
+                
+                
+        if namespace.is_versioned:
+            sql = sql.replace(namespace.table_name, "filtered_records")
+            partition_clause = f"AND t.partition_id = {partition_id}" if partition_id else ""
+            sql = f"""
+            WITH RECURSIVE branch_hierarchy AS (
+                SELECT
+                    id,
+                    name,
+                    forked_from_turn_index,
+                    forked_from_branch_id,
+                    current_index AS start_turn_index
+                FROM branches
+                WHERE id = {branch_id}
+                
+                UNION ALL
+                
+                SELECT
+                    b.id,
+                    b.name,
+                    b.forked_from_turn_index,
+                    b.forked_from_branch_id,
+                    bh.forked_from_turn_index AS start_turn_index
+                FROM branches b
+                JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id
+            ),
+            filtered_records AS (
+                SELECT
+                    m.*
+                FROM branch_hierarchy bh
+                JOIN turns t ON bh.id = t.branch_id
+                JOIN "{namespace.table_name}" m ON t.id = m.turn_id
+                WHERE t.index <= bh.start_turn_index {partition_clause}
+            )
+            {sql}
+            """
+            
+                
+            # Execute query
+        results = await cls.fetch(sql, *values)
+        
+        # Convert results to dictionaries
+        return [dict(row) for row in results]
+
+    
+    
+    @classmethod
+    async def query2(
         cls, 
         namespace: "PostgresNamespace", 
         partition_id: int | None = None, 

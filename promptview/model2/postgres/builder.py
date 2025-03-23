@@ -115,8 +115,8 @@ class SQLBuilder:
             sql += '"branch_id" INTEGER NOT NULL REFERENCES "branches" (id),\n'
             sql += '"turn_id" INTEGER NOT NULL REFERENCES "turns" (id),\n'
             
-        if hasattr(namespace, "is_repo") and namespace.is_repo:
-            sql += '"main_branch_id" INTEGER NOT NULL REFERENCES "branches" (id),\n'
+        # if hasattr(namespace, "is_repo") and namespace.is_repo:
+            # sql += '"main_branch_id" INTEGER NOT NULL REFERENCES "branches" (id),\n'
             
         # Remove trailing comma
         sql = sql[:-2]

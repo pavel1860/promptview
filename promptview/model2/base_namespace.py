@@ -61,8 +61,8 @@ class NSFieldInfo:
                 self.enum_name = camel_to_snake(name) + "_literal"
             else:
                 self.enum_name = camel_to_snake(self.data_type.__name__) + "_enum"
-            
-        if field_type is dt.datetime:
+
+        if self.origin_type is dt.datetime:
             self.is_temporal = True
         else:
             self.is_temporal = False

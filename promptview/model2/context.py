@@ -33,12 +33,19 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     _branch: "Branch | None"
     _turn: "Turn | None"
     
-    def __init__(self, partition_id: int | None = None, span_name: str | None = None):
-        self._partition_id = partition_id
+    def __init__(self, partition: "Model | int", span_name: str | None = None):
+        if isinstance(partition, int):
+            self._partition_id = partition
+            self._partition = None
+        else:
+            self._partition_id = partition.id
+            self._partition = partition
         self._init_method = InitStrategy.NO_PARTITION
         self._init_params = {}
         self._ctx_token = None
         self._span_name = span_name
+        self._branch = None
+        self._turn = None
         
     @classmethod
     def get_current(cls, raise_error: bool = True):
@@ -120,6 +127,12 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     def can_push(self):
         return self._init_method != InitStrategy.NO_PARTITION
     
+    @property
+    def partition(self):
+        if self._partition is None:
+            raise ValueError("Partition not set")
+        return self._partition
+    
     def start_turn(self, branch_id: int = 1):
         self._init_method = InitStrategy.START_TURN
         self._init_params["branch_id"] = branch_id
@@ -160,6 +173,8 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             pass
         else:
             raise ValueError(f"Invalid init method: {self._init_method}")
+        if self._branch is None or self._turn is None:
+            raise ValueError("Branch or turn not set")
         self._set_context()
         return self
     
