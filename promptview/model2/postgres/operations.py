@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
+from typing import Any, Dict, List, Optional, TYPE_CHECKING, TypedDict, Union
 import json
 import datetime as dt
 from datetime import datetime, timezone
@@ -12,12 +12,24 @@ if TYPE_CHECKING:
     
 
 
-def print_error_sql(sql: str, values: list[Any] | None = None, error: Exception | None = None):
-    print("SQL:\n", sql)
+def print_error_sql(sql: str, values: Any | None = None, error: Exception | None = None):
+    print("---------- SQL ------------:\n", sql)
     if values:
-        print("VALUES:\n", values)
+        print("---------- VALUES ----------:\n", values)
     if error:
-        print("ERROR:\n", error)
+        print("---------- ERROR ----------:\n", error)
+        
+class JoinType(TypedDict):
+    """Join information"""
+    primary_table: str
+    primary_key: str
+    foreign_table: str
+    foreign_key: str
+    
+class SelectType(TypedDict):
+    """Select information"""
+    namespace: str
+    fields: list[str]
 
 class PostgresOperations:
     """Operations for PostgreSQL database"""
@@ -57,6 +69,25 @@ class PostgresOperations:
         
         # return Branch(**dict(branch_row), last_turn=new_turn)
         
+    @classmethod
+    async def fetch(cls, sql: str, *values: Any):
+        """Fetch results from a SQL query"""
+        try:
+            res = await PGConnectionManager.fetch(sql, *values)
+            return res
+        except Exception as e:
+            print_error_sql(sql, values, e)
+            raise e
+        
+    @classmethod
+    async def execute(cls, sql: str, *values: Any):
+        """Execute a SQL statement"""
+        try:
+            res = await PGConnectionManager.execute(sql, *values)
+            return res
+        except Exception as e:
+            print_error_sql(sql, values, e)
+            raise e
         
     @classmethod
     async def create_turn(cls, partition_id: int, branch_id: int = 1, status: TurnStatus=TurnStatus.STAGED) -> Turn:
@@ -371,11 +402,12 @@ class PostgresOperations:
         namespace: "PostgresNamespace", 
         partition_id: int | None = None, 
         branch_id: int | None = None, 
+        select: list[SelectType] | None = None,
         filters: Dict[str, Any] | None = None, 
         limit: int | None = None,
         order_by: str | None = None,
         offset: int | None = None,
-        joins: "list[NSRelationInfo] | None" = None
+        joins: list[JoinType] | None = None
     ) -> List[Dict[str, Any]]:
         """
         Query records with versioning support.
@@ -473,7 +505,21 @@ class PostgresOperations:
             return [dict(row) for row in results]
         else:
             # Regular query without versioning
-            sql = f'SELECT * FROM "{namespace.table_name}"'
+            select_clause = "*"
+            
+            if select:
+                select_parts = []
+                for select_type in select:
+                    select_parts.append(f"{select_type['namespace']}.{', '.join(select_type['fields'])}")
+                select_clause = ",".join(select_parts)
+            
+            
+            sql = f'SELECT {select_clause} FROM "{namespace.table_name}"'
+            
+            if joins:
+                for join in joins:
+                    # sql += f" JOIN {join['foreign_table']} ON {join['primary_table']}.{join['primary_key']} = {join['foreign_table']}.{join['foreign_key']}"
+                    sql += f" JOIN {join['foreign_table']} ON {join['primary_table']}.{join['primary_key']} = {join['foreign_table']}.{join['foreign_key']}"
             
             # Add filters
             values = []
@@ -498,12 +544,10 @@ class PostgresOperations:
                 sql += f" OFFSET {offset}"
                 
                 
-            if joins:
-                for join in joins:
-                    sql += f" JOIN {join.foreign_table} ON {join.primary_table}.{join.primary_key} = {join.foreign_table}.{join.foreign_key}"
+            
                 
             # Execute query
-            results = await PGConnectionManager.fetch(sql, *values)
+            results = await cls.fetch(sql, *values)
             
             # Convert results to dictionaries
             return [dict(row) for row in results]
@@ -515,3 +559,8 @@ class PostgresOperations:
     async def execute_query(self, sql: str, *values: Any):
         """Execute a raw SQL query"""
         return await PGConnectionManager.fetch(sql, *values)
+    
+
+
+
+    

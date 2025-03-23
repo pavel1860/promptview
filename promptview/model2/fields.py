@@ -1,5 +1,6 @@
 from pydantic._internal._model_construction import ModelMetaclass
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
+from pydantic.fields import _Unset, AliasPath, AliasChoices, FieldInfo, JsonDict, Unpack, _EmptyKwargs, Deprecated # type: ignore
 from typing import TYPE_CHECKING, Any, Callable, Dict, ForwardRef, Generic, List, Optional, Protocol, Self, Type, TypeVar, get_args, get_origin
 from pydantic_core import PydanticUndefined
 if TYPE_CHECKING:
@@ -11,6 +12,8 @@ def ModelField(
     *,
     foreign_key: bool = False,
     index: Optional[str] = None,
+    default_factory: Callable[[], Any] | None = _Unset,
+    description: str | None = _Unset,
 ) -> Any:
     """Define a model field with ORM-specific metadata"""
     # Create extra metadata for the field
@@ -20,13 +23,19 @@ def ModelField(
         extra["foreign_key"] = True
         default = None
     # Create the field with the extra metadata
-    return Field(default, json_schema_extra=extra)
+    return Field(
+        default,
+        default_factory=default_factory,
+        json_schema_extra=extra,
+        description=description,
+    )
 
 
 def KeyField(
     default: Any = None,
     # *,
     primary_key: bool = True,
+    description: str | None = _Unset,
     # **kwargs
 ) -> Any:
     """Define a key field with ORM-specific metadata"""
@@ -35,13 +44,14 @@ def KeyField(
     extra["primary_key"] = primary_key
     
     # Create the field with the extra metadata
-    return Field(default, json_schema_extra=extra)
+    return Field(default, json_schema_extra=extra, description=description)
 
 
 def RefField(
     default: Any = None,
     *,
     key: str = "id",
+    description: str | None = _Unset,
     # **kwargs
 ) -> Any:
     """Define a reference field with ORM-specific metadata"""
@@ -49,7 +59,7 @@ def RefField(
     extra = {}
     extra["key"] = key
     
-    return Field(default, json_schema_extra=extra)
+    return Field(default, json_schema_extra=extra, description=description)
 
 def RelationField(
     *,
@@ -58,6 +68,7 @@ def RelationField(
     junction_keys: list[str] | None = None,
     on_delete: str = "CASCADE",
     on_update: str = "CASCADE",
+    description: str | None = _Unset,
     # **kwargs
 ) -> Any:
     """
@@ -84,12 +95,8 @@ def RelationField(
     extra["on_delete"] = on_delete
     extra["on_update"] = on_update
     
-
-    
-        
-    
     # Create the field with the extra metadata and make it optional
-    return Field(json_schema_extra=extra)
+    return Field(json_schema_extra=extra, description=description)
     # return Field(json_schema_extra=extra, **kwargs)
     # return Field(json_schema_extra=extra, default_factory=lambda: None, **kwargs)
 

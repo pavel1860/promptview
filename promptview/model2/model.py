@@ -124,6 +124,7 @@ class ModelMeta(ModelMetaclass, type):
                         on_delete=on_delete,
                         on_update=on_update,
                     )
+                    field_info.default_factory = make_relation_default_factory(ns, relation_field)
 
                 else:  # many to many relation
                     foreign_cls, junction_cls = get_many_to_many_relation_model(field_type)
@@ -138,8 +139,8 @@ class ModelMeta(ModelMetaclass, type):
                         on_delete=on_delete,
                         on_update=on_update,
                     )                
-                                
-                field_info.default_factory = make_relation_default_factory(ns, relation_field)
+                    field_info.default_factory = make_many_relation_default_factory(ns, relation_field)
+                
                 relations[field_name] = relation_field
                 # Skip adding this field to the namespace
                 continue
@@ -152,7 +153,6 @@ class ModelMeta(ModelMetaclass, type):
         ns.set_model_class(cls_obj)
         cls_obj._namespace_name = namespace_name
         cls_obj._is_versioned = is_versioned
-        
         # Register relations with the namespace manager
         # for relation_name, relation_info in relations.items():
             # target_cls: Any = relation_info["target_type"]
@@ -196,8 +196,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     _namespace_name: str = PrivateAttr(default=None)
     _db_type: DatabaseType = PrivateAttr(default="postgres")
     _is_versioned: bool = PrivateAttr(default=False)
-    _relations: Dict[str, Dict[str, Any]] = PrivateAttr(default_factory=dict)
-    
+    _relations: Dict[str, Dict[str, Any]] = PrivateAttr(default_factory=dict)    
     
     @classmethod
     def get_namespace_name(cls) -> str:
@@ -212,7 +211,8 @@ class Model(BaseModel, metaclass=ModelMeta):
     @classmethod
     def get_key_field(cls) -> str:
         """Get the key field for this model"""
-        return "id"
+        ns = cls.get_namespace()
+        return ns.primary_key.name
     
     @property
     def primary_id(self) -> Any:
@@ -307,7 +307,7 @@ class Model(BaseModel, metaclass=ModelMeta):
             branch: Optional branch ID to query from
         """            
         ns = cls.get_namespace()
-        return ns.query(partition_id, branch)
+        return ns.query(None, branch)
 
 
 # No need for the ModelFactory class anymore
@@ -359,7 +359,17 @@ class ContextModel(ArtifactModel):
     def to_block(self) -> "Block":
         raise NotImplementedError("ContextModel.to_block is not implemented")
     
-    
+    @classmethod
+    def query(cls: Type[MODEL], partition_id: int | None = None, branch: int | Branch | None = None) -> "QuerySet[MODEL]":
+        """
+        Create a query for this model
+        
+        Args:
+            branch: Optional branch ID to query from
+        """
+        ns = cls.get_namespace()
+        return ns.query(partition_id, branch)
+
 
 class RepoModel(Model):
     """
@@ -422,6 +432,10 @@ class BaseRelation:
         return self._primary_instance.__class__
     
     @property
+    def is_context_model(self) -> bool:
+        return self.namespace.is_context
+    
+    @property
     def primary_instance(self) -> Model:
         if self._primary_instance is None:
             raise ValueError("Instance is not set")
@@ -463,6 +477,8 @@ class Relation(Generic[FOREIGN_MODEL], BaseRelation):
     def __init__(self, namespace: Namespace, relation_field: NSRelationInfo):
         super().__init__(namespace)
         self.relation_field = relation_field
+        
+
     
     def _build_query_set(self):
         """Build a query set for this relation."""
@@ -470,7 +486,10 @@ class Relation(Generic[FOREIGN_MODEL], BaseRelation):
             raise ValueError("Instance is not set")
         # return self.namespace.query(None)
         # return self.primary_cls.query(partition_id=self.primary_instance.primary_id)
-        self.relation_field.foreign_namespace.query(partition_id=self.primary_instance.primary_id)
+        if self.is_context_model:
+            return self.namespace.query(partition_id=self.primary_instance.primary_id)
+        else:
+            return self.relation_field.foreign_namespace.query(filters={self.relation_field.foreign_key: self.primary_instance.primary_id})
     
     def all(self):
         """Get all related models."""
@@ -548,17 +567,41 @@ class ManyRelation(Generic[FOREIGN_MODEL, JUNCTION_MODEL], BaseRelation):
             
     def get_relation_key_params(self, obj: FOREIGN_MODEL, kwargs: dict[str, Any]):
         params = {}
-        params[self.relation_field.primary_key] = self.primary_instance.primary_id
-        params[self.relation_field.foreign_key] = obj.primary_id
+        # params[self.relation_field.primary_key] = self.primary_instance.primary_id
+        # params[self.relation_field.foreign_key] = obj.primary_id
+        params[self.relation_field.junction_primary_key] = self.primary_instance.primary_id
+        params[self.relation_field.junction_foreign_key] = obj.primary_id
         for key, value in kwargs.items():
             params[key] = value
         return params
 
+    # def _build_query_set(self):
+    #     """Build a query set for this relation."""
+    #     if not self.primary_instance:
+    #         raise ValueError("Instance is not set")
+    #     return self.primary_cls.query(partition_id=self.primary_instance.primary_id)
+    
     def _build_query_set(self):
         """Build a query set for this relation."""
         if not self.primary_instance:
             raise ValueError("Instance is not set")
-        return self.primary_cls.query(partition_id=self.primary_instance.primary_id)
+        return self.relation_field.foreign_namespace.query(
+            partition_id=self.primary_instance.primary_id if self.is_context_model else None,
+            # joins=[{
+            #     "primary_table": self.relation_field.junction_table,
+            #     "primary_key": self.relation_field.junction_foreign_key,
+            #     "foreign_table": self.relation_field.foreign_table,
+            #     "foreign_key": self.relation_field.foreign_key,
+            # }],
+            select=[self.relation_field.foreign_namespace.select_fields()],
+            joins=[{
+                "primary_table": self.relation_field.foreign_table,
+                "primary_key": self.relation_field.foreign_key,
+                "foreign_table": self.relation_field.junction_table,
+                "foreign_key": self.relation_field.junction_foreign_key,
+            }],
+            filters={self.relation_field.junction_primary_key: self.primary_instance.primary_id},            
+        )
     
     def all(self):
         """Get all related models."""
@@ -595,18 +638,16 @@ class ManyRelation(Generic[FOREIGN_MODEL, JUNCTION_MODEL], BaseRelation):
 
         # obj = await super(ManyRelation, self).add(obj, turn, branch)        
         if self.primary_cls._is_versioned:
-            turn_id, branch_id = parse_version_params(turn, branch)
-            obj = await obj.save(turn=turn_id, branch=branch_id)
+            obj = await obj.save(turn=turn, branch=branch)
         else:
             obj = await obj.save()
             
         relation = self.relation_field.junction_cls(**self.get_relation_key_params(obj, kwargs))            
         if self.primary_cls._is_versioned:
-            turn_id, branch_id = parse_version_params(turn, branch)
-            relation = await relation.save(turn=turn_id, branch=branch_id)
+            relation = await relation.save(turn=turn, branch=branch)
         else:
             relation = await relation.save()
-        setattr(obj, self.relation_field.foreign_key, relation.primary_key)
+        setattr(obj, self.relation_field.foreign_key, relation.primary_id)
         await obj.save()
         return obj
     
@@ -654,17 +695,18 @@ def get_many_to_many_relation_model(cls):
 
 
 
-def make_relation_default_factory(namespace: Namespace, relation_field: NSRelationInfo | NSManyToManyRelationInfo):
+def make_relation_default_factory(namespace: Namespace, relation_field: NSRelationInfo):
     """Create a default factory for a relation field."""
+    def relation_default_factory():
+        return Relation(namespace, relation_field)
+    return relation_default_factory
     
-    if isinstance(relation_field, NSRelationInfo):
-        def relation_default_factory():
-            return Relation(namespace, relation_field)
-        return relation_default_factory
-    elif isinstance(relation_field, NSManyToManyRelationInfo):
-        def many_relation_default_factory():
-            return ManyRelation(namespace, relation_field)
-        return many_relation_default_factory
-    else:
-        raise ValueError("Invalid relation field type")
     
+    
+    
+def make_many_relation_default_factory(namespace: Namespace, relation_field: NSManyToManyRelationInfo):
+    """Create a default factory for a many relation field."""
+    def many_relation_default_factory():
+        return ManyRelation(namespace, relation_field)
+    return many_relation_default_factory
+

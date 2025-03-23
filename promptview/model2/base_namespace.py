@@ -18,6 +18,11 @@ if TYPE_CHECKING:
 INDEX_TYPES = TypeVar("INDEX_TYPES", bound=str)
 
 
+
+class SelectFields(TypedDict):
+    namespace: "Namespace"
+    fields: "list[NSFieldInfo]"
+
 class NSFieldInfo:
     name: str
     field_type: Type[Any]
@@ -32,6 +37,7 @@ class NSFieldInfo:
     is_literal: bool = False
     enum_values: List[Any] | None = None
     enum_name: str | None = None
+    is_primary_key: bool = False
     
     def __init__(
         self,
@@ -60,7 +66,11 @@ class NSFieldInfo:
             self.is_temporal = True
         else:
             self.is_temporal = False
-            
+        
+        if extra:
+            if not extra.get("is_relation", False):
+                self.is_primary_key = extra.get("primary_key", False)
+                
     @property
     def data_type(self) -> Type[Any]:
         if self.is_list:
@@ -189,6 +199,8 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
     def foreign_namespace(self) -> "Namespace":
         return self.foreign_cls.get_namespace()
     
+    
+    
      
     
 JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
@@ -223,6 +235,14 @@ class NSManyToManyRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL], NS
     def junction_namespace(self) -> "Namespace":
         return self.junction_cls.get_namespace()
 
+    @property
+    def junction_primary_key(self) -> str:
+        return self.junction_keys[0]
+    
+    @property
+    def junction_foreign_key(self) -> str:
+        return self.junction_keys[1]
+    
 T_co = TypeVar("T_co", covariant=True)
 
 class QuerySetSingleAdapter(Generic[T_co]):
@@ -300,7 +320,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     _relations: dict[str, NSRelationInfo]
     is_versioned: bool
     db_type: DatabaseType
-    
+    _primary_key: FIELD_INFO | None = None
     def __init__(
         self, 
         name: str, 
@@ -321,7 +341,8 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         self.namespace_manager = namespace_manager
         self.db_type = db_type
         self._model_cls = None
-        
+        self._primary_key = None
+       
         
     @property
     def name(self) -> str:
@@ -337,6 +358,22 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         if self._model_cls is None:
             raise ValueError("Model class not set")
         return self._model_cls
+    
+    @property
+    def primary_key(self) -> FIELD_INFO:
+        if self._model_cls is None:
+            raise ValueError("Model class not set")
+        if self._primary_key is None:
+            self._primary_key = self.find_primary_key()
+            if self._primary_key is None:
+                raise ValueError("Primary key not found")
+        return self._primary_key
+    
+    def find_primary_key(self) -> FIELD_INFO | None:
+        for field_name, field_info in self._fields.items():
+            if field_info.is_primary_key:
+                return field_info
+        return None
     
     def set_model_class(self, model_class: Type[MODEL]):
         self._model_cls = model_class
@@ -358,6 +395,21 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     def iter_fields(self) -> Iterator[FIELD_INFO]:
         for field in self._fields.values():
             yield field
+            
+    def get_field_names(self) -> list[str]:
+        return list(self._fields.keys())
+    
+    def select_fields(self, fields: list[str] | None = None) -> SelectFields:
+        
+        if fields is None:
+            return SelectFields(
+                namespace=self,
+                fields=[f for f in self._fields.values()]
+            )
+        return SelectFields(
+            namespace=self,
+            fields=[self._fields[field] for field in fields]
+        )
     
     def add_field(
         self,
@@ -441,7 +493,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         """Get data from the namespace by ID"""
         raise NotImplementedError("Not implemented")
     
-    def query(self, partition_id: int | None = None, branch: "int | Branch | None" = None, joins: list[NSRelationInfo] | None = None) -> QuerySet:
+    def query(self, partition_id: int | None = None, branch: "int | Branch | None" = None, filters: dict[str, Any] | None = None, **kwargs) -> QuerySet:
         """
         Create a query for this namespace
         

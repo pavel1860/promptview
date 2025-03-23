@@ -6,10 +6,10 @@ from typing_extensions import TypeVar
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from promptview.model2.postgres.builder import SQLBuilder
-from promptview.model2.postgres.operations import PostgresOperations
+from promptview.model2.postgres.operations import JoinType, PostgresOperations, SelectType
 from promptview.model2.versioning import Branch, Turn
 from promptview.utils.model_utils import get_list_type, is_list_type
-from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter
+from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter, SelectFields
 from promptview.utils.db_connections import PGConnectionManager
 import datetime as dt
 if TYPE_CHECKING:
@@ -162,8 +162,9 @@ class PostgresQuerySet(QuerySet[MODEL]):
         namespace: "PostgresNamespace", 
         partition_id: int | None = None, 
         branch_id: int | None = None, 
-        joins: list[NSRelationInfo] | None = None,
-        filters: dict[str, Any] | None = None
+        joins: list[JoinType] | None = None,
+        filters: dict[str, Any] | None = None,
+        select: list[list[SelectFields]] | None = None
     ):
         super().__init__(model_class=model_class)
         self.namespace = namespace
@@ -175,6 +176,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.order_by_value = None
         self.include_fields = None
         self.joins = joins or []
+        self.select = select or []
     
     def filter(self, **kwargs) -> "PostgresQuerySet[MODEL]":
         """Filter the query"""
@@ -217,6 +219,10 @@ class PostgresQuerySet(QuerySet[MODEL]):
     async def execute(self) -> List[MODEL]:
         """Execute the query"""
         # Use PostgresOperations to execute the query with versioning support
+        if self.select:
+            select_types = [SelectType(namespace=sf["namespace"].name, fields=[f.name for f in sf["fields"]]) for sf in self.select]
+        else:
+            select_types = None
         results = await PostgresOperations.query(
             self.namespace,
             partition_id=self.partition_id,
@@ -224,7 +230,9 @@ class PostgresQuerySet(QuerySet[MODEL]):
             filters=self.filters,
             limit=self.limit_value,
             order_by=self.order_by_value,
-            offset=self.offset_value
+            offset=self.offset_value,
+            select=select_types,
+            joins=self.joins
         )
         
         # Convert results to model instances if model_class is provided
@@ -283,6 +291,9 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             field_type=field_type,
             extra=extra,
         )
+        if pg_field.is_primary_key:
+            if curr_key:= self.find_primary_key() is not None:
+                raise ValueError(f"Primary key field {name} already exists. {curr_key} is already the primary key field.")
         self._fields[name] = pg_field
         return pg_field    
     
@@ -467,7 +478,14 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         """
         return await PostgresOperations.get(self, id)
     
-    def query(self, partition_id: Optional[int] = None, branch: int | Branch | None = None, joins: list[NSRelationInfo] | None = None) -> QuerySet:
+    def query(
+        self, 
+        partition_id: Optional[int] = None, 
+        branch: int | Branch | None = None, 
+        filters: dict[str, Any] | None = None, 
+        joins: list[NSRelationInfo] | None = None,
+        select: SelectFields | None = None
+    ) -> QuerySet:
         """
         Create a query for this namespace.
         
@@ -478,10 +496,12 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             A query set for this namespace
         """
         branch = self.get_current_ctx_branch(branch) if self.is_versioned else None
-        if self.is_context:            
-            return PostgresQuerySet(self.model_class, self, partition_id, branch, joins=joins)
-        else:
-            return PostgresQuerySet(self.model_class, self, partition_id, branch, joins=joins, filters={})
+        
+        return PostgresQuerySet(self.model_class, self, partition_id, branch, select=select, joins=joins, filters=filters, )
+        # if self.is_context:            
+        #     return PostgresQuerySet(self.model_class, self, partition_id, branch, joins=joins)
+        # else:
+            
         
         
         

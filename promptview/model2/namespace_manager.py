@@ -25,7 +25,7 @@ class NamespaceManager:
         cls._relations = {}
         
     @classmethod
-    def build_namespace(cls, model_name: str, db_type: DatabaseType, is_versioned: bool = True, is_repo: bool = False, repo_namespace: Optional[str] = None) -> Namespace:
+    def build_namespace(cls, model_name: str, db_type: DatabaseType, is_versioned: bool = True, is_context: bool = False, is_repo: bool = False, repo_namespace: Optional[str] = None) -> Namespace:
         """
         Build a namespace for a model.
         
@@ -33,6 +33,7 @@ class NamespaceManager:
             model_name: The name of the model
             db_type: The type of database to use
             is_versioned: Whether the namespace should be versioned
+            is_context: Whether the namespace should be a context
             is_repo: Whether the namespace should be a repo
             repo_namespace: The namespace of the repo this model belongs to
             
@@ -48,6 +49,7 @@ class NamespaceManager:
                 name=model_name, 
                 is_versioned=is_versioned, 
                 is_repo=is_repo, 
+                is_context=is_context,
                 repo_namespace=repo_namespace,                 
                 namespace_manager=cls
             )
