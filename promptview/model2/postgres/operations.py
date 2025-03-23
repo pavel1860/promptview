@@ -4,6 +4,8 @@ import datetime as dt
 from datetime import datetime, timezone
 from pydantic import BaseModel
 
+from promptview.model2.postgres.query_parser import build_where_clause
+from promptview.model2.query_filters import QueryProxy
 from promptview.utils.db_connections import PGConnectionManager
 from promptview.model2.versioning import Turn, Branch, TurnStatus
 
@@ -396,6 +398,7 @@ class PostgresOperations:
         # Convert result to dictionary
         return dict(result) if result else None
     
+      
     
     @classmethod
     async def query(
@@ -408,7 +411,8 @@ class PostgresOperations:
         limit: int | None = None,
         order_by: str | None = None,
         offset: int | None = None,
-        joins: list[JoinType] | None = None
+        joins: list[JoinType] | None = None,
+        filter_proxy: QueryProxy | None = None
     ) -> List[Dict[str, Any]]:
         """
         Query records with versioning support.
@@ -454,6 +458,9 @@ class PostgresOperations:
                 values.append(value)
                 
             sql += f" WHERE {' AND '.join(where_parts)}"
+            
+        if filter_proxy:
+            sql += " WHERE " + build_where_clause(filter_proxy)
         
         # Add order by
         if order_by:

@@ -1,12 +1,13 @@
 from enum import Enum
 import inspect
 import json
-from typing import TYPE_CHECKING, Any, Dict, Literal, Type, Optional, List, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Callable, Dict, Literal, Type, Optional, List, get_args, get_origin
 from typing_extensions import TypeVar
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.operations import JoinType, PostgresOperations, SelectType
+from promptview.model2.query_filters import QueryProxy, parse_query_params
 from promptview.model2.versioning import Branch, Turn
 from promptview.utils.model_utils import get_list_type, is_list_type
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter, SelectFields
@@ -174,6 +175,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.partition_id = partition_id
         self.branch_id = branch_id
         self.filters = filters or {}
+        self.filter_proxy = None
         self.limit_value = None
         self.offset_value = None
         self.order_by_value = None
@@ -181,9 +183,14 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.joins = joins or []
         self.select = select or []
     
-    def filter(self, **kwargs) -> "PostgresQuerySet[MODEL]":
+    def filter(self, filter_fn: Callable[[MODEL], bool] | None = None, **kwargs) -> "PostgresQuerySet[MODEL]":
         """Filter the query"""
-        self.filters.update(kwargs)
+        # self.filters.update(kwargs)            
+        if filter_fn is not None:
+            proxy = QueryProxy[MODEL](self.model_class)
+            self.filter_proxy = filter_fn(proxy)
+        if kwargs:
+            self.filter_proxy = parse_query_params(self.model_class, curr_filter=self.filter_proxy, **kwargs)
         return self
     
     def limit(self, limit: int) -> "PostgresQuerySet[MODEL]":
@@ -235,7 +242,8 @@ class PostgresQuerySet(QuerySet[MODEL]):
             order_by=self.order_by_value,
             offset=self.offset_value,
             select=select_types,
-            joins=self.joins
+            joins=self.joins,
+            filter_proxy=self.filter_proxy
         )
         
         # Convert results to model instances if model_class is provided

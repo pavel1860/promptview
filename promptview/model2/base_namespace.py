@@ -1,7 +1,7 @@
 from abc import abstractmethod
 from enum import Enum
 import inspect
-from typing import TYPE_CHECKING, Any, Dict, Generator, Generic, Iterator, List, Literal, Type, TypeVar, TypedDict, Optional, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterator, List, Literal, Type, TypeVar, TypedDict, Optional, get_args, get_origin
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 import datetime as dt
@@ -280,7 +280,7 @@ class QuerySet(Generic[MODEL]):
         """Make the query awaitable"""
         return self.execute().__await__()
     
-    def filter(self, **kwargs) -> "QuerySet[MODEL]":
+    def filter(self, filter_fn: Callable[[MODEL], bool] | None = None, **kwargs) -> "QuerySet[MODEL]":
         """Filter the query"""
         raise NotImplementedError("Not implemented")
     
