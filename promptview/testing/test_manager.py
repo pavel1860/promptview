@@ -3,7 +3,7 @@ from typing import List
 from promptview.model.head_model import HeadModel
 # from promptview.model.model import Model, Relation
 # from promptview.model.fields import ModelField, ModelRelation
-from promptview.model import Model, Relation, ModelField, ModelRelation
+from promptview.model import Model, Relation, ModelField, RelationField
 from pydantic import BaseModel, PrivateAttr
 
 from promptview.testing.evaluator import evaluate_prompt
@@ -78,7 +78,7 @@ class TestCase(Model, HeadModel):
     description: str = ModelField(default="")
     input_turns: List[TestTurn] = ModelField(default=[])
         
-    test_runs: Relation[TestRun] = ModelRelation(key="test_case_id")
+    test_runs: Relation[TestRun] = RelationField(key="test_case_id")
     
     class Config:
         database_type="postgres"

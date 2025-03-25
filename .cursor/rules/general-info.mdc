@@ -1,6 +1,7 @@
 ---
 description: general guildlines for the prompt view application
 globs: 
+alwaysApply: false
 ---
 
 # Description
@@ -29,6 +30,73 @@ the application gives ability to connect external UI for interacting with the ch
 
 # Ask Questions
 you should ask me clarification if I missed something or my request is ambiguous.
+
+
+
+
+# ORM
+I am building an ORM for python agent applications. the ORM needs to act like a combination
+of git like version control and temporal database.
+the purpuse is to support agent applications.
+the application need to be event sourced and every agent should be able to time travel across
+it's messages and artifacts.
+
+## branching system
+if I have a table of agent messages, it should be temporal and retreive all the last messages
+by time. all those messages should be in a single branch. on every turn that the user sends 
+a message to the agent a new turn starts. all the artifacts that are created during this turn 
+are connected to it.
+
+all the turns are connected to a branch. every user should have his own message branch.
+
+## Model
+the orm should support this capability. I should define a table using pydantic model style.
+you need to define the arcitecture of this Model class.
+
+for example:
+
+@model.postgres(
+    versioned=True
+)
+class Message(BaseModel):
+    content: str = ModelField()    
+    rule: Literal["user", "assistant", "system"] = ModelField(default="user", index="btree")
+    created_at: dt.datetime = ModelField(default=dt.datetime.now(), default_temporal=True)
+
+
+    @vector("dense")
+    async def vectorize(models: List[Message])-> np.array:
+        """ embed the 
+        return OpenAIvectorizer.embed(models)
+
+or 
+
+@model.postgres()
+class User(BaseModel):
+    name: str = ModelField(index="btree")
+    age: int = ModelField()
+    posts: Relation[Post] = RelationField(foreign_key="user_id", casscade="DELETE")
+    likes: Relation[Like] = RelationField(foreign_key="user_id", casscade="DELETE")
+
+
+## Query
+the query should be built using chaining.
+for examples:
+
+await query(Message, branch_id).filter((Message.role=="user") & (Message.order < 5)).last()
+
+
+await query(User).filter(User.age > 25).include(posts=True).limit(10)
+
+## package
+all the models should be written in mind so the framework be extendable 
+and used by many developers for different applications.
+
+
+## database support
+1. postgres - building tables using models
+2. qdrant - building collections and vector search using models
+
 
 
 

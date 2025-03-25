@@ -266,10 +266,7 @@ class ModelMeta(ModelMetaclass, type):
         for base in bases:
             if base == HeadModel:
                 is_head = True
-        
-        
-            
-        
+
             
         
         if not is_abstract:

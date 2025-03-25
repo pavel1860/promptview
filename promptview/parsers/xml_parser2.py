@@ -72,7 +72,7 @@ class XmlOutputParser:
             # )
             # output = ai_model_cls(**(response.model_dump() | params | action_calls))
             return ai_model_cls(**params), action_calls
-            return output
+            
         except TypeError as e:
             print(params)
             print(action_calls)

@@ -4,7 +4,7 @@ from promptview.prompt.style import BulletType, StyleManager
 from typing import TYPE_CHECKING, Any, List, Literal, Protocol, Type, TypedDict, Union
 
 from promptview.utils.string_utils import int_to_roman
-from promptview.prompt.block4 import BaseBlock
+from promptview.prompt.block6 import Block
 
 
 
@@ -42,7 +42,7 @@ class ContentRenderer(Renderer):
     tags: list[str]
     target = "content"
     
-    def __call__(self, block: BaseBlock, inner_content: List[str], depth: int) -> str:
+    def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
         raise NotImplementedError("Subclass must implement this method")
     
     
@@ -50,7 +50,7 @@ class ItemsRenderer(Renderer):
     tags: list[str]
     target = "items"
         
-    def __call__(self, block: BaseBlock, inner_content: List[str], depth: int) -> List[str]:
+    def __call__(self, block: Block, inner_content: List[str], depth: int) -> List[str]:
         raise NotImplementedError("Subclass must implement this method")
     
 
@@ -58,7 +58,7 @@ class ItemsRenderer(Renderer):
 class MarkdownTitleRenderer(ContentRenderer):
     tags = ["md"]
     
-    def __call__(self, block: BaseBlock, inner_content: List[str], depth: int) -> str:
+    def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
         content = ""
         if block.content:
             if block.is_block:
@@ -74,7 +74,7 @@ class MarkdownTitleRenderer(ContentRenderer):
 class MarkdownParagraphRenderer(ItemsRenderer):
     tags = ["md"]
     
-    def __call__(self, block: BaseBlock, inner_content: List[str], depth: int) -> List[str]:
+    def __call__(self, block: Block, inner_content: List[str], depth: int) -> List[str]:
         return inner_content
 
 
@@ -98,7 +98,7 @@ def get_bullet_prefix(bullet_type: BulletType, idx: int) -> str:
 class MarkdownListRenderer(ItemsRenderer):
     tags = ["list","list:number", "list:alpha", "list:roman", "list:roman_lower", "list:*", "list:-"]
         
-    def __call__(self, block: BaseBlock, inner_content: List[str], depth: int) -> List[str]:
+    def __call__(self, block: Block, inner_content: List[str], depth: int) -> List[str]:
         if not inner_content:
             return []
         bullet_type = block.inline_style.get("bullet_type", "number")
@@ -121,14 +121,18 @@ class MarkdownListRenderer(ItemsRenderer):
 class XMLRenderer(ContentRenderer):
     tags = ["xml"]
     
-    def __call__(self, block: BaseBlock, inner_content: List[str], depth: int) -> str:
+    def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
         if not block.content:
             return "\n".join(inner_content) or ""
         if block.is_block:
-            if inner_content:
-                return f"<{block.content}>\n" + "\n".join(inner_content) + f"\n</{block.content}>"
+            if block.attrs:
+                attrs = " ".join([f"{k}=\"{v}\"" for k, v in block.attrs.items()])
             else:
-                return f"<{block.content} />"        
+                attrs = ""
+            if inner_content:
+                return f"<{block.content} {attrs}>\n" + "\n".join(inner_content) + f"\n</{block.content}>"
+            else:
+                return f"<{block.content} {attrs} />"        
         return block.content
         
 

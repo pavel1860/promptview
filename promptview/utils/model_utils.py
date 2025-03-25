@@ -2,14 +2,14 @@ import inspect
 import json
 import jsonref
 from types import UnionType
-from typing import Any, Literal, Optional, Union, get_args, get_origin
-from pydantic import BaseModel, create_model
-from enum import Enum
+from typing import Any, Dict, Iterable, Literal, Optional, Type, Union, get_args, get_origin
+from pydantic import BaseModel, Field, create_model
+from enum import Enum, StrEnum
 
 
 
 def is_list_type(pydantic_model):
-    return get_origin(pydantic_model) == list
+    return get_origin(pydantic_model) is list
 
 
 def unpack_list_model(pydantic_model):
@@ -161,6 +161,83 @@ def make_optional(model: BaseModel) -> BaseModel:
 
 
 
+def make_optional_model(
+    model: Type[BaseModel],
+    exclude: Optional[Iterable[str]] = None,
+) -> Type[BaseModel]:
+    """
+    Create a new Pydantic model where all fields are optional,
+    preserving field metadata and constraints. You can exclude fields by name.
+
+    Args:
+        model (Type[BaseModel]): The original Pydantic model class
+        exclude (Optional[Iterable[str]]): Field names to exclude from the new model
+
+    Returns:
+        Type[BaseModel]: A new model class with all (non-excluded) fields optional
+    """
+    fields: Dict[str, tuple[Any, Any]] = {}
+    exclude_set = set(exclude or [])
+
+    for field_name, model_field in model.model_fields.items():
+        if field_name in exclude_set:
+            continue
+
+        # Make the type optional
+        optional_type = Optional[model_field.annotation]
+        
+        # Create a copy of the field info to preserve metadata
+        field_kwargs = {}
+        
+        # Copy field constraints and metadata
+        if model_field.description:
+            field_kwargs['description'] = model_field.description
+        if model_field.title:
+            field_kwargs['title'] = model_field.title
+            
+        # Get validation rules if they exist
+        if hasattr(model_field, 'metadata') and model_field.metadata:
+            validation_rules = model_field.metadata.get('validation_rules', {})
+            
+            # Numeric constraints
+            if 'ge' in validation_rules:
+                field_kwargs['ge'] = validation_rules['ge']
+            if 'gt' in validation_rules:
+                field_kwargs['gt'] = validation_rules['gt']
+            if 'le' in validation_rules:
+                field_kwargs['le'] = validation_rules['le']
+            if 'lt' in validation_rules:
+                field_kwargs['lt'] = validation_rules['lt']
+            if 'multiple_of' in validation_rules:
+                field_kwargs['multiple_of'] = validation_rules['multiple_of']
+                
+            # String constraints
+            if 'min_length' in validation_rules:
+                field_kwargs['min_length'] = validation_rules['min_length']
+            if 'max_length' in validation_rules:
+                field_kwargs['max_length'] = validation_rules['max_length']
+            if 'pattern' in validation_rules:
+                field_kwargs['pattern'] = validation_rules['pattern']
+            
+        # Additional metadata from json_schema_extra
+        if model_field.json_schema_extra:
+            field_kwargs.update(model_field.json_schema_extra)
+            
+        # Make all fields optional by setting default=None
+        field = Field(default=None, **field_kwargs)
+        
+        fields[field_name] = (optional_type, field)
+
+    # Create new model with optional fields
+    optional_model = create_model(
+        f"{model.__name__}Optional",
+        **fields,
+    )
+
+    return optional_model
+
+
+
 def get_model_fields(model_instance, model_class):
     fields = {field: getattr(model_instance, field) for field in model_class.__fields__.keys()}
     return model_class(**fields)
@@ -229,7 +306,7 @@ def serialize_class(cls_: Any):
 
 
 
-def describe_enum(enum_cls: Enum, delimiter: str = ", ") -> str:
+def describe_enum(enum_cls: Enum | StrEnum, delimiter: str = ", ") -> str:
     return delimiter.join([v.value for v in enum_cls])
 
 def describe_literal(literal, delimiter="|"):

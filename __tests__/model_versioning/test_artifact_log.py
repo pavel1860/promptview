@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy import text
 import asyncpg
 from promptview.artifact_log.artifact_log3 import ArtifactLog, TurnStatus
-from promptview.model.fields import ModelField, ModelRelation
+from promptview.model.fields import ModelField, RelationField
 from promptview.model.model import Model
 
 

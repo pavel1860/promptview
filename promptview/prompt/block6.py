@@ -1,13 +1,17 @@
 from collections import defaultdict
 from abc import abstractmethod
 import textwrap
-from typing import Any, List, Literal, Type
+from typing import Any, Callable, Generic, List, Literal, Type, TypeVar, Union
 
 from pydantic import BaseModel
 from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
+from promptview.utils.model_utils import schema_to_ts
 
 
-    
+
+
+ContentType = Union[str , dict , "Block"]
+ 
     
 class ContextStack:
     """
@@ -59,7 +63,44 @@ class ToolCall(BaseModel):
     
     def to_json(self):
         return self.tool.model_dump_json() if isinstance(self.tool, BaseModel) else json.dumps(self.tool)
-  
+
+
+MAP_RET = TypeVar("MAP_RET")
+
+class BlockList(list["Block"], Generic[MAP_RET]):
+    """
+    A list of blocks
+    """
+    
+    def group(self, role: BlockRole | None = None, tags: list[str] | None = None) -> "Block":
+        """
+        Group the blocks by role and tags
+        """
+        return Block(items=self, role=role, tags=tags)
+    
+    def get(self, key: str | list[str], default: Any = None) -> "List[Block]":
+        """
+        Get the blocks by key
+        """
+        if isinstance(key, str):
+            key = [key]
+        return [item for item in self if all(tag in item.tags for tag in key)]
+    
+    
+    def map(self, func: "Callable[[Block], MAP_RET]") -> "list[MAP_RET]":
+        """
+        Map the blocks by function
+        """
+        return [func(item) for item in self]
+    
+    def bmap(self, func: "Callable[[Block], Block]") -> "BlockList":
+        """
+        Map the blocks by function
+        """
+        return BlockList([func(item) for item in self])
+    
+    
+    
     
         
 class Block:
@@ -84,6 +125,7 @@ class Block:
         "usage",
         "id",
         "db_id",
+        "attrs",
     ]
     # tags: list[str]
     # items: list["Block"]
@@ -98,6 +140,7 @@ class Block:
         content: Any | None = None, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None, 
+        attrs: dict | None = None,
         depth: int = 0, 
         parent: "Block | None" = None, 
         dedent: bool = True, 
@@ -129,6 +172,7 @@ class Block:
         self.usage = usage
         self.id = id
         self.db_id = db_id
+        self.attrs = attrs
     # def __call__(
     #     self, 
     #     content: Any | None = None, 
@@ -160,10 +204,10 @@ class Block:
         if len(self._ctx) > 1:
             self._ctx.pop()
         
-    def get(self, key: str | list[str], default: Any = None) -> Any:
+    def get(self, key: str | list[str], default: Any = None) -> "BlockList":
         if isinstance(key, str):
             key = [key]
-        sel_items = []
+        sel_items = BlockList()
         for item in self.items:
             for k in key:
                 if k in item.tags:
@@ -173,6 +217,16 @@ class Block:
                 sel_items.extend(item.get(key, default))
         return sel_items
     
+    def first(self, key: str | list[str], default: Any = None, raise_error: bool = True) -> "Block":
+        blocks = self.get(key, default)
+        if len(blocks) == 0:
+            if raise_error:
+                raise ValueError(f"No block found for key {key}")
+            else:
+                return default
+        return blocks[0]
+        
+        
     def __getitem__(self, idx: int) -> "Block":
         return self.items[idx]
     
@@ -185,7 +239,9 @@ class Block:
         content: Any, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None,
+        attrs: dict | None = None,
         items: list["Block"] | None = None,
+        role: BlockRole | None = None,
     ):
         if isinstance(content, Block):
             return content
@@ -197,18 +253,22 @@ class Block:
                 depth=len(self._ctx) if self._ctx else 0,
                 items=items,
                 ctx=self._ctx,
+                attrs=attrs,
             )
+        if role:
+            inst.role = role
         return inst
         
     def __call__(
         self, 
-        content: Any, 
+        content: Any | None = None, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None, 
+        attrs: dict | None = None,
         **kwargs
     ):
-        inst = self.append(content=content, tags=tags, style=style, **kwargs)
-        return inst
+        self.append(content=content, tags=tags, style=style, attrs=attrs, **kwargs)
+        return self.items[-1]
     
     
     def append(
@@ -216,20 +276,25 @@ class Block:
         content: Any, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None,
-        items: list["Block"] | None = None
+        attrs: dict | None = None,
+        items: list["Block"] | None = None,
+        role: BlockRole | None = None,
     ):
         inst = self._build_instance(
             content=content, 
             tags=tags, 
             style=style, 
             items=items,
+            attrs=attrs,
+            role=role,
         )
         self.ctx_items.append(inst)
         # if self._ctx:
         #     self._ctx[-1].items.append(inst)
         # else:
         #     self.items.append(inst)
-        return inst
+        return self
+    
     
     def merge(self, other: "Block"):
         """
@@ -239,12 +304,19 @@ class Block:
         return self
     
     
-    def __itruediv__(self, content: Any):
+    def __itruediv__(self, content: ContentType):
         """
         Append a new item to the block
         """
         self.append(content)
         return self    
+    
+    def __truediv__(self, content: ContentType):
+        """
+        Append a new item to the block
+        """
+        self.append(content)
+        return self
     
     def __add__(self, other: "Block | Any"):
         """
@@ -279,6 +351,13 @@ class Block:
         """
         self.inline_style.update(style_props)
         return self
+    
+    def model_dump(self, model: Type[BaseModel], format: str = "ts"):    
+        if format == "ts":
+            content = schema_to_ts(model)
+        else:
+            content = model.model_json_schema()        
+        return self.append(content)
 
     
     def get_style(self, property_name: str, default: Any = None) -> Any:
@@ -297,7 +376,11 @@ class Block:
       
     def __repr__(self) -> str:
         content = self.render()
-        return f"{self.__class__.__name__}():\n{content}"
+        tags = ", ".join(self.tags)
+        tag = f"[{tags}]" if tags else ""
+        role = f" role={self.role}" if self.role else ""
+        
+        return f"{self.__class__.__name__}({tags}{role}):\n{content}"
 
 
 
@@ -313,8 +396,8 @@ class BlockContext:
         self.ctx = ContextStack()
         self.ctx.push(root)
         
-    def __call__(self, content: Any, tags: list[str] | None = None, style: InlineStyle | None = None, **kwargs):       
-        self._append(content, tags, style)
+    def __call__(self, content: Any, tags: list[str] | None = None, style: InlineStyle | None = None, attrs: dict | None = None, **kwargs):       
+        self._append(content, tags, style, attrs)
         return self
     
     @property
@@ -339,6 +422,7 @@ class BlockContext:
         content: Any, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None,
+        attrs: dict | None = None,
         items: list["Block"] | None = None
     ):
         inst = Block(
@@ -348,6 +432,7 @@ class BlockContext:
             parent=self.ctx[-1],
             depth=len(self.ctx) if self.ctx else 0,
             items=items,
+            attrs=attrs,
         )        
         self.ctx[-1].append(inst)
         return inst
