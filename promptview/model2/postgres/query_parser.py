@@ -6,11 +6,18 @@
 
 
 
+from enum import Enum
 import json
 
 from pydantic import BaseModel
 from promptview.model2.query_filters import FieldOp, QueryFilter, QueryOp
+import datetime as dt
 
+
+
+
+def is_enum(field_type):
+    return isinstance(field_type, type) and issubclass(field_type, Enum)
 
 def build_where_clause(query_filter: QueryFilter) -> str:
     """Convert QueryFilter to SQL WHERE clause."""
@@ -28,7 +35,7 @@ def build_where_clause(query_filter: QueryFilter) -> str:
             field_type = field._field_info.annotation
         else:
             field_type = field.type
-            
+        
         
         # Handle JSONB fields differently
         if str(field_type).startswith("dict") or (isinstance(field_type, type) and issubclass(field_type, BaseModel)):
@@ -46,6 +53,7 @@ def build_where_clause(query_filter: QueryFilter) -> str:
                 values = [json.dumps(v) for v in query_filter.value]
                 return f"{json_field} != ALL(ARRAY[{', '.join(values)}])"
         
+        
         # Handle regular fields with proper type casting
         if query_filter._operator == FieldOp.NULL:
             return f"{field_name} IS NULL"
@@ -58,6 +66,8 @@ def build_where_clause(query_filter: QueryFilter) -> str:
                 return f"{field_name} = '{query_filter.value}'"
             elif field_type is dt.datetime:
                 return f"{field_name} = '{query_filter.value}'"
+            elif is_enum(field_type):
+                return f"{field_name} = '{query_filter.value.value}'"
         elif query_filter._operator == FieldOp.NE:
             if field_type is bool:
                 return f"{field_name} != {str(query_filter.value).lower()}"
@@ -67,6 +77,8 @@ def build_where_clause(query_filter: QueryFilter) -> str:
                 return f"{field_name} != '{query_filter.value}'"
             elif field_type is dt.datetime:
                 return f"{field_name} != '{query_filter.value}'"
+            elif is_enum(field_type):
+                return f"{field_name} != '{query_filter.value.value}'"
         elif query_filter._operator == FieldOp.IN:
             if field_type is int:
                 values = [str(v) for v in query_filter.value]
@@ -107,3 +119,13 @@ def build_where_clause(query_filter: QueryFilter) -> str:
                     conditions.append(f"{field_name} <= '{query_filter.value.le}'")
             return f"({' AND '.join(conditions)})"
     return ""
+
+
+
+
+
+
+
+
+
+

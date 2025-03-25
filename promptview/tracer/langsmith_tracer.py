@@ -54,6 +54,8 @@ class Tracer:
         self.outputs = {}
         self.session_token = None
         self.name = name
+        self.tracer_run = None
+        self.context_token = None        
         if session_id is not None:
             self.session_token = SESSION_ID.set(session_id)
         if not self.is_traceable:

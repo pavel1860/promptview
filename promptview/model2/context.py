@@ -33,10 +33,16 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     _branch: "Branch | None"
     _turn: "Turn | None"
     
-    def __init__(self, partition: "Model | int", span_name: str | None = None):
+    def __init__(self, partition: "Model | int | None" = None, span_name: str | None = None):
         if isinstance(partition, int):
             self._partition_id = partition
             self._partition = None
+        elif partition is None:
+            ctx = Context.get_current(raise_error=True)
+            if ctx is None:
+                raise ValueError("Context not set")
+            self._partition = ctx.partition
+            self._partition_id = ctx.partition_id
         else:
             self._partition_id = partition.id
             self._partition = partition
@@ -145,7 +151,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         return self
     
     def build_child(self, span_name: str | None = None):
-        child = Context(self.partition_id, span_name)
+        child = Context(self.partition, span_name)
         child._branch = self._branch
         child._turn = self._turn
         return child

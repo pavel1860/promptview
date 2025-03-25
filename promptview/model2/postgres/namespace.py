@@ -51,8 +51,8 @@ class PgFieldInfo(NSFieldInfo):
                 value = json.dumps(value)
             elif self.field_type is BaseModel:
                 value = value.model_dump()
-            elif self.data_type is dict and not value:
-                return "{}"
+            elif self.data_type is dict:
+                return json.dumps(value)
                 
         return value
     
@@ -72,6 +72,10 @@ class PgFieldInfo(NSFieldInfo):
         """Deserialize the value from the database"""
         if self.is_list and type(value) is str:
             return json.loads(value)
+        elif self.data_type is dict:
+            return json.loads(value)
+        elif self.data_type is BaseModel:
+            return self.data_type.model_validate_json(value)
         return value
             
     
@@ -185,12 +189,10 @@ class PostgresQuerySet(QuerySet[MODEL]):
     
     def filter(self, filter_fn: Callable[[MODEL], bool] | None = None, **kwargs) -> "PostgresQuerySet[MODEL]":
         """Filter the query"""
-        # self.filters.update(kwargs)            
+        self.filters.update(kwargs)            
         if filter_fn is not None:
             proxy = QueryProxy[MODEL](self.model_class)
-            self.filter_proxy = filter_fn(proxy)
-        if kwargs:
-            self.filter_proxy = parse_query_params(self.model_class, curr_filter=self.filter_proxy, **kwargs)
+            self.filter_proxy = filter_fn(proxy)    
         return self
     
     def limit(self, limit: int) -> "PostgresQuerySet[MODEL]":
@@ -472,10 +474,10 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         
         turn_id, branch_id = self.get_current_ctx_head(turn, branch) if self.is_versioned else (None, None)
         if id is None:
-            return await PostgresOperations.insert(self, data, turn_id, branch_id )
+            record = await PostgresOperations.insert(self, data, turn_id, branch_id )
         else:
-            return await PostgresOperations.update(self, id, data, turn_id, branch_id )
-    
+            record = await PostgresOperations.update(self, id, data, turn_id, branch_id )
+        return self.pack_record(record)
     
     async def get(self, id: Any) -> Optional[Dict[str, Any]]:
         """

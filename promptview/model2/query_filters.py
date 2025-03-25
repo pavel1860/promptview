@@ -132,7 +132,6 @@ class QueryFilter:
         return QueryFilter(self, QueryOp.OR, other)
     
     
-    
     def _set_values(self):
         if isinstance(self._left, FieldComparable):
             self._field = self._left
@@ -442,16 +441,103 @@ class QueryProxy(Generic[MODEL]):
 
 
 
+def parse_query_params(conditions: QueryListType) -> QueryFilter | None:
+    """Parse query parameters string into a QueryFilter object"""
+    # Split into individual conditions
+    # conditions = query_params.split('&')
+    
+    # Group conditions by field name
+    field_conditions = {}
+    for condition in conditions:
+        field = None
+        value = None
+        operator = None
+        
+        if len(condition) != 3:
+            raise ValueError(f"Invalid condition: {condition}")
+        field, operator, value = condition
+        # Parse operators and values
+        if operator == "==":
+            field_conditions[field] = {'eq': value}
+        elif operator == ">=":
+            if field not in field_conditions:
+                field_conditions[field] = {'range': {}}
+            field_conditions[field]['range']['ge'] = parse_value(field, value)
+        elif operator == "<=":
+            if field not in field_conditions:
+                field_conditions[field] = {'range': {}}
+            field_conditions[field]['range']['le'] = parse_value(field, value)
+        elif operator == ">":
+            if field not in field_conditions:
+                field_conditions[field] = {'range': {}}
+            field_conditions[field]['range']['gt'] = parse_value(field, value)
+        elif operator == "<":
+            if field not in field_conditions:
+                field_conditions[field] = {'range': {}}
+            field_conditions[field]['range']['lt'] = parse_value(field, value)
+
+    # Convert conditions to QueryFilter objects
+    filters = []
+    for field, conditions in field_conditions.items():
+        field_type = get_field_type(field)
+        if 'eq' in conditions:
+            filters.append(QueryFilter(
+                PropertyComparable(field, field_type),
+                FieldOp.EQ,
+                conditions['eq']
+            ))
+        elif 'range' in conditions:
+            range_params = conditions['range']
+            filters.append(QueryFilter(
+                PropertyComparable(field, field_type),
+                FieldOp.RANGE,
+                RangeFilter(**range_params)
+            ))
+
+    # Combine filters with AND
+    result = filters[0]
+    for f in filters[1:]:
+        result = result & f
+        
+    return result
 
 
-def parse_query_params(model_cls: Any, curr_filter: QueryFilter | None = None, **kwargs):
+def get_field_type(field: str) -> Type:
+    """Determine field type based on field name"""
+    if field in ['score']:
+        return float
+    elif field in ['date', 'datetime']:
+        return dt.datetime
+    elif field in ['name', 'category', 'status']:
+        return str
+    else:
+        return int
+
+def parse_value(field: str, value: str) -> Any:
+    """Parse string value into appropriate type based on field name"""
+    field_type = get_field_type(field)
+    if field_type == float:
+        return float(value)
+    elif field_type == dt.datetime:
+        try:
+            return dt.datetime.strptime(value, '%Y-%m-%dT%H:%M:%S')
+        except ValueError:
+            return dt.datetime.strptime(value, '%Y-%m-%d')
+    elif field_type == str:
+        return value
+    else:
+        return int(value)
+
+
+
+# def parse_query_params(model_cls: Any, curr_filter: QueryFilter | None = None, **kwargs):
             
-    for k, v in kwargs.items():
-        if isinstance(v, QueryFilter):
-            curr_filter = curr_filter & v if curr_filter else v
-        else:
-            if curr_filter is None:
-                curr_filter = QueryFilter(FieldComparable(k, model_cls.model_fields[k]), FieldOp.EQ, v)
-            else:
-                curr_filter = curr_filter & QueryFilter(FieldComparable(k, model_cls.model_fields[k]), FieldOp.EQ, v)
-    return curr_filter
+#     for k, v in kwargs.items():
+#         if isinstance(v, QueryFilter):
+#             curr_filter = curr_filter & v if curr_filter else v
+#         else:
+#             if curr_filter is None:
+#                 curr_filter = QueryFilter(FieldComparable(k, model_cls.model_fields[k]), FieldOp.EQ, v)
+#             else:
+#                 curr_filter = curr_filter & QueryFilter(FieldComparable(k, model_cls.model_fields[k]), FieldOp.EQ, v)
+#     return curr_filter

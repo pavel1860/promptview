@@ -9,6 +9,7 @@ from promptview.parsers import XmlOutputParser
 
 class OutputModel(BaseModel):
     _tool_calls: list[BaseModel] = PrivateAttr(default=[])
+    _tools: BaseModel
     
     @classmethod
     def render(cls) -> Block | None:

@@ -24,7 +24,8 @@ setup(
         "iso-639==0.4.5",
         "aiohttp==3.10.0",
         "langsmith==0.1.95",
-        "asyncpg==0.30.0"
+        "asyncpg==0.30.0",
+        "tabulate==0.9.0"
     ],    
     classifiers=[
         # Classifiers help users find your project by categorizing it.

@@ -61,7 +61,11 @@ R = TypeVar('R')
 
 
 
-class Prompt(Controller[P, R]):   
+class Prompt(Controller[P, R]):
+    
+    def __init__(self, tracable: bool = False, **kwargs: Any):
+        super().__init__(**kwargs)
+        self.tracable = tracable
     
     
     async def _call_with_dependencies(self, *args, **kwargs):
@@ -75,11 +79,12 @@ class Prompt(Controller[P, R]):
         async with execution_ctx as ctx:
             inspect.signature(self._complete).bind(*args, **kwargs)
                 # res = await self._call_with_dependencies(*args, **kwargs)
-            injection_kwargs = await self._inject_dependencies(*args, **kwargs)        
+            injection_kwargs = await self._inject_dependencies(*args, **kwargs)
             with Tracer(
                     name=self._complete.__name__,
                     run_type="prompt",
                     inputs=self._filter_args_for_trace(*args, **kwargs, **injection_kwargs),
+                    is_traceable=self.tracable,
                     # session_id=str(ctx.session_id)
                 ) as run:                
                 ctx.run_id = run.id
@@ -96,12 +101,14 @@ class Prompt(Controller[P, R]):
 
         
 def prompt(
+    tracable: bool = False,
     **kwargs: Any
 )-> Callable[[Callable[P, Awaitable[R]]], Prompt[P, R]]:
     
     def decorator(func: Callable[P, Awaitable[R]]) -> Prompt[P,R]:
         prompt = Prompt(
-                # model=model, #type: ignore                
+                # model=model, #type: ignore 
+                tracable=tracable,               
                 **kwargs
             )
         prompt._name=func.__name__

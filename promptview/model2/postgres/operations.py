@@ -451,16 +451,19 @@ class PostgresOperations:
         
         # Add filters
         values = []
-        if filters:
-            where_parts = []
-            for key, value in filters.items():
-                where_parts.append(f'"{key}" = ${len(values) + 1}')
-                values.append(value)
-                
-            sql += f" WHERE {' AND '.join(where_parts)}"
-            
-        if filter_proxy:
-            sql += " WHERE " + build_where_clause(filter_proxy)
+        if filters or filter_proxy:
+            filters_sql = " WHERE "
+            if filters:
+                where_parts = []
+                for key, value in filters.items():
+                    where_parts.append(f'"{key}" = ${len(values) + 1}')
+                    values.append(value)
+                    
+                filters_sql += ' AND '.join(where_parts)
+            if filter_proxy: 
+                filters_sql += " AND " if filters else ""           
+                filters_sql += build_where_clause(filter_proxy)
+            sql += filters_sql
         
         # Add order by
         if order_by:

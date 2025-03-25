@@ -9,7 +9,7 @@ import datetime as dt
 from promptview.model2.context import Context
 from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet
+from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet, QuerySetSingleAdapter
 from promptview.model2.versioning import Branch, Turn
 from promptview.model2.postgres.operations import PostgresOperations
 from promptview.utils.string_utils import camel_to_snake
@@ -480,7 +480,7 @@ class Relation(Generic[FOREIGN_MODEL], BaseRelation):
         
 
     
-    def _build_query_set(self):
+    def _build_query_set(self) -> "QuerySet[FOREIGN_MODEL]":
         """Build a query set for this relation."""
         if not self.primary_instance:
             raise ValueError("Instance is not set")
@@ -495,23 +495,23 @@ class Relation(Generic[FOREIGN_MODEL], BaseRelation):
         """Get all related models."""
         return self._build_query_set()
     
-    def filter(self, **kwargs):
+    def filter(self, filter_fn: Callable[[FOREIGN_MODEL], bool] | None = None, **kwargs) -> "QuerySet[FOREIGN_MODEL]":
         """Filter related models."""
         qs = self._build_query_set()
-        return qs.filter(**kwargs)
+        return qs.filter(filter_fn=filter_fn,**kwargs)
     
-    def first(self):
+    def first(self) -> "QuerySetSingleAdapter[FOREIGN_MODEL]":
         """Get the first related model."""
         qs = self._build_query_set()
         return qs.first()
     
-    def last(self):
+    def last(self) -> "QuerySetSingleAdapter[FOREIGN_MODEL]":
         """Get the last related model."""
         qs = self._build_query_set()
         return qs.last()
     
     
-    def limit(self, limit: int):
+    def limit(self, limit: int) -> "QuerySet[FOREIGN_MODEL]":
         """Limit the number of related models."""
         qs = self._build_query_set()
         return qs.limit(limit)
@@ -607,23 +607,23 @@ class ManyRelation(Generic[FOREIGN_MODEL, JUNCTION_MODEL], BaseRelation):
         """Get all related models."""
         return self._build_query_set()
     
-    def filter(self, **kwargs):
+    def filter(self, filter_fn: Callable[[FOREIGN_MODEL], bool] | None = None, **kwargs) -> QuerySet[FOREIGN_MODEL]:
         """Filter related models."""
         qs = self._build_query_set()
-        return qs.filter(**kwargs)
+        return qs.filter(filter_fn=filter_fn,**kwargs)
     
-    def first(self):
+    def first(self) -> QuerySetSingleAdapter[FOREIGN_MODEL]:
         """Get the first related model."""
         qs = self._build_query_set()
         return qs.first()
     
-    def last(self):
+    def last(self) -> QuerySetSingleAdapter[FOREIGN_MODEL]:
         """Get the last related model."""
         qs = self._build_query_set()
         return qs.last()
     
     
-    def limit(self, limit: int):
+    def limit(self, limit: int) -> QuerySet[FOREIGN_MODEL]:
         """Limit the number of related models."""
         qs = self._build_query_set()
         return qs.limit(limit)
