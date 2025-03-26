@@ -115,20 +115,20 @@ def test_get_block():
             
 
         
-    task = b.get("task")
+    task = b.find("task")
     assert len(task) == 1
     assert task[0].content == "Task"
 
-    rules = b.get("rules")
+    rules = b.find("rules")
     assert len(rules) == 2
     assert rules[0].content == "Rules"
 
-    sub_rules = b.get("sub-rule")
+    sub_rules = b.find("sub-rule")
     assert len(sub_rules) == 1
     assert sub_rules[0].content == "this is main rule 222"
 
 
-    multi_rules =b.get(["task", "sub-rule"])
+    multi_rules =b.find(["task", "sub-rule"])
 
     assert len(multi_rules) == 2
     assert multi_rules[0].content == "Task"

@@ -1,20 +1,121 @@
 from abc import abstractmethod
 import json
 from typing import Any, List, Type
-from .llm3 import LLM
+
+from promptview.prompt.block6 import BlockList
+from promptview.utils.model_utils import schema_to_function
+from .llm3 import LLM, LLMToolNotFound, LlmConfig, LlmContext
 from pydantic import Field, BaseModel
 from .utils.action_manager import Actions
 # from ..prompt.block import BaseBlock, ResponseBlock
 from ..prompt import Block, ToolCall
 import openai
 import os
+from openai.types.chat import ChatCompletionMessageParam
 
 
+
+
+
+class OpenAiLLM(LlmContext):
+    models = ["gpt-4o", "gpt-4o-mini"]
+    client: openai.AsyncClient
+    
+    def __init__(self, model: str):
+        super().__init__(model)
+        self.client = openai.AsyncClient(api_key=os.getenv("OPENAI_API_KEY"))
+    
+
+    def to_tool(self, tool: Type[BaseModel]) -> dict:
+        schema = schema_to_function(tool)
+        return schema
+    
+    def from_tool(self, tools: List[Type[BaseModel]], tool_call: openai.types.chat.chat_completion_message_tool_call.ChatCompletionMessageToolCall) -> BaseModel:
+        tool_args = json.loads(tool_call.function.arguments)
+        tool_cls = next((t for t in tools if t.__name__ == tool_call.function.name), None)
+        if not tool_cls:
+            raise LLMToolNotFound(tool_call.function.name)
+        tool = tool_cls(**tool_args)
+        return tool
+    
+    def to_message(self, content: str, role: str, tool_calls: List[ToolCall] | None = None, tool_call_id: str | None = None, name: str | None = None) -> ChatCompletionMessageParam:
+        # message: ChatCompletionMessageParam = {
+        message = {
+            "role": role,
+            "content": content,
+        }
+        if tool_calls:
+            message["tool_calls"] = [
+                {
+                    "id": tool_call.id,
+                        "type": "function",
+                        "function": {
+                            # "arguments": json.dumps(action_call.action.model_dump()),
+                            "arguments": tool_call.to_json(),
+                            "name": tool_call.name
+                        }                      
+                } for tool_call in tool_calls
+            ]
+        if tool_call_id:
+            message["tool_call_id"] = tool_call_id
+        if name:
+            message["name"] = name
+        
+        return message
+    
+    def to_chat(self, blocks: Block | BlockList) -> List[dict]:
+        output_prompt = self.output_model.render() if self.output_model else None        
+        messages = [
+            *blocks.find("system").group_to_list(extra=output_prompt).map(lambda x: self.to_message(x.render(), role="system")),
+            *blocks.find("history").map(lambda x: self.to_message(x.render(), role=x.role)),
+            *blocks.find("user_input").map(lambda x: self.to_message(x.render(), role="user"))
+        ]
+        return messages
+    
+    
+    async def client_complete(self, blocks: Block, tools: List[Type[BaseModel]] | None = None, config: LlmConfig | None = None) -> Block:
+                
+        messages = self.to_chat(blocks)
+        llm_tools = None
+        if tools:
+            llm_tools = [self.to_tool(tool) for tool in tools]        
+        
+        response = await self.client.chat.completions.create(
+            messages=messages,
+            tools=llm_tools,
+            model=config.model,
+            tool_choice=config.tool_choice,
+            # **kwargs
+        )
+        
+        output = response.choices[0].message
+        tool_calls = []
+        if tools and output.tool_calls:
+            for tool_call in output.tool_calls:
+                action_instance = self.from_tool(tools, tool_call)
+                tool_calls.append(
+                    ToolCall(
+                        id=tool_call.id,
+                        name=tool_call.function.name,
+                        tool=action_instance
+                    ))
+                              
+        response_block = Block(
+            content=output.content,
+            role="assistant",
+            tool_calls=tool_calls,
+            id=response.id,
+            model=response.model,
+        )
+        return response_block
 
 
     
 
-class OpenAiLLM(LLM):
+
+    
+
+class OpenAiLLM2(LLM):
     name: str = "OpenAiLLM"    
     # client: OpenAiLlmClient = Field(default_factory=OpenAiLlmClient)
     client: openai.AsyncClient = Field(default_factory=lambda: openai.AsyncClient(api_key=os.getenv("OPENAI_API_KEY")))
@@ -23,10 +124,10 @@ class OpenAiLLM(LLM):
     
     
 
-    def to_message(self, block: Block | Block):
-        if not isinstance(block, Block):
-            if isinstance(block, Block):
-                block = Block.from_block(block)
+    def render(self, blocks: Block):
+        if not isinstance(blocks, Block):
+            if isinstance(blocks, Block):
+                blocks = Block.from_block(blocks)
                         
         if block.role == "user" or block.role == "system" or block.role == None:
             return {
