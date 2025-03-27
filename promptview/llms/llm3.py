@@ -2,14 +2,15 @@ from __future__ import annotations
 from abc import abstractmethod
 from enum import StrEnum
 from functools import singledispatch
-from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Self, Type, TypeVar, Union, TYPE_CHECKING
-from pydantic import BaseModel, Field, ValidationError
-
+from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Self, Type, TypeVar, Union, TYPE_CHECKING, get_args
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError
+from pydantic.fields import FieldInfo
 from promptview.llms.types import ErrorMessage
 from promptview.prompt import Block, BlockRole, ToolCall, LlmUsage
 from promptview.prompt.block6 import BlockList
 from promptview.tracer import Tracer
-from promptview.parsers import XmlOutputParser  
+from promptview.parsers import XmlOutputParser
+from promptview.utils.model_utils import schema_to_ts  
     
 class LLMToolNotFound(Exception):
     
@@ -110,29 +111,93 @@ class LlmConfig(BaseModel):
 
 
         
-
+def get_field_type(field_info) -> str:
+    if get_args(field_info.annotation):
+        return str(field_info.annotation)
+    return field_info.annotation.__name__
 
 
 class OutputModel(BaseModel):    
-    tool_calls: list[BaseModel] = Field(default=[])
+    tool_calls: List[ToolCall] = Field(default=[])
+    _block: Block = PrivateAttr()
+    
+    
+    def output_fields(self) -> List[tuple[str, FieldInfo]]:
+        return [(field, field_info) for field, field_info in self.model_fields.items() if field != "tool_calls"]
 
     @classmethod
-    def render(cls) -> Block:
-        with Block("Output format", tags=["output_format"]) as of:
-            of += "you should use the following format for your output:"
+    def render(cls, tools: List[Type[BaseModel]] = [], config: LlmConfig | None = None) -> Block:
+        with Block("Output format", tags=["output_format"]) as blk:
+            blk += "you must use the following format for your output:"
             for field, field_info in cls.model_fields.items():
-                with of(field, attrs={"type": field_info.annotation.__name__}, style=["xml"]):
+                # with blk(field, attrs={"type": get_field_type(field_info)}, style=["xml"]):
+                with blk(field, style=["xml"]):
                     if field_info.description:
-                        of += field_info.description
-        return of
+                        blk += field_info.description
+            if tools:
+                
+                # elif config and config.tool_choice == "none":
+                    # blk += "you should not use any tool calls"
+                blk /= "the tool calls you want to use should be in the following xml format:"
+                # with blk("tool_calls", tags=["tool_calls"], style=["xml"]):
+                with blk("tool", tags=["tool_example"], attrs={"name": "{{the tool name}}"}, style=["xml"]):
+                    blk /= "{{the tool arguments in json format}}"
+                with blk("tool", tags=["tool_example"], attrs={"name": "{{the second tool name}}"}, style=["xml"]):
+                    blk /= "{{the second tool arguments in json format}}"
+                blk /= "<!-- (... more tool calls if needed) -->"
+                    
+                    
+                with blk("Tool Call Rules", tags=["tool_call_rules"], style=["list"]):
+                    blk /= "read carefully the tool description and the tool arguments."
+                    blk /= "understand if you have a tool that can help you to complete the task or you should respond only in text."
+                    blk /= "you can perform actions in response to the user input."
+                    blk /= "tool calls should be in xml format with json schema inside as a child element."
+                    
+                    if config and config.tool_choice == "required":
+                        blk /= "you have to pick the right tool to respond to the user input"
+                    elif config and config.tool_choice == "auto":
+                        blk /= "you can use as many tools as needed to complete the task"
+                
+                blk /= "you must use the provided output format."
+                blk /= "** end of output format **"
+                # blk /= "don't forget to output a message when you have something to say."
+                blk /= ""
+                blk /= ""
+                with blk("Available tools", tags=["available_tools"], style=["xml"]):
+                    blk /= "you can use the following tools to complete the task:"
+                    for tool in tools:
+                        if not tool.__doc__:
+                            raise ValueError(f"Tool {tool.__name__} has no description")
+                        with blk("tool", attrs={"name": tool.__name__, "description": tool.__doc__}, tags=["tool"], style=["xml"]):                            
+                            # blk /= "description:" + tool.__doc__
+                            blk.model_schema(tool)
+        return blk
+    
+    def block(self) -> Block:
+        return self._block
 
     @classmethod
-    def parse(cls, completion: Block) -> Self:
+    def parse(cls, completion: Block, tools: List[Type[BaseModel]]) -> Self:
         """parse the completion into the output model"""
-        xml_parser = XmlOutputParser()
-        fmt_res, fmt_actions = xml_parser.parse(f"<root>{completion.content}</root>", [], cls)
-        cls.tool_calls = fmt_actions
-        return fmt_res
+        try:
+            xml_parser = XmlOutputParser()
+            fmt_res, fmt_tools = xml_parser.parse(f"<root>{completion.content}</root>", tools, cls)
+            fmt_res.tool_calls = fmt_tools
+            fmt_res._block = completion
+            return fmt_res
+        except ValidationError as e:
+            raise ErrorMessage(f"Validation error: {e}")
+    
+    
+    
+    def __repr__(self) -> str:
+        s = f"<{self.__class__.__name__}>"
+        for field, field_info in self.model_fields.items():
+            s += f"\n{field}: {getattr(self, field)}"
+        # for tool in self.tool_calls:
+        #     s += f"\n{tool}"
+        s += f"</{self.__class__.__name__}>"
+        return s
  
  
 OUTPUT_MODEL = TypeVar('OUTPUT_MODEL', bound=OutputModel)
@@ -167,7 +232,7 @@ class LlmContext(Generic[OUTPUT_MODEL]):
         return self
 
     @abstractmethod
-    def to_chat(self, blocks: Block | BlockList) -> List[dict]:
+    def to_chat(self, blocks: Block | BlockList, tools: List[Type[BaseModel]] | None = []) -> List[dict]:
         ...
         
     @abstractmethod
@@ -257,16 +322,16 @@ class LlmContext(Generic[OUTPUT_MODEL]):
                     config=config
                 )
                 if self.output_model is not None:
-                    parsed_response = self.output_model.parse(response)
+                    parsed_response = self.output_model.parse(response, tools)
                     return response, parsed_response
                 return response, None
             except ErrorMessage as e:
                 if attempt == config.retries - 1:
                     raise
                 if e.should_retry:
-                    if response:
+                    if response is not None:
                         blocks.append(response)
-                        blocks.append(e.to_block())
+                    blocks.append(e.to_block(), tags=["generation", "error"])
         raise Exception("Failed to complete")
     
     
@@ -348,7 +413,7 @@ class LLM():
     
     def __call__(
         self,        
-        *args: Block | str,
+        *args: Block | BlockList | str,
         model: str | None = None,
     ) -> LlmContext:
 
@@ -358,8 +423,11 @@ class LLM():
                     ctx_blocks.append(block, role="user", tags=["user_input"])
                 elif isinstance(block, Block):
                     if not block.role:
-                        block.role = "user"
+                        raise ValueError("Block role is not set")
                     ctx_blocks.append(block)
+                elif isinstance(block, BlockList):
+                    for b in block:
+                        ctx_blocks.append(b)
                         
         llm_ctx = self._get_llm(model)
         return llm_ctx(ctx_blocks)

@@ -93,5 +93,10 @@ async def resolve_dependency(dependency_func, *args, **kwargs):
             sub_dependency_func = default_val.dependency
             dep_kwargs[param_name] = await resolve_dependency(sub_dependency_func)
     
+    
     # Once all sub-dependencies are resolved, call the function
-    return await call_function(dependency_func, *args, **kwargs, **dep_kwargs)
+    try:
+        # return await call_function(dependency_func, *args, **kwargs, **dep_kwargs)
+        return await call_function(dependency_func, *args, **(kwargs | dep_kwargs))
+    except Exception as e:
+        raise e

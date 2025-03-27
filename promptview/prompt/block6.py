@@ -1,7 +1,7 @@
 from collections import defaultdict
 from abc import abstractmethod
 import textwrap
-from typing import Any, Callable, Generic, List, Literal, Type, TypeVar, Union
+from typing import Any, Callable, Generic, List, Literal, Protocol, Type, TypeVar, Union
 
 from pydantic import BaseModel
 from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
@@ -11,7 +11,9 @@ from promptview.utils.model_utils import schema_to_ts
 
 
 ContentType = Union[str , dict , "Block"]
- 
+
+
+
     
 class ContextStack:
     """
@@ -293,7 +295,7 @@ class Block:
         **kwargs
     ):
         self.append(content=content, tags=tags, style=style, attrs=attrs, **kwargs)
-        return self.items[-1]
+        return self.ctx_items[-1]
     
     
     def append(
@@ -377,7 +379,7 @@ class Block:
         self.inline_style.update(style_props)
         return self
     
-    def model_dump(self, model: Type[BaseModel], format: str = "ts"):    
+    def model_schema(self, model: Type[BaseModel], format: str = "ts"):    
         if format == "ts":
             content = schema_to_ts(model)
         else:
@@ -398,14 +400,23 @@ class Block:
         rndr = BlockRenderer(style_manager, RendererMeta._renderers)
         return rndr.render(self)
     
-      
+    
     def __repr__(self) -> str:
+                
+        # prompt = f"<{self.__class__.__name__} tags={self.tags} role={self.role} style={self.inline_style.style} depth={self.depth}>\n{self.render()}\n</{self.__class__.__name__}>"
         content = self.render()
-        tags = ", ".join(self.tags)
-        tag = f"[{tags}]" if tags else ""
-        role = f" role={self.role}" if self.role else ""
-        
-        return f"{self.__class__.__name__}({tags}{role}):\n{content}"
+        if len(content) > 30:
+            content = content[0:30] + "..."
+        prompt = f"""<{self.__class__.__name__} tags={self.tags} role={self.role} style={self.inline_style.style} depth={self.depth} content="{content}">"""
+        return prompt      
+      
+      
+    # def __repr__(self) -> str:
+    #     content = self.render()
+    #     tags = ", ".join(self.tags)
+    #     tag = f"[{tags}]" if tags else ""
+    #     role = f" role={self.role}" if self.role else ""        
+    #     return f"{self.__class__.__name__}({tags}{role}):\n{content}"
 
 
 
@@ -466,3 +477,14 @@ class BlockContext:
     def __itruediv__(self, content: Any):
         self._append(content)
         return self
+    
+    
+    
+    
+    
+    
+    
+    
+class Blockable(Protocol):
+    def block(self) -> Block:
+        ...

@@ -34,7 +34,7 @@ def ModelField(
 def KeyField(
     default: Any = None,
     # *,
-    primary_key: bool = True,
+    primary_key: bool = False,
     description: str | None = _Unset,
     # **kwargs
 ) -> Any:

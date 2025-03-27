@@ -3,6 +3,7 @@ import json
 from typing import Any, List, Type
 
 from promptview.prompt.block6 import BlockList
+from promptview.tracer.langsmith_tracer import Tracer
 from promptview.utils.model_utils import schema_to_function
 from .llm3 import LLM, LLMToolNotFound, LlmConfig, LlmContext
 from pydantic import Field, BaseModel
@@ -59,34 +60,45 @@ class OpenAiLLM(LlmContext):
         if tool_call_id:
             message["tool_call_id"] = tool_call_id
         if name:
-            message["name"] = name
-        
+            message["name"] = name        
         return message
     
-    def to_chat(self, blocks: Block | BlockList) -> List[dict]:
-        output_prompt = self.output_model.render() if self.output_model else None        
+    def to_chat(self, blocks: Block | BlockList, tools: List[Type[BaseModel]] | None = []) -> List[dict]:
+        output_prompt = self.output_model.render(tools) if self.output_model else None
         messages = [
             *blocks.find("system").group_to_list(extra=output_prompt).map(lambda x: self.to_message(x.render(), role="system")),
             *blocks.find("history").map(lambda x: self.to_message(x.render(), role=x.role)),
-            *blocks.find("user_input").map(lambda x: self.to_message(x.render(), role="user"))
+            *blocks.find("user_input").map(lambda x: self.to_message(x.render(), role="user")),
+            *blocks.find("generation").map(lambda x: self.to_message(x.render(), role=x.role))
         ]
         return messages
     
     
     async def client_complete(self, blocks: Block, tools: List[Type[BaseModel]] | None = None, config: LlmConfig | None = None) -> Block:
                 
-        messages = self.to_chat(blocks)
+        messages = self.to_chat(blocks, tools)
         llm_tools = None
-        if tools:
+        tool_choice = None
+        if tools and self.output_model is None:
             llm_tools = [self.to_tool(tool) for tool in tools]        
+            tool_choice = self.config.tool_choice
         
-        response = await self.client.chat.completions.create(
-            messages=messages,
-            tools=llm_tools,
-            model=config.model,
-            tool_choice=config.tool_choice,
-            # **kwargs
-        )
+        with Tracer(
+            is_traceable=self.is_traceable,
+            run_type="llm",
+            name=self.__class__.__name__,
+            inputs={"messages": messages},
+            metadata={},
+        ) as llm_run:
+            response = await self.client.chat.completions.create(
+                messages=messages,
+                tools=llm_tools,
+                model=config.model,
+                tool_choice=tool_choice,
+                # **kwargs
+            )
+            llm_run.end(outputs=response)
+            
         
         output = response.choices[0].message
         tool_calls = []
@@ -106,6 +118,7 @@ class OpenAiLLM(LlmContext):
             tool_calls=tool_calls,
             id=response.id,
             model=response.model,
+            tags=["generation"]
         )
         return response_block
 

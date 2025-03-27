@@ -356,7 +356,7 @@ class ContextModel(ArtifactModel):
     def from_block(cls, block: "Block") -> "ContextModel":
         raise NotImplementedError("ContextModel.from_block is not implemented")
     
-    def to_block(self) -> "Block":
+    def to_block(self, ctx: "Context") -> "Block":
         raise NotImplementedError("ContextModel.to_block is not implemented")
     
     @classmethod

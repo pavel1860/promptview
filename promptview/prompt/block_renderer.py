@@ -68,12 +68,18 @@ class BlockRenderer:
     
     
     def build_ctx(self, block: BaseBlock, parent_ctx: "RendererContext | None" = None) -> "RendererContext":
-        ctx = parent_ctx.copy() if parent_ctx else RendererContext(
+        # ctx = parent_ctx.copy() if parent_ctx else RendererContext(
+        #     MarkdownTitleRenderer(),
+        #     MarkdownParagraphRenderer(),
+        #     block.is_wrapper,
+        # )
+        ctx = RendererContext(
             MarkdownTitleRenderer(),
             MarkdownParagraphRenderer(),
             block.is_wrapper,
         )
-        
+        # print("##",block.tags)
+        # print("   ", block.inline_style.style)
         for tag in block.inline_style.style:
             try:
                 renderer_cls = self.renderer_lookup[tag]
@@ -84,30 +90,30 @@ class BlockRenderer:
         return ctx
         
         
-    def build_ctx2(self, block: BaseBlock, parent_ctx: "RendererContext | None" = None) -> "RendererContext":
-        target_classes: RenderersClassDict = {
-            "content": MarkdownTitleRenderer,
-            "items": MarkdownParagraphRenderer
-        } if parent_ctx is None else {"content": None, "items": None}
+    # def build_ctx2(self, block: BaseBlock, parent_ctx: "RendererContext | None" = None) -> "RendererContext":
+    #     target_classes: RenderersClassDict = {
+    #         "content": MarkdownTitleRenderer,
+    #         "items": MarkdownParagraphRenderer
+    #     } if parent_ctx is None else {"content": None, "items": None}
         
             
-        for tag in block.inline_style.style:
-            try:
-                renderer_cls = self.renderer_lookup[tag]
-            except KeyError:
-                raise UndefinedTagError(f"Tag {tag} not found in renderer lookup. Implement a renderer for this tag.")
-            else:
-                target_classes[renderer_cls.target] = renderer_cls # type: ignore
+    #     for tag in block.inline_style.style:
+    #         try:
+    #             renderer_cls = self.renderer_lookup[tag]
+    #         except KeyError:
+    #             raise UndefinedTagError(f"Tag {tag} not found in renderer lookup. Implement a renderer for this tag.")
+    #         else:
+    #             target_classes[renderer_cls.target] = renderer_cls # type: ignore
         
         
-        ctx = parent_ctx.copy(target_classes, inc_depth=block.is_wrapper == False) if parent_ctx else RendererContext(
-            target_classes["content"]() if target_classes["content"] is not None else None, 
-            target_classes["items"]() if target_classes["items"] is not None else None,       
-            block.is_wrapper,            
-        )
-        if ctx._content_renderer is None or ctx._items_renderer is None:
-            raise ValueError("No renderer found for content or items")         
-        return ctx
+    #     ctx = parent_ctx.copy(target_classes, inc_depth=block.is_wrapper == False) if parent_ctx else RendererContext(
+    #         target_classes["content"]() if target_classes["content"] is not None else None, 
+    #         target_classes["items"]() if target_classes["items"] is not None else None,       
+    #         block.is_wrapper,            
+    #     )
+    #     if ctx._content_renderer is None or ctx._items_renderer is None:
+    #         raise ValueError("No renderer found for content or items")         
+    #     return ctx
         
 
     def render(self, block: BaseBlock, ctx: RendererContext | None = None) -> str:        
