@@ -2,14 +2,14 @@
 from contextlib import asynccontextmanager
 from functools import wraps
 from typing import Annotated, Any, Awaitable, Callable, Concatenate, Dict, Generic, Literal, ParamSpec, Type, TypeVar
-from fastapi import FastAPI, Form, Header
+from fastapi import Depends, FastAPI, Form, Header
 
 
 from promptview.api.model_router import create_crud_router
-from promptview.auth.user_manager import AuthManager
+from promptview.auth.dependencies import get_auth_user
+from promptview.auth.user_manager import AuthManager, AuthModel
 from promptview.testing.test_manager import TestManager
-from promptview.model2 import Model, NamespaceManager
-from promptview.prompt.context import Context
+from promptview.model2 import Model, NamespaceManager, Context
 from promptview.api.auth_router import create_auth_router
 from promptview.api.model_router import create_crud_router
 from promptview.api.artifact_log_api import router as artifact_log_router
@@ -18,7 +18,7 @@ from promptview.api.user_router import connect_user_model_routers
 
 
 MSG_MODEL = TypeVar('MSG_MODEL', bound=Model)
-USER_MODEL = TypeVar('USER_MODEL', bound=Model)
+USER_MODEL = TypeVar('USER_MODEL', bound=AuthModel)
 CTX_MODEL = TypeVar('CTX_MODEL', bound=Context)
 
 P = ParamSpec('P')
@@ -45,6 +45,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
             # This code runs before the server starts serving
             ns = user_model.get_namespace()
             await AuthManager.initialize_tables()
+            AuthManager.register_user_model(user_model)
             await NamespaceManager.create_all_namespaces(ns.name)
             # Yield to hand control back to FastAPI (start serving)
             yield
@@ -73,15 +74,16 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
             self._entrypoints_registry[path] = func
             async def input_endpoint(
                 message_json:  Annotated[str, Form(...)],
-                head_id: Annotated[int, Header(alias="head_id")],
+                # head_id: Annotated[int, Header(alias="head_id")],
+                user: Any = Depends(get_auth_user),
                 branch_id: Annotated[int | None, Header(alias="branch_id")] = None,
             ):
+                print(user)
                 message = self._message_model.model_validate_json(message_json)
-                async with self._ctx_model(head_id=head_id, branch_id=branch_id) as ctx:
+                # async with self._ctx_model(head_id=head_id, branch_id=branch_id) as ctx:                
+                async with self._ctx_model(user, auto_commit=auto_commit).start_turn(branch_id=branch_id) as ctx:
                     response = await func(ctx=ctx, message=message)
-                    if auto_commit:
-                        await ctx.commit()
-                return [response, message]
+                return response
             
             async def test_endpoint(
                 body: dict,

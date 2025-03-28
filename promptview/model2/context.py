@@ -35,7 +35,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     _branch: "Branch | None"
     _turn: "Turn | None"
     
-    def __init__(self, partition: "Model | int | None" = None, span_name: str | None = None):
+    def __init__(self, partition: "Model | int | None" = None, span_name: str | None = None, auto_commit: bool = True):
         if isinstance(partition, int):
             self._partition_id = partition
             self._partition = None
@@ -54,6 +54,8 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         self._span_name = span_name
         self._branch = None
         self._turn = None
+        self._auto_commit = auto_commit
+        self._parent_ctx = None
         
     @classmethod
     def get_current(cls, raise_error: bool = True):
@@ -141,7 +143,9 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             raise ValueError("Partition not set")
         return self._partition
     
-    def start_turn(self, branch_id: int = 1):
+    def start_turn(self, branch_id: int | None = None):
+        if branch_id is None:
+            branch_id = 1
         self._init_method = InitStrategy.START_TURN
         self._init_params["branch_id"] = branch_id
         return self
@@ -160,6 +164,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         child = Context(self.partition, span_name)
         child._branch = self._branch
         child._turn = self._turn
+        child._parent_ctx = self
         return child
     
     async def _start_new_turn(self):
@@ -193,8 +198,19 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     async def __aexit__(self, exc_type, exc_value, traceback):
         self._reset_context()
         if exc_type is not None:
+            if self._parent_ctx is None:
+                await self.revert(message=str(exc_value))            
             return False
+        if self._auto_commit and self._parent_ctx is None:
+            await self.commit()
         return True
+    
+    
+    async def commit(self):
+        await ArtifactLog.commit_turn(self.turn.id)
+    
+    async def revert(self, message: str | None = None):
+        await ArtifactLog.revert_turn(self.turn.id, message)
     
     async def push(self, value: "Block | CONTEXT_MODEL | Blockable") -> "Block":
         if not self.can_push:

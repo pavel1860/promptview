@@ -6,7 +6,6 @@ from pydantic import BaseModel
 from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model2 import Model, ModelField
 from promptview.utils.db_connections import PGConnectionManager
-from promptview.model.resource_manager import connection_manager
 
 
 # class UserModel(Model, HeadModel):
@@ -168,7 +167,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     PRIMARY KEY (id)
 );                                                     
 """)
-        await connection_manager.init_all_namespaces()
+        
         
 # CREATE TABLE IF NOT EXISTS users (
 #     id SERIAL,
@@ -226,14 +225,14 @@ CREATE TABLE IF NOT EXISTS sessions (
         return user
     
     async def get_user_by_session_token(self, session_token: str):
-        user_id = await PGConnectionManager.fetch_one(
+        res = await PGConnectionManager.fetch_one(
             f"""
             SELECT "userId" FROM sessions WHERE "sessionToken" = '{session_token}'
             """
         )
-        if user_id is None:
+        if res is None:
             raise UserManagerError("Invalid session token")
-        return await self.get_user(user_id)
+        return await self.get_user(res["userId"])
     
     
     async def change_head(self, user_id: int, head_id: int):

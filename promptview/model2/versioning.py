@@ -279,9 +279,20 @@ class ArtifactLog:
             raise ValueError(f"Turn {turn_id} not found")
         return Turn(**dict(result))
     
-    
-    
-    
+    @classmethod
+    async def revert_turn(cls, turn_id: int, message: Optional[str] = None) -> Turn:
+        """Revert the current turn"""
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        query = """
+        UPDATE turns
+        SET status = $1, ended_at = $2, message = $3
+        WHERE id = $4
+        RETURNING *;
+        """
+        result = await PGConnectionManager.fetch_one(query, TurnStatus.REVERTED.value, now, message, turn_id)
+        if result is None:
+            raise ValueError(f"Turn {turn_id} not found")
+        return Turn(**dict(result))
     
     
     @classmethod

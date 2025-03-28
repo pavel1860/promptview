@@ -398,7 +398,8 @@ class PostgresOperations:
         order_by: str | None = None,
         offset: int | None = None,
         joins: list[JoinType] | None = None,
-        filter_proxy: QueryProxy | None = None
+        filter_proxy: QueryProxy | None = None,
+        include_reverted_turns: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Query records with versioning support.
@@ -468,6 +469,10 @@ class PostgresOperations:
             filtered_alias = f"filtered_{namespace.table_name}"
             # sql = sql.replace(namespace.table_name, "filtered_records")
             sql = sql.replace(namespace.table_name, filtered_alias)
+            if not include_reverted_turns:
+                reverted_turns_clause = f""" AND t.status != '{TurnStatus.REVERTED.value}'"""
+            else:
+                reverted_turns_clause = ""
             partition_clause = f"AND t.partition_id = {partition_id}" if partition_id else ""
             sql = f"""
             WITH RECURSIVE branch_hierarchy AS (
@@ -497,7 +502,7 @@ class PostgresOperations:
                 FROM branch_hierarchy bh
                 JOIN turns t ON bh.id = t.branch_id
                 JOIN "{namespace.table_name}" m ON t.id = m.turn_id
-                WHERE t.index <= bh.start_turn_index {partition_clause}
+                WHERE t.index <= bh.start_turn_index {partition_clause}{reverted_turns_clause}
             )
             {sql}
             """
