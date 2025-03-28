@@ -2,7 +2,7 @@ import inspect
 import json
 import jsonref
 from types import UnionType
-from typing import Any, Dict, Iterable, Literal, Optional, Type, Union, get_args, get_origin
+from typing import Any, Dict, Iterable, List, Literal, Optional, Type, TypedDict, Union, get_args, get_origin
 from pydantic import BaseModel, Field, create_model
 from enum import Enum, StrEnum
 
@@ -32,12 +32,28 @@ def remove_a_key(d, remove_key):
                 del d[key]
             else:
                 remove_a_key(d[key], remove_key)
+                
+                
+                
+                
+# class FunctionParameter(TypedDict, total=False):
+#     type: str
+#     description: Optional[str]
+#     enum: Optional[List[str]]
+#     properties: Optional[Dict[str, Any]]
+#     required: Optional[List[str]]
 
-def schema_to_function(schema: Any):
-    # assert schema.__doc__, f"{schema.__name__} is missing a docstring."
-    # assert (
-    #     "title" not in schema.__fields__.keys()
-    # ), "`title` is a reserved keyword and cannot be used as a field name."
+# class FunctionSchema(TypedDict):
+#     name: str
+#     description: Optional[str]
+#     parameters: Dict[str, Any]  # JSON Schema object
+
+# class ToolFunction(TypedDict):
+#     type: Literal["function"]
+#     function: FunctionSchema
+
+def schema_to_function(schema: Type[BaseModel]) -> dict[str, Any]:
+    """convert a pydantic model to a function schema"""
     schema_dict = schema.model_json_schema()
     remove_a_key(schema_dict, "title")
 

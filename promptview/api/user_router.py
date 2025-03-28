@@ -10,13 +10,13 @@ from promptview.model.resource_manager import connection_manager
 # from app.util.auth import varify_token
 # from app.util.dependencies import unpack_request_token
 from promptview.model.model import Model
-from promptview.auth.user_manager import UserManager, UserModel
+from promptview.auth.user_manager import AuthManager, AuthModel
 from typing import Type, Any, Dict, Optional
 from fastapi import Query
 from pydantic import BaseModel
 from promptview.artifact_log.artifact_log3 import ArtifactLog
 
-USER_MODEL = TypeVar("USER_MODEL", bound=UserModel)
+AUTH_MODEL = TypeVar("AUTH_MODEL", bound=AuthModel)
 
 
 
@@ -27,10 +27,10 @@ def unpack_int_env_header(request: Request, field: str):
     return int(value)
         
 
-async def get_user(user_token: str = Depends(get_user_token), user_manager: UserManager = Depends(get_user_manager)):
+async def get_user(user_token: str = Depends(get_user_token), user_manager: AuthManager[AUTH_MODEL] = Depends(get_user_manager)):
     return await user_manager.get_user_by_session_token(user_token)
 
-async def get_admin_user(user: UserModel = Depends(get_user)):
+async def get_admin_user(user: AUTH_MODEL = Depends(get_user)):
     if not user.is_admin:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user
@@ -167,7 +167,7 @@ async def get_admin_user(user: UserModel = Depends(get_user)):
 class ChangeHeadRequest(BaseModel):
     head_id: int
 
-def create_user_crud_router(user_model: Type[USER_MODEL]) -> APIRouter:    
+def create_user_crud_router(user_model: Type[AUTH_MODEL]) -> APIRouter:    
     router = create_crud_router(user_model)
     
     @router.post("/change-head")
@@ -183,7 +183,7 @@ user_model_router = APIRouter(prefix=f"/users", tags=["users"])
 async def get_envs():    
     return connection_manager.get_env_names()
 
-def connect_user_model_routers(app, user_model_list: List[Type[UserModel]], envs: Dict[str, Dict[str, str]] | None = None, prefix: str = "/api"):
+def connect_user_model_routers(app, user_model_list: List[Type[AUTH_MODEL]], envs: Dict[str, Dict[str, str]] | None = None, prefix: str = "/api"):
     for model in user_model_list:
         router = create_user_crud_router(model)
         app.include_router(router, prefix=f"{prefix}/users", tags=[model.__name__.lower()])

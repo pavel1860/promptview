@@ -1,5 +1,6 @@
 
 
+import textwrap
 from promptview.prompt.style import BulletType, StyleManager
 from typing import TYPE_CHECKING, Any, List, Literal, Protocol, Type, TypedDict, Union
 
@@ -62,11 +63,14 @@ class MarkdownTitleRenderer(ContentRenderer):
         content = ""
         if block.content:
             if block.is_block:
-                content = f"{'#' * (depth + 1)} {block.content}" + "\n"
+                content = f"{'#' * (depth + 1)} {block.content}" + "\n" 
             else:
                 content = block.content
         if inner_content:
             content += "\n".join(inner_content)
+            
+        # if block.is_block:
+        #     content += "\n"
         return content
         
 
@@ -97,14 +101,21 @@ def get_bullet_prefix(bullet_type: BulletType, idx: int) -> str:
 
 class MarkdownListRenderer(ItemsRenderer):
     tags = ["list","list:number", "list:alpha", "list:roman", "list:roman_lower", "list:*", "list:-"]
-        
+    
+    def indent(self, item: str) -> str:
+        lines = item.splitlines()
+        if len(lines) == 1:
+            return lines[0]
+        else:
+            return lines[0] + "\n" + textwrap.indent("\n".join(lines[1:]), "   ")
+            
     def __call__(self, block: Block, inner_content: List[str], depth: int) -> List[str]:
         if not inner_content:
             return []
         bullet_type = block.inline_style.get("bullet_type", "number")
         if not bullet_type:
             raise ValueError("Bullet type not found")
-        return [get_bullet_prefix(bullet_type, idx + 1) + item for idx, item in enumerate(inner_content)]
+        return [get_bullet_prefix(bullet_type, idx + 1) + self.indent(item) for idx, item in enumerate(inner_content)]
 
 
 
@@ -126,13 +137,14 @@ class XMLRenderer(ContentRenderer):
             return "\n".join(inner_content) or ""
         if block.is_block:
             if block.attrs:
-                attrs = " ".join([f"{k}=\"{v}\"" for k, v in block.attrs.items()])
+                attrs = " " + " ".join([f"{k}=\"{v}\"" for k, v in block.attrs.items()])
             else:
                 attrs = ""
             if inner_content:
-                return f"<{block.content} {attrs}>\n" + "\n".join(inner_content) + f"\n</{block.content}>"
+                inner_content_str = textwrap.indent("\n".join(inner_content), "  ")
+                return f"<{block.content}{attrs}>\n" + inner_content_str + f"\n</{block.content}>"
             else:
-                return f"<{block.content} {attrs} />"        
+                return f"<{block.content}{attrs}/>"        
         return block.content
         
 

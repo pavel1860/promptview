@@ -13,12 +13,15 @@ def ModelField(
     foreign_key: bool = False,
     index: Optional[str] = None,
     default_factory: Callable[[], Any] | None = _Unset,
+    db_type: str | None = None,
     description: str | None = _Unset,
 ) -> Any:
     """Define a model field with ORM-specific metadata"""
     # Create extra metadata for the field
     extra = {}
     extra["index"] = index
+    if db_type:
+        extra["db_type"] = db_type
     if foreign_key:
         extra["foreign_key"] = True
         default = None
@@ -34,7 +37,7 @@ def ModelField(
 def KeyField(
     default: Any = None,
     # *,
-    primary_key: bool = True,
+    primary_key: bool = False,
     description: str | None = _Unset,
     # **kwargs
 ) -> Any:

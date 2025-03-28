@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Iterator, Type, TypeVar, Dict, List, Any, Opti
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.namespace import PostgresNamespace
 from promptview.model2.postgres.operations import PostgresOperations
+from promptview.model2.versioning import ArtifactLog
 
 
 if TYPE_CHECKING:
@@ -90,20 +91,20 @@ class NamespaceManager:
         for namespace in cls.iter_namespaces("postgres"):
             await SQLBuilder.create_enum_types(namespace)
         if versioning:
-            await SQLBuilder.initialize_versioning()            
+            await ArtifactLog.initialize_versioning()            
             
         for namespace in cls._namespaces.values():
             await namespace.create_namespace()
         
         if versioning:
-            await SQLBuilder.add_partition_id_to_turns(partition_table, key)
+            await ArtifactLog.add_partition_id_to_turns(partition_table, key)
             
         
         
         try:
-            main_branch = await PostgresOperations.get_branch(1)
+            main_branch = await ArtifactLog.get_branch(1)
         except ValueError as e:        
-            await PostgresOperations.create_branch(name="main")
+            await ArtifactLog.create_branch(name="main")
         
     @classmethod
     def get_all_namespaces(cls) -> List[Namespace]:
@@ -177,21 +178,21 @@ class NamespaceManager:
         """
         Create a turn for a partition.
         """
-        return await PostgresOperations.create_turn(partition_id, branch_id)
+        return await ArtifactLog.create_turn(partition_id, branch_id)
     
     @classmethod
     async def get_turn(cls, turn_id: int) -> "Turn":
         """
         Get a turn by id.
         """
-        return await PostgresOperations.get_turn(turn_id)
+        return await ArtifactLog.get_turn(turn_id)
     
     @classmethod
     async def create_branch(cls, name: Optional[str] = None, forked_from_turn_id: Optional[int] = None) -> "Branch":
         """
         Create a branch.
         """
-        return await PostgresOperations.create_branch(name, forked_from_turn_id)
+        return await ArtifactLog.create_branch(name, forked_from_turn_id)
     
     @classmethod
     async def get_branch(cls, branch_id: int, raise_error: bool = False) -> "Branch | None":
@@ -199,16 +200,16 @@ class NamespaceManager:
         Get a branch by id.
         """
         if raise_error:
-            return await PostgresOperations.get_branch(branch_id)
+            return await ArtifactLog.get_branch(branch_id)
         else:
-            return await PostgresOperations.get_branch_or_none(branch_id)
+            return await ArtifactLog.get_branch_or_none(branch_id)
     
     @classmethod
     async def commit_turn(cls, turn_id: int, message: Optional[str] = None) -> "Turn":
         """
         Commit a turn.
         """
-        return await PostgresOperations.commit_turn(turn_id, message)
+        return await ArtifactLog.commit_turn(turn_id, message)
     
     
     

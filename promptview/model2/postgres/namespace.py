@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.operations import JoinType, PostgresOperations, SelectType
-from promptview.model2.query_filters import QueryProxy, parse_query_params
+from promptview.model2.query_filters import QueryFilter, QueryProxy, parse_query_params
 from promptview.model2.versioning import Branch, Turn
 from promptview.utils.model_utils import get_list_type, is_list_type
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter, SelectFields
@@ -38,8 +38,7 @@ class PgFieldInfo(NSFieldInfo):
         is_primary_key = extra and extra.get("primary_key", False)
         if is_primary_key and name == "id" and field_type is int:
             self.sql_type = PgFieldInfo.SERIAL_TYPE  # Use the constant from SQLBuilder
-        else:
-            # self.sql_type = PgFieldInfo.to_sql_type(self.data_type, self.is_list)
+        else:            
             self.sql_type = self.build_sql_type()
         if extra and "index" in extra:
             self.index = extra["index"]
@@ -64,6 +63,8 @@ class PgFieldInfo(NSFieldInfo):
             else:
                 return f'${index}::JSONB'
         elif self.is_temporal:
+            if self.db_type:
+                return f'${index}::{self.db_type}'
             return f'${index}::TIMESTAMP'
         else:
             return f'${index}'
@@ -86,8 +87,10 @@ class PgFieldInfo(NSFieldInfo):
         #     if issubclass(self.data_type, BaseModel):
         #         sql_type = "JSONB"
         #     elif issubclass(self.data_type, Enum):
-        #         sql_type = "TEXT"        
-        if self.is_temporal:
+        #         sql_type = "TEXT" 
+        if self.db_type:
+            sql_type = self.db_type               
+        elif self.is_temporal:
             sql_type = "TIMESTAMP"
         elif self.is_enum:
             sql_type = self.enum_name
@@ -195,6 +198,10 @@ class PostgresQuerySet(QuerySet[MODEL]):
             self.filter_proxy = filter_fn(proxy)    
         return self
     
+    def set_filter(self, query_filter: QueryFilter) -> "PostgresQuerySet[MODEL]":
+        self.filter_proxy = query_filter
+        return self
+    
     def limit(self, limit: int) -> "PostgresQuerySet[MODEL]":
         """Limit the query results"""
         self.limit_value = limit
@@ -216,11 +223,23 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.order_by_value = "created_at desc"
         return QuerySetSingleAdapter(self)
     
+    def tail(self, limit: int = 10) -> "QuerySet[MODEL]":
+        """Get the last N results"""
+        self.limit_value = limit
+        self.order_by_value = "created_at desc"
+        return self
+    
     def first(self) -> "QuerySetSingleAdapter[MODEL]":
         """Get the first result"""
         self.limit_value = 1
         self.order_by_value = "created_at asc"
         return QuerySetSingleAdapter(self)
+    
+    def head(self, limit: int = 10) -> "QuerySet[MODEL]":
+        """Get the first N results"""
+        self.limit_value = limit
+        self.order_by_value = "created_at asc"
+        return self
     
     def include(self, fields: list[str]) -> "PostgresQuerySet[MODEL]":
         """Include a relation field in the query results."""

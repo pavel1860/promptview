@@ -1,7 +1,7 @@
 from collections import defaultdict
 from abc import abstractmethod
 import textwrap
-from typing import Any, Callable, Generic, List, Literal, Type, TypeVar, Union
+from typing import Any, Callable, Generic, List, Literal, Protocol, Type, TypeVar, Union
 
 from pydantic import BaseModel
 from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
@@ -11,7 +11,9 @@ from promptview.utils.model_utils import schema_to_ts
 
 
 ContentType = Union[str , dict , "Block"]
- 
+
+
+
     
 class ContextStack:
     """
@@ -72,19 +74,44 @@ class BlockList(list["Block"], Generic[MAP_RET]):
     A list of blocks
     """
     
-    def group(self, role: BlockRole | None = None, tags: list[str] | None = None) -> "Block":
+    def group(self, role: BlockRole | None = None, tags: list[str] | None = None, extra: "Block | None" = None) -> "Block":
         """
         Group the blocks by role and tags
         """
-        return Block(items=self, role=role, tags=tags)
+        block = Block(items=self, role=role, tags=tags)
+        if extra:
+            block.append(extra)
+        return block
     
-    def get(self, key: str | list[str], default: Any = None) -> "List[Block]":
+    def group_to_list(self, role: BlockRole | None = None, tags: list[str] | None = None, extra: "Block | None" = None) -> "BlockList":
+        """
+        Group the blocks by role and tags
+        """
+        
+        
+        block = Block(items=self, role=role, tags=tags)
+        if extra:
+            block.append(extra)
+        if block.items:
+            return BlockList([block])
+        else:
+            return BlockList([])
+    
+    def group_or_none(self, role: BlockRole | None = None, tags: list[str] | None = None) -> "Block | None":
+        """
+        Group the blocks by role and tags
+        """
+        if not self:
+            return None
+        return self.group(role, tags)
+    
+    def find(self, tag: str | list[str], default: Any = None) -> "BlockList":
         """
         Get the blocks by key
         """
-        if isinstance(key, str):
-            key = [key]
-        return [item for item in self if all(tag in item.tags for tag in key)]
+        if isinstance(tag, str):
+            tag = [tag]
+        return BlockList([item for item in self if all(tag in item.tags for tag in tag)])
     
     
     def map(self, func: "Callable[[Block], MAP_RET]") -> "list[MAP_RET]":
@@ -204,21 +231,21 @@ class Block:
         if len(self._ctx) > 1:
             self._ctx.pop()
         
-    def get(self, key: str | list[str], default: Any = None) -> "BlockList":
-        if isinstance(key, str):
-            key = [key]
+    def find(self, tag: str | list[str], default: Any = None) -> "BlockList":
+        if isinstance(tag, str):
+            tag = [tag]
         sel_items = BlockList()
         for item in self.items:
-            for k in key:
+            for k in tag:
                 if k in item.tags:
                     sel_items.append(item)
                     break
             else:
-                sel_items.extend(item.get(key, default))
+                sel_items.extend(item.find(tag, default))
         return sel_items
     
     def first(self, key: str | list[str], default: Any = None, raise_error: bool = True) -> "Block":
-        blocks = self.get(key, default)
+        blocks = self.find(key, default)
         if len(blocks) == 0:
             if raise_error:
                 raise ValueError(f"No block found for key {key}")
@@ -268,7 +295,7 @@ class Block:
         **kwargs
     ):
         self.append(content=content, tags=tags, style=style, attrs=attrs, **kwargs)
-        return self.items[-1]
+        return self.ctx_items[-1]
     
     
     def append(
@@ -352,7 +379,7 @@ class Block:
         self.inline_style.update(style_props)
         return self
     
-    def model_dump(self, model: Type[BaseModel], format: str = "ts"):    
+    def model_schema(self, model: Type[BaseModel], format: str = "ts"):    
         if format == "ts":
             content = schema_to_ts(model)
         else:
@@ -373,14 +400,23 @@ class Block:
         rndr = BlockRenderer(style_manager, RendererMeta._renderers)
         return rndr.render(self)
     
-      
+    
     def __repr__(self) -> str:
+                
+        # prompt = f"<{self.__class__.__name__} tags={self.tags} role={self.role} style={self.inline_style.style} depth={self.depth}>\n{self.render()}\n</{self.__class__.__name__}>"
         content = self.render()
-        tags = ", ".join(self.tags)
-        tag = f"[{tags}]" if tags else ""
-        role = f" role={self.role}" if self.role else ""
-        
-        return f"{self.__class__.__name__}({tags}{role}):\n{content}"
+        if len(content) > 30:
+            content = content[0:30] + "..."
+        prompt = f"""<{self.__class__.__name__} tags={self.tags} role={self.role} style={self.inline_style.style} depth={self.depth} content="{content}">"""
+        return prompt      
+      
+      
+    # def __repr__(self) -> str:
+    #     content = self.render()
+    #     tags = ", ".join(self.tags)
+    #     tag = f"[{tags}]" if tags else ""
+    #     role = f" role={self.role}" if self.role else ""        
+    #     return f"{self.__class__.__name__}({tags}{role}):\n{content}"
 
 
 
@@ -441,3 +477,14 @@ class BlockContext:
     def __itruediv__(self, content: Any):
         self._append(content)
         return self
+    
+    
+    
+    
+    
+    
+    
+    
+class Blockable(Protocol):
+    def block(self) -> Block:
+        ...

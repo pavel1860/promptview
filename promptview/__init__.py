@@ -63,10 +63,12 @@
 
 import promptview.model2 as model
 import promptview.prompt as prompt
+import promptview.utils as utils
 
 __all__ = [
     "model",
-    "prompt"
+    "prompt",
+    "utils"
 ]
 
 

@@ -10,7 +10,7 @@ from promptview.model2.context import Context
 from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet, QuerySetSingleAdapter
-from promptview.model2.versioning import Branch, Turn
+from promptview.model2.versioning import ArtifactLog, Branch, Turn
 from promptview.model2.postgres.operations import PostgresOperations
 from promptview.utils.string_utils import camel_to_snake
 
@@ -51,7 +51,7 @@ class ModelMeta(ModelMetaclass, type):
         
         
         # Skip processing for the base Model class
-        if name == "Model" or name == "RepoModel" or name == "ArtifactModel" or name == "ContextModel":
+        if name == "Model" or name == "RepoModel" or name == "ArtifactModel" or name == "ContextModel" or name == "AuthModel":
             cls_obj = super().__new__(cls, name, bases, dct)
             return cls_obj
         
@@ -76,6 +76,7 @@ class ModelMeta(ModelMetaclass, type):
         ns = NamespaceManager.build_namespace(namespace_name, db_type, is_versioned, is_repo, repo_namespace)
         # Process fields and relations
         relations = {}
+        field_extras = {}
         for field_name, field_info in dct.items():
             # Skip fields without a type annotation
             if not isinstance(field_info, FieldInfo):
@@ -146,10 +147,21 @@ class ModelMeta(ModelMetaclass, type):
                 continue
             
             # Add field to namespace
-            ns.add_field(field_name, field_type, extra)
+            field_extras[field_name] = extra
+            # ns.add_field(field_name, field_type, extra)
         
         # Set namespace name and relations on the class
         cls_obj = super().__new__(cls, name, bases, dct)
+        
+        for field_name, field_info in cls_obj.model_fields.items():
+            if field_name in relations:
+                continue
+            field_type = field_info.annotation
+            # extra = field_extras.get(field_name, {})
+            extra = get_extra(field_info)
+            ns.add_field(field_name, field_type, extra)
+        
+        
         ns.set_model_class(cls_obj)
         cls_obj._namespace_name = namespace_name
         cls_obj._is_versioned = is_versioned
@@ -311,7 +323,13 @@ class Model(BaseModel, metaclass=ModelMeta):
 
 
 # No need for the ModelFactory class anymore
-
+def get_extra(field_info: FieldInfo) -> dict[str, Any]:
+    extra_json = field_info.json_schema_extra
+    extra: Dict[str, Any] = {}
+    if extra_json is not None:
+        if isinstance(extra_json, dict):
+            extra = dict(extra_json)
+    return extra
 
 
 
@@ -319,12 +337,13 @@ class ArtifactModel(Model):
     """
     A model that is versioned and belongs to a repo.
     """
-    branch_id: int = ModelField(default=None)
-    turn_id: int = ModelField(default=None)
+    branch_id: int = ModelField(foreign_key=True)
+    turn_id: int = ModelField(foreign_key=True)
+    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
     _repo: str = PrivateAttr(default=None)  # Namespace of the repo model
     
     
-    async def save(self, turn: Optional[int | Turn], branch: Optional[int | Branch] = None):
+    async def save(self, turn: int | Turn | None = None, branch: int | Branch | None = None):
         """
         Save the artifact model instance to the database
         
@@ -356,7 +375,7 @@ class ContextModel(ArtifactModel):
     def from_block(cls, block: "Block") -> "ContextModel":
         raise NotImplementedError("ContextModel.from_block is not implemented")
     
-    def to_block(self) -> "Block":
+    def to_block(self, ctx: "Context") -> "Block":
         raise NotImplementedError("ContextModel.to_block is not implemented")
     
     @classmethod
@@ -382,7 +401,7 @@ class RepoModel(Model):
         if not self.main_branch_id:
             raise ValueError("Main branch ID is not set. The model has not been saved yet.")
         
-        return await PostgresOperations.get_branch(self.main_branch_id)
+        return await ArtifactLog.get_branch(self.main_branch_id)
     
     async def get_current_turn(self) -> Optional[Turn]:
         """
@@ -407,7 +426,7 @@ class RepoModel(Model):
         if not self.main_branch_id:
             raise ValueError("Main branch ID is not set. The model has not been saved yet.")
         
-        return await PostgresOperations.commit_turn(self.main_branch_id, message)
+        return await ArtifactLog.commit_turn(self.main_branch_id, message)
     
     
 
@@ -500,16 +519,28 @@ class Relation(Generic[FOREIGN_MODEL], BaseRelation):
         qs = self._build_query_set()
         return qs.filter(filter_fn=filter_fn,**kwargs)
     
-    def first(self) -> "QuerySetSingleAdapter[FOREIGN_MODEL]":
-        """Get the first related model."""
-        qs = self._build_query_set()
-        return qs.first()
     
     def last(self) -> "QuerySetSingleAdapter[FOREIGN_MODEL]":
         """Get the last related model."""
         qs = self._build_query_set()
         return qs.last()
     
+    
+    def tail(self, limit: int = 10) -> "QuerySet[FOREIGN_MODEL]":
+        """Get the last N related models."""
+        qs = self._build_query_set()
+        return qs.tail(limit)
+    
+    def first(self) -> "QuerySetSingleAdapter[FOREIGN_MODEL]":
+        """Get the first related model."""
+        qs = self._build_query_set()
+        return qs.first()
+    
+    
+    def head(self, limit: int = 10) -> "QuerySet[FOREIGN_MODEL]":
+        """Get the first N related models."""
+        qs = self._build_query_set()
+        return qs.head(limit)
     
     def limit(self, limit: int) -> "QuerySet[FOREIGN_MODEL]":
         """Limit the number of related models."""
@@ -612,16 +643,25 @@ class ManyRelation(Generic[FOREIGN_MODEL, JUNCTION_MODEL], BaseRelation):
         qs = self._build_query_set()
         return qs.filter(filter_fn=filter_fn,**kwargs)
     
-    def first(self) -> QuerySetSingleAdapter[FOREIGN_MODEL]:
-        """Get the first related model."""
-        qs = self._build_query_set()
-        return qs.first()
-    
     def last(self) -> QuerySetSingleAdapter[FOREIGN_MODEL]:
         """Get the last related model."""
         qs = self._build_query_set()
         return qs.last()
     
+    def tail(self, limit: int = 10) -> QuerySet[FOREIGN_MODEL]:
+        """Get the last N related models."""
+        qs = self._build_query_set()
+        return qs.tail(limit)
+    
+    def first(self) -> QuerySetSingleAdapter[FOREIGN_MODEL]:
+        """Get the first related model."""
+        qs = self._build_query_set()
+        return qs.first()
+    
+    def head(self, limit: int = 10) -> QuerySet[FOREIGN_MODEL]:
+        """Get the first N related models."""
+        qs = self._build_query_set()
+        return qs.head(limit)
     
     def limit(self, limit: int) -> QuerySet[FOREIGN_MODEL]:
         """Limit the number of related models."""
@@ -648,7 +688,10 @@ class ManyRelation(Generic[FOREIGN_MODEL, JUNCTION_MODEL], BaseRelation):
         else:
             relation = await relation.save()
         setattr(obj, self.relation_field.foreign_key, relation.primary_id)
-        await obj.save()
+        if obj.__class__._is_versioned:
+            await obj.save(turn=turn, branch=branch)
+        else:
+            await obj.save()
         return obj
     
     

@@ -1,5 +1,5 @@
 import pytest
-from promptview.prompt.block6 import Block as blk
+from promptview.prompt.block6 import Block as Block
 from promptview.prompt.style import style_manager
 
 
@@ -42,7 +42,7 @@ def setup_style_manager():
 
 def test_simple_block_with_tags():
     """Test creating a simple block with tags."""
-    with blk(tags=["system"]) as b:
+    with Block(tags=["system"]) as b:
         b += "you are a helpful assistant"
 
     assert b.tags == ["system"]
@@ -52,7 +52,7 @@ def test_simple_block_with_tags():
 
 def test_multiple_items_in_block():
     """Test adding multiple items to a block."""
-    with blk(tags=["system"]) as b:
+    with Block(tags=["system"]) as b:
         b += "you are a helpful assistant"
         b += "you are an AI assistant"
 
@@ -63,7 +63,7 @@ def test_multiple_items_in_block():
 
 def test_nested_block_with_tags():
     """Test creating nested blocks with tags."""
-    with blk(tags=["system"]) as b:
+    with Block(tags=["system"]) as b:
         b += "you are a helpful assistant"
         with b("Task", tags=["task"]):
             b += "this is task you need to complete"
@@ -77,7 +77,7 @@ def test_nested_block_with_tags():
 
 def test_complex_nested_structure():
     """Test creating a complex nested block structure."""
-    with blk(tags=["system"]) as b:
+    with Block(tags=["system"]) as b:
         b += "you are a helpful assistant"
         with b("Task", tags=["task"]):
             b += "this is task you need to complete"

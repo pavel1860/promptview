@@ -1,6 +1,6 @@
 import pytest
 
-from promptview.prompt.block6 import Block as blk
+from promptview.prompt.block6 import Block
 
 
 
@@ -14,39 +14,63 @@ def assert_render(block, target):
 
 def test_basic_render():
     
-    with blk() as r:
+    with Block() as r:
         r += "you should speak like a pirate"
     
     assert_render(r, "you should speak like a pirate")
     
     
-    with blk("Pirate") as r:
+    with Block("Pirate") as r:
         r += "you should speak like a pirate"
     
     assert_render(r, "# Pirate\nyou should speak like a pirate")
     
-    with blk("Pirate", style=["xml"]) as r:
+    with Block("Pirate", style=["xml"]) as r:
         r += "you should speak like a pirate"
     
-    assert_render(r, "<Pirate>\nyou should speak like a pirate\n</Pirate>")
+    assert_render(r, "<Pirate>\n  you should speak like a pirate\n</Pirate>")
+
+def test_basic_topic():
+    with Block("Tasks") as blk:
+        blk /= "go to the store"
+        blk /= "buy the groceries"
+        blk /= "call the bank"
+        blk /= "call the lawyer"
+        
+    assert_render(blk, """# Tasks
+go to the store
+buy the groceries
+call the bank
+call the lawyer""")
 
 
+def test_basic_list():
+    with Block("Tasks", style=["list"]) as blk:
+        blk /= "go to the store"
+        blk /= "buy the groceries"
+        blk /= "call the bank"
+        blk /= "call the lawyer"
+        
+        assert_render(blk, """# Tasks
+1. go to the store
+2. buy the groceries
+3. call the bank
+4. call the lawyer""")
 
 
 def test_wrapper_block():
-    with blk(tags=["system"]) as b:
+    with Block(tags=["system"]) as b:
         b /= "you are a helpful assistant"
         with b("Task", tags=["task"]):
             b /= "this is task you need to complete"
 
     assert_render(b, "you are a helpful assistant\n# Task\nthis is task you need to complete")
-    
-    
+
     
 
 
 def test_indentation():
-    s = blk("""
+    s = Block("""
         you are a helpful assistant
         Task:
             this is task you need to complete
@@ -78,7 +102,7 @@ Output Format:
     
     
 def test_get_block():
-    with blk(tags=["system"], style=["xml"]) as b:
+    with Block(tags=["system"], style=["xml"]) as b:
         b += "you are a helpful assistant"
         with b("Task", tags=["task"]):
             b += "this is task you need to complete"
@@ -115,20 +139,20 @@ def test_get_block():
             
 
         
-    task = b.get("task")
+    task = b.find("task")
     assert len(task) == 1
     assert task[0].content == "Task"
 
-    rules = b.get("rules")
+    rules = b.find("rules")
     assert len(rules) == 2
     assert rules[0].content == "Rules"
 
-    sub_rules = b.get("sub-rule")
+    sub_rules = b.find("sub-rule")
     assert len(sub_rules) == 1
     assert sub_rules[0].content == "this is main rule 222"
 
 
-    multi_rules =b.get(["task", "sub-rule"])
+    multi_rules =b.find(["task", "sub-rule"])
 
     assert len(multi_rules) == 2
     assert multi_rules[0].content == "Task"

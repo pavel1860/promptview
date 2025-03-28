@@ -4,13 +4,15 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Generic, Type, TypeVar
 
 from promptview.model2.namespace_manager import NamespaceManager
+from promptview.model2.versioning import ArtifactLog
+
 
     
 
 if TYPE_CHECKING:
     from promptview.model2.model import Model, ContextModel
     from promptview.model2.versioning import Branch, Turn
-    from promptview.prompt.block6 import Block
+    from promptview.prompt.block6 import Block, BlockList, Blockable
     
 PARTITION_MODEL = TypeVar("PARTITION_MODEL", bound="Model")
 CONTEXT_MODEL = TypeVar("CONTEXT_MODEL", bound="ContextModel")
@@ -84,7 +86,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         if branch:
             if isinstance(branch, int):
                 branch_id = branch
-            elif isinstance(branch, Branch):
+            else:
                 branch_id = branch.id
         else:
             if ctx:
@@ -143,12 +145,16 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         self._init_method = InitStrategy.START_TURN
         self._init_params["branch_id"] = branch_id
         return self
-        
     
-    def branch_from(self, turn_id: int):
-        self._init_method = InitStrategy.BRANCH_FROM
-        self._init_params["turn_id"] = turn_id
-        return self
+    
+    async def branch_from(self, turn_id: int, name: str | None = None):
+        branch = await ArtifactLog.create_branch(forked_from_turn_id=turn_id, name=name)        
+        return branch
+    
+    # async def branch_from(self, turn_id: int, name: str | None = None):
+    #     self._init_method = InitStrategy.BRANCH_FROM
+    #     self._init_params["turn_id"] = turn_id
+    #     return self
     
     def build_child(self, span_name: str | None = None):
         child = Context(self.partition, span_name)
@@ -190,30 +196,32 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             return False
         return True
     
-    async def push(self, value: "Block | CONTEXT_MODEL") -> "Block":
+    async def push(self, value: "Block | CONTEXT_MODEL | Blockable") -> "Block":
         if not self.can_push:
             raise ValueError("Cannot push to context")
-        from promptview.prompt.block6 import Block
+        from promptview.prompt import Block
         if isinstance(value, Block):
             msg = self.context_model.from_block(value)
+        elif hasattr(value, "block"):
+            msg = self.context_model.from_block(value.block())
         else:
             msg = value
         saved_value = await msg.save(turn=self.turn.id, branch=self.branch.id)
-        return saved_value.to_block()
+        return saved_value.to_block(self)
         
     
-    async def last(self, limit=10) -> "Block":
+    async def last(self, limit=10) -> "BlockList":
         if not self.can_push:
             raise ValueError("Cannot load last messages from context")
-        from promptview.prompt.block6 import Block
+        from promptview.prompt.block6 import Block, BlockList
         records = await self.context_model.query(
             self.partition_id, 
             self.branch
-        ).limit(limit).order_by("created_at", ascending=False)
-        with Block() as blocks:
-            for r in reversed(records):
-                blocks /= r.to_block()
-        return blocks
+        ).limit(limit).order_by("created_at", direction="asc")
+        # with Block() as blocks:
+        #     for r in reversed(records):
+        #         blocks /= r.to_block()
+        return BlockList([r.to_block(self) for r in records])
     
     
     
