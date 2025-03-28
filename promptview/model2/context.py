@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Generic, Type, TypeVar
 
 from promptview.model2.namespace_manager import NamespaceManager
+from promptview.model2.versioning import ArtifactLog
 
 
     
@@ -144,12 +145,16 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         self._init_method = InitStrategy.START_TURN
         self._init_params["branch_id"] = branch_id
         return self
-        
     
-    def branch_from(self, turn_id: int):
-        self._init_method = InitStrategy.BRANCH_FROM
-        self._init_params["turn_id"] = turn_id
-        return self
+    
+    async def branch_from(self, turn_id: int, name: str | None = None):
+        branch = await ArtifactLog.create_branch(forked_from_turn_id=turn_id, name=name)        
+        return branch
+    
+    # async def branch_from(self, turn_id: int, name: str | None = None):
+    #     self._init_method = InitStrategy.BRANCH_FROM
+    #     self._init_params["turn_id"] = turn_id
+    #     return self
     
     def build_child(self, span_name: str | None = None):
         child = Context(self.partition, span_name)

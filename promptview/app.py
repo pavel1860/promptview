@@ -6,22 +6,19 @@ from fastapi import FastAPI, Form, Header
 
 
 from promptview.api.model_router import create_crud_router
-from promptview.artifact_log.artifact_log3 import ArtifactLog
-from promptview.auth.user_manager import UserManager, UserModel
+from promptview.auth.user_manager import AuthManager
 from promptview.testing.test_manager import TestManager
-from promptview.model.model import Model
-from promptview.model.resource_manager import connection_manager
+from promptview.model2 import Model, NamespaceManager
 from promptview.prompt.context import Context
-from promptview.api.auth_router import router as auth_router
+from promptview.api.auth_router import create_auth_router
 from promptview.api.model_router import create_crud_router
-from promptview.api.head_model_router import create_head_crud_router
 from promptview.api.artifact_log_api import router as artifact_log_router
 from promptview.api.testing_router import connect_testing_routers
 from promptview.api.user_router import connect_user_model_routers
 
 
 MSG_MODEL = TypeVar('MSG_MODEL', bound=Model)
-USER_MODEL = TypeVar('USER_MODEL', bound=UserModel)
+USER_MODEL = TypeVar('USER_MODEL', bound=Model)
 CTX_MODEL = TypeVar('CTX_MODEL', bound=Context)
 
 P = ParamSpec('P')
@@ -46,11 +43,9 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         @asynccontextmanager
         async def lifespan(app: FastAPI):
             # This code runs before the server starts serving
-            artifact_log = ArtifactLog()
-            await artifact_log.initialize_tables()
-            UserManager.register_user_model(user_model)
-            await UserManager.initialize_tables() 
-            await connection_manager.init_all_namespaces()            
+            ns = user_model.get_namespace()
+            await AuthManager.initialize_tables()
+            await NamespaceManager.create_all_namespaces(ns.name)
             # Yield to hand control back to FastAPI (start serving)
             yield
             
@@ -68,7 +63,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
     def setup_apis(self):
         self._app.include_router(create_crud_router(self._message_model), prefix="/api/model")
         self._app.include_router(artifact_log_router, prefix="/api")
-        self._app.include_router(auth_router, prefix="/api")
+        self._app.include_router(create_auth_router(self._user_model), prefix="/api")
         connect_user_model_routers(self._app, [self._user_model])
         connect_testing_routers(self._app)
 

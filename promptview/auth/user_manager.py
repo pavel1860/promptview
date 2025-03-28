@@ -1,47 +1,55 @@
-from typing import Optional, Type
+from typing import Generic, Optional, Type
 from datetime import datetime
+from typing_extensions import TypeVar
 
 from pydantic import BaseModel
 from promptview.artifact_log.artifact_log3 import ArtifactLog
-from promptview.model.fields import ModelField
-from promptview.model.head_model import HeadModel
-from promptview.model.model import Model
+from promptview.model2 import Model, ModelField
 from promptview.utils.db_connections import PGConnectionManager
 from promptview.model.resource_manager import connection_manager
 
 
-class UserModel(Model, HeadModel):
+# class UserModel(Model, HeadModel):
+#     name: str | None = ModelField(None)
+#     email: str = ModelField(...)
+#     image: str | None = ModelField(None)
+#     emailVerified: datetime = ModelField(..., db_type="TIMESTAMPTZ")
+#     is_admin: bool = ModelField(default=False)
+#     # user_auth_id: int = ModelField(...)
+    
+#     class Config: # do not fix this!
+#         database_type="postgres"
+#         is_head=True
+#         is_abstract=True
+#         namespace="users"
+
+#     async def check_out_head(self, head_id: int):
+#         head = await PGConnectionManager.fetch_one(
+#             f"""
+#             UPDATE heads AS uh
+#             SET 
+#                 main_branch_id = th.main_branch_id,
+#                 branch_id      = th.branch_id,
+#                 turn_id        = th.turn_id,
+#                 updated_at     = NOW()
+#             FROM heads AS th
+#             WHERE uh.id = {self.head.id}
+#             AND th.id = {head_id}
+#             RETURNING uh.*;
+#             """
+#         )
+#         if head is None:
+#             raise UserManagerError("Invalid head id")
+#         return dict(head)
+
+
+class AuthModel(Model):
     name: str | None = ModelField(None)
     email: str = ModelField(...)
     image: str | None = ModelField(None)
     emailVerified: datetime = ModelField(..., db_type="TIMESTAMPTZ")
     is_admin: bool = ModelField(default=False)
-    # user_auth_id: int = ModelField(...)
-    
-    class Config: # do not fix this!
-        database_type="postgres"
-        is_head=True
-        is_abstract=True
-        namespace="users"
 
-    async def check_out_head(self, head_id: int):
-        head = await PGConnectionManager.fetch_one(
-            f"""
-            UPDATE heads AS uh
-            SET 
-                main_branch_id = th.main_branch_id,
-                branch_id      = th.branch_id,
-                turn_id        = th.turn_id,
-                updated_at     = NOW()
-            FROM heads AS th
-            WHERE uh.id = {self.head.id}
-            AND th.id = {head_id}
-            RETURNING uh.*;
-            """
-        )
-        if head is None:
-            raise UserManagerError("Invalid head id")
-        return dict(head)
 
 class UserAuthPayload(BaseModel):
     name: str | None = None
@@ -54,19 +62,21 @@ class UserManagerError(Exception):
     pass
 
 
-class UserManager:
+AUTH_MODEL = TypeVar("AUTH_MODEL", bound=AuthModel)
+
+class AuthManager(Generic[AUTH_MODEL]):
     
-    _user_model: Optional[Type[UserModel]] = None
+    _auth_model: Optional[Type[AUTH_MODEL]] = None
     
     @classmethod
-    def get_user_model(cls) -> Type[UserModel]:
-        if cls._user_model is None:
+    def get_user_model(cls) -> Type[AUTH_MODEL]:
+        if cls._auth_model is None:
             raise ValueError("User model not registered")
-        return cls._user_model
+        return cls._auth_model
     
     @classmethod
-    def register_user_model(cls, user_model: Type[UserModel]):
-        cls._user_model = user_model
+    def register_user_model(cls, user_model: Type[AUTH_MODEL]):
+        cls._auth_model = user_model
     
     @staticmethod
     async def initialize_tables():
@@ -212,7 +222,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     
     async def get_user_by_email(self, email: str):
         user_model = self.get_user_model()
-        user = await user_model.filter(lambda x: x.email == email).first()
+        user = await user_model.query().filter(lambda x: x.email == email).first()
         return user
     
     async def get_user_by_session_token(self, session_token: str):
@@ -252,7 +262,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     
     async def get_users(self):
         user_model = self.get_user_model()
-        users = await user_model.filter(lambda x: x.is_admin == False)
+        users = await user_model.query().filter(lambda x: x.is_admin == False)
         return users
     
     

@@ -38,6 +38,7 @@ class NSFieldInfo:
     enum_values: List[Any] | None = None
     enum_name: str | None = None
     is_primary_key: bool = False
+    db_type: str | None = None
     
     def __init__(
         self,
@@ -49,6 +50,7 @@ class NSFieldInfo:
         self.extra = extra
         self.is_foreign_key = extra and extra.get("foreign_key", False)
         self.field_type = field_type
+        self.db_type = extra and extra.get("db_type", None)
         self.origin_type, self.is_optional = NSFieldInfo.parse_optional(field_type)
         self.list_origin_type, self.is_list = NSFieldInfo.parse_list(self.origin_type)
         if self.is_list and self.list_origin_type is not None:
@@ -284,6 +286,10 @@ class QuerySet(Generic[MODEL]):
         """Filter the query"""
         raise NotImplementedError("Not implemented")
     
+    def set_filter(self, *args, **kwargs) -> "QuerySet[MODEL]":
+        """Set the filters for the query"""
+        raise NotImplementedError("Not implemented")
+    
     def limit(self, limit: int) -> "QuerySet[MODEL]":
         """Limit the query results"""
         raise NotImplementedError("Not implemented")
@@ -300,8 +306,16 @@ class QuerySet(Generic[MODEL]):
         """Get the last result"""
         raise NotImplementedError("Not implemented")
     
+    def tail(self, limit: int = 10) -> "QuerySet[MODEL]":
+        """Get the last N results"""
+        raise NotImplementedError("Not implemented")
+    
     def first(self) -> "QuerySetSingleAdapter[MODEL]":
         """Get the first result"""
+        raise NotImplementedError("Not implemented")
+    
+    def head(self, limit: int = 10) -> "QuerySet[MODEL]":
+        """Get the first N results"""
         raise NotImplementedError("Not implemented")
     
     async def execute(self) -> List[MODEL]:

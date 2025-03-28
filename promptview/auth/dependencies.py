@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
-from promptview.auth.user_manager import UserAuthPayload, UserManager, UserModel
+from promptview.auth.user_manager import  AuthManager, AuthModel
 import os
 
 
@@ -34,13 +34,13 @@ async def get_user_token(request: Request):
     
     
 def get_user_manager():
-    return UserManager()
+    return AuthManager()
 
 
-async def get_auth_user(user_token: str = Depends(get_user_token), _: str = Depends(verify_api_key), user_manager: UserManager = Depends(get_user_manager)):
+async def get_auth_user(user_token: str = Depends(get_user_token), _: str = Depends(verify_api_key), user_manager: AuthManager = Depends(get_user_manager)):
     return await user_manager.get_user_by_session_token(user_token)
 
-async def get_auth_admin_user(user: UserModel = Depends(get_auth_user)):
+async def get_auth_admin_user(user: AuthModel = Depends(get_auth_user)):
     if not user.is_admin:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user
