@@ -26,8 +26,9 @@ class Turn(BaseModel):
     status: TurnStatus
     message: Optional[str] = None
     branch_id: int
-    partition_id: int
+    partition_id: int = Field(default=1)
     metadata: Optional[Dict[str, Any]] = None
+    forked_branches: List[dict] | None = None
     
     def __init__(
         self, 
@@ -187,7 +188,7 @@ class ArtifactLog:
                 t.created_at,
                 t.ended_at,
                 t.message,
-                t.local_state,
+                t.metadata,
                 COALESCE(
                     json_agg(
                         json_build_object(
@@ -212,7 +213,13 @@ class ArtifactLog:
 
         """
         rows = await PGConnectionManager.fetch(query)
-        return [Turn(**dict(row)) for row in rows]
+        turns = []
+        for row in rows:
+            data = dict(row)
+            data["forked_branches"] = json.loads(data["forked_branches"])
+            data["metadata"] = json.loads(data["metadata"])
+            turns.append(Turn(**data))
+        return turns
     
     
     @classmethod

@@ -5,6 +5,7 @@ from typing import Annotated, Any, Awaitable, Callable, Concatenate, Dict, Gener
 from fastapi import Depends, FastAPI, Form, Header
 
 
+from promptview.api.tracing_router import router as tracing_router
 from promptview.api.model_router import create_crud_router
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthManager, AuthModel
@@ -65,6 +66,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         self._app.include_router(create_crud_router(self._message_model), prefix="/api/model")
         self._app.include_router(artifact_log_router, prefix="/api")
         self._app.include_router(create_auth_router(self._user_model), prefix="/api")
+        self._app.include_router(tracing_router, prefix="/api")
         connect_user_model_routers(self._app, [self._user_model])
         connect_testing_routers(self._app)
 
