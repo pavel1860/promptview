@@ -3,9 +3,11 @@ import contextvars
 from enum import StrEnum
 from typing import TYPE_CHECKING, Generic, Type, TypeVar
 
-from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.versioning import ArtifactLog
+from pydantic import BaseModel
 
+from promptview.model2.namespace_manager import NamespaceManager
+from promptview.model2.versioning import ArtifactLog, UserContext
+from ..tracer import Tracer
 
     
 
@@ -25,6 +27,8 @@ class InitStrategy(StrEnum):
     BRANCH_FROM = "branch_from"
     NO_PARTITION = "no_partition"
     
+    
+    
 
 class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     partition_model: Type[PARTITION_MODEL]
@@ -35,7 +39,13 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     _branch: "Branch | None"
     _turn: "Turn | None"
     
-    def __init__(self, partition: "Model | int | None" = None, span_name: str | None = None, auto_commit: bool = True):
+    def __init__(
+        self, 
+        partition: "Model | int | None" = None, 
+        span_name: str | None = None, 
+        auto_commit: bool = True,
+        user_context: UserContext | None = None
+    ):
         if isinstance(partition, int):
             self._partition_id = partition
             self._partition = None
@@ -56,6 +66,27 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         self._turn = None
         self._auto_commit = auto_commit
         self._parent_ctx = None
+        self._trace_id = None
+        self._user_context = user_context
+        
+        
+    @property
+    def trace_id(self):        
+        return self._trace_id
+    
+    @trace_id.setter
+    def trace_id(self, value: str):
+        self._trace_id = value
+    
+    @property
+    def user_context(self):
+        if self._user_context is None:
+            raise ValueError("User context not set")
+        return self._user_context
+    
+    @user_context.setter
+    def user_context(self, value: UserContext):
+        self._user_context = value
         
     @classmethod
     def get_current(cls, raise_error: bool = True):
@@ -173,7 +204,11 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             if branch is None:
                 raise ValueError(f"Branch {self._init_params['branch_id']} not found")
             self._branch = branch
-        self._turn = await NamespaceManager.create_turn(self.partition_id, self.branch.id)
+        self._turn = await NamespaceManager.create_turn(
+            partition_id=self.partition_id,
+            branch_id=self.branch.id,
+            user_context=self._user_context
+        )
         
     def _set_context(self):
         self._ctx_token = CURR_CONTEXT.set(self)
@@ -207,10 +242,17 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     
     
     async def commit(self):
-        await ArtifactLog.commit_turn(self.turn.id)
+        await ArtifactLog.commit_turn(
+            turn_id=self.turn.id,             
+            trace_id=self.trace_id,
+        )
     
     async def revert(self, message: str | None = None):
-        await ArtifactLog.revert_turn(self.turn.id, message)
+        await ArtifactLog.revert_turn(
+            turn_id=self.turn.id,
+            message=message,
+            trace_id=self.trace_id,
+        )
     
     async def push(self, value: "Block | CONTEXT_MODEL | Blockable") -> "Block":
         if not self.can_push:

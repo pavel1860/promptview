@@ -23,7 +23,7 @@ class Agent(Controller[P, AsyncGenerator[YieldType, None]]):
                 inputs=self._filter_args_for_trace(*args, **kwargs, **injection_kwargs),
                 # session_id=str(ctx.session_id)
             ) as tracer_run:
-                ctx.run_id = str(tracer_run.id)
+                ctx.trace_id = str(tracer_run.id)
                 kwargs.update(injection_kwargs)
                 try:
                     async for output in self._complete(*args, **kwargs):

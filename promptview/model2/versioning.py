@@ -1,7 +1,7 @@
 import enum
 import json
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Dict, List, Optional, Any, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Any, Self, Union, final
 
 from pydantic import BaseModel, Field
 
@@ -9,6 +9,11 @@ from pydantic import BaseModel, Field
 from promptview.utils.db_connections import PGConnectionManager
 if TYPE_CHECKING:
     from promptview.model2.postgres.namespace import PostgresNamespace
+
+class UserContext(BaseModel):
+    artifact_view: str | None = None
+
+
 
 class TurnStatus(str, enum.Enum):
     """Status of a turn"""
@@ -26,7 +31,9 @@ class Turn(BaseModel):
     status: TurnStatus
     message: Optional[str] = None
     branch_id: int
+    trace_id: Optional[str] = None
     partition_id: int = Field(default=1)
+    user_context: Optional[UserContext] = None
     metadata: Optional[Dict[str, Any]] = None
     forked_branches: List[dict] | None = None
     
@@ -61,8 +68,14 @@ class Branch(BaseModel):
 
 
 
+@final
+class DontUpdateType:
+    """A type used as a sentinel for undefined values."""
 
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
 
+DontUpdate: DontUpdateType = DontUpdateType()
 
 
 class ArtifactLog:
@@ -91,8 +104,11 @@ class ArtifactLog:
             index INTEGER NOT NULL,
             status TEXT NOT NULL,
             message TEXT,
+            user_context JSONB DEFAULT '{}',
             metadata JSONB DEFAULT '{}',            
             branch_id INTEGER NOT NULL,
+            trace_id TEXT,
+            partition_id INTEGER NOT NULL,
             FOREIGN KEY (branch_id) REFERENCES branches(id)
         );
                 
@@ -139,11 +155,18 @@ class ArtifactLog:
         
         
         return Branch(**dict(branch_row))
-
+    
+    @classmethod
+    def _pack_turn(cls, record: Any) -> Turn:
+        data = dict(record)
+        data["user_context"] = UserContext(**json.loads(data["user_context"])) if data["user_context"] is not None else None
+        data["metadata"] = json.loads(data["metadata"])
+        data["forked_branches"] = json.loads(data["forked_branches"]) if "forked_branches" in data else None
+        return Turn(**data)
     
     
     @classmethod
-    async def create_turn(cls, partition_id: int, branch_id: int = 1, status: TurnStatus=TurnStatus.STAGED) -> Turn:
+    async def create_turn(cls, partition_id: int, branch_id: int = 1, status: TurnStatus=TurnStatus.STAGED, user_context: Optional[UserContext] = None) -> Turn:
         """
         Create a new turn
         
@@ -160,21 +183,21 @@ class ArtifactLog:
             RETURNING id, current_index
         ),
         new_turn AS (
-            INSERT INTO turns (partition_id, branch_id, index, status)
-            SELECT $2, id, current_index, $3
+            INSERT INTO turns (partition_id, branch_id, index, status, user_context)
+            SELECT $2, id, current_index, $3, $4
             FROM updated_branch
             RETURNING *
         )
         SELECT * FROM new_turn;
         """
-        
+        user_context_json = user_context.model_dump_json() if user_context is not None else "{}"
         # Use a transaction to ensure atomicity
         async with PGConnectionManager.transaction() as tx:
-            turn_row = await tx.fetch_one(query, branch_id, partition_id, status.value)
+            turn_row = await tx.fetch_one(query, branch_id, partition_id, status.value, user_context_json)
             if turn_row is None:
                 raise ValueError(f"Failed to create turn for branch {branch_id}")
         
-        return Turn(**dict(turn_row))
+        return cls._pack_turn(turn_row)
 
     
     @classmethod
@@ -189,6 +212,9 @@ class ArtifactLog:
                 t.ended_at,
                 t.message,
                 t.metadata,
+                t.user_context,
+                t.trace_id,
+                t.partition_id,
                 COALESCE(
                     json_agg(
                         json_build_object(
@@ -213,13 +239,14 @@ class ArtifactLog:
 
         """
         rows = await PGConnectionManager.fetch(query)
-        turns = []
-        for row in rows:
-            data = dict(row)
-            data["forked_branches"] = json.loads(data["forked_branches"])
-            data["metadata"] = json.loads(data["metadata"])
-            turns.append(Turn(**data))
-        return turns
+        # turns = []
+        # for row in rows:
+        #     data = dict(row)
+        #     data["user_context"] = UserContext(**json.loads(data["user_context"])) if data["user_context"] is not None else None
+        #     data["forked_branches"] = json.loads(data["forked_branches"])
+        #     data["metadata"] = json.loads(data["metadata"])
+        #     turns.append(Turn(**data))
+        return [cls._pack_turn(row) for row in rows]
     
     
     @classmethod
@@ -230,14 +257,14 @@ class ArtifactLog:
         if turn_row is None:
             raise ValueError(f"Turn {turn_id} not found")
         
-        return Turn(**dict(turn_row))
+        return cls._pack_turn(turn_row)
     
     
     @classmethod
     async def list_turns(cls, limit: int = 100, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[Turn]:
         query = f"SELECT * FROM turns ORDER BY {order_by} {order_direction} LIMIT $1 OFFSET $2;"
         turns = await PGConnectionManager.fetch(query, limit, offset)
-        return [Turn(**dict(turn)) for turn in turns]
+        return [cls._pack_turn(turn) for turn in turns]
     
     
     @classmethod
@@ -271,35 +298,66 @@ class ArtifactLog:
         return [Branch(**dict(branch)) for branch in branches]
     
     @classmethod
-    async def commit_turn(cls, turn_id: int, message: Optional[str] = None) -> Turn:
+    async def commit_turn(cls, turn_id: int, message: Optional[str] = None, trace_id: Optional[str] = None) -> Turn:
         """Commit the current turn and create a new one"""        
         # Update the turn
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         query = """
         UPDATE turns
-        SET status = $1, ended_at = $2, message = $3
-        WHERE id = $4
+        SET status = $1, ended_at = $2, message = $3, trace_id = $4
+        WHERE id = $5
         RETURNING *;
         """
-        result = await PGConnectionManager.fetch_one(query, TurnStatus.COMMITTED.value, now, message, turn_id)
+        result = await PGConnectionManager.fetch_one(query, TurnStatus.COMMITTED.value, now, message, trace_id, turn_id)
         if result is None:
             raise ValueError(f"Turn {turn_id} not found")
-        return Turn(**dict(result))
+        return cls._pack_turn(result)
+    
     
     @classmethod
-    async def revert_turn(cls, turn_id: int, message: Optional[str] = None) -> Turn:
+    async def update_turn(
+        cls, 
+        turn_id: int, 
+        status: TurnStatus | DontUpdateType = DontUpdate, 
+        message: str | None | DontUpdateType = DontUpdate, 
+        trace_id: str | None | DontUpdateType = DontUpdate
+    ) -> Turn:
+        """Update a turn"""
+        query = """
+        UPDATE turns
+        SET
+        """
+        if status is not DontUpdate:
+            query += "status = $1, "
+        if message is not DontUpdate:
+            query += "message = $2, "
+        if trace_id is not DontUpdate:
+            query += "trace_id = $3, "
+        
+        query += """
+        WHERE id = $5
+        RETURNING *;
+        """
+        res = await PGConnectionManager.fetch_one(query, status, message, trace_id, turn_id)
+        if res is None:
+            raise ValueError(f"Turn {turn_id} not found")
+        return cls._pack_turn(res)
+        
+    
+    @classmethod
+    async def revert_turn(cls, turn_id: int, message: Optional[str] = None, trace_id: Optional[str] = None) -> Turn:
         """Revert the current turn"""
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         query = """
         UPDATE turns
-        SET status = $1, ended_at = $2, message = $3
-        WHERE id = $4
+        SET status = $1, ended_at = $2, message = $3, trace_id = $4
+        WHERE id = $5
         RETURNING *;
         """
-        result = await PGConnectionManager.fetch_one(query, TurnStatus.REVERTED.value, now, message, turn_id)
+        result = await PGConnectionManager.fetch_one(query, TurnStatus.REVERTED.value, now, message, trace_id, turn_id)
         if result is None:
             raise ValueError(f"Turn {turn_id} not found")
-        return Turn(**dict(result))
+        return cls._pack_turn(result)
     
     
     @classmethod

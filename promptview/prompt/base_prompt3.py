@@ -87,7 +87,7 @@ class Prompt(Controller[P, R]):
                     is_traceable=self.tracable,
                     # session_id=str(ctx.session_id)
                 ) as run:                
-                ctx.run_id = run.id
+                ctx.trace_id = str(run.id)
                 kwargs.update(injection_kwargs)
                 try:
                     res = await call_function(self._complete, *args, **kwargs)
