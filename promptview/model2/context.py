@@ -1,11 +1,14 @@
 
 import contextvars
 from enum import StrEnum
-from typing import TYPE_CHECKING, Generic, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Type, TypeVar
+
+from pydantic import BaseModel
 
 from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.versioning import ArtifactLog
-
+from promptview.model2.versioning import ArtifactLog, UserContext
+from promptview.tracer.langsmith_tracer import RunTypes
+from ..tracer import Tracer
 
     
 
@@ -25,6 +28,8 @@ class InitStrategy(StrEnum):
     BRANCH_FROM = "branch_from"
     NO_PARTITION = "no_partition"
     
+    
+    
 
 class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     partition_model: Type[PARTITION_MODEL]
@@ -35,7 +40,13 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     _branch: "Branch | None"
     _turn: "Turn | None"
     
-    def __init__(self, partition: "Model | int | None" = None, span_name: str | None = None):
+    def __init__(
+        self, 
+        partition: "Model | int | None" = None, 
+        span_name: str | None = None, 
+        auto_commit: bool = True,
+        user_context: UserContext | None = None
+    ):
         if isinstance(partition, int):
             self._partition_id = partition
             self._partition = None
@@ -54,6 +65,39 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         self._span_name = span_name
         self._branch = None
         self._turn = None
+        self._auto_commit = auto_commit
+        self._parent_ctx = None
+        self._trace_id = None
+        self._user_context = user_context
+        self._tracer_run = None
+        
+        
+    @property
+    def trace_id(self):  
+        if self._tracer_run is not None:      
+            return str(self._tracer_run.id)
+        return self._trace_id
+    
+    @trace_id.setter
+    def trace_id(self, value: str):
+        self._trace_id = value
+        
+        
+    @property
+    def tracer(self):
+        if self._tracer_run is None:
+            raise ValueError("Tracer not set")
+        return self._tracer_run
+    
+    @property
+    def user_context(self):
+        if self._user_context is None:
+            raise ValueError("User context not set")
+        return self._user_context
+    
+    @user_context.setter
+    def user_context(self, value: UserContext):
+        self._user_context = value
         
     @classmethod
     def get_current(cls, raise_error: bool = True):
@@ -141,7 +185,9 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             raise ValueError("Partition not set")
         return self._partition
     
-    def start_turn(self, branch_id: int = 1):
+    def start_turn(self, branch_id: int | None = None):
+        if branch_id is None:
+            branch_id = 1
         self._init_method = InitStrategy.START_TURN
         self._init_params["branch_id"] = branch_id
         return self
@@ -160,6 +206,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         child = Context(self.partition, span_name)
         child._branch = self._branch
         child._turn = self._turn
+        child._parent_ctx = self
         return child
     
     async def _start_new_turn(self):
@@ -168,7 +215,11 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             if branch is None:
                 raise ValueError(f"Branch {self._init_params['branch_id']} not found")
             self._branch = branch
-        self._turn = await NamespaceManager.create_turn(self.partition_id, self.branch.id)
+        self._turn = await NamespaceManager.create_turn(
+            partition_id=self.partition_id,
+            branch_id=self.branch.id,
+            user_context=self._user_context
+        )
         
     def _set_context(self):
         self._ctx_token = CURR_CONTEXT.set(self)
@@ -177,6 +228,18 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         if self._ctx_token is not None:
             CURR_CONTEXT.reset(self._ctx_token)
         self._ctx_token = None
+        
+    def start_tracer(self, name: str, run_type: RunTypes = "prompt", inputs: dict[str, Any] | None = None):
+        self._tracer_run = Tracer(
+            name=name,
+            run_type=run_type,
+            inputs=inputs,
+            is_traceable=True,
+            tracer_run=self._parent_ctx._tracer_run if self._parent_ctx is not None else None,
+        )
+        return self
+    
+    
         
     async def __aenter__(self):
         if self._init_method == InitStrategy.START_TURN:
@@ -192,9 +255,29 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     
     async def __aexit__(self, exc_type, exc_value, traceback):
         self._reset_context()
+        if self._tracer_run is not None:
+            self._tracer_run.__exit__(exc_type, exc_value, traceback)
         if exc_type is not None:
+            if self._parent_ctx is None:
+                await self.revert(message=str(exc_value))
             return False
+        if self._auto_commit and self._parent_ctx is None:
+            await self.commit()
         return True
+    
+    
+    async def commit(self):
+        await ArtifactLog.commit_turn(
+            turn_id=self.turn.id,             
+            trace_id=self.trace_id,
+        )
+    
+    async def revert(self, message: str | None = None):
+        await ArtifactLog.revert_turn(
+            turn_id=self.turn.id,
+            message=message,
+            trace_id=self.trace_id,
+        )
     
     async def push(self, value: "Block | CONTEXT_MODEL | Blockable") -> "Block":
         if not self.can_push:

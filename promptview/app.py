@@ -2,14 +2,16 @@
 from contextlib import asynccontextmanager
 from functools import wraps
 from typing import Annotated, Any, Awaitable, Callable, Concatenate, Dict, Generic, Literal, ParamSpec, Type, TypeVar
-from fastapi import FastAPI, Form, Header
+from fastapi import Depends, FastAPI, Form, Header
 
 
+from promptview.api.tracing_router import router as tracing_router
 from promptview.api.model_router import create_crud_router
-from promptview.auth.user_manager import AuthManager
+from promptview.auth.dependencies import get_auth_user
+from promptview.auth.user_manager import AuthManager, AuthModel
+from promptview.model2.context import UserContext
 from promptview.testing.test_manager import TestManager
-from promptview.model2 import Model, NamespaceManager
-from promptview.prompt.context import Context
+from promptview.model2 import Model, NamespaceManager, Context
 from promptview.api.auth_router import create_auth_router
 from promptview.api.model_router import create_crud_router
 from promptview.api.artifact_log_api import router as artifact_log_router
@@ -18,7 +20,7 @@ from promptview.api.user_router import connect_user_model_routers
 
 
 MSG_MODEL = TypeVar('MSG_MODEL', bound=Model)
-USER_MODEL = TypeVar('USER_MODEL', bound=Model)
+USER_MODEL = TypeVar('USER_MODEL', bound=AuthModel)
 CTX_MODEL = TypeVar('CTX_MODEL', bound=Context)
 
 P = ParamSpec('P')
@@ -45,6 +47,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
             # This code runs before the server starts serving
             ns = user_model.get_namespace()
             await AuthManager.initialize_tables()
+            AuthManager.register_user_model(user_model)
             await NamespaceManager.create_all_namespaces(ns.name)
             # Yield to hand control back to FastAPI (start serving)
             yield
@@ -60,10 +63,14 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
     def get_app(self):
         return self._app
     
+    def register_model_api(self, model: Type[Model]):
+        self._app.include_router(create_crud_router(model), prefix="/api/model")
+    
     def setup_apis(self):
         self._app.include_router(create_crud_router(self._message_model), prefix="/api/model")
         self._app.include_router(artifact_log_router, prefix="/api")
         self._app.include_router(create_auth_router(self._user_model), prefix="/api")
+        self._app.include_router(tracing_router, prefix="/api")
         connect_user_model_routers(self._app, [self._user_model])
         connect_testing_routers(self._app)
 
@@ -73,15 +80,32 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
             self._entrypoints_registry[path] = func
             async def input_endpoint(
                 message_json:  Annotated[str, Form(...)],
-                head_id: Annotated[int, Header(alias="head_id")],
+                user_context_json: Annotated[str, Form(...)],
+                # head_id: Annotated[int, Header(alias="head_id")],
+                user: Any = Depends(get_auth_user),
                 branch_id: Annotated[int | None, Header(alias="branch_id")] = None,
             ):
+                print(user)
                 message = self._message_model.model_validate_json(message_json)
-                async with self._ctx_model(head_id=head_id, branch_id=branch_id) as ctx:
+                user_context = UserContext.model_validate_json(user_context_json)
+                # async with self._ctx_model(head_id=head_id, branch_id=branch_id) as ctx:                
+                async with self._ctx_model(
+                    user, 
+                    auto_commit=auto_commit, 
+                    user_context=user_context
+                ).start_turn(branch_id=branch_id) \
+                    .start_tracer(
+                        name=func.__name__, 
+                        run_type="chain", 
+                        inputs={
+                            "message": message.model_dump_json(),
+                            "user_context": user_context.model_dump_json(),
+                            "branch_id": branch_id,
+                        }
+                    ) as ctx:
                     response = await func(ctx=ctx, message=message)
-                    if auto_commit:
-                        await ctx.commit()
-                return [response, message]
+                    print(ctx.user_context)
+                return [message, response]
             
             async def test_endpoint(
                 body: dict,

@@ -38,9 +38,11 @@ def get_user_manager():
 
 
 async def get_auth_user(user_token: str = Depends(get_user_token), _: str = Depends(verify_api_key), user_manager: AuthManager = Depends(get_user_manager)):
+    print("##################################")
     return await user_manager.get_user_by_session_token(user_token)
 
 async def get_auth_admin_user(user: AuthModel = Depends(get_auth_user)):
+    print("##################################")
     if not user.is_admin:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user

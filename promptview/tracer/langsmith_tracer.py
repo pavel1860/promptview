@@ -48,7 +48,8 @@ class Tracer:
         extra: Dict[str, Any]={},
         metadata: Dict[str, Any] | None = None, 
         is_traceable: bool | None=True, 
-        tags: List[str] | str | None=None
+        tags: List[str] | str | None=None,
+        tracer_run: "Tracer | None" = None
     ):
         self.is_traceable = is_traceable      
         self.outputs = {}
@@ -68,7 +69,7 @@ class Tracer:
             extra["metadata"] = metadata
         # if session_id is not None:
         #     extra["session_id"] = session_id
-        tracer_run = CURRENT_TRACER_RUN.get()
+        tracer_run = tracer_run or CURRENT_TRACER_RUN.get()
 
         if tracer_run is not None:
             self.tracer_run = tracer_run.tracer_run.create_child(

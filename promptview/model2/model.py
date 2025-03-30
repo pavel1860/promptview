@@ -260,7 +260,8 @@ class Model(BaseModel, metaclass=ModelMeta):
         if not isinstance(exclude, set):
             exclude = set()
         exclude.update(relation_fields)
-        kwargs["exclude"] = exclude
+        if len(exclude) > 0:
+            kwargs["exclude"] = exclude
         res = super().model_dump(*args, **kwargs)
         return res
                 

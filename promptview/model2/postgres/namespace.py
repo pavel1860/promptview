@@ -498,7 +498,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             record = await PostgresOperations.update(self, id, data, turn_id, branch_id )
         return self.pack_record(record)
     
-    async def get(self, id: Any) -> Optional[Dict[str, Any]]:
+    async def get(self, id: Any) -> Optional[MODEL]:
         """
         Get data from the namespace by ID.
         
@@ -508,7 +508,10 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         Returns:
             The data if found, None otherwise
         """
-        return await PostgresOperations.get(self, id)
+        res = await PostgresOperations.get(self, id)
+        if res is None:
+            return None
+        return self.pack_record(res)
     
     def query(
         self, 

@@ -76,26 +76,25 @@ class Prompt(Controller[P, R]):
     
     async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         execution_ctx = self.build_execution_ctx()
-        async with execution_ctx as ctx:
+        async with execution_ctx.start_tracer(self._name, "prompt", inputs={}) as ctx:
             inspect.signature(self._complete).bind(*args, **kwargs)
                 # res = await self._call_with_dependencies(*args, **kwargs)
             injection_kwargs = await self._inject_dependencies(*args, **kwargs)
-            with Tracer(
-                    name=self._complete.__name__,
-                    run_type="prompt",
-                    inputs=self._filter_args_for_trace(*args, **kwargs, **injection_kwargs),
-                    is_traceable=self.tracable,
-                    # session_id=str(ctx.session_id)
-                ) as run:                
-                ctx.run_id = run.id
-                kwargs.update(injection_kwargs)
-                try:
-                    res = await call_function(self._complete, *args, **kwargs)
-                    run.add_outputs({"response": self._sanitize_output(res)})
-                    return res
-                except Exception as e:
-                    run.end(errors=str(e))
-                    raise e
+            # with Tracer(
+            #         name=self._complete.__name__,
+            #         run_type="prompt",
+            #         inputs=self._filter_args_for_trace(*args, **kwargs, **injection_kwargs),
+            #         is_traceable=self.tracable,
+            #         # session_id=str(ctx.session_id)
+            #     ) as run:                
+            kwargs.update(injection_kwargs)
+            try:
+                res = await call_function(self._complete, *args, **kwargs)
+                ctx.tracer.add_outputs({"response": self._sanitize_output(res)})
+                return res
+            except Exception as e:
+                ctx.tracer.end(errors=str(e))
+                raise e
         
 
 

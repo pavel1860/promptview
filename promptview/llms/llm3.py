@@ -10,6 +10,7 @@ from promptview.prompt import Block, BlockRole, ToolCall, LlmUsage
 from promptview.prompt.block6 import BlockList
 from promptview.tracer import Tracer
 from promptview.parsers import XmlOutputParser
+from promptview.utils.function_utils import call_function
 from promptview.utils.model_utils import schema_to_ts  
     
 class LLMToolNotFound(Exception):
@@ -175,6 +176,13 @@ class OutputModel(BaseModel):
     
     def block(self) -> Block:
         return self._block
+    
+    
+    def find_tool(self, tool_name: str) -> ToolCall | None:
+        for tool in self.tool_calls:
+            if tool.name == tool_name:
+                return tool
+        return None
 
     @classmethod
     def parse(cls, completion: Block, tools: List[Type[BaseModel]]) -> Self:
@@ -214,6 +222,8 @@ class LlmContext(Generic[OUTPUT_MODEL]):
         self.output_model: Type[OutputModel] | None = None
         self.is_traceable = True
         self.tracer_run: Tracer | None = None
+        self.parse_response_fn: Callable[[Block], Block] | None = None
+        self.parse_output_fn: Callable[[OUTPUT_MODEL], OUTPUT_MODEL] | None = None
         
         
     def __call__(self, block: Block) -> Self:
@@ -274,6 +284,14 @@ class LlmContext(Generic[OUTPUT_MODEL]):
         self.tools = tools
         return self
     
+    def parse_response(self, parse_response_fn: Callable[[Block], Block]) -> Self:
+        self.parse_response_fn = parse_response_fn
+        return self
+    
+    def parse_output(self, parse_output_fn: Callable[[OUTPUT_MODEL], OUTPUT_MODEL]) -> Self:
+        self.parse_output_fn = parse_output_fn
+        return self
+    
     # @singledispatch
     # async def complete(self, output_model):
     #     raise NotImplementedError("Output model is not set")
@@ -321,8 +339,12 @@ class LlmContext(Generic[OUTPUT_MODEL]):
                     tools=tools,
                     config=config
                 )
+                if self.parse_response_fn:
+                    response = await call_function(self.parse_response_fn, response)
                 if self.output_model is not None:
                     parsed_response = self.output_model.parse(response, tools)
+                    if self.parse_output_fn:
+                        parsed_response = await call_function(self.parse_output_fn, parsed_response)
                     return response, parsed_response
                 return response, None
             except ErrorMessage as e:

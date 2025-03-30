@@ -58,14 +58,31 @@ class ToolCall(BaseModel):
     id: str
     name: str
     tool: dict | BaseModel
+    extra: dict
+    
+    def __init__(self, id: str, name: str, tool: dict | BaseModel, extra: dict | None = None):
+        super().__init__(id=id, name=name, tool=tool, extra=extra or {})
+        self.tool = tool
     
     @property
     def type(self):
         return type(self.tool)
     
+    def __repr__(self) -> str:
+        return f"ToolCall(id='{self.id}', name='{self.name}', tool={self.tool.__class__.__name__})"
+    
     def to_json(self):
         return self.tool.model_dump_json() if isinstance(self.tool, BaseModel) else json.dumps(self.tool)
 
+    def model_dump(self, *args, **kwargs):
+        dump = super().model_dump(*args, **kwargs)
+        if isinstance(self.tool, BaseModel):
+            dump["tool"] = self.tool.model_dump(*args, **kwargs)
+        elif isinstance(self.tool, dict):
+            dump["tool"] = self.tool
+        else:
+            raise ValueError(f"Tool is not a BaseModel or dict: {type(self.tool)}")
+        return dump
 
 MAP_RET = TypeVar("MAP_RET")
 
@@ -195,7 +212,7 @@ class Block:
         self.role = role
         self.name = name
         self.model = model
-        self.tool_calls = tool_calls
+        self.tool_calls = tool_calls or []
         self.usage = usage
         self.id = id
         self.db_id = db_id
@@ -385,6 +402,12 @@ class Block:
         else:
             content = model.model_json_schema()        
         return self.append(content)
+    
+    def find_tool(self, tool_name: str) -> ToolCall | None:
+        for tool in self.tool_calls:
+            if tool.name == tool_name:
+                return tool
+        return None
 
     
     def get_style(self, property_name: str, default: Any = None) -> Any:
