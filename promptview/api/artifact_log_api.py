@@ -2,7 +2,7 @@ from typing import Dict, Type, List, TypeVar, Generic
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.datastructures import QueryParams
 from pydantic import BaseModel
-from promptview.model2.versioning import ArtifactLog, Branch, Turn
+from promptview.model2.versioning import ArtifactLog, Branch, Turn, TurnStatus
 
 
 
@@ -65,6 +65,12 @@ async def get_branch_turns(branch_id: int):
     return turns
 
 
+
+@router.post("/turns/update/{turn_id}")
+async def update_turn(turn_id: int, request: Request):
+    body = await request.json()    
+    turn = await ArtifactLog.update_turn(turn_id, **body)
+    return turn
 
 @router.get("/heads")
 async def get_head_list():    

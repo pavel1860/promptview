@@ -1,12 +1,13 @@
 
 import contextvars
 from enum import StrEnum
-from typing import TYPE_CHECKING, Generic, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Type, TypeVar
 
 from pydantic import BaseModel
 
 from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.versioning import ArtifactLog, UserContext
+from promptview.tracer.langsmith_tracer import RunTypes
 from ..tracer import Tracer
 
     
@@ -68,15 +69,25 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         self._parent_ctx = None
         self._trace_id = None
         self._user_context = user_context
+        self._tracer_run = None
         
         
     @property
-    def trace_id(self):        
+    def trace_id(self):  
+        if self._tracer_run is not None:      
+            return str(self._tracer_run.id)
         return self._trace_id
     
     @trace_id.setter
     def trace_id(self, value: str):
         self._trace_id = value
+        
+        
+    @property
+    def tracer(self):
+        if self._tracer_run is None:
+            raise ValueError("Tracer not set")
+        return self._tracer_run
     
     @property
     def user_context(self):
@@ -218,6 +229,18 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             CURR_CONTEXT.reset(self._ctx_token)
         self._ctx_token = None
         
+    def start_tracer(self, name: str, run_type: RunTypes = "prompt", inputs: dict[str, Any] | None = None):
+        self._tracer_run = Tracer(
+            name=name,
+            run_type=run_type,
+            inputs=inputs,
+            is_traceable=True,
+            tracer_run=self._parent_ctx._tracer_run if self._parent_ctx is not None else None,
+        )
+        return self
+    
+    
+        
     async def __aenter__(self):
         if self._init_method == InitStrategy.START_TURN:
             await self._start_new_turn()
@@ -232,9 +255,11 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     
     async def __aexit__(self, exc_type, exc_value, traceback):
         self._reset_context()
+        if self._tracer_run is not None:
+            self._tracer_run.__exit__(exc_type, exc_value, traceback)
         if exc_type is not None:
             if self._parent_ctx is None:
-                await self.revert(message=str(exc_value))            
+                await self.revert(message=str(exc_value))
             return False
         if self._auto_commit and self._parent_ctx is None:
             await self.commit()

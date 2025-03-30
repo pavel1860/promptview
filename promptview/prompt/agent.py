@@ -16,30 +16,29 @@ class Agent(Controller[P, AsyncGenerator[YieldType, None]]):
         
     async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[YieldType, None]:
         execution_ctx = self.build_execution_ctx()
-        async with execution_ctx as ctx:
+        async with execution_ctx.start_tracer(self._name, "chain", inputs={}) as ctx:
             injection_kwargs = await self._inject_dependencies(*args, **kwargs)
-            with Tracer(
-                name=self._name,
-                inputs=self._filter_args_for_trace(*args, **kwargs, **injection_kwargs),
-                # session_id=str(ctx.session_id)
-            ) as tracer_run:
-                ctx.trace_id = str(tracer_run.id)
-                kwargs.update(injection_kwargs)
-                try:
-                    async for output in self._complete(*args, **kwargs):
-                        if inspect.isasyncgen(output):
-                            try:
-                                async for gen_output in output:
-                                    yield gen_output
-                            except GeneratorExit:
-                                pass
-                        else:
-                            yield output
-                except GeneratorExit:
-                    print(f"GeneratorExit in {tracer_run.id}")
-                    # tracer_run._reset_context()
-                    # tracer_run.end()
-                    return
+            # with Tracer(
+            #     name=self._name,
+            #     inputs=self._filter_args_for_trace(*args, **kwargs, **injection_kwargs),
+            #     # session_id=str(ctx.session_id)
+            # ) as tracer_run:
+            kwargs.update(injection_kwargs)
+            try:
+                async for output in self._complete(*args, **kwargs):
+                    if inspect.isasyncgen(output):
+                        try:
+                            async for gen_output in output:
+                                yield gen_output
+                        except GeneratorExit:
+                            pass
+                    else:
+                        yield output
+            except GeneratorExit:
+                print(f"GeneratorExit in {ctx.tracer.id}")
+                # tracer_run._reset_context()
+                # tracer_run.end()
+                return
 
 
 

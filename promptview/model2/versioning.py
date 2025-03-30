@@ -327,18 +327,27 @@ class ArtifactLog:
         UPDATE turns
         SET
         """
-        if status is not DontUpdate:
-            query += "status = $1, "
-        if message is not DontUpdate:
-            query += "message = $2, "
-        if trace_id is not DontUpdate:
-            query += "trace_id = $3, "
         
-        query += """
-        WHERE id = $5
+        
+        def build_update_query(params: list[str], values: list[Any]):
+            idx = 1
+            filtered_values = []
+            update_params = []
+            for param, value in zip(params, values):
+                if value is DontUpdate:
+                    continue
+                update_params.append(f"{param} = ${idx}")
+                filtered_values.append(value)
+                idx += 1
+            return ", ".join(update_params), filtered_values
+        
+        update_query, values = build_update_query(["status", "message", "trace_id"], [status, message, trace_id])        
+        query += update_query
+        query += f"""
+        WHERE id = ${len(values) + 1}
         RETURNING *;
         """
-        res = await PGConnectionManager.fetch_one(query, status, message, trace_id, turn_id)
+        res = await PGConnectionManager.fetch_one(query, *values, turn_id)
         if res is None:
             raise ValueError(f"Turn {turn_id} not found")
         return cls._pack_turn(res)

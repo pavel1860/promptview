@@ -93,7 +93,16 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
                     user, 
                     auto_commit=auto_commit, 
                     user_context=user_context
-                ).start_turn(branch_id=branch_id) as ctx:
+                ).start_turn(branch_id=branch_id) \
+                    .start_tracer(
+                        name=func.__name__, 
+                        run_type="chain", 
+                        inputs={
+                            "message": message.model_dump_json(),
+                            "user_context": user_context.model_dump_json(),
+                            "branch_id": branch_id,
+                        }
+                    ) as ctx:
                     response = await func(ctx=ctx, message=message)
                     print(ctx.user_context)
                 return [message, response]
