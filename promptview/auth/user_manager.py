@@ -5,6 +5,7 @@ from typing_extensions import TypeVar
 from pydantic import BaseModel
 from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model2 import Model, ModelField
+from promptview.model2.fields import KeyField
 from promptview.utils.db_connections import PGConnectionManager
 
 
@@ -43,6 +44,7 @@ from promptview.utils.db_connections import PGConnectionManager
 
 
 class AuthModel(Model):
+    id: int = KeyField(primary_key=True)
     name: str | None = ModelField(None)
     email: str = ModelField(...)
     image: str | None = ModelField(None)

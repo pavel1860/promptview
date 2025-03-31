@@ -2,6 +2,7 @@ from abc import abstractmethod
 from enum import Enum
 import inspect
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterator, List, Literal, Type, TypeVar, TypedDict, Optional, get_args, get_origin
+import uuid
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 import datetime as dt
@@ -37,6 +38,7 @@ class NSFieldInfo:
     is_literal: bool = False
     enum_values: List[Any] | None = None
     enum_name: str | None = None
+    is_key: bool = False
     is_primary_key: bool = False
     db_type: str | None = None
     
@@ -72,7 +74,10 @@ class NSFieldInfo:
         if extra:
             if not extra.get("is_relation", False):
                 self.is_primary_key = extra.get("primary_key", False)
-                
+                    
+        self.is_key = extra and extra.get("is_key", False)
+        if self.is_key:
+            self.key_type = extra and extra.get("type", None)
     @property
     def data_type(self) -> Type[Any]:
         if self.is_list:
@@ -131,7 +136,7 @@ class NSFieldInfo:
     def validate_value(self, value: Any) -> bool:
         """Validate the value"""
         if value is None:
-            if not self.is_optional and not self.is_foreign_key:
+            if not self.is_optional and not self.is_foreign_key and not self.is_key:
                 return False
             return True
         return True
@@ -375,6 +380,8 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     @property
     def primary_key(self) -> FIELD_INFO:
+        if self.is_versioned:
+            return self._fields["artifact_id"]
         if self._model_cls is None:
             raise ValueError("Model class not set")
         if self._primary_key is None:
@@ -499,13 +506,18 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         """Drop the namespace from the database"""
         raise NotImplementedError("Not implemented")
     
-    async def save(self, data: Dict[str, Any], id: Any | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
+    async def save(self, data: Dict[str, Any], id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
         """Save data to the namespace"""
         raise NotImplementedError("Not implemented")
     
     async def get(self, id: Any) -> Optional[Dict[str, Any]]:
         """Get data from the namespace by ID"""
         raise NotImplementedError("Not implemented")
+    
+    async def delete(self, data: Dict[str, Any] | None = None, id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
+        """Delete data from the namespace"""
+        raise NotImplementedError("Not implemented")
+
     
     def query(self, partition_id: int | None = None, branch: "int | Branch | None" = None, filters: dict[str, Any] | None = None, **kwargs) -> QuerySet:
         """

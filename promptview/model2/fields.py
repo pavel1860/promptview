@@ -1,7 +1,8 @@
+import uuid
 from pydantic._internal._model_construction import ModelMetaclass
 from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import _Unset, AliasPath, AliasChoices, FieldInfo, JsonDict, Unpack, _EmptyKwargs, Deprecated # type: ignore
-from typing import TYPE_CHECKING, Any, Callable, Dict, ForwardRef, Generic, List, Optional, Protocol, Self, Type, TypeVar, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Callable, Dict, ForwardRef, Generic, List, Literal, Optional, Protocol, Self, Type, TypeVar, get_args, get_origin
 from pydantic_core import PydanticUndefined
 if TYPE_CHECKING:
     from promptview.model2.model import Model
@@ -38,6 +39,7 @@ def KeyField(
     default: Any = None,
     # *,
     primary_key: bool = False,
+    type: Literal["int", "uuid"] = "int",
     description: str | None = _Unset,
     # **kwargs
 ) -> Any:
@@ -45,7 +47,10 @@ def KeyField(
     # Create extra metadata for the field
     extra = {}
     extra["primary_key"] = primary_key
-    
+    extra["type"] = type
+    extra["is_key"] = True
+    # if type == "uuid" and not primary_key:
+        # return Field(default_factory=lambda: uuid.uuid4(), json_schema_extra=extra, description=description)
     # Create the field with the extra metadata
     return Field(default, json_schema_extra=extra, description=description)
 

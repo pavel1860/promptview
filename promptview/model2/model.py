@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING, Any, Dict, Generic, Optional, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
+import uuid
 from pydantic import BaseModel, Field, PrivateAttr
 from pydantic.config import JsonDict
 from pydantic._internal._model_construction import ModelMetaclass
@@ -38,6 +39,19 @@ def build_namespace(model_cls_name: str, db_type: DatabaseType = "postgres"):
     return f"{camel_to_snake(model_cls_name)}s" if db_type == "postgres" else model_cls_name
 
 
+ARTIFACT_RESERVED_FIELDS = ["id", "artifact_id", "version", "branch_id", "turn_id", "created_at", "updated_at", "deleted_at"]
+
+AUTH_RESERVED_FIELDS = ["id", "name", "email", "emailVerified", "image", "is_admin"]
+
+
+def check_reserved_fields(bases: Any, name: str, field_name: str):
+    if bases[0].__name__ == "ArtifactModel":
+        if field_name in ARTIFACT_RESERVED_FIELDS:
+            raise ValueError(f"""Field "{field_name}" in ArtifactModel "{name}" is reserved for internal use. use a different name. {", ".join(ARTIFACT_RESERVED_FIELDS)} are reserved.""")
+    elif bases[0].__name__ == "AuthModel":
+        if field_name in AUTH_RESERVED_FIELDS:
+            raise ValueError(f"""Field "{field_name}" in AuthModel "{name}" is reserved for internal use. use a different name. {", ".join(AUTH_RESERVED_FIELDS)} are reserved.""")
+
             
 class ModelMeta(ModelMetaclass, type):
     """Metaclass for Model
@@ -60,6 +74,7 @@ class ModelMeta(ModelMetaclass, type):
         db_type = get_dct_private_attributes(dct, "_db_type", "postgres")
         namespace_name = get_dct_private_attributes(dct, "_namespace_name", build_namespace(model_name))        
         
+        
         # Check if this is a repo model or an artifact model
         is_repo = len(bases) >= 1 and bases[0].__name__ == "RepoModel"
                 
@@ -79,8 +94,10 @@ class ModelMeta(ModelMetaclass, type):
         field_extras = {}
         for field_name, field_info in dct.items():
             # Skip fields without a type annotation
+            check_reserved_fields(bases, name, field_name)
             if not isinstance(field_info, FieldInfo):
                 continue
+            
             
             field_type = dct["__annotations__"].get(field_name)
             if field_type is None:
@@ -289,13 +306,21 @@ class Model(BaseModel, metaclass=ModelMeta):
         
         return self
     
+    async def delete(self, *args, **kwargs):
+        """
+        Delete the model instance from the database
+        """
+        ns = self.get_namespace()
+        result = await ns.delete(id=self.primary_id)
+        return result
+    
     @classmethod
     async def get(cls: Type[MODEL], id: Any) -> MODEL:
         """Get a model instance by ID"""
         ns = cls.get_namespace()
         data = await ns.get(id)
         if data is None:
-            raise ValueError(f"Model with ID {id} not found")
+            raise ValueError(f"Model '{cls.__name__}' with ID '{id}' not found")
         instance = cls(**data)
         instance._update_relation_instance()
         return instance
@@ -338,9 +363,14 @@ class ArtifactModel(Model):
     """
     A model that is versioned and belongs to a repo.
     """
+    id: int = KeyField(primary_key=True)
+    artifact_id: uuid.UUID = KeyField(default=None, type="uuid")
+    version: int = ModelField(default=1)    
     branch_id: int = ModelField(foreign_key=True)
-    turn_id: int = ModelField(foreign_key=True)
+    turn_id: int = ModelField(foreign_key=True)    
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    updated_at: dt.datetime | None = ModelField(default=None)
+    deleted_at: dt.datetime | None = ModelField(default=None)
     _repo: str = PrivateAttr(default=None)  # Namespace of the repo model
     
     
@@ -356,7 +386,7 @@ class ArtifactModel(Model):
                 
         ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
         data = self._payload_dump()
-        result = await ns.save(data, id=self.primary_id, branch=branch, turn=turn)
+        result = await ns.save(data, id=self.primary_id, artifact_id=self.artifact_id, version=self.version + 1, branch=branch, turn=turn)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)
@@ -365,6 +395,15 @@ class ArtifactModel(Model):
         self._update_relation_instance()
         
         return self
+    
+    async def delete(self, turn: int | Turn | None = None, branch: int | Branch | None = None):
+        """
+        Delete the artifact model instance from the database
+        """
+        ns = self.get_namespace()
+        data = self._payload_dump()
+        result = await ns.delete(data=data, id=self.primary_id, artifact_id=self.artifact_id, version=self.version + 1, branch=branch, turn=turn)
+        return result
 
     
     

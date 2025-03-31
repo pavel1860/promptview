@@ -2,6 +2,7 @@ from enum import Enum
 import inspect
 import json
 from typing import TYPE_CHECKING, Any, Callable, Dict, Literal, Type, Optional, List, get_args, get_origin
+import uuid
 from typing_extensions import TypeVar
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
@@ -45,7 +46,9 @@ class PgFieldInfo(NSFieldInfo):
             
     def serialize(self, value: Any) -> Any:
         """Serialize the value for the database"""
-        if self.sql_type == "JSONB":
+        if self.is_key and self.key_type == "uuid" and value is None:
+            value = uuid.uuid4()
+        elif self.sql_type == "JSONB":
             if self.is_list:
                 value = json.dumps(value)
             elif self.field_type is BaseModel:
@@ -71,6 +74,10 @@ class PgFieldInfo(NSFieldInfo):
     
     def deserialize(self, value: Any) -> Any:
         """Deserialize the value from the database"""
+        if self.is_key and self.key_type == "uuid":
+            if type(value) is None:
+                raise ValueError("UUID field can not be None")
+            return uuid.UUID(str(value))            
         if self.is_list and type(value) is str:
             return json.loads(value)
         elif self.data_type is dict:
@@ -104,6 +111,8 @@ class PgFieldInfo(NSFieldInfo):
             sql_type = "TEXT[]" if self.is_list else "TEXT"
         elif self.data_type is bool:
             sql_type = "BOOLEAN[]" if self.is_list else "BOOLEAN"
+        elif self.data_type is uuid.UUID:
+            sql_type = "UUID[]" if self.is_list else "UUID"
         elif self.data_type is dict:
             sql_type = "JSONB"
         elif issubclass(self.data_type, BaseModel):
@@ -477,7 +486,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         res = await SQLBuilder.drop_table(self)
         return res
     
-    async def save(self, data: Dict[str, Any], id: Any | None = None, turn: int | Turn | None = None, branch: int | Branch | None = None ) -> Dict[str, Any]:
+    async def save(self, data: Dict[str, Any], id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: int | Turn | None = None, branch: int | Branch | None = None ) -> Dict[str, Any]:
         """
         Save data to the namespace.
         
@@ -492,10 +501,36 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         """
         
         turn_id, branch_id = self.get_current_ctx_head(turn, branch) if self.is_versioned else (None, None)
-        if id is None:
+        if artifact_id is not None:
+            if not version:
+                raise ValueError("Version is required when saving to an artifact")
+            data["artifact_id"] = artifact_id
+            data["version"] = version
+            data["updated_at"] = dt.datetime.now()
+            record = await PostgresOperations.insert(self, data, turn_id, branch_id )
+        elif id is None:
             record = await PostgresOperations.insert(self, data, turn_id, branch_id )
         else:
             record = await PostgresOperations.update(self, id, data, turn_id, branch_id )
+        return self.pack_record(record)
+    
+    async def delete(self, data: Dict[str, Any] | None = None, id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
+        """Delete data from the namespace"""
+        turn_id, branch_id = self.get_current_ctx_head(turn, branch) if self.is_versioned else (None, None)
+        if artifact_id is not None:
+            if not version:
+                raise ValueError("Version is required when saving to an artifact")
+            if data is None:
+                raise ValueError("Data is required when deleting an artifact")
+            data["artifact_id"] = artifact_id
+            data["version"] = version
+            # data["updated_at"] = dt.datetime.now()
+            data["deleted_at"] = dt.datetime.now()
+            record = await PostgresOperations.update(self, id, data, turn_id, branch_id )
+        else:
+            if id is None:
+                raise ValueError("Either id or artifact_id must be provided")
+            record = await PostgresOperations.delete(self, id)
         return self.pack_record(record)
     
     async def get(self, id: Any) -> Optional[MODEL]:

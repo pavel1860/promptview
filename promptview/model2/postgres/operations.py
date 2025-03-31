@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING, TypedDict, Union
 import json
 import datetime as dt
 from datetime import datetime, timezone
+import uuid
 from pydantic import BaseModel
 
 from promptview.model2.postgres.query_parser import build_where_clause
@@ -360,7 +361,20 @@ class PostgresOperations:
         # Convert result to dictionary
         return dict(result) if result else {"id": data["id"], **data}        
     
-    
+    @classmethod
+    async def delete(cls, namespace: "PostgresNamespace", id: Any) -> Dict[str, Any]:
+        """Delete an existing record"""
+        # Prepare data for deletion
+        sql = f"""
+        DELETE FROM "{namespace.table_name}" WHERE id = $1
+        RETURNING *;
+        """
+        
+        # Execute query
+        result = await PGConnectionManager.fetch_one(sql, id)
+        
+        # Convert result to dictionary
+        return dict(result) if result else {"id": id}
     
     
     @classmethod
@@ -399,7 +413,8 @@ class PostgresOperations:
         offset: int | None = None,
         joins: list[JoinType] | None = None,
         filter_proxy: QueryProxy | None = None,
-        include_reverted_turns: bool = False
+        include_reverted_turns: bool = False,
+        is_event_source: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Query records with versioning support.
@@ -428,7 +443,7 @@ class PostgresOperations:
                 select_parts.append(', '.join([f"{select_type['namespace']}.{f}" for f in select_type['fields']]))
             select_clause = ",".join(select_parts)
         
-        
+
         sql = f'SELECT {select_clause} FROM "{namespace.table_name}"'
         
         if joins:
@@ -474,6 +489,9 @@ class PostgresOperations:
             else:
                 reverted_turns_clause = ""
             partition_clause = f"AND t.partition_id = {partition_id}" if partition_id else ""
+            event_source_select_clause = " DISTINCT ON (m.artifact_id)" if is_event_source else ""
+            event_source_order_by_clause = "AND m.deleted_at IS NULL ORDER BY m.artifact_id, m.version DESC" if is_event_source else ""
+            
             sql = f"""
             WITH RECURSIVE branch_hierarchy AS (
                 SELECT
@@ -497,12 +515,13 @@ class PostgresOperations:
                 JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id
             ),
             {filtered_alias} AS (
-                SELECT
+                SELECT{event_source_select_clause}
                     m.*
                 FROM branch_hierarchy bh
                 JOIN turns t ON bh.id = t.branch_id
                 JOIN "{namespace.table_name}" m ON t.id = m.turn_id
                 WHERE t.index <= bh.start_turn_index {partition_clause}{reverted_turns_clause}
+                {event_source_order_by_clause}
             )
             {sql}
             """

@@ -68,6 +68,8 @@ def build_where_clause(query_filter: QueryFilter) -> str:
                 return f"{field_name} = '{query_filter.value}'"
             elif is_enum(field_type):
                 return f"{field_name} = '{query_filter.value.value}'"
+            else:
+                raise ValueError(f"Unsupported field type: {field_type}")
         elif query_filter._operator == FieldOp.NE:
             if field_type is bool:
                 return f"{field_name} != {str(query_filter.value).lower()}"
@@ -79,6 +81,8 @@ def build_where_clause(query_filter: QueryFilter) -> str:
                 return f"{field_name} != '{query_filter.value}'"
             elif is_enum(field_type):
                 return f"{field_name} != '{query_filter.value.value}'"
+            else:
+                raise ValueError(f"Unsupported field type: {field_type}")
         elif query_filter._operator == FieldOp.IN:
             if field_type is int:
                 values = [str(v) for v in query_filter.value]
@@ -118,6 +122,8 @@ def build_where_clause(query_filter: QueryFilter) -> str:
                 else:
                     conditions.append(f"{field_name} <= '{query_filter.value.le}'")
             return f"({' AND '.join(conditions)})"
+        else:
+            raise ValueError(f"Unsupported query filter operator: {query_filter._operator}")
     return ""
 
 
