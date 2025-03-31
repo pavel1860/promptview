@@ -491,7 +491,13 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     def get_current_ctx_head(self, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> tuple[int | None, int | None]:
         from promptview.model2.context import Context
-        return Context.get_current_head(turn, branch)
+        turn_id, branch_id = Context.get_current_head(turn, branch)
+        if self.is_versioned:
+            if turn_id is None:
+                raise ValueError(f"""Turn is required when saving {self.model_class.__name__} to an artifact""")
+            if branch_id is None:
+                raise ValueError(f"""Branch is required when saving {self.model_class.__name__} to an artifact""")
+        return turn_id, branch_id
     
         
     def get_current_ctx_branch(self, branch: "int | Branch | None" = None) -> int | None:

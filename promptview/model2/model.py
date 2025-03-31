@@ -121,7 +121,7 @@ class ModelMeta(ModelMetaclass, type):
             if field_origin and (field_origin == Relation or field_origin == ManyRelation):
                 # Get the model class from the relation                                
                 
-                primary_key = extra.get("primary_key") or "id"
+                primary_key = extra.get("primary_key") or ("artifact_id" if ns.is_versioned else "id")
                 foreign_key = extra.get("foreign_key")
                 on_delete=extra.get("on_delete", "CASCADE")
                 on_update=extra.get("on_update", "CASCADE")

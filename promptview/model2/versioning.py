@@ -201,7 +201,7 @@ class ArtifactLog:
 
     
     @classmethod
-    async def get_branch_turns(cls, branch_id: int, limit: int = 10, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[Turn]:
+    async def get_branch_turns(cls, branch_id: int, limit: int = 10, offset: int = 0, order_by: str = "index", order_direction: str = "DESC") -> List[Turn]:
         query = f"""
             SELECT 
                 t.id,
@@ -234,9 +234,8 @@ class ArtifactLog:
             AND b.forked_from_turn_index = t.index
             WHERE t.branch_id = {branch_id}  -- Parameter for the specific branch_id
             GROUP BY t.id
-            ORDER BY t.index ASC     -- Ordering the turns by their index
-            LIMIT {limit} OFFSET {offset};      -- Limit and offset parameters
-
+            ORDER BY t.{order_by} {order_direction}     -- Ordering the turns by their index
+            LIMIT {limit} OFFSET {offset};      -- Limit and offset parameters            
         """
         rows = await PGConnectionManager.fetch(query)
         # turns = []
@@ -246,7 +245,7 @@ class ArtifactLog:
         #     data["forked_branches"] = json.loads(data["forked_branches"])
         #     data["metadata"] = json.loads(data["metadata"])
         #     turns.append(Turn(**data))
-        return [cls._pack_turn(row) for row in rows]
+        return [cls._pack_turn(row) for row in reversed(rows)]
     
     
     @classmethod

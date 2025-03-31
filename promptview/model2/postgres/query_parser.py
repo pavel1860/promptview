@@ -8,6 +8,7 @@
 
 from enum import Enum
 import json
+import uuid
 
 from pydantic import BaseModel
 from promptview.model2.query_filters import FieldOp, QueryFilter, QueryOp
@@ -32,7 +33,7 @@ def build_where_clause(query_filter: QueryFilter) -> str:
         
         # Get field type information
         if hasattr(field, '_field_info'):
-            field_type = field._field_info.annotation
+            field_type = field._field_info.data_type
         else:
             field_type = field.type
         
@@ -64,6 +65,8 @@ def build_where_clause(query_filter: QueryFilter) -> str:
                 return f"{field_name} = {query_filter.value}"
             elif field_type is str:
                 return f"{field_name} = '{query_filter.value}'"
+            elif field_type is uuid.UUID:
+                return f"{field_name} = '{query_filter.value}'"
             elif field_type is dt.datetime:
                 return f"{field_name} = '{query_filter.value}'"
             elif is_enum(field_type):
@@ -76,6 +79,8 @@ def build_where_clause(query_filter: QueryFilter) -> str:
             elif field_type is int:
                 return f"{field_name} != {query_filter.value}"
             elif field_type is str:
+                return f"{field_name} != '{query_filter.value}'"
+            elif field_type is uuid.UUID:
                 return f"{field_name} != '{query_filter.value}'"
             elif field_type is dt.datetime:
                 return f"{field_name} != '{query_filter.value}'"

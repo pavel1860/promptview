@@ -191,18 +191,42 @@ class SQLBuilder:
         await cls.execute(sql)
         
     @classmethod
+    async def drop_all_tables(cls, exclude: list[str] | None = None) -> None:
+        if exclude is None:
+            exclude = []
+        tables = await cls.get_tables()
+        await cls.drop_many_tables([table for table in tables if table not in exclude])
+        # for table in tables:
+        #     if table not in exclude:
+        #         await cls.drop_table(table)
+        
+    @classmethod
     async def get_tables(cls, schema: str | None = "public") -> list[str]:
         sql = "SELECT table_name FROM information_schema.tables"
         if schema:
             sql += f" WHERE table_schema='{schema}'"
         res = await cls.fetch(sql)
         return [row["table_name"] for row in res]
+    
+    
+    @classmethod
+    async def get_table_fields(cls, table_name: str, schema: str = 'public'):
+        query = """
+        SELECT *
+        FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = $2
+        ORDER BY ordinal_position
+        """
+        rows = await PGConnectionManager.fetch(query, schema, table_name)
+        return rows
+        # return [(row['column_name'], row['data_type']) for row in rows]
 
     @classmethod
     async def create_foreign_key(
         cls,
         table_name: str,
         column_name: str,
+        column_type: str,
         referenced_table: str,
         referenced_column: str = "id",
         on_delete: str = "CASCADE",
@@ -231,7 +255,7 @@ class SQLBuilder:
                 AND table_name = '{table_name}'
                 AND column_name = '{column_name}'
             ) THEN
-                EXECUTE 'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" INTEGER';
+                EXECUTE 'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" {column_type}';
             END IF;
             
             -- Check if the foreign key constraint exists; if not, add it.

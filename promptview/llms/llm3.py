@@ -184,6 +184,14 @@ class OutputModel(BaseModel):
                 return tool
         return None
 
+    def find_except(self, tool_name: str) -> List[ToolCall]:
+        tools = []
+        for tool in self.tool_calls:
+            if tool.name == tool_name:
+                continue
+            tools.append(tool)
+        return tools
+
     @classmethod
     def parse(cls, completion: Block, tools: List[Type[BaseModel]]) -> Self:
         """parse the completion into the output model"""

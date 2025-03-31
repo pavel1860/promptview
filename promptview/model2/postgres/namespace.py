@@ -84,6 +84,8 @@ class PgFieldInfo(NSFieldInfo):
             return json.loads(value)
         elif self.data_type is BaseModel:
             return self.data_type.model_validate_json(value)
+        elif self.is_enum and not self.is_literal:
+            return self.data_type(value)
         return value
             
     
@@ -203,7 +205,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
         """Filter the query"""
         self.filters.update(kwargs)            
         if filter_fn is not None:
-            proxy = QueryProxy[MODEL](self.model_class)
+            proxy = QueryProxy[MODEL, PgFieldInfo](self.model_class, self.namespace)
             self.filter_proxy = filter_fn(proxy)    
         return self
     
@@ -452,9 +454,12 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         # Create foreign key constraints for relations
         if self._relations:
             for relation_name, relation_info in self._relations.items():
+                if relation_info.primary_key == "artifact_id":
+                    continue
                 await SQLBuilder.create_foreign_key(
                     table_name=self.table_name,
                     column_name=relation_info.primary_key,
+                    column_type=self.get_field(relation_info.primary_key).sql_type,
                     referenced_table=relation_info.primary_table,
                     referenced_column=relation_info.primary_key,
                     on_delete=relation_info.on_delete,

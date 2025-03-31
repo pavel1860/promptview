@@ -8,8 +8,11 @@ import numpy as np
 from pydantic.fields import FieldInfo
 import datetime as dt
 
+from promptview.model2.base_namespace import Namespace
+
 if TYPE_CHECKING:  # pragma: nocoverage
     from .model import Model
+    from .base_namespace import NSFieldInfo
 
 
 
@@ -307,15 +310,15 @@ class PropertyComparable:
 
 class FieldComparable(PropertyComparable):
     
-    def __init__(self, field_name: str, field_info: FieldInfo):
+    def __init__(self, field_name: str, field_info: "NSFieldInfo"):
         self._field_info = field_info
-        super().__init__(field_name, field_info.annotation) 
+        super().__init__(field_name, field_info.data_type) 
 
 
   
         
 MODEL = TypeVar("MODEL", bound="Model")   
-    
+FIELD_INFO = TypeVar("FIELD_INFO", bound="NSFieldInfo")
 
 class ModelFilterProxy(Generic[MODEL]):
     def __init__(self, cls: Type[MODEL]):
@@ -385,11 +388,12 @@ class QueryProxyAny:
     
 
 
-class QueryProxy(Generic[MODEL]):
+class QueryProxy(Generic[MODEL, FIELD_INFO]):
     # model: Type[MODEL]
     
-    def __init__(self, model: Type[MODEL]):
+    def __init__(self, model: Type[MODEL], namespace: Namespace[MODEL, FIELD_INFO]):
         self.model = model
+        self.namespace = namespace
         fields = model.model_fields
         self._fields = fields
         # for field_name in fields.keys():
@@ -432,7 +436,8 @@ class QueryProxy(Generic[MODEL]):
         # if name == "model":
         #     return self.model        
         # print("GET ATTR", name)
-        if field_info:= self.model.model_fields.get(name, None):
+        # if field_info:= self.model.model_fields.get(name, None):            
+        if field_info:= self.namespace.get_field(name):
             return FieldComparable(name, field_info)
         else:
             raise AttributeError(f"{self.model.__name__} has no attribute {name}")
