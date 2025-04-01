@@ -183,6 +183,13 @@ class NamespaceManager:
             branch_id=branch_id,
             user_context=user_context
         )
+        
+    @classmethod
+    async def get_last_turn(cls, partition_id: int, branch_id: int) -> "Turn | None":
+        """
+        Get the last turn for a partition and branch.
+        """
+        return await ArtifactLog.get_last_turn(partition_id, branch_id)
     
     @classmethod
     async def get_turn(cls, turn_id: int) -> "Turn":

@@ -27,7 +27,7 @@ class InitStrategy(StrEnum):
     START_TURN = "start_turn"    
     BRANCH_FROM = "branch_from"
     NO_PARTITION = "no_partition"
-    
+    RESUME_TURN = "resume_turn"
     
     
 
@@ -43,6 +43,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     def __init__(
         self, 
         partition: "Model | int | None" = None, 
+        branch: "int" = 1,
         span_name: str | None = None, 
         auto_commit: bool = True,
         user_context: UserContext | None = None
@@ -59,8 +60,8 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         else:
             self._partition_id = partition.id
             self._partition = partition
-        self._init_method = InitStrategy.NO_PARTITION
-        self._init_params = {}
+        self._init_method = InitStrategy.RESUME_TURN        
+        self._init_params = {"branch_id": branch if type(branch) is int else branch.id}
         self._ctx_token = None
         self._span_name = span_name
         self._branch = None
@@ -193,6 +194,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         return self
     
     
+    
     async def branch_from(self, turn_id: int, name: str | None = None):
         branch = await ArtifactLog.create_branch(forked_from_turn_id=turn_id, name=name)        
         return branch
@@ -203,7 +205,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     #     return self
     
     def build_child(self, span_name: str | None = None):
-        child = Context(self.partition, span_name)
+        child = Context(partition=self.partition, span_name=span_name)
         child._branch = self._branch
         child._turn = self._turn
         child._parent_ctx = self
@@ -219,6 +221,17 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             partition_id=self.partition_id,
             branch_id=self.branch.id,
             user_context=self._user_context
+        )
+        
+    async def _resume_turn(self):
+        if "branch_id" in self._init_params:
+            branch = await NamespaceManager.get_branch(self._init_params["branch_id"])
+            if branch is None:
+                raise ValueError(f"Branch {self._init_params['branch_id']} not found")
+            self._branch = branch
+        self._turn = await NamespaceManager.get_last_turn(
+            partition_id=self.partition_id,
+            branch_id=self.branch.id
         )
         
     def _set_context(self):
@@ -239,15 +252,18 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         )
         return self
     
-    
-        
-    async def __aenter__(self):
+    async def _init(self):
         if self._init_method == InitStrategy.START_TURN:
             await self._start_new_turn()
         elif self._init_method == InitStrategy.NO_PARTITION:
-            pass
+            raise NotImplementedError("No partition")
+        elif self._init_method == InitStrategy.RESUME_TURN:
+            await self._resume_turn()
         else:
             raise ValueError(f"Invalid init method: {self._init_method}")
+        
+    async def __aenter__(self):
+        await self._init()
         if self._branch is None or self._turn is None:
             raise ValueError("Branch or turn not set")
         self._set_context()
@@ -282,6 +298,8 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     async def push(self, value: "Block | CONTEXT_MODEL | Blockable") -> "Block":
         if not self.can_push:
             raise ValueError("Cannot push to context")
+        if not self.is_initialized:
+            await self._init()
         from promptview.prompt import Block
         if isinstance(value, Block):
             msg = self.context_model.from_block(value)
@@ -293,9 +311,11 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         return saved_value.to_block(self)
         
     
-    async def last(self, limit=10) -> "BlockList":
-        if not self.can_push:
-            raise ValueError("Cannot load last messages from context")
+    async def last(self, limit=10, ) -> "BlockList":
+        # if not self.can_push:
+            # raise ValueError("Cannot load last messages from context")
+        if not self.is_initialized:
+            await self._init()
         from promptview.prompt.block6 import Block, BlockList
         records = await self.context_model.query(
             self.partition_id, 

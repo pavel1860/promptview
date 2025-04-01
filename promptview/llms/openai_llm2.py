@@ -65,12 +65,23 @@ class OpenAiLLM(LlmContext):
     
     def to_chat(self, blocks: Block | BlockList, tools: List[Type[BaseModel]] | None = []) -> List[dict]:
         output_prompt = self.output_model.render(tools) if self.output_model else None
+        system_blocks = blocks.find("system").group_to_list(extra=output_prompt)
+        pre_blocks, pivot_block, post_blocks = blocks.filter("system").split("user_input")
+        user_message = self.to_message(pivot_block.render(), role="user")
+        if output_prompt:
+            user_message["content"] += self.output_model.user_suffix()
         messages = [
-            *blocks.find("system").group_to_list(extra=output_prompt).map(lambda x: self.to_message(x.render(), role="system")),
-            *blocks.find("history").map(lambda x: self.to_message(x.render(), role=x.role)),
-            *blocks.find("user_input").map(lambda x: self.to_message(x.render(), role="user")),
-            *blocks.find("generation").map(lambda x: self.to_message(x.render(), role=x.role))
+            *system_blocks.map(lambda x: self.to_message(x.render(), role="system")),
+            *pre_blocks.map(lambda x: self.to_message(x.render(), role=x.role, tool_calls=x.tool_calls, tool_call_id=x.id)),
+            user_message,
+            *post_blocks.map(lambda x: self.to_message(x.render(), role=x.role, tool_calls=x.tool_calls, tool_call_id=x.id)),
         ]
+        # messages = [
+        #     *blocks.find("system").group_to_list(extra=output_prompt).map(lambda x: self.to_message(x.render(), role="system")),
+        #     *blocks.find("history").map(lambda x: self.to_message(x.render(), role=x.role)),
+        #     *blocks.find("user_input").map(lambda x: self.to_message(x.render(), role="user")),
+        #     # *blocks.find("generation").map(lambda x: self.to_message(x.render(), role=x.role))
+        # ]
         return messages
     
     
@@ -111,12 +122,12 @@ class OpenAiLLM(LlmContext):
                         name=tool_call.function.name,
                         tool=action_instance
                     ))
-                              
+                      
         response_block = Block(
             content=output.content,
             role="assistant",
             tool_calls=tool_calls,
-            id=response.id,
+            # id=response.id,
             model=response.model,
             tags=["generation"]
         )

@@ -10,6 +10,7 @@ from promptview.prompt import Block, BlockRole, ToolCall, LlmUsage
 from promptview.prompt.block6 import BlockList
 from promptview.tracer import Tracer
 from promptview.parsers import XmlOutputParser
+from promptview.utils import logger
 from promptview.utils.function_utils import call_function
 from promptview.utils.model_utils import schema_to_ts  
     
@@ -123,13 +124,26 @@ class OutputModel(BaseModel):
     _block: Block = PrivateAttr()
     
     
+    
+    @classmethod
+    def user_suffix(cls) -> str:
+        return ""
+    
+    @classmethod
+    def response_prefix(cls) -> str:
+        return ""
+    
+    @classmethod
+    def extra_rules(cls) -> Block | None:
+        return None
+    
     def output_fields(self) -> List[tuple[str, FieldInfo]]:
         return [(field, field_info) for field, field_info in self.model_fields.items() if field != "tool_calls"]
 
     @classmethod
     def render(cls, tools: List[Type[BaseModel]] = [], config: LlmConfig | None = None) -> Block:
         with Block("Output format", tags=["output_format"]) as blk:
-            blk += "you must use the following format for your output:"
+            blk += "you **MUST** use the following format for your output:"
             for field, field_info in cls.model_fields.items():
                 # with blk(field, attrs={"type": get_field_type(field_info)}, style=["xml"]):
                 with blk(field, style=["xml"]):
@@ -153,12 +167,14 @@ class OutputModel(BaseModel):
                     blk /= "understand if you have a tool that can help you to complete the task or you should respond only in text."
                     blk /= "you can perform actions in response to the user input."
                     blk /= "tool calls should be in xml format with json schema inside as a child element."
-                    
+                    blk /= "make sure the order of the xml tags is correct."
+                    blk /= "IMPORTANT! you must use this output format!"
                     if config and config.tool_choice == "required":
                         blk /= "you have to pick the right tool to respond to the user input"
                     elif config and config.tool_choice == "auto":
                         blk /= "you can use as many tools as needed to complete the task"
-                
+                if extra_rules_block:= cls.extra_rules():
+                    blk /= extra_rules_block
                 blk /= "you must use the provided output format."
                 blk /= "** end of output format **"
                 # blk /= "don't forget to output a message when you have something to say."
@@ -175,6 +191,7 @@ class OutputModel(BaseModel):
         return blk
     
     def block(self) -> Block:
+        self._block.tool_calls = self.tool_calls
         return self._block
     
     
@@ -197,11 +214,12 @@ class OutputModel(BaseModel):
         """parse the completion into the output model"""
         try:
             xml_parser = XmlOutputParser()
-            fmt_res, fmt_tools = xml_parser.parse(f"<root>{completion.content}</root>", tools, cls)
+            fmt_res, fmt_tools = xml_parser.parse(f"<root>{cls.response_prefix()}{completion.content}</root>", tools, cls)
             fmt_res.tool_calls = fmt_tools
             fmt_res._block = completion
             return fmt_res
         except ValidationError as e:
+            logger.exception("Output Model Validation Error")
             raise ErrorMessage(f"Validation error: {e}")
     
     
@@ -356,12 +374,15 @@ class LlmContext(Generic[OUTPUT_MODEL]):
                     return response, parsed_response
                 return response, None
             except ErrorMessage as e:
+                
                 if attempt == config.retries - 1:
+                    logger.warning(f"Error Message: {e.error_content}\n too many attempts, raising error.")
                     raise
                 if e.should_retry:
+                    logger.warning(f"Error Message: {e.error_content}\n attempt {attempt + 1} of {config.retries}, retrying...")
                     if response is not None:
                         blocks.append(response)
-                    blocks.append(e.to_block(), tags=["generation", "error"])
+                    blocks.append(e.to_block(self.output_model), tags=["generation", "error"], role="system")
         raise Exception("Failed to complete")
     
     

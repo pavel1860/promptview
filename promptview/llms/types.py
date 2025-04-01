@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Type, Union
 from pydantic import BaseModel
 
 from promptview.prompt.block6 import Block
@@ -17,7 +17,11 @@ class ErrorMessage(Exception):
         self.should_retry = should_retry
         super().__init__(f"Output parsing error: {error_content}")
         
-    def to_block(self) -> Block:
+    def to_block(self, output_model: Type[BaseModel] | None = None) -> Block:
         with Block(tags=["error"], role="user") as b:
             b.append(self.error_content)
+            if output_model:
+                b /= "do not add any other text or apologies"
+                b /= "use the output format as provided to generate your answer"                
         return b
+    

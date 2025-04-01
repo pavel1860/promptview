@@ -69,8 +69,18 @@ class BlockStyle:
         self.update(other)
         return self
     
+    def model_dump(self) -> dict:
+        return {
+            "depth": self.depth,
+            "block_type": self.block_type,
+            "is_list": self.is_list,
+            "bullet_type": self.bullet_type,
+            "style": self.style,
+        }
     
-
+    @classmethod    
+    def model_validate(cls, data: dict) -> "BlockStyle":
+        return cls(**data)
 
 class StyleSelector:
     """

@@ -1,7 +1,8 @@
 from collections import defaultdict
 from abc import abstractmethod
+import json
 import textwrap
-from typing import Any, Callable, Generic, List, Literal, Protocol, Type, TypeVar, Union
+from typing import Any, Callable, Generic, Iterator, List, Literal, Protocol, Type, TypeVar, Union
 
 from pydantic import BaseModel
 from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
@@ -130,6 +131,51 @@ class BlockList(list["Block"], Generic[MAP_RET]):
             tag = [tag]
         return BlockList([item for item in self if all(tag in item.tags for tag in tag)])
     
+    def find_before(self, tag: str) -> "BlockList":
+        """
+        Get the blocks before the pivot tag
+        """
+        before_list = BlockList()
+        for item in self:
+            if tag in item.tags:
+                break
+            before_list.append(item)
+        return before_list
+    
+    def find_after(self, tag: str) -> "BlockList":
+        """
+        Get the blocks after the pivot tag
+        """
+        before, pivot, after = self.split(tag)
+        return after
+    
+    def filter(self, tag: str | list[str]) -> "BlockList":
+        """
+        Get the blocks by key
+        """
+        if isinstance(tag, str):
+            tag = [tag]
+        return BlockList([item for item in self if not any(tag in item.tags for tag in tag)])
+    
+    def split(self, pivot_tag: str) -> tuple["BlockList", "Block", "BlockList"]:
+        """
+        Split the blocks by pivot tag
+        """
+        pre_blocks = BlockList()
+        pivot_block = None
+        post_blocks = BlockList()
+        current = pre_blocks
+        for item in self:
+            if pivot_block is None and pivot_tag in item.tags:
+                pivot_block = item
+                current = post_blocks
+                continue
+            else:
+                current.append(item)
+        if pivot_block is None:
+            raise ValueError(f"Pivot tag {pivot_tag} not found")
+        return pre_blocks, pivot_block, post_blocks
+                
     
     def map(self, func: "Callable[[Block], MAP_RET]") -> "list[MAP_RET]":
         """
@@ -212,7 +258,7 @@ class Block:
         self.role = role
         self.name = name
         self.model = model
-        self.tool_calls = tool_calls or []
+        self.tool_calls = [ToolCall(**tool) if isinstance(tool, dict) else tool for tool in tool_calls or []]
         self.usage = usage
         self.id = id
         self.db_id = db_id
@@ -228,6 +274,34 @@ class Block:
     #     items: list["BaseBlock"] | None = None
     # ):
     #     pass
+    def model_dump(self):
+        return {
+            "_type": self.__class__.__name__,
+            "content": self.content,
+            "tags": self.tags,
+            "style": self.inline_style.style,
+            "attrs": self.attrs,
+            "items": [item.model_dump() for item in self.items],
+            "role": self.role,
+            "name": self.name,
+            "model": self.model,
+            "tool_calls": [tool.model_dump() for tool in self.tool_calls],
+            "usage": self.usage.model_dump() if self.usage else None,
+            "id": self.id,
+            "db_id": self.db_id,
+            "run_id": self.run_id,
+            "depth": self.depth,            
+        }
+    
+    @classmethod
+    def model_validate(cls, data: dict):
+        if "_type" not in data:
+            raise ValueError("Missing _type, not a valid block")
+        if data["_type"] != cls.__name__:
+            raise ValueError(f"Invalid _type: {data['_type']}")
+        _type = data.pop("_type")
+        items = data.pop("items")
+        return cls(**data, items=[cls.model_validate(item) for item in items])
     
     @property
     def ctx_items(self) -> list["Block"]:
@@ -261,6 +335,44 @@ class Block:
                 sel_items.extend(item.find(tag, default))
         return sel_items
     
+        
+    
+    def filter(self, tag: str | list[str]) -> "BlockList":
+        """
+        Get the blocks by key
+        """
+        if isinstance(tag, str):
+            tag = [tag]
+        return BlockList([item for item in self if not any(tag in item.tags for tag in tag)])
+    
+    def _iter(self, max_depth: int, depth: int = 1) -> Iterator["Block"]:
+        if depth > max_depth:
+            return
+        for item in self.items:
+            yield item
+            yield from item._iter(max_depth, depth + 1)
+            
+    def iter(self, max_depth: int = 10000) -> Iterator["Block"]:
+        return self._iter(max_depth)
+    
+    
+    def split(self, pivot_tag: str) -> tuple["BlockList", "Block", "BlockList"]:
+        pre_blocks = BlockList()
+        post_blocks = BlockList()
+        pivot_block = None
+        current = pre_blocks
+        for item in self.iter(1):
+            if pivot_tag in item.tags:
+                pivot_block = item
+                current = post_blocks
+                continue
+            else:
+                current.append(item)
+        if pivot_block is None:
+            raise ValueError(f"Pivot tag {pivot_tag} not found")
+        return pre_blocks, pivot_block, post_blocks
+        
+    
     def first(self, key: str | list[str], default: Any = None, raise_error: bool = True) -> "Block":
         blocks = self.find(key, default)
         if len(blocks) == 0:
@@ -288,19 +400,26 @@ class Block:
         role: BlockRole | None = None,
     ):
         if isinstance(content, Block):
-            return content
-        inst = Block(
-                content=content, 
-                tags=tags, 
-                style=style, 
-                parent=self._ctx[-1] if self._ctx else self,
-                depth=len(self._ctx) if self._ctx else 0,
-                items=items,
-                ctx=self._ctx,
-                attrs=attrs,
-            )
-        if role:
+            inst = content
+        else:
+            inst = Block(
+                    content=content, 
+                    tags=tags, 
+                    style=style, 
+                    parent=self._ctx[-1] if self._ctx else self,
+                    depth=len(self._ctx) if self._ctx else 0,
+                    items=items,
+                    ctx=self._ctx,
+                    attrs=attrs,
+                )
+        if role is not None:
             inst.role = role
+        if tags is not None:
+            inst.tags = tags
+        # if style is not None:
+            # inst.inline_style.style = style
+        # if attrs is not None:
+            # inst.attrs = attrs
         return inst
         
     def __call__(

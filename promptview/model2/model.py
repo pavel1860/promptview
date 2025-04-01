@@ -7,6 +7,7 @@ from pydantic.fields import FieldInfo
 import pydantic_core
 import datetime as dt
 
+
 from promptview.model2.context import Context
 from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
@@ -18,6 +19,7 @@ from promptview.utils.string_utils import camel_to_snake
 
 if TYPE_CHECKING:
     from promptview.prompt.block6 import Block
+    from promptview.llms.llm3 import OutputModel
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -412,8 +414,9 @@ class ContextModel(ArtifactModel):
     # created_at: dt.datetime = ModelField(default=None)
     
     @classmethod
-    def from_block(cls, block: "Block") -> "ContextModel":
+    def from_block(cls, block: "Block", output_model: "OutputModel | None" = None) -> "ContextModel":
         raise NotImplementedError("ContextModel.from_block is not implemented")
+    
     
     def to_block(self, ctx: "Context") -> "Block":
         raise NotImplementedError("ContextModel.to_block is not implemented")

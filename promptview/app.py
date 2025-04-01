@@ -1,7 +1,7 @@
 
 from contextlib import asynccontextmanager
 from functools import wraps
-from typing import Annotated, Any, Awaitable, Callable, Concatenate, Dict, Generic, Literal, ParamSpec, Type, TypeVar
+from typing import Annotated, Any, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar
 from fastapi import Depends, FastAPI, Form, Header
 
 
@@ -25,7 +25,7 @@ CTX_MODEL = TypeVar('CTX_MODEL', bound=Context)
 
 P = ParamSpec('P')
 
-EnpointType = Callable[Concatenate[CTX_MODEL, MSG_MODEL, P], Awaitable[MSG_MODEL]]
+EnpointType = Callable[Concatenate[CTX_MODEL, MSG_MODEL, P], Awaitable[List[MSG_MODEL]]]
 
 class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
     _app: FastAPI
@@ -103,9 +103,9 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
                             "branch_id": branch_id,
                         }
                     ) as ctx:
-                    response = await func(ctx=ctx, message=message)
+                    responses = await func(ctx=ctx, message=message)
                     print(ctx.user_context)
-                return [message, response]
+                return [message, *responses]
             
             async def test_endpoint(
                 body: dict,

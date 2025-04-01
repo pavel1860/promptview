@@ -258,6 +258,12 @@ class ArtifactLog:
         
         return cls._pack_turn(turn_row)
     
+    @classmethod
+    async def get_last_turn(cls, partition_id: int, branch_id: int) -> Turn | None:
+        """Get the last turn for a partition and branch"""
+        query = "SELECT * FROM turns WHERE partition_id = $1 AND branch_id = $2 ORDER BY index DESC LIMIT 1;"
+        turn_row = await PGConnectionManager.fetch_one(query, partition_id, branch_id)
+        return cls._pack_turn(turn_row) if turn_row is not None else None
     
     @classmethod
     async def list_turns(cls, limit: int = 100, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[Turn]:

@@ -80,14 +80,19 @@ class BlockRenderer:
         )
         # print("##",block.tags)
         # print("   ", block.inline_style.style)
-        for tag in block.inline_style.style:
-            try:
-                renderer_cls = self.renderer_lookup[tag]
-            except KeyError:
-                raise UndefinedTagError(f"Tag {tag} not found in renderer lookup. Implement a renderer for this tag.")
-            else:
-                ctx.set_renderer(renderer_cls)
-        return ctx
+        try:
+            for tag in block.inline_style.style:
+                try:
+                    renderer_cls = self.renderer_lookup[tag]
+                except KeyError:
+                    raise UndefinedTagError(f"Tag {tag} not found in renderer lookup. Implement a renderer for this tag.")
+                else:
+                    ctx.set_renderer(renderer_cls)
+            return ctx
+        except Exception as e:
+            # logger.exception("Error building context")
+            raise e
+        
         
         
     # def build_ctx2(self, block: BaseBlock, parent_ctx: "RendererContext | None" = None) -> "RendererContext":

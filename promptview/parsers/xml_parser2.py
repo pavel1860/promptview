@@ -44,7 +44,7 @@ class XmlOutputParser(Generic[OUTPUT_MODEL]):
         res = root.find(tag)
         if res is None:
             return None
-        return res.text
+        return res.text.strip()
 
     def get_model_fields(self, model_cls):
         if not issubclass(model_cls, BaseModel):
@@ -58,8 +58,10 @@ class XmlOutputParser(Generic[OUTPUT_MODEL]):
         return child_only_fields
     
     def parse(self, content: str, tools: List[Type[BaseModel]], ai_model_cls: Type[OUTPUT_MODEL]) -> "tuple[OUTPUT_MODEL, List[ToolCall]]":
-
+        # try:
         root = ET.fromstring(content)
+        # except:
+        #     raise
         fields = self.get_model_fields(ai_model_cls)
         params = {k: self.find(root, k) for k in fields}
         tool_calls = self.find_tools(tools, root)
