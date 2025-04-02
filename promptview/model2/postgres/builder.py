@@ -195,6 +195,8 @@ class SQLBuilder:
         if exclude is None:
             exclude = []
         tables = await cls.get_tables()
+        if not tables:
+            return
         await cls.drop_many_tables([table for table in tables if table not in exclude])
         # for table in tables:
         #     if table not in exclude:

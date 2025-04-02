@@ -254,6 +254,25 @@ async def test_query_versioned_model(seeded_posts_database):
     assert posts_u2_v2[0].id == post1_u2_v2.id
 
 
+@pytest.mark.asyncio
+async def test_get_artifact(seeded_posts_database):
+    user1, user2, posts_u1, posts_u2 = seeded_posts_database
+    post2_u1_v3 = posts_u1[5]
+    post1_u1_v3 = posts_u1[2]
+    post1_u2_v2 = posts_u2[1]
+    
+    post_art = await Post.get_artifact(post2_u1_v3.artifact_id)
+    assert post_art.id == post2_u1_v3.id
+    assert post_art.artifact_id == post2_u1_v3.artifact_id
+    assert post_art.version == 3
+    assert post_art.content == "Content 2 User 1 Version 3"
+    
+    post_art = await Post.get_artifact(post2_u1_v3.artifact_id, 2)
+    assert post_art.id == post2_u1_v3.id
+    assert post_art.artifact_id == post2_u1_v3.artifact_id
+    assert post_art.version == 2
+    assert post_art.content == "Content 2 User 1 Version 2"
+
 
 @pytest.mark.asyncio
 async def test_versioned_relations(seeded_user_database):

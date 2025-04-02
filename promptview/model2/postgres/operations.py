@@ -398,7 +398,20 @@ class PostgresOperations:
         # Convert result to dictionary
         return dict(result) if result else None
     
-      
+    @classmethod
+    async def get_artifact(cls, namespace: "PostgresNamespace", artifact_id: uuid.UUID, version: int | None = None) -> Optional[Dict[str, Any]]:
+        """
+        Get an artifact by artifact ID and version.
+        """
+        if version is not None:
+            sql = f'SELECT * FROM "{namespace.table_name}" WHERE artifact_id = $1 AND version = $2;'
+            values = [artifact_id, version]
+        else:
+            sql = f'SELECT DISTINCT ON (artifact_id) * FROM "{namespace.table_name}" WHERE artifact_id = $1 ORDER BY artifact_id, version DESC;'                
+            values = [artifact_id]
+        result = await PGConnectionManager.fetch_one(sql, *values)
+        return dict(result) if result else None
+    
     
     @classmethod
     async def query(

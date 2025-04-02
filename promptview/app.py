@@ -7,13 +7,14 @@ from fastapi import Depends, FastAPI, Form, Header
 
 from promptview.api.tracing_router import router as tracing_router
 from promptview.api.model_router import create_crud_router
+from promptview.api.artifact_router import create_artifact_router
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthManager, AuthModel
 from promptview.model2.context import UserContext
+from promptview.model2.model import ArtifactModel
 from promptview.testing.test_manager import TestManager
 from promptview.model2 import Model, NamespaceManager, Context
 from promptview.api.auth_router import create_auth_router
-from promptview.api.model_router import create_crud_router
 from promptview.api.artifact_log_api import router as artifact_log_router
 from promptview.api.testing_router import connect_testing_routers
 from promptview.api.user_router import connect_user_model_routers
@@ -64,7 +65,12 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         return self._app
     
     def register_model_api(self, model: Type[Model]):
-        self._app.include_router(create_crud_router(model), prefix="/api/model")
+        if issubclass(model, ArtifactModel):
+            self._app.include_router(create_artifact_router(model), prefix="/api/artifact")
+        elif issubclass(model, Model):
+            self._app.include_router(create_crud_router(model), prefix="/api/model")
+        else:
+            raise ValueError(f"Model {model.__name__} is not a valid model")
     
     def setup_apis(self):
         self._app.include_router(create_crud_router(self._message_model), prefix="/api/model")

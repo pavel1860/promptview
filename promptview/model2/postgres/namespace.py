@@ -469,7 +469,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         return res
     
     
-    def pack_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+    def pack_record(self, record: Dict[str, Any]) -> MODEL:
         """Pack the record for the database"""
         rec = {}
         for key, value in record.items():
@@ -538,7 +538,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             record = await PostgresOperations.delete(self, id)
         return self.pack_record(record)
     
-    async def get(self, id: Any) -> Optional[MODEL]:
+    async def get(self, id: Any) -> MODEL | None:
         """
         Get data from the namespace by ID.
         
@@ -549,6 +549,15 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             The data if found, None otherwise
         """
         res = await PostgresOperations.get(self, id)
+        if res is None:
+            return None
+        return self.pack_record(res)
+    
+    async def get_artifact(self, artifact_id: uuid.UUID, version: int | None = None) -> MODEL | None:
+        """
+        Get data from the namespace by artifact ID and version.
+        """
+        res = await PostgresOperations.get_artifact(self, artifact_id, version)
         if res is None:
             return None
         return self.pack_record(res)

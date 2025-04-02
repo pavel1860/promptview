@@ -12,7 +12,6 @@ from promptview.model2 import Model
 from typing import Type, Any, Dict, Optional
 from fastapi import Query
 from pydantic import BaseModel
-from promptview.artifact_log.artifact_log3 import ArtifactLog
 import json
 
 from promptview.model2.query_filters import QueryListType, QueryFilter, parse_query_params

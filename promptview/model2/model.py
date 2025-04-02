@@ -398,6 +398,20 @@ class ArtifactModel(Model):
         
         return self
     
+    @classmethod
+    async def get_artifact(cls: Type[MODEL], artifact_id: uuid.UUID, version: int | None = None):
+        """
+        Get an artifact model instance by artifact ID and version
+        """
+        ns = cls.get_namespace()
+        data = await ns.get_artifact(artifact_id, version)
+        if data is None:
+            raise ValueError(f"Artifact '{artifact_id}' with version '{version}' not found")
+        instance = cls(**data)
+        instance._update_relation_instance()
+        return instance
+    
+    
     async def delete(self, turn: int | Turn | None = None, branch: int | Branch | None = None):
         """
         Delete the artifact model instance from the database

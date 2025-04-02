@@ -516,8 +516,12 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         """Save data to the namespace"""
         raise NotImplementedError("Not implemented")
     
-    async def get(self, id: Any) -> Optional[Dict[str, Any]]:
+    async def get(self, id: Any) -> MODEL | None:
         """Get data from the namespace by ID"""
+        raise NotImplementedError("Not implemented")
+    
+    async def get_artifact(self, artifact_id: uuid.UUID, version: int | None = None) -> MODEL | None:
+        """Get data from the namespace by artifact ID and version"""
         raise NotImplementedError("Not implemented")
     
     async def delete(self, data: Dict[str, Any] | None = None, id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
