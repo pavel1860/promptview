@@ -9,7 +9,8 @@ from promptview.model2.query_filters import QueryFilter, parse_query_params
 
 
 class Head(BaseModel):
-    branch_id: int
+    partition_id: str | None = None
+    branch_id: int = 1
     turn_id: int | None = None
 
 

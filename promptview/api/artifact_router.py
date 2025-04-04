@@ -3,6 +3,8 @@ from typing import Type, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from promptview.auth.dependencies import get_auth_user
+from promptview.auth.user_manager import AuthModel
 from promptview.model.query import parse_query_params
 from promptview.model2.model import ArtifactModel
 from promptview.model2.query_filters import QueryFilter, QueryListType
@@ -14,8 +16,14 @@ def create_artifact_router(model: Type[ArtifactModel]):
     router = APIRouter(prefix=f"/{model.__name__}", tags=[model.__name__.lower()])
     
     
-    
-    async def get_head(request: Request) -> Head | None:
+    async def get_head(request: Request, auth_user: AuthModel = Depends(get_auth_user)) -> Head | None:
+        partition_id = unpack_int_env_header(request, "partition_id")
+        if partition_id is None:
+            if not auth_user.is_admin:
+                raise HTTPException(status_code=401, detail="Unauthorized")
+        if partition_id != auth_user.id:
+            if not auth_user.is_admin:
+                raise HTTPException(status_code=401, detail="Unauthorized")
         if not model._is_versioned:
             return None
         branch_id = unpack_int_env_header(request, "branch_id")

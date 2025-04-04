@@ -50,6 +50,7 @@ class AuthModel(Model):
     image: str | None = ModelField(None)
     emailVerified: datetime = ModelField(..., db_type="TIMESTAMPTZ")
     is_admin: bool = ModelField(default=False)
+    created_at: datetime = ModelField(default_factory=datetime.now)
 
 
 class UserAuthPayload(BaseModel):
@@ -57,6 +58,7 @@ class UserAuthPayload(BaseModel):
     email: str
     emailVerified: datetime
     image: str | None = None
+    
     
     
 class UserManagerError(Exception):
