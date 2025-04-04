@@ -62,7 +62,20 @@ class Branch(BaseModel):
 
 # We don't need the Repo class anymore since we're using branch_id directly
 
-
+class Partition(BaseModel):
+    """A partition represents a group of turns"""
+    id: int
+    name: str
+    created_at: datetime
+    updated_at: datetime
+    participants: List["PartitionParticipant"]
+    
+    
+class PartitionParticipant(BaseModel):
+    """A participant in a partition"""
+    id: int
+    user_id: int
+    
 
 
 
@@ -96,6 +109,20 @@ class ArtifactLog:
             current_index INTEGER DEFAULT 0,
             FOREIGN KEY (forked_from_branch_id) REFERENCES branches(id)
         );
+        
+        
+        CREATE TABLE IF NOT EXISTS partitions (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+        
+        CREATE TABLE IF NOT EXISTS partition_participants (
+            id SERIAL PRIMARY KEY,
+            partition_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL
+        );
 
         CREATE TABLE IF NOT EXISTS turns (
             id SERIAL PRIMARY KEY,
@@ -109,8 +136,15 @@ class ArtifactLog:
             branch_id INTEGER NOT NULL,
             trace_id TEXT,
             partition_id INTEGER NOT NULL,
-            FOREIGN KEY (branch_id) REFERENCES branches(id)
+            FOREIGN KEY (branch_id) REFERENCES branches(id),
+            FOREIGN KEY (partition_id) REFERENCES partitions(id)
         );
+        
+        
+
+        ALTER TABLE partition_participants
+        ADD CONSTRAINT fk_partition
+        FOREIGN KEY (partition_id) REFERENCES partitions(id);
                 
         CREATE INDEX IF NOT EXISTS idx_turns_branch_id ON turns (branch_id);
         CREATE INDEX IF NOT EXISTS idx_turns_index ON turns (index DESC);
@@ -124,6 +158,86 @@ class ArtifactLog:
         ALTER TABLE turns ADD COLUMN IF NOT EXISTS partition_id INTEGER NOT NULL REFERENCES "{partition_table}" ({key}) ON DELETE CASCADE;
         CREATE INDEX IF NOT EXISTS idx_turns_partition_id ON turns (partition_id);
         """)
+        
+    
+    @classmethod
+    async def create_partition(cls, name: str, participants: List[int]) -> Partition:
+        """Create a new partition and associated partition participant record in a single transaction"""
+        query = "INSERT INTO partitions (name) VALUES ($1) RETURNING *;"
+        partition_row = await PGConnectionManager.fetch_one(query, name)
+        if partition_row is None:
+            raise ValueError("Failed to create partition and participant")
+        for participant in participants:
+            await cls.add_participant_to_partition(partition_row["id"], participant)
+        partition_row = await cls.get_partition(partition_row["id"])
+        return Partition(**dict(partition_row))
+    
+    @classmethod
+    async def add_participant_to_partition(cls, partition_id: int, user_id: int) -> PartitionParticipant:
+        """Add a participant to a partition"""
+        query = "INSERT INTO partition_participants (partition_id, user_id) VALUES ($1, $2) RETURNING *;"
+        participant_row = await PGConnectionManager.fetch_one(query, partition_id, user_id)
+        return PartitionParticipant(**dict(participant_row))
+    
+    @classmethod
+    def _pack_participant(cls, record: Any) -> Partition:
+        partition_row = dict(record)
+        partition_row["participants"] = json.loads(partition_row["participants"])
+        return Partition(**partition_row)
+    
+    @classmethod
+    async def get_partition(cls, partition_id: int) -> Partition:
+        """Get a partition by ID"""
+        query = """
+        SELECT 
+            p.*,
+            json_agg(
+                json_build_object(
+                    'id', pp.id,
+                    'user_id', pp.user_id
+                )
+            ) AS participants
+        FROM partitions p
+        LEFT JOIN partition_participants pp ON p.id = pp.partition_id
+        WHERE p.id = $1
+        GROUP BY p.id, p.name, p.created_at, p.updated_at;
+        """
+        partition_row = await PGConnectionManager.fetch_one(query, partition_id)
+        return cls._pack_participant(partition_row)
+    
+    @classmethod
+    async def get_partitions(cls, user_id: int) -> List[Partition]:
+        """Get all partitions for a user"""
+        # query = """
+        # SELECT 
+        #     p.*,
+        #     json_agg(
+        #         json_build_object(
+        #             'id', pp.id,
+        #             'user_id', pp.user_id
+        #         )
+        #     ) AS participants
+        # FROM partitions p
+        # LEFT JOIN partition_participants pp ON p.id = pp.partition_id
+        # WHERE pp.user_id = $1;
+        # """
+        query = """
+        SELECT 
+            p.*,
+            json_agg(
+                json_build_object(
+                    'id', pp.id,
+                    'user_id', pp.user_id
+                )
+            ) AS participants
+        FROM partitions p
+        LEFT JOIN partition_participants pp ON p.id = pp.partition_id
+        WHERE pp.user_id = $1
+        GROUP BY p.id, p.name, p.created_at, p.updated_at;
+        """
+        partitions = await PGConnectionManager.fetch(query, user_id)
+        return [cls._pack_participant(partition) for partition in partitions]
+    
     
     
     @classmethod
@@ -198,6 +312,8 @@ class ArtifactLog:
                 raise ValueError(f"Failed to create turn for branch {branch_id}")
         
         return cls._pack_turn(turn_row)
+    
+    
 
     
     @classmethod
