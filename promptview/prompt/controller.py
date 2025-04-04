@@ -1,7 +1,7 @@
 import inspect
 from typing import (Any, Callable, Dict, Generic, TypeVar, ParamSpec)
 
-from promptview.conversation.history import History
+# from promptview.conversation.history import History
 
 
 from promptview.prompt.block6 import Block
@@ -19,9 +19,9 @@ class Controller(Generic[P, R]):
     _complete: Callable[P, R]
     
     
-    def _set_history(self, history: History):
-        history.init_last_session()
-        return history
+    # def _set_history(self, history: History):
+    #     history.init_last_session()
+    #     return history
     
     
     def _filter_args_for_trace(self, *args: P.args, **kwargs: P.kwargs) -> dict[str, Any]:
@@ -54,8 +54,8 @@ class Controller(Generic[P, R]):
             if isinstance(default_val, DependsContainer):
                 dependency_func = default_val.dependency
                 resolved_val = await resolve_dependency(dependency_func,  *args, **kwargs)
-                if isinstance(resolved_val, History):
-                    resolved_val = self._set_history(resolved_val)
+                # if isinstance(resolved_val, History):
+                #     resolved_val = self._set_history(resolved_val)
                 injection_kwargs[param_name] = resolved_val            
                 
         return injection_kwargs

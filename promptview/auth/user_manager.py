@@ -1,9 +1,9 @@
-from typing import Generic, Optional, Type
+from typing import Generic, List, Optional, Type
 from datetime import datetime
 from typing_extensions import TypeVar
 
+from promptview.model2.versioning import ArtifactLog
 from pydantic import BaseModel
-from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model2 import Model, ModelField
 from promptview.model2.fields import KeyField
 from promptview.utils.db_connections import PGConnectionManager
@@ -51,7 +51,14 @@ class AuthModel(Model):
     emailVerified: datetime = ModelField(..., db_type="TIMESTAMPTZ")
     is_admin: bool = ModelField(default=False)
     created_at: datetime = ModelField(default_factory=datetime.now)
-
+    
+    async def list_partitions(self):
+        return await ArtifactLog.list_partitions(self.id)
+    
+    async def create_partition(self, name: str, users: List["AuthModel"]):
+        return await ArtifactLog.create_partition(name, [self.id] + [user.id for user in users])
+    
+    
 
 class UserAuthPayload(BaseModel):
     name: str | None = None

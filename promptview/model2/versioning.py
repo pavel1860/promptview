@@ -206,21 +206,9 @@ class ArtifactLog:
         return cls._pack_participant(partition_row)
     
     @classmethod
-    async def get_partitions(cls, user_id: int) -> List[Partition]:
+    async def list_partitions(cls, user_id: int) -> List[Partition]:
         """Get all partitions for a user"""
-        # query = """
-        # SELECT 
-        #     p.*,
-        #     json_agg(
-        #         json_build_object(
-        #             'id', pp.id,
-        #             'user_id', pp.user_id
-        #         )
-        #     ) AS participants
-        # FROM partitions p
-        # LEFT JOIN partition_participants pp ON p.id = pp.partition_id
-        # WHERE pp.user_id = $1;
-        # """
+
         query = """
         SELECT 
             p.*,

@@ -8,7 +8,7 @@ from promptview.auth.user_manager import AuthModel
 from promptview.model.query import parse_query_params
 from promptview.model2.model import ArtifactModel
 from promptview.model2.query_filters import QueryFilter, QueryListType
-from promptview.api.utils import query_filters, unpack_int_env_header, Head
+from promptview.api.utils import build_head_parser, query_filters, unpack_int_env_header, Head
 
 
 def create_artifact_router(model: Type[ArtifactModel]):
@@ -16,23 +16,24 @@ def create_artifact_router(model: Type[ArtifactModel]):
     router = APIRouter(prefix=f"/{model.__name__}", tags=[model.__name__.lower()])
     
     
-    async def get_head(request: Request, auth_user: AuthModel = Depends(get_auth_user)) -> Head | None:
-        partition_id = unpack_int_env_header(request, "partition_id")
-        if partition_id is None:
-            if not auth_user.is_admin:
-                raise HTTPException(status_code=401, detail="Unauthorized")
-        if partition_id != auth_user.id:
-            if not auth_user.is_admin:
-                raise HTTPException(status_code=401, detail="Unauthorized")
-        if not model._is_versioned:
-            return None
-        branch_id = unpack_int_env_header(request, "branch_id")
-        if branch_id is None:
-            branch_id = 1
-        turn_id = unpack_int_env_header(request, "turn_id")
-        head = Head(branch_id=branch_id, turn_id=turn_id)
-        return head
+    # async def get_head(request: Request, auth_user: AuthModel = Depends(get_auth_user)) -> Head | None:
+    #     partition_id = unpack_int_env_header(request, "partition_id")
+    #     if partition_id is None:
+    #         if not auth_user.is_admin:
+    #             raise HTTPException(status_code=401, detail="Unauthorized")
+    #     if partition_id != auth_user.id:
+    #         if not auth_user.is_admin:
+    #             raise HTTPException(status_code=401, detail="Unauthorized")
+    #     if not model._is_versioned:
+    #         return None
+    #     branch_id = unpack_int_env_header(request, "branch_id")
+    #     if branch_id is None:
+    #         branch_id = 1
+    #     turn_id = unpack_int_env_header(request, "turn_id")
+    #     head = Head(branch_id=branch_id, turn_id=turn_id)
+    #     return head
     
+    get_head = build_head_parser(model)
     @router.get("/list", response_model=List[dict])
     async def list_artifacts(
         offset: int = Query(default=0, ge=0),

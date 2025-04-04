@@ -1,6 +1,7 @@
 from typing import Dict, Type, List, TypeVar, Generic
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.datastructures import QueryParams
+from promptview.api.utils import build_head_parser
 from pydantic import BaseModel
 from promptview.model2.versioning import ArtifactLog, Branch, Turn, TurnStatus
 
@@ -10,22 +11,25 @@ from promptview.model2.versioning import ArtifactLog, Branch, Turn, TurnStatus
 router = APIRouter(prefix="/artifact_log", tags=["artifact_log"])
 
 
-def unpack_int_env_header(request: Request, field: str):    
-    value = request.headers.get(field)
-    if value is None or value == "null" or value == "undefined":
-        return None
-    return int(value)
+# def unpack_int_env_header(request: Request, field: str):    
+#     value = request.headers.get(field)
+#     if value is None or value == "null" or value == "undefined":
+#         return None
+#     return int(value)
 
 
-def get_artifact_log(request: Request):
-    head_id = unpack_int_env_header(request, "head_id")
-    branch_id = unpack_int_env_header(request, "branch_id")
-    if head_id is None:
-        raise HTTPException(status_code=400, detail="head_id is not supported")
-    try:
-        return ArtifactLog(head_id=head_id, branch_id=branch_id)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# def get_artifact_log(request: Request):
+#     head_id = unpack_int_env_header(request, "head_id")
+#     branch_id = unpack_int_env_header(request, "branch_id")
+#     if head_id is None:
+#         raise HTTPException(status_code=400, detail="head_id is not supported")
+#     try:
+#         return ArtifactLog(head_id=head_id, branch_id=branch_id)
+#     except Exception as e:
+#         raise HTTPException(status_code=400, detail=str(e))
+
+
+
 
 @router.get("/branches", response_model=List[Branch])
 async def get_branches():

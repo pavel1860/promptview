@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Generic, Type, TypeVar
 from pydantic import BaseModel
 
 from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.versioning import ArtifactLog, UserContext
+from promptview.model2.versioning import ArtifactLog, Partition, UserContext
 from promptview.tracer.langsmith_tracer import RunTypes
 from ..tracer import Tracer
 
@@ -42,7 +42,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     
     def __init__(
         self, 
-        partition: "Model | int | None" = None, 
+        partition: "Partition", 
         branch: "int" = 1,
         span_name: str | None = None, 
         auto_commit: bool = True,
