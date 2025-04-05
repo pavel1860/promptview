@@ -2,7 +2,7 @@ from typing import Generic, List, Optional, Type
 from datetime import datetime
 from typing_extensions import TypeVar
 
-from promptview.model2.versioning import ArtifactLog
+
 from pydantic import BaseModel
 from promptview.model2 import Model, ModelField
 from promptview.model2.fields import KeyField
@@ -53,9 +53,11 @@ class AuthModel(Model):
     created_at: datetime = ModelField(default_factory=datetime.now)
     
     async def list_partitions(self):
+        from promptview.model2.versioning import ArtifactLog
         return await ArtifactLog.list_partitions(self.id)
     
     async def create_partition(self, name: str, users: List["AuthModel"]):
+        from promptview.model2.versioning import ArtifactLog
         return await ArtifactLog.create_partition(name, [self.id] + [user.id for user in users])
     
     

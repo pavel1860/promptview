@@ -2,7 +2,6 @@ import enum
 import json
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Dict, List, Optional, Any, Self, Union, final
-
 from pydantic import BaseModel, Field
 
 
@@ -70,6 +69,10 @@ class Partition(BaseModel):
     updated_at: datetime
     participants: List["PartitionParticipant"]
     
+    def is_participant(self, user_id: int) -> bool:
+        return any(participant.user_id == user_id for participant in self.participants)
+    
+    
     
 class PartitionParticipant(BaseModel):
     """A participant in a partition"""
@@ -121,7 +124,8 @@ class ArtifactLog:
         CREATE TABLE IF NOT EXISTS partition_participants (
             id SERIAL PRIMARY KEY,
             partition_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL
+            user_id INTEGER NOT NULL,
+            FOREIGN KEY (partition_id) REFERENCES partitions(id)
         );
 
         CREATE TABLE IF NOT EXISTS turns (
@@ -141,10 +145,7 @@ class ArtifactLog:
         );
         
         
-
-        ALTER TABLE partition_participants
-        ADD CONSTRAINT fk_partition
-        FOREIGN KEY (partition_id) REFERENCES partitions(id);
+        
                 
         CREATE INDEX IF NOT EXISTS idx_turns_branch_id ON turns (branch_id);
         CREATE INDEX IF NOT EXISTS idx_turns_index ON turns (index DESC);
@@ -361,6 +362,7 @@ class ArtifactLog:
             raise ValueError(f"Turn {turn_id} not found")
         
         return cls._pack_turn(turn_row)
+        
     
     @classmethod
     async def get_last_turn(cls, partition_id: int, branch_id: int) -> Turn | None:

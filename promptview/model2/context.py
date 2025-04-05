@@ -39,9 +39,10 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     _ctx_token: contextvars.Token | None
     _branch: "Branch | None"
     _turn: "Turn | None"
-    
+    _user: PARTITION_MODEL | None
     def __init__(
-        self, 
+        self,
+        user: PARTITION_MODEL,
         partition: "Partition", 
         branch: "int" = 1,
         span_name: str | None = None, 
@@ -60,6 +61,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         else:
             self._partition_id = partition.id
             self._partition = partition
+        self._user = user
         self._init_method = InitStrategy.RESUME_TURN        
         self._init_params = {"branch_id": branch if type(branch) is int else branch.id}
         self._ctx_token = None
@@ -99,6 +101,12 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     @user_context.setter
     def user_context(self, value: UserContext):
         self._user_context = value
+        
+    @property
+    def user(self) -> PARTITION_MODEL:
+        if self._user is None:
+            raise ValueError("User not set")
+        return self._user
         
     @classmethod
     def get_current(cls, raise_error: bool = True):
@@ -205,7 +213,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     #     return self
     
     def build_child(self, span_name: str | None = None):
-        child = Context(partition=self.partition, span_name=span_name)
+        child = Context(user=self.user, partition=self.partition, span_name=span_name)
         child._branch = self._branch
         child._turn = self._turn
         child._parent_ctx = self

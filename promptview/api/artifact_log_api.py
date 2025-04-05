@@ -1,9 +1,11 @@
 from typing import Dict, Type, List, TypeVar, Generic
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.datastructures import QueryParams
-from promptview.api.utils import build_head_parser
+from promptview.api.utils import Head, build_head_parser, get_head
+from promptview.auth.dependencies import get_auth_user
+from promptview.auth.user_manager import AuthModel
 from pydantic import BaseModel
-from promptview.model2.versioning import ArtifactLog, Branch, Turn, TurnStatus
+from promptview.model2.versioning import ArtifactLog, Branch, Partition, Turn, TurnStatus
 
 
 
@@ -48,7 +50,7 @@ class BranchFromTurnRequest(BaseModel):
     turn_id: int
     
 @router.post("/branches")
-async def branch_from_turn(request: BranchFromTurnRequest):
+async def branch_from_turn(request: BranchFromTurnRequest, head: Head = Depends(get_head)):
     branch = await ArtifactLog.create_branch(forked_from_turn_id=request.turn_id)
     return branch
 
@@ -58,9 +60,25 @@ async def get_all_turns():
     turns = await ArtifactLog.list_turns()
     return turns
 
-@router.get("/heads/{head_id}")
-async def get_head(head_id: int):
-    raise NotImplementedError
+
+@router.get("/partitions", response_model=List[Partition])
+async def get_partitions(user: AuthModel = Depends(get_auth_user)):
+    partitions = await ArtifactLog.list_partitions(user.id)
+    return partitions
+
+
+class CreatePartitionPayload(BaseModel):
+    name: str
+    participants: List[int]
+
+@router.post("/partitions")
+async def create_partition(payload: CreatePartitionPayload, user: AuthModel = Depends(get_auth_user)):
+    partition = await ArtifactLog.create_partition(payload.name, [user.id] + payload.participants)
+    return partition
+
+# @router.get("/heads/{head_id}")
+# async def get_head(head_id: int):
+#     raise NotImplementedError
     
     
 @router.get("/turns/{branch_id}", response_model=List[Turn])

@@ -8,7 +8,7 @@ from promptview.auth.user_manager import AuthModel
 from promptview.model.query import parse_query_params
 from promptview.model2.model import ArtifactModel
 from promptview.model2.query_filters import QueryFilter, QueryListType
-from promptview.api.utils import build_head_parser, query_filters, unpack_int_env_header, Head
+from promptview.api.utils import get_head, query_filters, unpack_int_env_header, Head
 
 
 def create_artifact_router(model: Type[ArtifactModel]):
@@ -33,7 +33,7 @@ def create_artifact_router(model: Type[ArtifactModel]):
     #     head = Head(branch_id=branch_id, turn_id=turn_id)
     #     return head
     
-    get_head = build_head_parser(model)
+    # get_head = build_head_parser(model)
     @router.get("/list", response_model=List[dict])
     async def list_artifacts(
         offset: int = Query(default=0, ge=0),

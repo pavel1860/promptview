@@ -29,6 +29,8 @@ from promptview.utils.function_utils import call_function
 #         cache = "" if self.use_cache else ", use_cache=False"
 #         return f"{self.__class__.__name__}({attr}{cache})"
 
+class DependencyInjectionError(Exception):
+    pass
 
 
 class DependsContainer:
@@ -98,5 +100,8 @@ async def resolve_dependency(dependency_func, *args, **kwargs):
     try:
         # return await call_function(dependency_func, *args, **kwargs, **dep_kwargs)
         return await call_function(dependency_func, *args, **(kwargs | dep_kwargs))
+    except TypeError as e:
+        raise DependencyInjectionError(f"Dependency injection error for {dependency_func.__name__}:\n" + ",".join(e.args))
+        # raise DependencyInjectionError(e)
     except Exception as e:
         raise e

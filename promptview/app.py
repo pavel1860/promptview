@@ -2,12 +2,13 @@
 from contextlib import asynccontextmanager
 from functools import wraps
 from typing import Annotated, Any, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar
-from fastapi import Depends, FastAPI, Form, Header
+from fastapi import Depends, FastAPI, Form, HTTPException, Header
 
 
 from promptview.api.tracing_router import router as tracing_router
 from promptview.api.model_router import create_crud_router
 from promptview.api.artifact_router import create_artifact_router
+from promptview.api.utils import Head, get_head
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthManager, AuthModel
 from promptview.model2.context import UserContext
@@ -89,14 +90,19 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
                 user_context_json: Annotated[str, Form(...)],
                 # head_id: Annotated[int, Header(alias="head_id")],
                 user: Any = Depends(get_auth_user),
+                head: Head = Depends(get_head),
                 branch_id: Annotated[int | None, Header(alias="branch_id")] = None,
             ):
                 print(user)
                 message = self._message_model.model_validate_json(message_json)
                 user_context = UserContext.model_validate_json(user_context_json)
                 # async with self._ctx_model(head_id=head_id, branch_id=branch_id) as ctx:                
+                if head.partition is None:
+                    raise HTTPException(status_code=401, detail="No Partition specified for regular user")
+                
                 async with self._ctx_model(
-                    user, 
+                    user,
+                    head.partition, 
                     auto_commit=auto_commit, 
                     user_context=user_context
                 ).start_turn(branch_id=branch_id) \

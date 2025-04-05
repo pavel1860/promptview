@@ -1,12 +1,12 @@
 
 
-from typing import Type, Depends, HTTPException, Query, Request
-from fastapi import Request
+from typing import Type
+from fastapi import Request,  Depends, HTTPException, Query, Request
 import json
 
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
-from promptview.prompt.depends import Depends
+from promptview.model2.versioning import ArtifactLog, Partition
 from pydantic import BaseModel
 from promptview.model2.query_filters import QueryFilter, parse_query_params
 
@@ -14,9 +14,10 @@ from promptview.model2.query_filters import QueryFilter, parse_query_params
 
 
 class Head(BaseModel):
-    partition_id: str | None = None
+    partition_id: int | None = None
     branch_id: int = 1
     turn_id: int | None = None
+    partition: Partition | None = None
 
 
 def unpack_int_env_header(request: Request, field: str, default: int | None = None):
@@ -55,16 +56,23 @@ def build_head_parser(model: Type[BaseModel]):
 
 
 async def get_head(request: Request, auth_user: AuthModel = Depends(get_auth_user)) -> Head | None:
-        partition_id = unpack_int_env_header(request, "partition_id")
-        if partition_id is None:
+    partition_id = unpack_int_env_header(request, "partition_id")
+    partition = None
+    if partition_id is None:
+        if not auth_user.is_admin:
+            raise HTTPException(status_code=401, detail="No Partition specified for regular user")
+    else:
+        partition = await ArtifactLog.get_partition(partition_id)
+        if not partition.is_participant(auth_user.id):
             if not auth_user.is_admin:
-                raise HTTPException(status_code=401, detail="Unauthorized")
-        if partition_id != auth_user.id:
-            if not auth_user.is_admin:
-                raise HTTPException(status_code=401, detail="Unauthorized")
-        branch_id = unpack_int_env_header(request, "branch_id")
-        if branch_id is None:
-            branch_id = 1
-        turn_id = unpack_int_env_header(request, "turn_id")
-        head = Head(branch_id=branch_id, turn_id=turn_id)
-        return head
+                raise HTTPException(status_code=401, detail="Unauthorized partition for user")
+        
+    branch_id = unpack_int_env_header(request, "branch_id")
+    if branch_id is None:
+        branch_id = 1
+    turn_id = unpack_int_env_header(request, "turn_id")
+    head = Head(branch_id=branch_id, turn_id=turn_id, partition_id=partition_id, partition=partition)
+    return head
+    
+    
+
