@@ -406,6 +406,13 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     def get_field(self, name: str) -> FIELD_INFO:
         return self._fields[name]
     
+    def get_relation_by_type(self, model: MODEL):
+        for rel in self._relations.values():
+            if rel.foreign_cls == model:
+                return rel
+        return None
+    
+    
     def get_repo_namespace(self) -> Optional["Namespace"]:
         if not self.namespace_manager:
             raise ValueError("Namespace manager not set")

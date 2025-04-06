@@ -12,7 +12,7 @@ from promptview.model2.context import Context
 from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet, QuerySetSingleAdapter
-from promptview.model2.versioning import ArtifactLog, Branch, Turn
+from promptview.model2.versioning import ArtifactLog, Branch, Turn, Partition
 from promptview.model2.postgres.operations import PostgresOperations
 from promptview.utils.string_utils import camel_to_snake
 
@@ -348,6 +348,42 @@ class Model(BaseModel, metaclass=ModelMeta):
         """            
         ns = cls.get_namespace()
         return ns.query(partition_id, branch)
+    
+    
+    # def join(self, model: Type[MODEL], partition: Partition | None = None, branch: Branch | int = 1) -> "QuerySet[MODEL]":
+                    
+    #     ns = self.get_namespace()
+    #     rel_field = ns.get_relation_by_type(model)
+    #     if not rel_field:
+    #         raise ValueError(f"relation is not existing for type: {model.__name__}")
+    #     relation = getattr(self, rel_field.name)
+    #     if not relation:
+    #         raise ValueError("relation is not existing")
+    #     query = relation.build_query(partition)
+    #     return query
+    
+    def join(self, model: Type[MODEL], partition: Partition | None = None, branch: Branch | int = 1) -> "QuerySet[MODEL]":
+        partition_id = None
+        if partition:
+            partition_id = partition.id
+        ns = self.get_namespace()
+        rel_field = ns.get_relation_by_type(model)
+        if not rel_field:
+            raise ValueError(f"relation is not existing for type: {model.__name__}")
+        if issubclass(rel_field.__class__, NSRelationInfo):
+            if ns.is_context:
+                return ns.query(partition_id=partition_id)
+            else:
+                return rel_field.foreign_namespace.query(partition_id=partition_id, filters={rel_field.foreign_key: self.primary_id})
+        else:
+            print("Multi")
+            
+        # relation = getattr(self, rel_field.name)
+        # if not relation:
+        #     raise ValueError("relation is not existing")
+        # query = relation.build_query(partition)
+        # return query
+        
 
 
 # No need for the ModelFactory class anymore
@@ -566,6 +602,13 @@ class Relation(Generic[FOREIGN_MODEL], BaseRelation):
             return self.namespace.query(partition_id=self.primary_instance.primary_id)
         else:
             return self.relation_field.foreign_namespace.query(filters={self.relation_field.foreign_key: self.primary_instance.primary_id})
+        
+    def build_query(self, partition):
+        partition_id = partition.id
+        if self.is_context_model:
+            return self.namespace.query(partition_id=partition_id)
+        else:
+            return self.relation_field.foreign_namespace.query(partition_id=partition_id, filters={self.relation_field.foreign_key: self.primary_instance.primary_id})
     
     def all(self):
         """Get all related models."""
