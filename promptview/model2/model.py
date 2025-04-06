@@ -347,7 +347,7 @@ class Model(BaseModel, metaclass=ModelMeta):
             branch: Optional branch ID to query from
         """            
         ns = cls.get_namespace()
-        return ns.query(None, branch)
+        return ns.query(partition_id, branch)
 
 
 # No need for the ModelFactory class anymore

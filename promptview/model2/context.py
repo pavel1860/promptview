@@ -49,18 +49,18 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         auto_commit: bool = True,
         user_context: UserContext | None = None
     ):
-        if isinstance(partition, int):
-            self._partition_id = partition
-            self._partition = None
-        elif partition is None:
-            ctx = Context.get_current(raise_error=True)
-            if ctx is None:
-                raise ValueError("Context not set")
-            self._partition = ctx.partition
-            self._partition_id = ctx.partition_id
-        else:
-            self._partition_id = partition.id
-            self._partition = partition
+        # if isinstance(partition, int):
+        #     self._partition_id = partition
+        #     self._partition = None
+        # elif partition is None:
+        #     ctx = Context.get_current(raise_error=True)
+        #     if ctx is None:
+        #         raise ValueError("Context not set")
+        #     self._partition = ctx.partition
+        #     self._partition_id = ctx.partition_id
+        # else:
+            # self._partition_id = partition.id
+        self._partition = partition
         self._user = user
         self._init_method = InitStrategy.RESUME_TURN        
         self._init_params = {"branch_id": branch if type(branch) is int else branch.id}
@@ -168,9 +168,9 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     
     @property
     def partition_id(self):
-        if self._partition_id is None:
+        if self._partition is None:
             raise ValueError("Partition ID not set")
-        return self._partition_id
+        return self._partition.id
     
     @property
     def branch(self):
