@@ -2,7 +2,7 @@ from .model import Model, Relation, ManyRelation, RepoModel, ArtifactModel, Cont
 from .fields import ModelField, RelationField, KeyField
 from .postgres.namespace import PostgresNamespace
 from .namespace_manager import NamespaceManager
-from .versioning import Branch, Turn
+from .versioning import Branch, Turn, Partition
 from .context import Context
 
 __all__ = [
@@ -19,5 +19,6 @@ __all__ = [
     "KeyField",
     "Branch",
     "Turn",
+    "Partition",
     "Context"
 ]

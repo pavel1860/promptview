@@ -376,7 +376,24 @@ class Model(BaseModel, metaclass=ModelMeta):
             else:
                 return rel_field.foreign_namespace.query(partition_id=partition_id, filters={rel_field.foreign_key: self.primary_id})
         else:
-            print("Multi")
+            return rel_field.foreign_namespace.query(
+                partition_id=partition,
+                # joins=[{
+                #     "primary_table": self.relation_field.junction_table,
+                #     "primary_key": self.relation_field.junction_foreign_key,
+                #     "foreign_table": self.relation_field.foreign_table,
+                #     "foreign_key": self.relation_field.foreign_key,
+                # }],
+                select=[rel_field.foreign_namespace.select_fields()],
+                joins=[{
+                    "primary_table": rel_field.foreign_table,
+                    "primary_key": rel_field.foreign_key,
+                    "foreign_table": rel_field.junction_table,
+                    "foreign_key": rel_field.junction_foreign_key,
+                }],
+                filters={self.relation_field.junction_primary_key: self.primary_id},            
+            )
+        
             
         # relation = getattr(self, rel_field.name)
         # if not relation:
@@ -787,11 +804,11 @@ class ManyRelation(Generic[FOREIGN_MODEL, JUNCTION_MODEL], BaseRelation):
             relation = await relation.save(turn=turn, branch=branch)
         else:
             relation = await relation.save()
-        setattr(obj, self.relation_field.foreign_key, relation.primary_id)
-        if obj.__class__._is_versioned:
-            await obj.save(turn=turn, branch=branch)
-        else:
-            await obj.save()
+        # setattr(obj, self.relation_field.foreign_key, relation.primary_id)
+        # if obj.__class__._is_versioned:
+        #     await obj.save(turn=turn, branch=branch)
+        # else:
+        #     await obj.save()
         return obj
     
     

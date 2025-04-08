@@ -56,7 +56,12 @@ class AuthModel(Model):
         from promptview.model2.versioning import ArtifactLog
         return await ArtifactLog.list_partitions(self.id)
     
-    async def create_partition(self, name: str, users: List["AuthModel"]):
+    async def last_partition(self):
+        from promptview.model2.versioning import ArtifactLog
+        return await ArtifactLog.last_partition(self.id)
+    
+    async def create_partition(self, name: str, users: List["AuthModel"] | None = None):
+        users = users or []
         from promptview.model2.versioning import ArtifactLog
         return await ArtifactLog.create_partition(name, [self.id] + [user.id for user in users])
     

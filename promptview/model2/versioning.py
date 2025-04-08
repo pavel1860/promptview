@@ -207,7 +207,7 @@ class ArtifactLog:
         return cls._pack_participant(partition_row)
     
     @classmethod
-    async def list_partitions(cls, user_id: int) -> List[Partition]:
+    async def list_partitions(cls, user_id: int, limit: int = 100, offset: int = 0) -> List[Partition]:
         """Get all partitions for a user"""
 
         query = """
@@ -222,12 +222,20 @@ class ArtifactLog:
         FROM partitions p
         LEFT JOIN partition_participants pp ON p.id = pp.partition_id
         WHERE pp.user_id = $1
-        GROUP BY p.id, p.name, p.created_at, p.updated_at;
+        GROUP BY p.id, p.name, p.created_at, p.updated_at
+        ORDER BY p.created_at DESC
+        LIMIT $2 OFFSET $3;
         """
-        partitions = await PGConnectionManager.fetch(query, user_id)
+        partitions = await PGConnectionManager.fetch(query, user_id, limit, offset)
         return [cls._pack_participant(partition) for partition in partitions]
     
-    
+    @classmethod
+    async def last_partition(cls, user_id: int) -> Partition:
+        """Get the last partition for a user"""
+        partitions = await cls.list_partitions(user_id, limit=1, offset=0)
+        if len(partitions) == 0:
+            raise ValueError("No partitions found for user")
+        return partitions[0]
     
     @classmethod
     async def create_branch(cls, name: Optional[str] = None, forked_from_turn_id: Optional[int] = None) -> Branch:
