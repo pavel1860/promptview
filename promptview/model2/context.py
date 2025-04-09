@@ -1,12 +1,13 @@
 
+import asyncio
 import contextvars
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Generic, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, Type, TypeVar
 
 from pydantic import BaseModel
 
 from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.versioning import ArtifactLog, Partition, UserContext
+from promptview.model2.versioning import ArtifactLog, Partition, TurnStatus, UserContext
 from promptview.tracer.langsmith_tracer import RunTypes
 from ..tracer import Tracer
 
@@ -37,38 +38,31 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     _partition_id: int | None
     
     _ctx_token: contextvars.Token | None
+    _branch_id: int
     _branch: "Branch | None"
+    _on_exit: Literal["commit", "revert", "none"]
     _turn: "Turn | None"
     _user: PARTITION_MODEL | None
     def __init__(
         self,
         user: PARTITION_MODEL,
         partition: "Partition", 
-        branch: "int" = 1,
-        span_name: str | None = None, 
-        auto_commit: bool = True,
+        on_exit: Literal["commit", "revert", "none"],
+        branch: int | None = 1,
+        span_name: str | None = None,         
         user_context: UserContext | None = None
     ):
-        # if isinstance(partition, int):
-        #     self._partition_id = partition
-        #     self._partition = None
-        # elif partition is None:
-        #     ctx = Context.get_current(raise_error=True)
-        #     if ctx is None:
-        #         raise ValueError("Context not set")
-        #     self._partition = ctx.partition
-        #     self._partition_id = ctx.partition_id
-        # else:
-            # self._partition_id = partition.id
+
         self._partition = partition
         self._user = user
         self._init_method = InitStrategy.RESUME_TURN        
-        self._init_params = {"branch_id": branch if type(branch) is int else branch.id}
+        # self._init_params = {"branch_id": branch if type(branch) is int else branch.id}
+        self._branch_id = branch if branch is not None else 1
         self._ctx_token = None
         self._span_name = span_name
         self._branch = None
         self._turn = None
-        self._auto_commit = auto_commit
+        self._on_exit = on_exit
         self._parent_ctx = None
         self._trace_id = None
         self._user_context = user_context
@@ -125,15 +119,17 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         return ctx
     
     @classmethod
-    def get_current_head(cls, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> tuple[int | None, int | None]: 
+    async def get_current_head(cls, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> tuple[int | None, int | None]: 
         ctx = Context.get_current(raise_error=False)    
-        turn_id = cls.get_current_turn(turn, ctx)
-        branch_id = cls.get_current_branch(branch, ctx)
+        turn_id, branch_id = await asyncio.gather(
+            cls.get_current_turn(turn, ctx),
+            cls.get_current_branch(branch, ctx)
+        )
         return turn_id, branch_id
     
     @classmethod
-    def get_current_branch(cls, branch: "int | Branch | None" = None, ctx: "Context | None" = None):
-        branch_id = 1
+    async def get_current_branch(cls, branch: "int | Branch | None" = None, ctx: "Context | None" = None):
+        branch_id = 1 
         if ctx is None:
             ctx = Context.get_current(raise_error=False)
         if branch:
@@ -143,11 +139,31 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
                 branch_id = branch.id
         else:
             if ctx:
-                branch_id = ctx.branch.id
+                if ctx._branch is None:
+                    branch = await ArtifactLog.get_branch(ctx._branch_id)
+                    branch_id = branch.id                    
+                    ctx._branch = branch
+                else:
+                    branch_id = ctx.branch.id
         return branch_id
     
     @classmethod
-    def get_current_turn(cls, turn: "int | Turn | None" = None, ctx: "Context | None" = None):
+    async def get_current_partition(cls, partition: "int | Partition | None", ctx: "Context | None" = None):
+        partition_id = None
+        if ctx is None:
+            ctx = Context.get_current(raise_error=False)
+        if partition is not None:
+            if isinstance(partition, int):
+                partition_id = partition
+            else:
+                partition_id = partition.id
+        else:
+            if ctx:
+                partition_id = ctx.partition.id
+        return partition_id
+    
+    @classmethod
+    async def get_current_turn(cls, turn: "int | Turn | None" = None, ctx: "Context | None" = None):
         turn_id = None
         if ctx is None:
             ctx = Context.get_current(raise_error=False)
@@ -158,8 +174,14 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
                 turn_id = turn.id
         else:
             if ctx:
-                turn_id = ctx.turn.id
+                if ctx.turn is None:
+                    turn = await ctx._start_new_turn()
+                    turn_id = turn.id
+                else:
+                    turn_id = ctx.turn.id            
         return turn_id
+    
+    
                 
     
     @property
@@ -174,14 +196,14 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     
     @property
     def branch(self):
-        if self._branch is None:
-            raise ValueError("Branch not set")
+        # if self._branch is None:
+            # raise ValueError("Branch not set")
         return self._branch
     
     @property
     def turn(self):
-        if self._turn is None:
-            raise ValueError("Turn not set")
+        # if self._turn is None:
+            # raise ValueError("Turn not set")
         return self._turn
     
     @property
@@ -194,11 +216,12 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             raise ValueError("Partition not set")
         return self._partition
     
-    def start_turn(self, branch_id: int | None = None):
+    def start_turn(self, branch_id: int | None = None, auto_commit: bool = False):
         if branch_id is None:
             branch_id = 1
         self._init_method = InitStrategy.START_TURN
         self._init_params["branch_id"] = branch_id
+        self._auto_commit = auto_commit
         return self
     
     
@@ -206,30 +229,27 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     async def branch_from(self, turn_id: int, name: str | None = None):
         branch = await ArtifactLog.create_branch(forked_from_turn_id=turn_id, name=name)        
         return branch
-    
-    # async def branch_from(self, turn_id: int, name: str | None = None):
-    #     self._init_method = InitStrategy.BRANCH_FROM
-    #     self._init_params["turn_id"] = turn_id
-    #     return self
+
     
     def build_child(self, span_name: str | None = None):
-        child = Context(user=self.user, partition=self.partition, span_name=span_name)
+        child = Context(user=self.user, partition=self.partition, on_exit="none", span_name=span_name)
         child._branch = self._branch
         child._turn = self._turn
         child._parent_ctx = self
         return child
     
     async def _start_new_turn(self):
-        if "branch_id" in self._init_params:
-            branch = await NamespaceManager.get_branch(self._init_params["branch_id"])
-            if branch is None:
-                raise ValueError(f"Branch {self._init_params['branch_id']} not found")
-            self._branch = branch
+        # if "branch_id" in self._init_params:
+        #     branch = await NamespaceManager.get_branch(self._init_params["branch_id"])
+        #     if branch is None:
+        #         raise ValueError(f"Branch {self._init_params['branch_id']} not found")
+        #     self._branch = branch
         self._turn = await NamespaceManager.create_turn(
             partition_id=self.partition_id,
-            branch_id=self.branch.id,
+            branch_id=self._branch_id,
             user_context=self._user_context
         )
+        return self._turn
         
     async def _resume_turn(self):
         if "branch_id" in self._init_params:
@@ -259,21 +279,11 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             tracer_run=self._parent_ctx._tracer_run if self._parent_ctx is not None else None,
         )
         return self
-    
-    async def _init(self):
-        if self._init_method == InitStrategy.START_TURN:
-            await self._start_new_turn()
-        elif self._init_method == InitStrategy.NO_PARTITION:
-            raise NotImplementedError("No partition")
-        elif self._init_method == InitStrategy.RESUME_TURN:
-            await self._resume_turn()
-        else:
-            raise ValueError(f"Invalid init method: {self._init_method}")
         
-    async def __aenter__(self):
-        await self._init()
-        if self._branch is None or self._turn is None:
-            raise ValueError("Branch or turn not set")
+        
+    async def __aenter__(self):    
+        # if self._branch is None or self._turn is None:
+            # raise ValueError("Branch or turn not set")
         self._set_context()
         return self
     
@@ -285,18 +295,28 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             if self._parent_ctx is None:
                 await self.revert(message=str(exc_value))
             return False
-        if self._auto_commit and self._parent_ctx is None:
+        if self._on_exit == "commit" and self._parent_ctx is None:
             await self.commit()
+        elif self._on_exit == "revert" and self._parent_ctx is None:
+            await self.revert()
         return True
     
     
     async def commit(self):
+        if self.turn is None:
+            return 
+        if self.turn.status == TurnStatus.COMMITTED:
+            raise ValueError("Turn already committed, cannot commit again")
+        if self.turn.status == TurnStatus.REVERTED:
+            raise ValueError("Turn already reverted, cannot commit")
         await ArtifactLog.commit_turn(
             turn_id=self.turn.id,             
             trace_id=self.trace_id,
         )
     
     async def revert(self, message: str | None = None):
+        if self.turn is None:
+            return
         await ArtifactLog.revert_turn(
             turn_id=self.turn.id,
             message=message,

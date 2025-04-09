@@ -15,7 +15,7 @@ DatabaseType = Literal["qdrant", "postgres"]
 if TYPE_CHECKING:
     from promptview.model2.namespace_manager import NamespaceManager
     from promptview.model2.model import Model
-    from promptview.model2.versioning import Branch, Turn
+    from promptview.model2.versioning import Branch, Turn, Partition
 INDEX_TYPES = TypeVar("INDEX_TYPES", bound=str)
 
 
@@ -496,9 +496,9 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         """
         raise NotImplementedError("Not implemented")
     
-    def get_current_ctx_head(self, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> tuple[int | None, int | None]:
+    async def get_current_ctx_head(self, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> tuple[int | None, int | None]:
         from promptview.model2.context import Context
-        turn_id, branch_id = Context.get_current_head(turn, branch)
+        turn_id, branch_id = await Context.get_current_head(turn, branch)
         if self.is_versioned:
             if turn_id is None:
                 raise ValueError(f"""Turn is required when saving {self.model_class.__name__} to an artifact""")
@@ -507,9 +507,15 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         return turn_id, branch_id
     
         
-    def get_current_ctx_branch(self, branch: "int | Branch | None" = None) -> int | None:
+    async def get_current_ctx_branch(self, branch: "int | Branch | None" = None) -> int | None:
         from promptview.model2.context import Context
-        return Context.get_current_branch(branch)
+        return await Context.get_current_branch(branch)
+    
+    async def get_current_ctx_partition_branch(self, partition: "int| Partition | None", branch: "int | Branch | None" = None):        
+        from promptview.model2.context import Context
+        partition = await Context.get_current_partition(partition)
+        branch = await Context.get_current_branch(branch)        
+        return partition, branch
     
     async def create_namespace(self):
         """Create the namespace in the database"""

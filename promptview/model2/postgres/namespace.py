@@ -265,10 +265,11 @@ class PostgresQuerySet(QuerySet[MODEL]):
             select_types = [SelectType(namespace=sf["namespace"].name, fields=[f.name for f in sf["fields"]]) for sf in self.select]
         else:
             select_types = None
+        partition_id, branch_id = await self.namespace.get_current_ctx_partition_branch(partition=self.partition_id, branch=self.branch_id)
         results = await PostgresOperations.query(
             self.namespace,
-            partition_id=self.partition_id,
-            branch_id=self.branch_id,
+            partition_id=partition_id,
+            branch_id=branch_id,
             filters=self.filters,
             limit=self.limit_value,
             order_by=self.order_by_value,
@@ -505,7 +506,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             The saved data with any additional fields (e.g., ID)
         """
         
-        turn_id, branch_id = self.get_current_ctx_head(turn, branch) if self.is_versioned else (None, None)
+        turn_id, branch_id = await self.get_current_ctx_head(turn, branch) if self.is_versioned else (None, None)
         if artifact_id is not None:
             if not version:
                 raise ValueError("Version is required when saving to an artifact")
@@ -521,7 +522,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
     
     async def delete(self, data: Dict[str, Any] | None = None, id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
         """Delete data from the namespace"""
-        turn_id, branch_id = self.get_current_ctx_head(turn, branch) if self.is_versioned else (None, None)
+        turn_id, branch_id = await self.get_current_ctx_head(turn, branch) if self.is_versioned else (None, None)
         if artifact_id is not None:
             if not version:
                 raise ValueError("Version is required when saving to an artifact")
@@ -579,12 +580,19 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         Returns:
             A query set for this namespace
         """
-        branch = self.get_current_ctx_branch(branch) if self.is_versioned else None
+        # branch = self.get_current_ctx_branch(branch) if self.is_versioned else None
+        # partition, branch = self.get_current_ctx_partition_branch(partition=partition_id, branch=branch)
         
-        return PostgresQuerySet(self.model_class, self, partition_id, branch, select=select, joins=joins, filters=filters, )
-        # if self.is_context:            
-        #     return PostgresQuerySet(self.model_class, self, partition_id, branch, joins=joins)
-        # else:
+        return PostgresQuerySet(
+            model_class=self.model_class, 
+            namespace=self, 
+            partition_id=partition_id, 
+            branch_id=branch, 
+            select=select, 
+            joins=joins, 
+             filters=filters
+        )
+        
             
         
         

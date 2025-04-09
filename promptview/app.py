@@ -103,10 +103,10 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
                 async with self._ctx_model(
                     user,
                     head.partition, 
-                    auto_commit=auto_commit, 
-                    user_context=user_context
-                ).start_turn(branch_id=branch_id) \
-                    .start_tracer(
+                    "commit",
+                    user_context=user_context,
+                    branch=branch_id
+                ).start_tracer(
                         name=func.__name__, 
                         run_type="chain", 
                         inputs={
