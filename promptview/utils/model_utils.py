@@ -1,11 +1,12 @@
 import inspect
 import json
+import uuid
 import jsonref
 from types import UnionType
 from typing import Any, Dict, Iterable, List, Literal, Optional, Type, TypedDict, Union, get_args, get_origin
 from pydantic import BaseModel, Field, create_model
 from enum import Enum, StrEnum
-
+import datetime as dt
 
 
 def is_list_type(pydantic_model):
@@ -406,3 +407,22 @@ def get_complex_fields(model_class):
                 complex_fields[field] = field_type            
     return complex_fields
 
+
+
+
+
+def make_json_serializable(data: dict[str, Any]):
+    try:    
+        for k, v in data.items():
+            if isinstance(v, uuid.UUID):
+                data[k] = str(v)
+            elif isinstance(v, dt.datetime):
+                data[k] = v.isoformat()
+            elif isinstance(v, dict):
+                data[k] = make_json_serializable(v)
+            elif isinstance(v, list):
+                data[k] = [make_json_serializable(item) if isinstance(item, dict) else item for item in v]
+    except Exception as e:
+        raise ValueError(f"Failed to serialize dict: {data}") from e
+    return data
+    

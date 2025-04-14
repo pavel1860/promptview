@@ -60,12 +60,13 @@ async def get_head(request: Request, auth_user: AuthModel = Depends(get_auth_use
     partition = None
     if partition_id is None:
         if not auth_user.is_admin:
-            raise HTTPException(status_code=401, detail="No Partition specified for regular user")
+            partition = await auth_user.last_partition("default")
+            if not partition:
+                raise HTTPException(status_code=401, detail="No Partition specified for regular user")        
     else:
         partition = await ArtifactLog.get_partition(partition_id)
-        if not partition.is_participant(auth_user.id):
-            if not auth_user.is_admin:
-                raise HTTPException(status_code=401, detail="Unauthorized partition for user")
+        if not partition.is_participant(auth_user.id) and not auth_user.is_admin:
+            raise HTTPException(status_code=401, detail="Unauthorized partition for user")
         
     branch_id = unpack_int_env_header(request, "branch_id")
     if branch_id is None:

@@ -89,7 +89,8 @@ def create_crud_router(model: Type[MODEL], IdType: Type[int] | Type[str] = int) 
 
 
     @router.post("/create")
-    async def create_instance(data: dict, head: Head | None = Depends(get_head)):
+    async def create_instance(req: Request, data: dict, head: Head | None = Depends(get_head)):
+        print(req)
         instance = model(**data)
           # Assuming your save method is asynchronous
         head = data.get("head", None)

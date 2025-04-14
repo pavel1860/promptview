@@ -79,6 +79,7 @@ async def create_partition(payload: CreatePartitionPayload, user: AuthModel = De
 # @router.get("/heads/{head_id}")
 # async def get_head(head_id: int):
 #     raise NotImplementedError
+
     
     
 @router.get("/turns/{branch_id}", response_model=List[Turn])

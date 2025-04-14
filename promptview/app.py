@@ -1,8 +1,10 @@
 
 from contextlib import asynccontextmanager
 from functools import wraps
+import json
 from typing import Annotated, Any, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar
 from fastapi import Depends, FastAPI, Form, HTTPException, Header
+from pydantic import BaseModel
 
 
 from promptview.api.tracing_router import router as tracing_router
@@ -11,7 +13,6 @@ from promptview.api.artifact_router import create_artifact_router
 from promptview.api.utils import Head, get_head
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthManager, AuthModel
-from promptview.model2.context import UserContext
 from promptview.model2.model import ArtifactModel
 from promptview.testing.test_manager import TestManager
 from promptview.model2 import Model, NamespaceManager, Context
@@ -41,6 +42,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         message_model: Type[MSG_MODEL], 
         user_model: Type[USER_MODEL], 
         ctx_model: Type[CTX_MODEL],
+        add_temp_users: bool = False,
         app: FastAPI | None = None
     ):
         
@@ -49,7 +51,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
             # This code runs before the server starts serving
             ns = user_model.get_namespace()
             await AuthManager.initialize_tables()
-            AuthManager.register_user_model(user_model)
+            AuthManager.register_user_model(user_model, add_temp_users=add_temp_users)
             await NamespaceManager.create_all_namespaces(ns.name)
             # Yield to hand control back to FastAPI (start serving)
             yield
@@ -59,6 +61,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         self._message_model = message_model
         self._user_model = user_model
         self._ctx_model = ctx_model
+        self._add_temp_users = add_temp_users
         
         self.setup_apis()
         
@@ -87,7 +90,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
             self._entrypoints_registry[path] = func
             async def input_endpoint(
                 message_json:  Annotated[str, Form(...)],
-                user_context_json: Annotated[str, Form(...)],
+                state_json: Annotated[str, Form(...)],
                 # head_id: Annotated[int, Header(alias="head_id")],
                 user: Any = Depends(get_auth_user),
                 head: Head = Depends(get_head),
@@ -95,7 +98,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
             ):
                 print(user)
                 message = self._message_model.model_validate_json(message_json)
-                user_context = UserContext.model_validate_json(user_context_json)
+                state = json.loads(state_json) if state_json else {}
                 # async with self._ctx_model(head_id=head_id, branch_id=branch_id) as ctx:                
                 if head.partition is None:
                     raise HTTPException(status_code=401, detail="No Partition specified for regular user")
@@ -104,19 +107,19 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
                     user,
                     head.partition, 
                     "commit",
-                    user_context=user_context,
+                    state=state,
                     branch=branch_id
                 ).start_tracer(
                         name=func.__name__, 
                         run_type="chain", 
                         inputs={
                             "message": message.model_dump_json(),
-                            "user_context": user_context.model_dump_json(),
+                            "state": state.model_dump_json() if isinstance(state, BaseModel) else state,
                             "branch_id": branch_id,
                         }
                     ) as ctx:
                     responses = await func(ctx=ctx, message=message)
-                    print(ctx.user_context)
+                    print(ctx.state)
                 return [message, *responses]
             
             async def test_endpoint(

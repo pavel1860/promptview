@@ -136,35 +136,35 @@ class OpenAiLLM(LlmContext):
     
     
     
-    # async def client_complete(self, blocks: Block, tools: List[Type[BaseModel]] | None = None, config: LlmConfig | None = None) -> Block:
+    async def client_complete2(self, blocks: Block, tools: List[Type[BaseModel]] | None = None, config: LlmConfig | None = None) -> Block:
         
-    #     content = """
-    #     <observation>
-    #         this is an obeservation
-    #     </observation>
-    #     <thought>
-    #         this is a thought
-    #     </thought>        
-    #     <message>
-    #     Hello! How can I assist you today with your seller financing deal? If you would like to review any details of your deal, such as the asset or loan terms, please let me know!        
-    #     </message> 
-    #     <wait_for_response>
-    #         user_input
-    #     </wait_for_response>       
-    #     """
+        content = """
+        <observation>
+            this is an obeservation
+        </observation>
+        <thought>
+            this is a thought
+        </thought>        
+        <message>
+        Hello! How can I assist you today with your seller financing deal? If you would like to review any details of your deal, such as the asset or loan terms, please let me know!        
+        </message> 
+        <wait_for_response>
+            user_input
+        </wait_for_response>       
+        """
         
         
             
                       
-    #     response_block = Block(
-    #         content=content,
-    #         role="assistant",
-    #         tool_calls=[],
-    #         # id=response.id,
-    #         model="openai",
-    #         tags=["generation"]
-    #     )
-    #     return response_block
+        response_block = Block(
+            content=content,
+            role="assistant",
+            tool_calls=[],
+            # id=response.id,
+            model="openai",
+            tags=["generation"]
+        )
+        return response_block
     
     
         

@@ -9,8 +9,7 @@ from promptview.utils.db_connections import PGConnectionManager
 if TYPE_CHECKING:
     from promptview.model2.postgres.namespace import PostgresNamespace
 
-class UserContext(BaseModel):
-    artifact_view: str | None = None
+
 
 
 
@@ -32,7 +31,7 @@ class Turn(BaseModel):
     branch_id: int
     trace_id: Optional[str] = None
     partition_id: int = Field(default=1)
-    user_context: Optional[UserContext] = None
+    state: Optional[Any] = None
     metadata: Optional[Dict[str, Any]] = None
     forked_branches: List[dict] | None = None
     
@@ -135,7 +134,7 @@ class ArtifactLog:
             index INTEGER NOT NULL,
             status TEXT NOT NULL,
             message TEXT,
-            user_context JSONB DEFAULT '{}',
+            state JSONB DEFAULT '{}',
             metadata JSONB DEFAULT '{}',            
             branch_id INTEGER NOT NULL,
             trace_id TEXT,
@@ -207,10 +206,10 @@ class ArtifactLog:
         return cls._pack_participant(partition_row)
     
     @classmethod
-    async def list_partitions(cls, user_id: int, limit: int = 100, offset: int = 0) -> List[Partition]:
+    async def list_partitions(cls, user_id: int, name: str | None = None, limit: int = 100, offset: int = 0) -> List[Partition]:
         """Get all partitions for a user"""
 
-        query = """
+        query = f"""
         SELECT 
             p.*,
             json_agg(
@@ -221,18 +220,21 @@ class ArtifactLog:
             ) AS participants
         FROM partitions p
         LEFT JOIN partition_participants pp ON p.id = pp.partition_id
-        WHERE pp.user_id = $1
+        WHERE pp.user_id = $1 {f"AND p.name = $4" if name is not None else ""}
         GROUP BY p.id, p.name, p.created_at, p.updated_at
         ORDER BY p.created_at DESC
         LIMIT $2 OFFSET $3;
         """
-        partitions = await PGConnectionManager.fetch(query, user_id, limit, offset)
+        params = [user_id, limit, offset]
+        if name is not None:
+            params.append(name)
+        partitions = await PGConnectionManager.fetch(query, *params)
         return [cls._pack_participant(partition) for partition in partitions]
     
     @classmethod
-    async def last_partition(cls, user_id: int) -> Partition:
+    async def last_partition(cls, user_id: int, name: str | None = None) -> Partition:
         """Get the last partition for a user"""
-        partitions = await cls.list_partitions(user_id, limit=1, offset=0)
+        partitions = await cls.list_partitions(user_id, name, limit=1, offset=0)
         if len(partitions) == 0:
             raise ValueError("No partitions found for user")
         return partitions[0]
@@ -270,14 +272,14 @@ class ArtifactLog:
     @classmethod
     def _pack_turn(cls, record: Any) -> Turn:
         data = dict(record)
-        data["user_context"] = UserContext(**json.loads(data["user_context"])) if data["user_context"] is not None else None
+        data["state"] = json.loads(data["state"]) if data["state"] is not None else None
         data["metadata"] = json.loads(data["metadata"])
         data["forked_branches"] = json.loads(data["forked_branches"]) if "forked_branches" in data else None
         return Turn(**data)
     
     
     @classmethod
-    async def create_turn(cls, partition_id: int, branch_id: int = 1, status: TurnStatus=TurnStatus.STAGED, user_context: Optional[UserContext] = None) -> Turn:
+    async def create_turn(cls, partition_id: int, branch_id: int = 1, status: TurnStatus=TurnStatus.STAGED, state: Optional[Any] = None) -> Turn:
         """
         Create a new turn
         
@@ -294,17 +296,22 @@ class ArtifactLog:
             RETURNING id, current_index
         ),
         new_turn AS (
-            INSERT INTO turns (partition_id, branch_id, index, status, user_context)
+            INSERT INTO turns (partition_id, branch_id, index, status, state)
             SELECT $2, id, current_index, $3, $4
             FROM updated_branch
             RETURNING *
         )
         SELECT * FROM new_turn;
         """
-        user_context_json = user_context.model_dump_json() if user_context is not None else "{}"
+        state_json = "{}"
+        if state is not None:
+            if isinstance(state, BaseModel):
+                state_json = state.model_dump_json()
+            else:
+                state_json = json.dumps(state)
         # Use a transaction to ensure atomicity
         async with PGConnectionManager.transaction() as tx:
-            turn_row = await tx.fetch_one(query, branch_id, partition_id, status.value, user_context_json)
+            turn_row = await tx.fetch_one(query, branch_id, partition_id, status.value, state_json)
             if turn_row is None:
                 raise ValueError(f"Failed to create turn for branch {branch_id}")
         
@@ -325,7 +332,7 @@ class ArtifactLog:
                 t.ended_at,
                 t.message,
                 t.metadata,
-                t.user_context,
+                t.state,
                 t.trace_id,
                 t.partition_id,
                 COALESCE(

@@ -1,5 +1,6 @@
 from typing import Generic, List, Optional, Type
 from datetime import datetime
+from uuid import UUID, uuid4
 from typing_extensions import TypeVar
 
 
@@ -45,20 +46,21 @@ from promptview.utils.db_connections import PGConnectionManager
 
 class AuthModel(Model):
     id: int = KeyField(primary_key=True)
+    user_token: UUID = ModelField(None)
     name: str | None = ModelField(None)
-    email: str = ModelField(...)
+    email: str | None = ModelField(None)
     image: str | None = ModelField(None)
-    emailVerified: datetime = ModelField(..., db_type="TIMESTAMPTZ")
+    emailVerified: datetime | None = ModelField(None, db_type="TIMESTAMPTZ")
     is_admin: bool = ModelField(default=False)
     created_at: datetime = ModelField(default_factory=datetime.now)
     
-    async def list_partitions(self):
+    async def list_partitions(self, name: str | None = None):
         from promptview.model2.versioning import ArtifactLog
-        return await ArtifactLog.list_partitions(self.id)
+        return await ArtifactLog.list_partitions(self.id, name)
     
-    async def last_partition(self):
+    async def last_partition(self, name: str | None = None):
         from promptview.model2.versioning import ArtifactLog
-        return await ArtifactLog.last_partition(self.id)
+        return await ArtifactLog.last_partition(self.id, name)
     
     async def create_partition(self, name: str, users: List["AuthModel"] | None = None):
         users = users or []
@@ -69,8 +71,9 @@ class AuthModel(Model):
 
 class UserAuthPayload(BaseModel):
     name: str | None = None
-    email: str
-    emailVerified: datetime
+    user_token: UUID | None = None
+    email: str | None = None
+    emailVerified: datetime | None = None
     image: str | None = None
     
     
@@ -84,6 +87,7 @@ AUTH_MODEL = TypeVar("AUTH_MODEL", bound=AuthModel)
 class AuthManager(Generic[AUTH_MODEL]):
     
     _auth_model: Optional[Type[AUTH_MODEL]] = None
+    _add_temp_users: bool = False
     
     @classmethod
     def get_user_model(cls) -> Type[AUTH_MODEL]:
@@ -92,8 +96,9 @@ class AuthManager(Generic[AUTH_MODEL]):
         return cls._auth_model
     
     @classmethod
-    def register_user_model(cls, user_model: Type[AUTH_MODEL]):
+    def register_user_model(cls, user_model: Type[AUTH_MODEL], add_temp_users: bool = False):
         cls._auth_model = user_model
+        cls._add_temp_users = add_temp_users
     
     @staticmethod
     async def initialize_tables():
@@ -214,9 +219,11 @@ CREATE TABLE IF NOT EXISTS sessions (
         )
     
     
-    async def create_user(self, data: UserAuthPayload):
+    async def create_user(self, data: UserAuthPayload, create_partition: bool = False):
         user_model = self.get_user_model()
         user = await user_model(**data.model_dump()).save()
+        if create_partition or AuthManager._add_temp_users:
+            await user.create_partition("default")
         return user
     
     @classmethod
@@ -242,15 +249,26 @@ CREATE TABLE IF NOT EXISTS sessions (
         user = await user_model.query().filter(lambda x: x.email == email).first()
         return user
     
-    async def get_user_by_session_token(self, session_token: str):
-        res = await PGConnectionManager.fetch_one(
-            f"""
-            SELECT "userId" FROM sessions WHERE "sessionToken" = '{session_token}'
-            """
-        )
-        if res is None:
-            raise UserManagerError("Invalid session token")
-        return await self.get_user(res["userId"])
+    async def get_user_by_session_token(self, session_token: str, use_sessions: bool = True):
+        if use_sessions:
+            res = await PGConnectionManager.fetch_one(
+                f"""
+                SELECT "userId" FROM sessions WHERE "sessionToken" = '{session_token}'
+                """
+            )
+            if res is None:
+                raise UserManagerError("Invalid session token")
+            return await self.get_user(res["userId"])
+        else:
+            res = await PGConnectionManager.fetch_one(
+                f"""
+                SELECT "id" FROM users WHERE user_token = '{session_token}'
+                """
+            )
+            if res is None:
+                return None
+            return await self.get_user(res["id"])
+        
     
     
     async def change_head(self, user_id: int, head_id: int):

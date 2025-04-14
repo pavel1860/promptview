@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Generic, Literal, Type, TypeVar
 from pydantic import BaseModel
 
 from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.versioning import ArtifactLog, Partition, TurnStatus, UserContext
+from promptview.model2.versioning import ArtifactLog, Partition, TurnStatus
 from promptview.tracer.langsmith_tracer import RunTypes
 from ..tracer import Tracer
 
@@ -50,7 +50,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         on_exit: Literal["commit", "revert", "none"],
         branch: int | None = 1,
         span_name: str | None = None,         
-        user_context: UserContext | None = None
+        state: Any | None = None
     ):
 
         self._partition = partition
@@ -65,7 +65,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         self._on_exit = on_exit
         self._parent_ctx = None
         self._trace_id = None
-        self._user_context = user_context
+        self._state = state
         self._tracer_run = None
         
         
@@ -87,14 +87,14 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         return self._tracer_run
     
     @property
-    def user_context(self):
-        if self._user_context is None:
-            raise ValueError("User context not set")
-        return self._user_context
+    def state(self):
+        if self._state is None:
+            raise ValueError("State not set")
+        return self._state
     
-    @user_context.setter
-    def user_context(self, value: UserContext):
-        self._user_context = value
+    @state.setter
+    def state(self, value: Any):
+        self._state = value
         
     @property
     def user(self) -> PARTITION_MODEL:
@@ -247,7 +247,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         self._turn = await NamespaceManager.create_turn(
             partition_id=self.partition_id,
             branch_id=self._branch_id,
-            user_context=self._user_context
+            state=self._state
         )
         return self._turn
         

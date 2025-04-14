@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Iterator, Type, TypeVar, Dict, List, Any, Opti
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.namespace import PostgresNamespace
 from promptview.model2.postgres.operations import PostgresOperations
-from promptview.model2.versioning import ArtifactLog, UserContext
+from promptview.model2.versioning import ArtifactLog
 
 
 if TYPE_CHECKING:
@@ -174,14 +174,14 @@ class NamespaceManager:
 
 
     @classmethod
-    async def create_turn(cls, partition_id: int, branch_id: int, user_context: Optional[UserContext] = None) -> "Turn":
+    async def create_turn(cls, partition_id: int, branch_id: int, state: Optional[Any] = None) -> "Turn":
         """
         Create a turn for a partition.
         """
         return await ArtifactLog.create_turn(
             partition_id=partition_id,
             branch_id=branch_id,
-            user_context=user_context
+            state=state
         )
         
     @classmethod

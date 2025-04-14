@@ -10,7 +10,7 @@ from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.operations import JoinType, PostgresOperations, SelectType
 from promptview.model2.query_filters import QueryFilter, QueryProxy, parse_query_params
 from promptview.model2.versioning import Branch, Turn
-from promptview.utils.model_utils import get_list_type, is_list_type
+from promptview.utils.model_utils import get_list_type, is_list_type, make_json_serializable
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter, SelectFields
 from promptview.utils.db_connections import PGConnectionManager
 import datetime as dt
@@ -47,14 +47,29 @@ class PgFieldInfo(NSFieldInfo):
     def serialize(self, value: Any) -> Any:
         """Serialize the value for the database"""
         if self.is_key and self.key_type == "uuid" and value is None:
-            value = uuid.uuid4()
+            value = str(uuid.uuid4())
         elif self.sql_type == "JSONB":
             if self.is_list:
+                value = [make_json_serializable(item) if isinstance(item, dict) else item for item in value]
                 value = json.dumps(value)
             elif self.field_type is BaseModel:
                 value = value.model_dump()
             elif self.data_type is dict:
+                value = make_json_serializable(value)
                 return json.dumps(value)
+                # parsed_values = {}
+                # for k, v in value.items():
+                #     if isinstance(v, uuid.UUID):
+                #         parsed_values[k] = str(v)
+                #     elif isinstance(v, dt.datetime):
+                #         parsed_values[k] = v.isoformat()
+                #     else:
+                #         parsed_values[k] = v                                        
+                # try:
+                #     return json.dumps(parsed_values)
+                # except Exception as e:
+                #     raise ValueError(f"Failed to serialize dict: {value}") from e
+                
                 
         return value
     
