@@ -21,6 +21,11 @@ def get_list_type(model):
     return get_args(model)[0]
 
 
+
+def is_optional_type(model):
+    return get_origin(model) is Union and type(None) in get_args(model)
+
+
 class Config:
     arbitrary_types_allowed = True
 

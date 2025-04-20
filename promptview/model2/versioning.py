@@ -232,12 +232,14 @@ class ArtifactLog:
         return [cls._pack_participant(partition) for partition in partitions]
     
     @classmethod
-    async def last_partition(cls, user_id: int, name: str | None = None) -> Partition:
+    async def last_partition(cls, user_id: int, name: str | None = None) -> Partition | None:
         """Get the last partition for a user"""
         partitions = await cls.list_partitions(user_id, name, limit=1, offset=0)
         if len(partitions) == 0:
-            raise ValueError("No partitions found for user")
+            return None
+            # raise ValueError("No partitions found for user")
         return partitions[0]
+
     
     @classmethod
     async def create_branch(cls, name: Optional[str] = None, forked_from_turn_id: Optional[int] = None) -> Branch:

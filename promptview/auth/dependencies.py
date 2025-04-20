@@ -33,7 +33,8 @@ async def get_user_token(request: Request):
     
     
 def get_user_manager():
-    return AuthManager()
+    from promptview.app import Chatboard
+    return Chatboard.get_app_ctx()._auth_manager()
 
 
 async def get_auth_user(request: Request, user_token: str = Depends(get_user_token), _: str = Depends(verify_api_key), user_manager: AuthManager = Depends(get_user_manager)):

@@ -12,8 +12,9 @@ from promptview.tracer import Tracer
 from promptview.parsers import XmlOutputParser
 from promptview.utils import logger
 from promptview.utils.function_utils import call_function
-from promptview.utils.model_utils import schema_to_ts  
-    
+from promptview.utils.model_utils import get_list_type, is_list_type, is_optional_type, schema_to_ts  
+import xml.etree.ElementTree as ET
+
 class LLMToolNotFound(Exception):
     
     def __init__(self, tool_name) -> None:
@@ -145,10 +146,13 @@ class OutputModel(BaseModel):
         with Block("Output format", tags=["output_format"]) as blk:
             blk += "you **MUST** use the following format for your output:"
             for field, field_info in cls.model_fields.items():
-                # with blk(field, attrs={"type": get_field_type(field_info)}, style=["xml"]):
-                with blk(field, style=["xml"]):
-                    if field_info.description:
-                        blk += field_info.description
+                render_func = getattr(cls, f"render_{field}", None)                
+                if render_func:
+                    blk /= render_func()
+                else:
+                    with blk(field, style=["xml"]):
+                        if field_info.description:
+                            blk += field_info.description
             if tools:
                 
                 # elif config and config.tool_choice == "none":
@@ -209,15 +213,66 @@ class OutputModel(BaseModel):
             tools.append(tool)
         return tools
 
+    # @classmethod
+    # def parse(cls, completion: Block, tools: List[Type[BaseModel]]) -> Self:
+    #     """parse the completion into the output model"""
+    #     try:
+    #         xml_parser = XmlOutputParser()
+    #         fmt_res, fmt_tools = xml_parser.parse(f"<root>{cls.response_prefix()}{completion.content}</root>", tools, cls)
+    #         fmt_res.tool_calls = fmt_tools
+    #         fmt_res._block = completion
+    #         return fmt_res
+    #     except ValidationError as e:
+    #         logger.exception("Output Model Validation Error")
+    #         raise ErrorMessage(f"Validation error: {e}")
+    
+    @classmethod
+    def parse_tool_calls(cls, item: ET.Element, tools: List[Type[BaseModel]]) -> List[ToolCall]:
+        from promptview.prompt import ToolCall
+        from uuid import uuid4
+        tool_calls = []
+        tool_lookup = {tool.__name__: tool for tool in tools}        
+        for tool in item.findall("tool"):
+            tool_cls = tool_lookup.get(tool.attrib["name"], None)
+            if not tool_cls:
+                from promptview.llms import ErrorMessage
+                raise ErrorMessage(tool.attrib["name"])
+            # params = {param.attrib["name"]: param.text for param in tool.findall(param_tag)}
+            tool_inst = tool_cls.model_validate_json(tool.text)
+            tool_calls.append(
+                ToolCall(
+                    id=f"tool_call_{uuid4()}"[:40], 
+                    name=tool.attrib["name"], 
+                    tool=tool_inst
+                )
+            )
+        return tool_calls
+    
     @classmethod
     def parse(cls, completion: Block, tools: List[Type[BaseModel]]) -> Self:
         """parse the completion into the output model"""
         try:
-            xml_parser = XmlOutputParser()
-            fmt_res, fmt_tools = xml_parser.parse(f"<root>{cls.response_prefix()}{completion.content}</root>", tools, cls)
-            fmt_res.tool_calls = fmt_tools
-            fmt_res._block = completion
-            return fmt_res
+            root = ET.fromstring(f"<root>{cls.response_prefix()}{completion.content}</root>")
+            params = {}
+            for field, field_info in cls.model_fields.items():
+                item = root.find(field)                 
+                if field == "tool_calls":
+                    params[field] = cls.parse_tool_calls(root, tools)
+                    continue
+                              
+                if item is None:
+                    continue
+                elif item.text is None:
+                    raise ErrorMessage(f"Field {field} has no text")
+                else:
+                    parse_func = getattr(cls, f"parse_{field}", None)
+                    if parse_func:
+                        params[field] = parse_func(item)
+                    else:
+                        params[field] = item.text.strip()             
+            obj = cls(**params)
+            obj._block = completion
+            return obj
         except ValidationError as e:
             logger.exception("Output Model Validation Error")
             raise ErrorMessage(f"Validation error: {e}")
@@ -230,7 +285,7 @@ class OutputModel(BaseModel):
             s += f"\n{field}: {getattr(self, field)}"
         # for tool in self.tool_calls:
         #     s += f"\n{tool}"
-        s += f"</{self.__class__.__name__}>"
+        s += f"\n</{self.__class__.__name__}>"
         return s
  
  

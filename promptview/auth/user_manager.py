@@ -1,4 +1,4 @@
-from typing import Generic, List, Optional, Type
+from typing import Generic, List, Optional, Type, final
 from datetime import datetime
 from uuid import UUID, uuid4
 from typing_extensions import TypeVar
@@ -68,6 +68,8 @@ class AuthModel(Model):
         return await ArtifactLog.create_partition(name, [self.id] + [user.id for user in users])
     
     
+    
+    
 
 class UserAuthPayload(BaseModel):
     name: str | None = None
@@ -102,57 +104,6 @@ class AuthManager(Generic[AUTH_MODEL]):
     
     @staticmethod
     async def initialize_tables():
-#         await PGConnectionManager.execute(
-#             """
-# CREATE TABLE IF NOT EXISTS verification_token (
-#     identifier TEXT NOT NULL,
-#     expires TIMESTAMPTZ NOT NULL,
-#     token TEXT NOT NULL,
-    
-#     PRIMARY KEY (identifier, token)
-# );
-
-# CREATE TABLE IF NOT EXISTS accounts (
-#     id SERIAL,
-#     "userId" INTEGER NOT NULL,
-#     type VARCHAR(255) NOT NULL,
-#     provider VARCHAR(255) NOT NULL,
-#     "providerAccountId" VARCHAR(255) NOT NULL,
-#     refresh_token TEXT,
-#     access_token TEXT,
-#     expires_at BIGINT,
-#     id_token TEXT,
-#     scope TEXT,
-#     session_state TEXT,
-#     token_type TEXT,
-    
-#     PRIMARY KEY (id)
-# );
-
-# CREATE TABLE IF NOT EXISTS sessions (
-#     id SERIAL,
-#     "userId" INTEGER NOT NULL,
-#     expires TIMESTAMPTZ NOT NULL,
-#     "sessionToken" VARCHAR(255) NOT NULL,
-    
-#     PRIMARY KEY (id)
-# );
-
-# CREATE TABLE IF NOT EXISTS users (
-#     id SERIAL,
-#     name VARCHAR(255),
-#     email VARCHAR(255),
-#     "emailVerified" TIMESTAMPTZ,
-#     image TEXT,
-    
-#     PRIMARY KEY (id),
-    
-#     phone_number VARCHAR(255),
-#     head_id INTEGER,
-#     FOREIGN KEY (head_id) REFERENCES heads(id)
-    
-# );                                                     
-# """)
 
         await PGConnectionManager.execute(
             """
@@ -192,21 +143,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 """)
         
         
-# CREATE TABLE IF NOT EXISTS users (
-#     id SERIAL,
-#     name VARCHAR(255),
-#     email VARCHAR(255),
-#     "emailVerified" TIMESTAMPTZ,
-#     image TEXT,
-    
-#     PRIMARY KEY (id),
-    
-#     phone_number VARCHAR(255),
-#     head_id INTEGER,
-#     FOREIGN KEY (head_id) REFERENCES heads(id)
-    
-# );
-        
+ 
         
     async def drop_tables(self):
         await PGConnectionManager.execute(
@@ -217,25 +154,33 @@ CREATE TABLE IF NOT EXISTS sessions (
             DROP TABLE IF EXISTS users;
         """
         )
+        
     
-    
-    async def create_user(self, data: UserAuthPayload, create_partition: bool = False):
-        user_model = self.get_user_model()
-        user = await user_model(**data.model_dump()).save()
-        if create_partition or AuthManager._add_temp_users:
-            await user.create_partition("default")
+    async def after_create_user(self, user: AUTH_MODEL):
         return user
     
-    @classmethod
-    async def create_head_for_user(self, user_id: int):
-        artifact_log = ArtifactLog()
-        head = await artifact_log.create_head()
-        await PGConnectionManager.execute(
-            f"""
-            UPDATE users SET head_id = {head["id"]} WHERE id = {user_id}
-            """,
-        )
-        return head
+    async def before_create_user(self, data: UserAuthPayload) -> UserAuthPayload:
+        return data
+    
+    
+    @final
+    async def create_user(self, data: UserAuthPayload):
+        data = await self.before_create_user(data)
+        user_model = self.get_user_model()
+        user = await user_model(**data.model_dump()).save()
+        user = await self.after_create_user(user)
+        return user
+    
+    # @classmethod
+    # async def create_head_for_user(self, user_id: int):
+    #     artifact_log = ArtifactLog()
+    #     head = await artifact_log.create_head()
+    #     await PGConnectionManager.execute(
+    #         f"""
+    #         UPDATE users SET head_id = {head["id"]} WHERE id = {user_id}
+    #         """,
+    #     )
+    #     return head
     
     
     async def get_user(self, id: int):
@@ -248,6 +193,7 @@ CREATE TABLE IF NOT EXISTS sessions (
         user_model = self.get_user_model()
         user = await user_model.query().filter(lambda x: x.email == email).first()
         return user
+    
     
     async def get_user_by_session_token(self, session_token: str, use_sessions: bool = True):
         if use_sessions:

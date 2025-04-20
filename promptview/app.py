@@ -1,5 +1,6 @@
 
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from functools import wraps
 import json
 from typing import Annotated, Any, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar
@@ -30,6 +31,8 @@ P = ParamSpec('P')
 
 EnpointType = Callable[Concatenate[CTX_MODEL, MSG_MODEL, P], Awaitable[List[MSG_MODEL]]]
 
+app_ctx = ContextVar("app_ctx")
+
 class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
     _app: FastAPI
     _entrypoints_registry: Dict[str, EnpointType]
@@ -42,7 +45,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         message_model: Type[MSG_MODEL], 
         user_model: Type[USER_MODEL], 
         ctx_model: Type[CTX_MODEL],
-        add_temp_users: bool = False,
+        auth_manager: Type[AuthManager[USER_MODEL]],
         app: FastAPI | None = None
     ):
         
@@ -50,8 +53,8 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         async def lifespan(app: FastAPI):
             # This code runs before the server starts serving
             ns = user_model.get_namespace()
-            await AuthManager.initialize_tables()
-            AuthManager.register_user_model(user_model, add_temp_users=add_temp_users)
+            await auth_manager.initialize_tables()
+            auth_manager.register_user_model(user_model)
             await NamespaceManager.create_all_namespaces(ns.name)
             # Yield to hand control back to FastAPI (start serving)
             yield
@@ -61,10 +64,15 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         self._message_model = message_model
         self._user_model = user_model
         self._ctx_model = ctx_model
-        self._add_temp_users = add_temp_users
+        self._auth_manager = auth_manager
         
         self.setup_apis()
+        self.app_token = app_ctx.set(self)
         
+    @classmethod
+    def get_app_ctx(cls):
+        return app_ctx.get()
+    
     def get_app(self):
         return self._app
     
@@ -90,6 +98,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
             self._entrypoints_registry[path] = func
             async def input_endpoint(
                 message_json:  Annotated[str, Form(...)],
+                tool_calls_json: Annotated[str, Form(...)],
                 state_json: Annotated[str, Form(...)],
                 # head_id: Annotated[int, Header(alias="head_id")],
                 user: Any = Depends(get_auth_user),
@@ -98,6 +107,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
             ):
                 print(user)
                 message = self._message_model.model_validate_json(message_json)
+                message.tool_calls = json.loads(tool_calls_json) if tool_calls_json else []
                 state = json.loads(state_json) if state_json else {}
                 # async with self._ctx_model(head_id=head_id, branch_id=branch_id) as ctx:                
                 if head.partition is None:
