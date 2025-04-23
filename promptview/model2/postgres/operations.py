@@ -428,6 +428,8 @@ class PostgresOperations:
         filter_proxy: QueryProxy | None = None,
         include_reverted_turns: bool = False,
         is_event_source: bool = True,
+        turn_limit: int | None = None,
+        turn_direction: str | None = None,
     ) -> List[Dict[str, Any]]:
         """
         Query records with versioning support.
@@ -497,13 +499,64 @@ class PostgresOperations:
             filtered_alias = f"filtered_{namespace.table_name}"
             # sql = sql.replace(namespace.table_name, "filtered_records")
             sql = sql.replace(namespace.table_name, filtered_alias)
-            if not include_reverted_turns:
-                reverted_turns_clause = f""" AND t.status != '{TurnStatus.REVERTED.value}'"""
+            # if not include_reverted_turns:
+            #     reverted_turns_clause = f""" AND t.status != '{TurnStatus.REVERTED.value}'"""
+            # else:
+            #     reverted_turns_clause = ""
+                
+            # partition_clause = f"AND t.partition_id = {partition_id}" if partition_id else ""
+            # event_source_select_clause = " DISTINCT ON (m.artifact_id)" if is_event_source else ""
+            # event_source_order_by_clause = "AND m.deleted_at IS NULL ORDER BY m.artifact_id, m.version DESC" if is_event_source else ""
+            
+            # sql = f"""
+            # WITH RECURSIVE branch_hierarchy AS (
+            #     SELECT
+            #         id,
+            #         name,
+            #         forked_from_turn_index,
+            #         forked_from_branch_id,
+            #         current_index AS start_turn_index
+            #     FROM branches
+            #     WHERE id = {branch_id}
+                
+            #     UNION ALL
+                
+            #     SELECT
+            #         b.id,
+            #         b.name,
+            #         b.forked_from_turn_index,
+            #         b.forked_from_branch_id,
+            #         bh.forked_from_turn_index AS start_turn_index
+            #     FROM branches b
+            #     JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id
+            # ),
+            # {filtered_alias} AS (
+            #     SELECT{event_source_select_clause}
+            #         m.*
+            #     FROM branch_hierarchy bh
+            #     JOIN turns t ON bh.id = t.branch_id
+            #     JOIN "{namespace.table_name}" m ON t.id = m.turn_id
+            #     WHERE t.index <= bh.start_turn_index {partition_clause}{reverted_turns_clause}
+            #     {event_source_order_by_clause}
+            # )
+            # {sql}
+            # """
+            if turn_limit:
+                turn_order_by_clause = f"ORDER BY t.index {turn_direction} LIMIT {turn_limit}"
             else:
-                reverted_turns_clause = ""
-            partition_clause = f"AND t.partition_id = {partition_id}" if partition_id else ""
+                turn_order_by_clause = ""
+            
+            
+            
+            turn_where_clause = []
+            if partition_id is not None:
+                turn_where_clause.append(f"t.partition_id = {partition_id}")
+            if is_event_source:
+                turn_where_clause.append("m.deleted_at IS NULL")
+            turn_where_clause = " AND ".join(turn_where_clause)
+            
             event_source_select_clause = " DISTINCT ON (m.artifact_id)" if is_event_source else ""
-            event_source_order_by_clause = "AND m.deleted_at IS NULL ORDER BY m.artifact_id, m.version DESC" if is_event_source else ""
+            event_source_order_by_clause = "ORDER BY m.artifact_id, m.version DESC" if is_event_source else ""
             
             sql = f"""
             WITH RECURSIVE branch_hierarchy AS (
@@ -527,13 +580,19 @@ class PostgresOperations:
                 FROM branches b
                 JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id
             ),
+            turn_hierarchy AS (
+                SELECT t.* 
+                FROM branch_hierarchy bh
+                JOIN turns t ON bh.id = t.branch_id
+                WHERE t.index <= bh.start_turn_index AND t.status != 'reverted'
+                {turn_order_by_clause}
+            ),
             {filtered_alias} AS (
                 SELECT{event_source_select_clause}
                     m.*
-                FROM branch_hierarchy bh
-                JOIN turns t ON bh.id = t.branch_id
+                FROM turn_hierarchy t               
                 JOIN "{namespace.table_name}" m ON t.id = m.turn_id
-                WHERE t.index <= bh.start_turn_index {partition_clause}{reverted_turns_clause}
+                WHERE {turn_where_clause}
                 {event_source_order_by_clause}
             )
             {sql}

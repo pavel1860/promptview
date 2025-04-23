@@ -109,6 +109,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
                 message = self._message_model.model_validate_json(message_json)
                 message.tool_calls = json.loads(tool_calls_json) if tool_calls_json else []
                 state = json.loads(state_json) if state_json else {}
+                message.state = state
                 # async with self._ctx_model(head_id=head_id, branch_id=branch_id) as ctx:                
                 if head.partition is None:
                     raise HTTPException(status_code=401, detail="No Partition specified for regular user")

@@ -69,6 +69,10 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         self._tracer_run = None
         
         
+    async def _init(self):
+        await self.get_current_head()
+    
+        
     @property
     def trace_id(self):  
         if self._tracer_run is not None:      
@@ -339,7 +343,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         return saved_value.to_block(self)
         
     
-    async def last(self, limit=10, ) -> "BlockList":
+    async def last(self, limit=5) -> "BlockList":
         # if not self.can_push:
             # raise ValueError("Cannot load last messages from context")
         if not self.is_initialized:
@@ -348,11 +352,12 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         records = await self.context_model.query(
             self.partition_id, 
             self.branch
-        ).limit(limit).order_by("created_at", direction="asc")
+        ).turn_limit(limit).order_by("created_at", direction="desc")
+        # ).limit(limit).order_by("created_at", direction="desc")
         # with Block() as blocks:
         #     for r in reversed(records):
         #         blocks /= r.to_block()
-        return BlockList([r.to_block(self) for r in records])
+        return BlockList([r.to_block(self) for r in reversed(records)])
     
     
     

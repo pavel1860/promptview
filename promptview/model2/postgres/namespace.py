@@ -215,6 +215,8 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.include_fields = None
         self.joins = joins or []
         self.select = select or []
+        self.turn_limit_value = None
+        self.turn_order_direction = None
     
     def filter(self, filter_fn: Callable[[MODEL], bool] | None = None, **kwargs) -> "PostgresQuerySet[MODEL]":
         """Filter the query"""
@@ -236,6 +238,12 @@ class PostgresQuerySet(QuerySet[MODEL]):
     def order_by(self, field: str, direction: Literal["asc", "desc"] = "asc") -> "PostgresQuerySet[MODEL]":
         """Order the query results"""
         self.order_by_value = f"{field} {direction}"
+        return self
+    
+    def turn_limit(self, limit: int, order_direction: Literal["asc", "desc"] = "desc") -> "PostgresQuerySet[MODEL]":
+        """Limit the query results to the last N turns"""
+        self.turn_limit_value = limit
+        self.turn_order_direction = order_direction
         return self
     
     def offset(self, offset: int) -> "PostgresQuerySet[MODEL]":
@@ -291,7 +299,9 @@ class PostgresQuerySet(QuerySet[MODEL]):
             offset=self.offset_value,
             select=select_types,
             joins=self.joins,
-            filter_proxy=self.filter_proxy
+            filter_proxy=self.filter_proxy,
+            turn_limit=self.turn_limit_value,
+            turn_direction=self.turn_order_direction
         )
         
         # Convert results to model instances if model_class is provided

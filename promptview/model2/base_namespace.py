@@ -303,6 +303,10 @@ class QuerySet(Generic[MODEL]):
         """Order the query results"""
         raise NotImplementedError("Not implemented")
     
+    def turn_limit(self, limit: int, order_direction: Literal["asc", "desc"] = "desc") -> "QuerySet[MODEL]":
+        """Limit the query results to the last N turns"""
+        raise NotImplementedError("Not implemented")
+    
     def offset(self, offset: int) -> "QuerySet[MODEL]":
         """Offset the query results"""
         raise NotImplementedError("Not implemented")
