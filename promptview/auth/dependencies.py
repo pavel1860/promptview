@@ -11,10 +11,15 @@ BACKEND_SECRET = os.getenv("BACKEND_SECRET")
 security = HTTPBearer()
 
 async def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if credentials.credentials != BACKEND_SECRET:
+    # if credentials.credentials != BACKEND_SECRET:
+    #     raise HTTPException(
+    #         status_code=401,
+    #         detail="Invalid API key"
+    #     )
+    if credentials.credentials is None:
         raise HTTPException(
             status_code=401,
-            detail="Invalid API key"
+            detail="No API key found"
         )
     return credentials.credentials
 
