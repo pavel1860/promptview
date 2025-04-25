@@ -1,13 +1,14 @@
 import enum
 import json
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Dict, List, Optional, Any, Self, Union, final
+from typing import TYPE_CHECKING, Dict, Generic, List, Optional, Any, Self, Type, Union, final
+from typing_extensions import TypeVar
 from pydantic import BaseModel, Field
 
 
 from promptview.utils.db_connections import PGConnectionManager
 if TYPE_CHECKING:
-    from promptview.model2.postgres.namespace import PostgresNamespace
+    from promptview.model2.postgres.namespace import PostgresNamespace, PgFieldInfo
 
 
 
@@ -30,7 +31,6 @@ class Turn(BaseModel):
     message: Optional[str] = None
     branch_id: int
     trace_id: Optional[str] = None
-    partition_id: int = Field(default=1)
     state: Optional[Any] = None
     metadata: Optional[Dict[str, Any]] = None
     forked_branches: List[dict] | None = None
@@ -93,7 +93,46 @@ class DontUpdateType:
 DontUpdate: DontUpdateType = DontUpdateType()
 
 
-class ArtifactLog:
+TURN_MODEL = TypeVar("TURN_MODEL", bound=Turn)
+
+class ArtifactLog(Generic[TURN_MODEL]):
+    
+    _turn_model: Optional[Type[TURN_MODEL]]
+    
+    
+    @classmethod
+    def register_turn_model(cls, turn_model: Type[TURN_MODEL]):
+        cls._turn_model = turn_model
+        
+        
+    @classmethod
+    def get_extra_turn_fields(cls) -> "list[PgFieldInfo]":
+        """Get the extra fields for the turn model"""
+        from promptview.model2.postgres.namespace import PgFieldInfo
+        if cls._turn_model is None:
+            cls._turn_model = Turn
+            return []
+        base_fields = dict(Turn.model_fields.items())
+        extra_fields = []
+        for field, field_info in cls._turn_model.model_fields.items():            
+            if not field_info.annotation:
+                raise ValueError(f"Field {field} has no annotation")            
+            if field in base_fields:
+                bf = base_fields[field]
+                if field_info.annotation != bf.annotation:
+                    raise ValueError(f"Field {field} has a different annotation in the turn model")
+                continue            
+            extra_json = field_info.json_schema_extra
+            extra: Dict[str, Any] = {}
+            if extra_json is not None:
+                if isinstance(extra_json, dict):
+                    extra = dict(extra_json)
+            pg_field = PgFieldInfo(field, field_info.annotation,  extra)
+            extra_fields.append(pg_field)
+        return extra_fields
+
+                
+            
     
     @classmethod
     async def initialize_versioning(cls):
@@ -111,21 +150,6 @@ class ArtifactLog:
             current_index INTEGER DEFAULT 0,
             FOREIGN KEY (forked_from_branch_id) REFERENCES branches(id)
         );
-        
-        
-        CREATE TABLE IF NOT EXISTS partitions (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT NOW(),
-            updated_at TIMESTAMP DEFAULT NOW()
-        );
-        
-        CREATE TABLE IF NOT EXISTS partition_participants (
-            id SERIAL PRIMARY KEY,
-            partition_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            FOREIGN KEY (partition_id) REFERENCES partitions(id)
-        );
 
         CREATE TABLE IF NOT EXISTS turns (
             id SERIAL PRIMARY KEY,
@@ -138,9 +162,7 @@ class ArtifactLog:
             metadata JSONB DEFAULT '{}',            
             branch_id INTEGER NOT NULL,
             trace_id TEXT,
-            partition_id INTEGER NOT NULL,
-            FOREIGN KEY (branch_id) REFERENCES branches(id),
-            FOREIGN KEY (partition_id) REFERENCES partitions(id)
+            FOREIGN KEY (branch_id) REFERENCES branches(id)
         );
         
         
@@ -159,86 +181,99 @@ class ArtifactLog:
         CREATE INDEX IF NOT EXISTS idx_turns_partition_id ON turns (partition_id);
         """)
         
-    
+        
     @classmethod
-    async def create_partition(cls, name: str, participants: List[int]) -> Partition:
-        """Create a new partition and associated partition participant record in a single transaction"""
-        query = "INSERT INTO partitions (name) VALUES ($1) RETURNING *;"
-        partition_row = await PGConnectionManager.fetch_one(query, name)
-        if partition_row is None:
-            raise ValueError("Failed to create partition and participant")
-        for participant in participants:
-            await cls.add_participant_to_partition(partition_row["id"], participant)
-        partition_row = await cls.get_partition(partition_row["id"])
-        return Partition(**dict(partition_row))
-    
-    @classmethod
-    async def add_participant_to_partition(cls, partition_id: int, user_id: int) -> PartitionParticipant:
-        """Add a participant to a partition"""
-        query = "INSERT INTO partition_participants (partition_id, user_id) VALUES ($1, $2) RETURNING *;"
-        participant_row = await PGConnectionManager.fetch_one(query, partition_id, user_id)
-        return PartitionParticipant(**dict(participant_row))
-    
-    @classmethod
-    def _pack_participant(cls, record: Any) -> Partition:
-        partition_row = dict(record)
-        partition_row["participants"] = json.loads(partition_row["participants"])
-        return Partition(**partition_row)
-    
-    @classmethod
-    async def get_partition(cls, partition_id: int) -> Partition:
-        """Get a partition by ID"""
-        query = """
-        SELECT 
-            p.*,
-            json_agg(
-                json_build_object(
-                    'id', pp.id,
-                    'user_id', pp.user_id
-                )
-            ) AS participants
-        FROM partitions p
-        LEFT JOIN partition_participants pp ON p.id = pp.partition_id
-        WHERE p.id = $1
-        GROUP BY p.id, p.name, p.created_at, p.updated_at;
+    async def add_field_to_table(cls, table: str, field: str, type: str, default: str | None = None, index: bool = False):
+        sql = f"""
+        ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {field} {type}
         """
-        partition_row = await PGConnectionManager.fetch_one(query, partition_id)
-        return cls._pack_participant(partition_row)
+        if default is not None:
+            sql += f" DEFAULT {default}"
+        
+        sql += ";"
+        if index:
+            sql += f"CREATE INDEX IF NOT EXISTS idx_{table}_{field} ON {table} ({field});"
+        await PGConnectionManager.execute(sql)
     
-    @classmethod
-    async def list_partitions(cls, user_id: int, name: str | None = None, limit: int = 100, offset: int = 0) -> List[Partition]:
-        """Get all partitions for a user"""
+    # @classmethod
+    # async def create_partition(cls, name: str, participants: List[int]) -> Partition:
+    #     """Create a new partition and associated partition participant record in a single transaction"""
+    #     query = "INSERT INTO partitions (name) VALUES ($1) RETURNING *;"
+    #     partition_row = await PGConnectionManager.fetch_one(query, name)
+    #     if partition_row is None:
+    #         raise ValueError("Failed to create partition and participant")
+    #     for participant in participants:
+    #         await cls.add_participant_to_partition(partition_row["id"], participant)
+    #     partition_row = await cls.get_partition(partition_row["id"])
+    #     return Partition(**dict(partition_row))
+    
+    # @classmethod
+    # async def add_participant_to_partition(cls, partition_id: int, user_id: int) -> PartitionParticipant:
+    #     """Add a participant to a partition"""
+    #     query = "INSERT INTO partition_participants (partition_id, user_id) VALUES ($1, $2) RETURNING *;"
+    #     participant_row = await PGConnectionManager.fetch_one(query, partition_id, user_id)
+    #     return PartitionParticipant(**dict(participant_row))
+    
+    # @classmethod
+    # def _pack_participant(cls, record: Any) -> Partition:
+    #     partition_row = dict(record)
+    #     partition_row["participants"] = json.loads(partition_row["participants"])
+    #     return Partition(**partition_row)
+    
+    # @classmethod
+    # async def get_partition(cls, partition_id: int) -> Partition:
+    #     """Get a partition by ID"""
+    #     query = """
+    #     SELECT 
+    #         p.*,
+    #         json_agg(
+    #             json_build_object(
+    #                 'id', pp.id,
+    #                 'user_id', pp.user_id
+    #             )
+    #         ) AS participants
+    #     FROM partitions p
+    #     LEFT JOIN partition_participants pp ON p.id = pp.partition_id
+    #     WHERE p.id = $1
+    #     GROUP BY p.id, p.name, p.created_at, p.updated_at;
+    #     """
+    #     partition_row = await PGConnectionManager.fetch_one(query, partition_id)
+    #     return cls._pack_participant(partition_row)
+    
+    # @classmethod
+    # async def list_partitions(cls, user_id: int, name: str | None = None, limit: int = 100, offset: int = 0) -> List[Partition]:
+    #     """Get all partitions for a user"""
 
-        query = f"""
-        SELECT 
-            p.*,
-            json_agg(
-                json_build_object(
-                    'id', pp.id,
-                    'user_id', pp.user_id
-                )
-            ) AS participants
-        FROM partitions p
-        LEFT JOIN partition_participants pp ON p.id = pp.partition_id
-        WHERE pp.user_id = $1 {f"AND p.name = $4" if name is not None else ""}
-        GROUP BY p.id, p.name, p.created_at, p.updated_at
-        ORDER BY p.created_at DESC
-        LIMIT $2 OFFSET $3;
-        """
-        params = [user_id, limit, offset]
-        if name is not None:
-            params.append(name)
-        partitions = await PGConnectionManager.fetch(query, *params)
-        return [cls._pack_participant(partition) for partition in partitions]
+    #     query = f"""
+    #     SELECT 
+    #         p.*,
+    #         json_agg(
+    #             json_build_object(
+    #                 'id', pp.id,
+    #                 'user_id', pp.user_id
+    #             )
+    #         ) AS participants
+    #     FROM partitions p
+    #     LEFT JOIN partition_participants pp ON p.id = pp.partition_id
+    #     WHERE pp.user_id = $1 {f"AND p.name = $4" if name is not None else ""}
+    #     GROUP BY p.id, p.name, p.created_at, p.updated_at
+    #     ORDER BY p.created_at DESC
+    #     LIMIT $2 OFFSET $3;
+    #     """
+    #     params = [user_id, limit, offset]
+    #     if name is not None:
+    #         params.append(name)
+    #     partitions = await PGConnectionManager.fetch(query, *params)
+    #     return [cls._pack_participant(partition) for partition in partitions]
     
-    @classmethod
-    async def last_partition(cls, user_id: int, name: str | None = None) -> Partition | None:
-        """Get the last partition for a user"""
-        partitions = await cls.list_partitions(user_id, name, limit=1, offset=0)
-        if len(partitions) == 0:
-            return None
-            # raise ValueError("No partitions found for user")
-        return partitions[0]
+    # @classmethod
+    # async def last_partition(cls, user_id: int, name: str | None = None) -> Partition | None:
+    #     """Get the last partition for a user"""
+    #     partitions = await cls.list_partitions(user_id, name, limit=1, offset=0)
+    #     if len(partitions) == 0:
+    #         return None
+    #         # raise ValueError("No partitions found for user")
+    #     return partitions[0]
 
     
     @classmethod
@@ -272,12 +307,14 @@ class ArtifactLog:
         return Branch(**dict(branch_row))
     
     @classmethod
-    def _pack_turn(cls, record: Any) -> Turn:
+    def _pack_turn(cls, record: Any) -> TURN_MODEL:
         data = dict(record)
         data["state"] = json.loads(data["state"]) if data["state"] is not None else None
         data["metadata"] = json.loads(data["metadata"])
         data["forked_branches"] = json.loads(data["forked_branches"]) if "forked_branches" in data else None
-        return Turn(**data)
+        if cls._turn_model is None:
+            cls.register_turn_model(Turn)
+        return cls._turn_model(**data)
     
     
     @classmethod

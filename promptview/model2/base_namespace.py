@@ -350,6 +350,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         db_type: DatabaseType,
         is_versioned: bool = False, 
         is_repo: bool = False, 
+        is_artifact: bool = False,
         is_context: bool = False,
         repo_namespace: Optional[str] = None,         
         namespace_manager: Optional["NamespaceManager"] = None
@@ -360,6 +361,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         self.is_versioned = is_versioned
         self.is_repo = is_repo
         self.is_context = is_context
+        self.is_artifact = is_artifact
         self.repo_namespace = repo_namespace
         self.namespace_manager = namespace_manager
         self.db_type = db_type

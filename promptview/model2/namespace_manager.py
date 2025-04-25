@@ -26,7 +26,7 @@ class NamespaceManager:
         cls._relations = {}
         
     @classmethod
-    def build_namespace(cls, model_name: str, db_type: DatabaseType, is_versioned: bool = True, is_context: bool = False, is_repo: bool = False, repo_namespace: Optional[str] = None) -> Namespace:
+    def build_namespace(cls, model_name: str, db_type: DatabaseType, is_versioned: bool = True, is_context: bool = False, is_artifact: bool = False, is_repo: bool = False, repo_namespace: Optional[str] = None) -> Namespace:
         """
         Build a namespace for a model.
         
@@ -51,6 +51,7 @@ class NamespaceManager:
                 is_versioned=is_versioned, 
                 is_repo=is_repo, 
                 is_context=is_context,
+                is_artifact=is_artifact,
                 repo_namespace=repo_namespace,                 
                 namespace_manager=cls
             )
@@ -95,9 +96,13 @@ class NamespaceManager:
             
         for namespace in cls._namespaces.values():
             await namespace.create_namespace()
-        
-        if versioning:
-            await ArtifactLog.add_partition_id_to_turns(partition_table, key)
+                
+        turn_fields = ArtifactLog.get_extra_turn_fields()
+        if turn_fields:
+            await SQLBuilder.update_table_fields("turns", turn_fields)
+            
+        # if versioning:
+            # await ArtifactLog.add_partition_id_to_turns(partition_table, key)
             
         
         

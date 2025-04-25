@@ -54,6 +54,15 @@ def check_reserved_fields(bases: Any, name: str, field_name: str):
         if field_name in AUTH_RESERVED_FIELDS:
             raise ValueError(f"""Field "{field_name}" in AuthModel "{name}" is reserved for internal use. use a different name. {", ".join(AUTH_RESERVED_FIELDS)} are reserved.""")
 
+def check_if_artifact_model(bases: Any, name: str):
+    if len(bases) >= 1 and bases[0].__name__ == "ArtifactModel":
+        return True
+    return False
+
+def check_if_context_model(bases: Any, name: str):
+    if len(bases) >= 1 and bases[0].__name__ == "ContextModel":
+        return True
+    return False
             
 class ModelMeta(ModelMetaclass, type):
     """Metaclass for Model
@@ -79,7 +88,8 @@ class ModelMeta(ModelMetaclass, type):
         
         # Check if this is a repo model or an artifact model
         is_repo = len(bases) >= 1 and bases[0].__name__ == "RepoModel"
-                
+        is_artifact = check_if_artifact_model(bases, name)
+        is_context = check_if_context_model(bases, name)
         # If _repo is specified, the model is automatically versioned
         is_versioned = get_dct_private_attributes(dct, "_is_versioned", False) or (len(bases) >= 1 and (bases[0].__name__ == "ArtifactModel" or bases[0].__name__ == "ContextModel"))
         repo_namespace = get_dct_private_attributes(dct, "_repo", "main" if is_versioned else None)
@@ -90,7 +100,15 @@ class ModelMeta(ModelMetaclass, type):
             raise ValueError("RepoModel cannot be versioned")
         
         # Build namespace
-        ns = NamespaceManager.build_namespace(namespace_name, db_type, is_versioned, is_repo, repo_namespace)
+        ns = NamespaceManager.build_namespace(
+            model_name=namespace_name, 
+            db_type=db_type, 
+            is_versioned=is_versioned,
+            is_context=is_context,
+            is_repo=is_repo, 
+            is_artifact=is_artifact, 
+            repo_namespace=repo_namespace
+        )
         # Process fields and relations
         relations = {}
         field_extras = {}

@@ -329,10 +329,20 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         is_versioned: bool = True, 
         is_repo: bool = False, 
         is_context: bool = False,
+        is_artifact: bool = False,
         repo_namespace: Optional[str] = None, 
         namespace_manager: Optional["NamespaceManager"] = None
     ):
-        super().__init__(name, "postgres", is_versioned, is_repo, is_context, repo_namespace, namespace_manager)
+        super().__init__(
+            name=name, 
+            db_type="postgres", 
+            is_versioned=is_versioned, 
+            is_repo=is_repo, 
+            is_context=is_context, 
+            is_artifact=is_artifact, 
+            repo_namespace=repo_namespace, 
+            namespace_manager=namespace_manager
+        )
         
     @property
     def table_name(self) -> str:
@@ -525,7 +535,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         values = []
         
         for field in self._fields.values():
-            if not field.is_key:
+            if not field.is_key or field.name == "artifact_id":
                 value = model_dump.get(field.name)                
                 if field.validate_value(value):
                     placeholder = field.get_placeholder(len(values) + 1)
@@ -612,15 +622,26 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             The saved data with any additional fields (e.g., ID)
         """
         if getattr(model, self.primary_key.name) is None:
-            sql, values = self.build_insert_query(model.model_dump())            
+            dump = model.model_dump()
+            if self.is_artifact:
+                dump["artifact_id"] = uuid.uuid4()                            
+            sql, values = self.build_insert_query(model.model_dump())
         else:
-            sql, values = self.build_update_query(model.model_dump())
+            dump = model.model_dump()
+            if self.is_artifact:
+                dump["version"] = model.version + 1
+                dump["updated_at"] = dt.datetime.now()
+                sql, values = self.build_insert_query(model.model_dump())
+            else:
+                sql, values = self.build_update_query(dump)
             
         record = await PGConnectionManager.fetch_one(sql, *values)
         if record is None:
             raise ValueError("Failed to save model")
         return self.pack_record(dict(record))
     
+    
+
     
     # async def delete(self, data: Dict[str, Any] | None = None, id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
     #     """Delete data from the namespace"""

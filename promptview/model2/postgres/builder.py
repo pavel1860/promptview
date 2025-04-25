@@ -9,7 +9,7 @@ import datetime as dt
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from promptview.model2.postgres.namespace import PostgresNamespace
+    from promptview.model2.postgres.namespace import PostgresNamespace, PgFieldInfo
 
 
 
@@ -132,6 +132,21 @@ class SQLBuilder:
             await cls.create_index_for_column(namespace, "created_at", order="DESC")
         
         return sql
+    
+    @classmethod
+    async def update_table_fields(cls, table_name: str, fields: "list[PgFieldInfo]"):
+        """Update the fields of a table"""
+        sql = ''
+        for field in fields:
+            sql += f'ALTER TABLE "{table_name}" ADD COLUMN IF NOT EXISTS "{field.name}" {field.sql_type}'
+            if field.is_optional:
+                sql += " NULL"
+            else:
+                sql += " NOT NULL"
+            sql += ",\n"
+        sql = sql[:-2]
+        sql += ";"
+        await cls.execute(sql)
     
     @classmethod
     async def create_index_for_column(cls, namespace: "PostgresNamespace", column_name: str, index_name: str | None = None, order: Literal["ASC", "DESC", ""] | None = None) -> None:

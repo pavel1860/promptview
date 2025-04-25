@@ -54,18 +54,6 @@ class AuthModel(Model):
     is_admin: bool = ModelField(default=False)
     created_at: datetime = ModelField(default_factory=datetime.now)
     
-    async def list_partitions(self, name: str | None = None):
-        from promptview.model2.versioning import ArtifactLog
-        return await ArtifactLog.list_partitions(self.id, name)
-    
-    async def last_partition(self, name: str | None = None):
-        from promptview.model2.versioning import ArtifactLog
-        return await ArtifactLog.last_partition(self.id, name)
-    
-    async def create_partition(self, name: str, users: List["AuthModel"] | None = None):
-        users = users or []
-        from promptview.model2.versioning import ArtifactLog
-        return await ArtifactLog.create_partition(name, [self.id] + [user.id for user in users])
     
     
     
