@@ -8,13 +8,16 @@
 
 from enum import Enum
 import json
+from typing import TYPE_CHECKING, Any, Dict, List, TypedDict
 import uuid
 
 from pydantic import BaseModel
 from promptview.model2.query_filters import FieldOp, QueryFilter, QueryOp
 import datetime as dt
 
-
+if TYPE_CHECKING:
+    from promptview.model2.postgres.namespace import PostgresNamespace
+    from promptview.model2.query_filters import QueryProxy
 
 
 def is_enum(field_type):
@@ -135,8 +138,96 @@ def build_where_clause(query_filter: QueryFilter) -> str:
 
 
 
+class JoinType(TypedDict):
+    """Join information"""
+    primary_table: str
+    primary_key: str
+    foreign_table: str
+    foreign_key: str
+    
+class SelectType(TypedDict):
+    """Select information"""
+    namespace: str
+    fields: list[str]
 
 
 
 
 
+
+
+def build_query(
+        namespace: "PostgresNamespace", 
+        select: list[SelectType] | None = None,
+        filters: Dict[str, Any] | None = None, 
+        limit: int | None = None,
+        order_by: str | None = None,
+        offset: int | None = None,
+        joins: list[JoinType] | None = None,
+        filter_proxy: "QueryProxy | None" = None,        
+    ) -> tuple[str, list[Any]]:
+        """
+        Query records with versioning support.
+        
+        Args:
+            namespace: The namespace to query
+            partition_id: The partition ID to query from (optional)
+            branch_id: The branch ID to query from (optional)
+            filters: Filters to apply to the query
+            limit: Maximum number of records to return
+            order_by: Field and direction to order by (e.g., "created_at desc")
+            offset: Number of records to skip
+            joins: List of joins to apply to the query
+            
+            
+        Returns:
+            A list of records matching the query
+        """
+        
+            # Regular query without versioning
+        select_clause = "*"
+        
+        if select:
+            select_parts = []
+            for select_type in select:                                
+                select_parts.append(', '.join([f"{select_type['namespace']}.{f}" for f in select_type['fields']]))
+            select_clause = ",".join(select_parts)
+        
+
+        sql = f'SELECT {select_clause} FROM "{namespace.table_name}"'
+        
+        if joins:
+            for join in joins:
+                # sql += f" JOIN {join['foreign_table']} ON {join['primary_table']}.{join['primary_key']} = {join['foreign_table']}.{join['foreign_key']}"
+                sql += f" JOIN {join['foreign_table']} ON {join['primary_table']}.{join['primary_key']} = {join['foreign_table']}.{join['foreign_key']}"
+        
+        # Add filters
+        values = []
+        if filters or filter_proxy:
+            filters_sql = " WHERE "
+            if filters:
+                where_parts = []
+                for key, value in filters.items():
+                    where_parts.append(f'"{key}" = ${len(values) + 1}')
+                    values.append(value)
+                    
+                filters_sql += ' AND '.join(where_parts)
+            if filter_proxy: 
+                filters_sql += " AND " if filters else ""           
+                filters_sql += build_where_clause(filter_proxy)
+            sql += filters_sql
+        
+        # Add order by
+        if order_by:
+            sql += f" ORDER BY {order_by}"
+        
+        # Add limit
+        if limit:
+            sql += f" LIMIT {limit}"
+        
+        # Add offset
+        if offset:
+            sql += f" OFFSET {offset}"
+            
+            
+        return sql, values

@@ -94,8 +94,28 @@ class NamespaceManager:
         if versioning:
             await ArtifactLog.initialize_versioning()            
             
-        for namespace in cls._namespaces.values():
+        # for namespace in cls._namespaces.values():
+        for namespace in cls.iter_namespaces("postgres"):
             await namespace.create_namespace()
+            if namespace.is_versioned:
+                await SQLBuilder.create_foreign_key(
+                    table_name=namespace.table_name,
+                    column_name="turn_id",
+                    column_type="INTEGER",
+                    referenced_table="turns",
+                    referenced_column="id",
+                    on_delete="CASCADE",
+                    on_update="CASCADE",
+                )
+                await SQLBuilder.create_foreign_key(
+                    table_name=namespace.table_name,
+                    column_name="branch_id",
+                    column_type="INTEGER",
+                    referenced_table="branches",
+                    referenced_column="id",
+                    on_delete="CASCADE",
+                    on_update="CASCADE",
+                )
                 
         turn_fields = ArtifactLog.get_extra_turn_fields()
         if turn_fields:

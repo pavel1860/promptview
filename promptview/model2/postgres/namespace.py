@@ -8,8 +8,9 @@ from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.operations import JoinType, PostgresOperations, SelectType
+from promptview.model2.postgres.query_parser import build_query
 from promptview.model2.query_filters import QueryFilter, QueryProxy, parse_query_params
-from promptview.model2.versioning import Branch, Turn
+from promptview.model2.versioning import ArtifactLog, Branch, Turn
 from promptview.utils.model_utils import get_list_type, is_list_type, make_json_serializable
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter, SelectFields
 from promptview.utils.db_connections import PGConnectionManager
@@ -197,7 +198,6 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self, 
         model_class: Type[MODEL], 
         namespace: "PostgresNamespace", 
-        partition_id: int | None = None, 
         branch_id: int | None = None, 
         joins: list[JoinType] | None = None,
         filters: dict[str, Any] | None = None,
@@ -205,7 +205,6 @@ class PostgresQuerySet(QuerySet[MODEL]):
     ):
         super().__init__(model_class=model_class)
         self.namespace = namespace
-        self.partition_id = partition_id
         self.branch_id = branch_id
         self.filters = filters or {}
         self.filter_proxy = None
@@ -288,11 +287,9 @@ class PostgresQuerySet(QuerySet[MODEL]):
             select_types = [SelectType(namespace=sf["namespace"].name, fields=[f.name for f in sf["fields"]]) for sf in self.select]
         else:
             select_types = None
-        partition_id, branch_id = await self.namespace.get_current_ctx_partition_branch(partition=self.partition_id, branch=self.branch_id)
-        results = await PostgresOperations.query(
+        # partition_id, branch_id = await self.namespace.get_current_ctx_partition_branch(partition=self.partition_id, branch=self.branch_id)
+        sql, values = build_query(
             self.namespace,
-            partition_id=partition_id,
-            branch_id=branch_id,
             filters=self.filters,
             limit=self.limit_value,
             order_by=self.order_by_value,
@@ -300,9 +297,20 @@ class PostgresQuerySet(QuerySet[MODEL]):
             select=select_types,
             joins=self.joins,
             filter_proxy=self.filter_proxy,
-            turn_limit=self.turn_limit_value,
-            turn_direction=self.turn_order_direction
         )
+        
+        if self.namespace.is_versioned:
+            results = await ArtifactLog.fetch(
+                table_name=self.namespace.table_name,
+                sql=sql,
+                values=values,
+                branch_id=self.branch_id or 1,
+                turn_limit=self.turn_limit_value,
+                turn_direction=self.turn_order_direction,
+                is_event_source=True,
+            )
+        else:
+            results = await PGConnectionManager.fetch(sql, *values)
         
         # Convert results to model instances if model_class is provided
         if self.model_class:
@@ -343,6 +351,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             repo_namespace=repo_namespace, 
             namespace_manager=namespace_manager
         )
+
         
     @property
     def table_name(self) -> str:
@@ -491,6 +500,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         if self._relations:
             for relation_name, relation_info in self._relations.items():
                 if relation_info.primary_key == "artifact_id":
+                    # can't enforce foreign key constraint on artifact_id because it's not a single record
                     continue
                 await SQLBuilder.create_foreign_key(
                     table_name=self.table_name,
@@ -725,7 +735,6 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
     
     def query(
         self, 
-        partition_id: Optional[int] = None, 
         branch: int | Branch | None = None, 
         filters: dict[str, Any] | None = None, 
         joins: list[NSRelationInfo] | None = None,
@@ -745,8 +754,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         
         return PostgresQuerySet(
             model_class=self.model_class, 
-            namespace=self, 
-            partition_id=partition_id, 
+            namespace=self,  
             branch_id=branch, 
             select=select, 
             joins=joins, 

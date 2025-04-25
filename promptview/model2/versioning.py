@@ -318,7 +318,7 @@ class ArtifactLog(Generic[TURN_MODEL]):
     
     
     @classmethod
-    async def create_turn(cls, partition_id: int, branch_id: int = 1, status: TurnStatus=TurnStatus.STAGED, state: Optional[Any] = None) -> Turn:
+    async def create_turn(cls, branch_id: int = 1, status: TurnStatus=TurnStatus.STAGED, state: Optional[Any] = None, **kwargs) -> Turn:
         """
         Create a new turn
         
@@ -327,7 +327,9 @@ class ArtifactLog(Generic[TURN_MODEL]):
             branch_id: The branch ID
             status: The status of the turn
         """
-        query = """
+    
+        
+        query = f"""
         WITH updated_branch AS (
             UPDATE branches
             SET current_index = current_index + 1
@@ -335,8 +337,8 @@ class ArtifactLog(Generic[TURN_MODEL]):
             RETURNING id, current_index
         ),
         new_turn AS (
-            INSERT INTO turns (partition_id, branch_id, index, status, state)
-            SELECT $2, id, current_index, $3, $4
+            INSERT INTO turns (branch_id, index, status, state{"".join([", " + k for k in kwargs.keys()])})
+            SELECT id, current_index, $2, $3{"".join([", $" + str(i) for i in range(4, len(kwargs) + 4)])}
             FROM updated_branch
             RETURNING *
         )
@@ -350,7 +352,7 @@ class ArtifactLog(Generic[TURN_MODEL]):
                 state_json = json.dumps(state)
         # Use a transaction to ensure atomicity
         async with PGConnectionManager.transaction() as tx:
-            turn_row = await tx.fetch_one(query, branch_id, partition_id, status.value, state_json)
+            turn_row = await tx.fetch_one(query, branch_id, status.value, state_json, *[kwargs[k] for k in kwargs.keys()])
             if turn_row is None:
                 raise ValueError(f"Failed to create turn for branch {branch_id}")
         
@@ -558,3 +560,77 @@ class ArtifactLog(Generic[TURN_MODEL]):
             if turn.status != TurnStatus.STAGED:
                 raise ValueError(f"Turn {turn_id} is {turn.status.value}, not STAGED.")
         return data
+
+
+    @classmethod
+    async def fetch(
+        cls, 
+        table_name: str,
+        sql: str, 
+        values: list[Any], 
+        branch_id: int = 1, 
+        turn_limit: int | None = None,
+        turn_direction: str | None = None,
+        is_event_source: bool = True,
+    ) -> list[Any]: 
+        
+        filtered_alias = f"filtered_{table_name}"
+        sql = sql.replace(table_name, filtered_alias)       
+        if turn_limit:
+            turn_order_by_clause = f"ORDER BY t.index {turn_direction} LIMIT {turn_limit}"
+        else:
+            turn_order_by_clause = ""
+
+        
+        turn_where_clause = []
+        # if partition_id is not None:
+        #     turn_where_clause.append(f"t.partition_id = {partition_id}")
+        if is_event_source:
+            turn_where_clause.append("m.deleted_at IS NULL")
+        turn_where_clause = " AND ".join(turn_where_clause)
+        
+        event_source_select_clause = " DISTINCT ON (m.artifact_id)" if is_event_source else ""
+        event_source_order_by_clause = "ORDER BY m.artifact_id, m.version DESC" if is_event_source else ""
+
+        versioned_sql = f"""
+            WITH RECURSIVE branch_hierarchy AS (
+                SELECT
+                    id,
+                    name,
+                    forked_from_turn_index,
+                    forked_from_branch_id,
+                    current_index AS start_turn_index
+                FROM branches
+                WHERE id = {branch_id}
+                
+                UNION ALL
+                
+                SELECT
+                    b.id,
+                    b.name,
+                    b.forked_from_turn_index,
+                    b.forked_from_branch_id,
+                    bh.forked_from_turn_index AS start_turn_index
+                FROM branches b
+                JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id
+            ),
+            turn_hierarchy AS (
+                SELECT t.* 
+                FROM branch_hierarchy bh
+                JOIN turns t ON bh.id = t.branch_id
+                WHERE t.index <= bh.start_turn_index AND t.status != 'reverted'
+                {turn_order_by_clause}
+            ),
+            {filtered_alias} AS (
+                SELECT{event_source_select_clause}
+                    m.*
+                FROM turn_hierarchy t               
+                JOIN "{table_name}" m ON t.id = m.turn_id
+                WHERE {turn_where_clause}
+                {event_source_order_by_clause}
+            )
+            {sql}
+            """
+        print(versioned_sql)
+        results = await PGConnectionManager.fetch(versioned_sql, *values)
+        return [dict(row) for row in results]

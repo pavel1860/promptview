@@ -342,6 +342,8 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     _fields: dict[str, FIELD_INFO]
     _relations: dict[str, NSRelationInfo]
     is_versioned: bool
+    is_artifact: bool
+    is_repo: bool
     db_type: DatabaseType
     _primary_key: FIELD_INFO | None = None
     def __init__(
@@ -367,6 +369,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         self.db_type = db_type
         self._model_cls = None
         self._primary_key = None
+
        
         
     @property
