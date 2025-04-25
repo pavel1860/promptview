@@ -529,7 +529,11 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         """Drop the namespace from the database"""
         raise NotImplementedError("Not implemented")
     
-    async def save(self, data: Dict[str, Any], id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
+    # async def save(self, data: Dict[str, Any], id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
+    #     """Save data to the namespace"""
+    #     raise NotImplementedError("Not implemented")
+    
+    async def save(self, model: MODEL) -> MODEL:
         """Save data to the namespace"""
         raise NotImplementedError("Not implemented")
     
@@ -541,7 +545,11 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         """Get data from the namespace by artifact ID and version"""
         raise NotImplementedError("Not implemented")
     
-    async def delete(self, data: Dict[str, Any] | None = None, id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
+    async def delete(self, id: Any) -> MODEL | None:
+        """Delete data from the namespace"""
+        raise NotImplementedError("Not implemented")
+    
+    async def delete_model(self, model: MODEL) -> MODEL | None:
         """Delete data from the namespace"""
         raise NotImplementedError("Not implemented")
 

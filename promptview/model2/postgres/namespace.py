@@ -517,53 +517,157 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         res = await SQLBuilder.drop_table(self)
         return res
     
-    async def save(self, data: Dict[str, Any], id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: int | Turn | None = None, branch: int | Branch | None = None ) -> Dict[str, Any]:
+    
+    def build_insert_query(self, model_dump: dict[str, Any]) -> tuple[str, list[Any]]:
+        """Build an insert query for the model"""                
+        keys = []
+        placeholders = []
+        values = []
+        
+        for field in self._fields.values():
+            if not field.is_key:
+                value = model_dump.get(field.name)                
+                if field.validate_value(value):
+                    placeholder = field.get_placeholder(len(values) + 1)
+                    processed_value = field.serialize(value)                    
+                    keys.append(f'"{field.name}"')
+                    placeholders.append(placeholder)
+                    values.append(processed_value)
+                else:
+                    raise ValueError(f"Field {field.name} is not valid")
+        
+        sql = f"""
+        INSERT INTO "{self.table_name}" ({", ".join(keys)})
+        VALUES ({", ".join(placeholders)})
+        RETURNING *;
+        """
+        return sql, values
+    
+    
+    def build_update_query(self, model_dump: dict[str, Any]) -> tuple[str, list[Any]]:
+        """Build an update query for the model"""
+        set_parts = []
+        values = []
+        key = None
+        
+        for field in self._fields.values():
+            value = model_dump.get(field.name)
+            if field.validate_value(value):
+                placeholder = field.get_placeholder(len(values) + 1)
+                processed_value = field.serialize(value)
+                if field.is_key:
+                    key=processed_value
+                else:           
+                    set_parts.append(f'"{field.name}" = {placeholder}')
+                    values.append(processed_value)
+            else:
+                raise ValueError(f"Field {field.name} is not valid")
+        if key is None:
+            raise ValueError("Primary key is required")
+        values.append(key)
+
+        sql = f"""
+        UPDATE "{self.table_name}"
+        SET {", ".join(set_parts)}
+        WHERE {self.primary_key.name} = ${len(values)}
+        RETURNING *;
+        """
+        return sql, values
+    # async def save(self, data: Dict[str, Any], id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: int | Turn | None = None, branch: int | Branch | None = None ) -> Dict[str, Any]:
+    #     """
+    #     Save data to the namespace.
+        
+    #     Args:
+    #         data: The data to save
+    #         id: Optional ID to save to
+    #         turn: Optional turn to save to
+    #         branch: Optional branch to save to
+            
+    #     Returns:
+    #         The saved data with any additional fields (e.g., ID)
+    #     """
+        
+    #     turn_id, branch_id = await self.get_current_ctx_head(turn, branch) if self.is_versioned else (None, None)
+    #     if artifact_id is not None:
+    #         if not version:
+    #             raise ValueError("Version is required when saving to an artifact")
+    #         data["artifact_id"] = artifact_id
+    #         data["version"] = version
+    #         data["updated_at"] = dt.datetime.now()
+    #         record = await PostgresOperations.insert(self, data, turn_id, branch_id )
+    #     elif id is None:
+    #         record = await PostgresOperations.insert(self, data, turn_id, branch_id )
+    #     else:
+    #         record = await PostgresOperations.update(self, id, data, turn_id, branch_id )
+    #     return self.pack_record(record)
+    
+    async def save(self, model: MODEL) -> MODEL:
         """
         Save data to the namespace.
         
         Args:
-            data: The data to save
-            id: Optional ID to save to
-            turn: Optional turn to save to
-            branch: Optional branch to save to
+            model: The model to save
             
         Returns:
             The saved data with any additional fields (e.g., ID)
         """
-        
-        turn_id, branch_id = await self.get_current_ctx_head(turn, branch) if self.is_versioned else (None, None)
-        if artifact_id is not None:
-            if not version:
-                raise ValueError("Version is required when saving to an artifact")
-            data["artifact_id"] = artifact_id
-            data["version"] = version
-            data["updated_at"] = dt.datetime.now()
-            record = await PostgresOperations.insert(self, data, turn_id, branch_id )
-        elif id is None:
-            record = await PostgresOperations.insert(self, data, turn_id, branch_id )
+        if getattr(model, self.primary_key.name) is None:
+            sql, values = self.build_insert_query(model.model_dump())            
         else:
-            record = await PostgresOperations.update(self, id, data, turn_id, branch_id )
-        return self.pack_record(record)
+            sql, values = self.build_update_query(model.model_dump())
+            
+        record = await PGConnectionManager.fetch_one(sql, *values)
+        if record is None:
+            raise ValueError("Failed to save model")
+        return self.pack_record(dict(record))
     
-    async def delete(self, data: Dict[str, Any] | None = None, id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
+    
+    # async def delete(self, data: Dict[str, Any] | None = None, id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
+    #     """Delete data from the namespace"""
+    #     turn_id, branch_id = await self.get_current_ctx_head(turn, branch) if self.is_versioned else (None, None)
+    #     if artifact_id is not None:
+    #         if not version:
+    #             raise ValueError("Version is required when saving to an artifact")
+    #         if data is None:
+    #             raise ValueError("Data is required when deleting an artifact")
+    #         data["artifact_id"] = artifact_id
+    #         data["version"] = version
+    #         # data["updated_at"] = dt.datetime.now()
+    #         data["deleted_at"] = dt.datetime.now()
+    #         record = await PostgresOperations.update(self, id, data, turn_id, branch_id )
+    #     else:
+    #         if id is None:
+    #             raise ValueError("Either id or artifact_id must be provided")
+    #         record = await PostgresOperations.delete(self, id)
+    #     return self.pack_record(record)
+    
+    async def delete(self, id: Any) -> MODEL | None:
         """Delete data from the namespace"""
-        turn_id, branch_id = await self.get_current_ctx_head(turn, branch) if self.is_versioned else (None, None)
-        if artifact_id is not None:
-            if not version:
-                raise ValueError("Version is required when saving to an artifact")
-            if data is None:
-                raise ValueError("Data is required when deleting an artifact")
-            data["artifact_id"] = artifact_id
-            data["version"] = version
-            # data["updated_at"] = dt.datetime.now()
-            data["deleted_at"] = dt.datetime.now()
-            record = await PostgresOperations.update(self, id, data, turn_id, branch_id )
-        else:
-            if id is None:
-                raise ValueError("Either id or artifact_id must be provided")
-            record = await PostgresOperations.delete(self, id)
-        return self.pack_record(record)
+        sql = f"""
+        DELETE FROM "{self.table_name}" WHERE id = $1
+        RETURNING *;
+        """        
+        # Execute query
+        result = await PGConnectionManager.fetch_one(sql, id)
+        return self.pack_record(dict(result)) if result else None
     
+    async def delete_model(self, model: MODEL) -> MODEL | None:
+        """Delete data from the namespace"""
+        return await self.delete(model.primary_id)
+    
+    
+    async def delete_artifact(self, model: MODEL) -> MODEL | None:
+        """Delete data from the namespace by artifact ID and version."""        
+        model_dump = model.model_dump()
+        model_dump["deleted_at"] = dt.datetime.now()
+        model_dump["version"] = model.version + 1
+        sql, values = self.build_insert_query(model_dump)
+        result = await PGConnectionManager.execute(sql, *values)
+        return self.pack_record(dict(result)) if result else None
+        
+        
+        
+        
     async def get(self, id: Any) -> MODEL | None:
         """
         Get data from the namespace by ID.
@@ -574,19 +678,29 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         Returns:
             The data if found, None otherwise
         """
-        res = await PostgresOperations.get(self, id)
-        if res is None:
-            return None
-        return self.pack_record(res)
+        # res = await PostgresOperations.get(self, id)
+        # if res is None:
+            # return None
+        sql = f'SELECT * FROM "{self.table_name}" WHERE id = $1;'        
+        # Execute query
+        result = await PGConnectionManager.fetch_one(sql, id)
+        return self.pack_record(dict(result)) if result else None
+    
     
     async def get_artifact(self, artifact_id: uuid.UUID, version: int | None = None) -> MODEL | None:
         """
         Get data from the namespace by artifact ID and version.
         """
-        res = await PostgresOperations.get_artifact(self, artifact_id, version)
-        if res is None:
-            return None
-        return self.pack_record(res)
+        if version is not None:
+            sql = f'SELECT * FROM "{self.table_name}" WHERE artifact_id = $1 AND version = $2;'
+            values = [artifact_id, version]
+        else:
+            sql = f'SELECT DISTINCT ON (artifact_id) * FROM "{self.table_name}" WHERE artifact_id = $1 ORDER BY artifact_id, version DESC;'                
+            values = [artifact_id]
+        result = await PGConnectionManager.fetch_one(sql, *values)
+        return self.pack_record(dict(result)) if result else None
+    
+    
     
     def query(
         self, 

@@ -296,9 +296,8 @@ class Model(BaseModel, metaclass=ModelMeta):
         Save the model instance to the database
         """        
                 
-        ns = self.get_namespace()
-        data = self._payload_dump()
-        result = await ns.save(data, id=self.primary_id)
+        ns = self.get_namespace()        
+        result = await ns.save(self)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)
@@ -437,11 +436,9 @@ class ArtifactModel(Model):
             branch: Optional branch ID to save to
             turn: Optional turn ID to save to
         """        
-        
-                
+
         ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
-        data = self._payload_dump()
-        result = await ns.save(data, id=self.primary_id, artifact_id=self.artifact_id, version=self.version + 1, branch=branch, turn=turn)
+        result = await ns.save(self)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)
