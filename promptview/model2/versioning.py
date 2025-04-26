@@ -631,6 +631,6 @@ class ArtifactLog(Generic[TURN_MODEL]):
             )
             {sql}
             """
-        print(versioned_sql)
+
         results = await PGConnectionManager.fetch(versioned_sql, *values)
         return [dict(row) for row in results]

@@ -23,16 +23,18 @@ if TYPE_CHECKING:
 def is_enum(field_type):
     return isinstance(field_type, type) and issubclass(field_type, Enum)
 
-def build_where_clause(query_filter: QueryFilter) -> str:
+def build_where_clause(query_filter: QueryFilter, alias: str | None = None) -> str:
     """Convert QueryFilter to SQL WHERE clause."""
     if isinstance(query_filter._operator, QueryOp):
         if query_filter._operator == QueryOp.AND:
-            return f"({build_where_clause(query_filter._left)} AND {build_where_clause(query_filter._right)})"
+            return f"({build_where_clause(query_filter._left, alias)} AND {build_where_clause(query_filter._right, alias)})"
         elif query_filter._operator == QueryOp.OR:
-            return f"({build_where_clause(query_filter._left)} OR {build_where_clause(query_filter._right)})"
+            return f"({build_where_clause(query_filter._left, alias)} OR {build_where_clause(query_filter._right, alias)})"
     elif isinstance(query_filter._operator, FieldOp):
         field = query_filter.field
         field_name = f'"{field.name}"'
+        if alias:
+            field_name = f"{alias}.{field_name}"
         
         # Get field type information
         if hasattr(field, '_field_info'):
@@ -108,28 +110,31 @@ def build_where_clause(query_filter: QueryFilter) -> str:
         elif query_filter._operator == FieldOp.RANGE:
             conditions = []
             if query_filter.value.gt is not None:
-                if field_type is int:
+                if field_type is int or field_type is float:
                     conditions.append(f"{field_name} > {query_filter.value.gt}")
                 else:
                     conditions.append(f"{field_name} > '{query_filter.value.gt}'")
             if query_filter.value.ge is not None:
-                if field_type is int:
+                if field_type is int or field_type is float:
                     conditions.append(f"{field_name} >= {query_filter.value.ge}")#f"{field_name} >= to_timestamp('{query_filter.value.ge.strfmt('YYYY-MM-DD HH24:MI:SS')}')"
                 # elif field_type == dt.datetime:                        
                     # conditions.append(f"{field_name} >= to_timestamp('{query_filter.value.ge.strftime('%Y-%m-%d %H:%M:%S')}')")
                 else:
                     conditions.append(f"{field_name} >= '{query_filter.value.ge}'")
             if query_filter.value.lt is not None:
-                if field_type is int:
+                if field_type is int or field_type is float:
                     conditions.append(f"{field_name} < {query_filter.value.lt}")
                 else:
                     conditions.append(f"{field_name} < '{query_filter.value.lt}'")
             if query_filter.value.le is not None:
-                if field_type is int:
+                if field_type is int or field_type is float:
                     conditions.append(f"{field_name} <= {query_filter.value.le}")
                 else:
                     conditions.append(f"{field_name} <= '{query_filter.value.le}'")
-            return f"({' AND '.join(conditions)})"
+            if len(conditions) > 1:
+                return f"({' AND '.join(conditions)})"
+            else:
+                return conditions[0]
         else:
             raise ValueError(f"Unsupported query filter operator: {query_filter._operator}")
     return ""
@@ -164,7 +169,9 @@ def build_query(
         order_by: str | None = None,
         offset: int | None = None,
         joins: list[JoinType] | None = None,
-        filter_proxy: "QueryProxy | None" = None,        
+        filter_proxy: "QueryProxy | None" = None,
+        alias: str | None = None,        
+        start_placeholder: int = 0,
     ) -> tuple[str, list[Any]]:
         """
         Query records with versioning support.
@@ -183,8 +190,10 @@ def build_query(
         Returns:
             A list of records matching the query
         """
-        
-            # Regular query without versioning
+        if not alias:
+            alias = ""
+            
+        # Regular query without versioning
         select_clause = "*"
         
         if select:
@@ -194,27 +203,31 @@ def build_query(
             select_clause = ",".join(select_parts)
         
 
-        sql = f'SELECT {select_clause} FROM "{namespace.table_name}"'
+        sql = f'SELECT {select_clause}\n'
+        sql += f'FROM "{namespace.table_name}" {alias}\n'
         
         if joins:
             for join in joins:
                 # sql += f" JOIN {join['foreign_table']} ON {join['primary_table']}.{join['primary_key']} = {join['foreign_table']}.{join['foreign_key']}"
-                sql += f" JOIN {join['foreign_table']} ON {join['primary_table']}.{join['primary_key']} = {join['foreign_table']}.{join['foreign_key']}"
+                sql += f"JOIN {join['foreign_table']} ON {join['primary_table']}.{join['primary_key']} = {join['foreign_table']}.{join['foreign_key']}\n"
         
         # Add filters
         values = []
         if filters or filter_proxy:
-            filters_sql = " WHERE "
+            filters_sql = "WHERE "
             if filters:
                 where_parts = []
                 for key, value in filters.items():
-                    where_parts.append(f'"{key}" = ${len(values) + 1}')
+                    wq = f'"{key}" = ${start_placeholder + len(values) + 1}'
+                    if alias:
+                        wq = f"{alias}.{wq}"
+                    where_parts.append(wq)
                     values.append(value)
                     
                 filters_sql += ' AND '.join(where_parts)
             if filter_proxy: 
                 filters_sql += " AND " if filters else ""           
-                filters_sql += build_where_clause(filter_proxy)
+                filters_sql += build_where_clause(filter_proxy, alias)
             sql += filters_sql
         
         # Add order by

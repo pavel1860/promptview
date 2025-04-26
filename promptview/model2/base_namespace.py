@@ -559,7 +559,15 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         raise NotImplementedError("Not implemented")
 
     
-    def query(self, partition_id: int | None = None, branch: "int | Branch | None" = None, filters: dict[str, Any] | None = None, **kwargs) -> QuerySet:
+    def query(
+        self, 
+        partition_id: int | None = None, 
+        branch: "int | Branch | None" = None, 
+        filters: dict[str, Any] | None = None, 
+        joins: list[Any] | None = None,
+        select: SelectFields | None = None,
+        **kwargs
+    ) -> QuerySet:
         """
         Create a query for this namespace
         

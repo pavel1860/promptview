@@ -1,6 +1,7 @@
 from enum import Enum
 import inspect
 import json
+import textwrap
 from typing import TYPE_CHECKING, Any, Callable, Dict, Literal, Type, Optional, List, get_args, get_origin
 import uuid
 from typing_extensions import TypeVar
@@ -8,7 +9,7 @@ from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.operations import JoinType, PostgresOperations, SelectType
-from promptview.model2.postgres.query_parser import build_query
+from promptview.model2.postgres.query_parser import build_query, build_where_clause
 from promptview.model2.query_filters import QueryFilter, QueryProxy, parse_query_params
 from promptview.model2.versioning import ArtifactLog, Branch, Turn
 from promptview.utils.model_utils import get_list_type, is_list_type, make_json_serializable
@@ -201,7 +202,8 @@ class PostgresQuerySet(QuerySet[MODEL]):
         branch_id: int | None = None, 
         joins: list[JoinType] | None = None,
         filters: dict[str, Any] | None = None,
-        select: list[list[SelectFields]] | None = None
+        select: list[list[SelectFields]] | None = None,
+        sub_queries: dict[str, Any] | None = None
     ):
         super().__init__(model_class=model_class)
         self.namespace = namespace
@@ -216,7 +218,12 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.select = select or []
         self.turn_limit_value = None
         self.turn_order_direction = None
-    
+        self.sub_queries = sub_queries or {}
+        
+    @property
+    def table_name(self) -> str:
+        return self.namespace.table_name
+        
     def filter(self, filter_fn: Callable[[MODEL], bool] | None = None, **kwargs) -> "PostgresQuerySet[MODEL]":
         """Filter the query"""
         self.filters.update(kwargs)            
@@ -278,6 +285,147 @@ class PostgresQuerySet(QuerySet[MODEL]):
         """Include a relation field in the query results."""
         self.include_fields = fields
         return self
+    
+    
+    
+    # def build_subquery2(self, name: str):        
+    #     sub_queries = []
+    #     for sb_name, sub_query in self.sub_queries.items():
+    #         sub_queries += sub_query.build_subquery(sb_name)
+        
+    #     sql = f"{name}_subquery AS (\n"
+    #     sql += textwrap.indent(self.build_query(name), "    ")
+    #     sql += "\n)"
+    #     sub_queries.append(sql)
+    #     return sub_queries
+    
+    # def build_subquery3(self, name: str):
+    #     sql_list = []        
+    #     for sb_name, sub_query in self.sub_queries.items():
+    #         sql, values = build_query(
+    #             sub_query.namespace,
+    #             filters=sub_query.filters,
+    #             limit=sub_query.limit_value,
+    #             order_by=sub_query.order_by_value,
+    #             offset=sub_query.offset_value,
+    #             # select=select_types,
+    #             # joins=self.joins,
+    #             alias="t",
+    #             start_placeholder=len(sql_list[-1][1]) if sql_list else 0,
+    #             filter_proxy=sub_query.filter_proxy,
+    #         )
+    #         sub_sql = f"{name}_subquery AS (\n"
+    #         sub_sql += textwrap.indent(sql, "    ")
+    #         sub_sql += "\n)"
+    #         sql_list.append((sub_sql, values))
+    #     return sql_list
+    
+    
+    def build_subquery(self, name: str, start_idx: int=0, joins: list[JoinType] | None = None, alias: str | None = None):
+        joins = joins or []
+        sql, values = build_query(
+            self.namespace,
+            filters=self.filters,
+            limit=self.limit_value,
+            order_by=self.order_by_value,
+            offset=self.offset_value,
+            # select=select_types,
+            joins=self.joins + joins,
+            alias=alias,
+            start_placeholder=start_idx,
+            filter_proxy=self.filter_proxy,
+        )
+        
+        sub_sql = f"{name} AS (\n"
+        sub_sql += textwrap.indent(sql, "    ")
+        sub_sql += "\n)"
+        return (sub_sql, values, name, start_idx + len(values))
+    
+    
+    def flat_subqueries(self) -> list["PostgresQuerySet"]:
+        sub_queries = []
+        for sb_name, sub_query in self.sub_queries.items():
+            sub_queries += sub_query.flat_subqueries() + [sub_query]
+        return sub_queries
+    
+    def build_all_subqueries(self) -> list[tuple[str, list[Any], str, int, "PostgresQuerySet"]]:
+        query_list = self.flat_subqueries()
+        start_idx = 0
+        queries = []
+        for idx, qs in enumerate(query_list):
+            joins = None
+            alias = f"{qs.table_name[0]}{idx}"
+            if idx > 0:
+                prev_qs = query_list[idx-1]
+                joins = [{
+                    "primary_table": alias,
+                    "primary_key": qs.namespace.primary_key.name,
+                    "foreign_table": queries[idx-1][2],
+                    "foreign_key": qs.namespace.get_relation(prev_qs.namespace.table_name).foreign_key,
+                }]
+                # joins = qs.namespace.get_relation_joins(prev_qs.namespace.table_name, primary_alias=alias)
+            sql, values, name, start_idx = qs.build_subquery(f"{qs.table_name}_sq_{idx}", start_idx=start_idx, joins=joins, alias=alias)
+            queries.append((sql, values, name, start_idx, qs))
+        return queries
+    
+    # def build_all_subqueries(self):
+    #     sub_queries = []
+    #     start_idx = 0
+    #     for sb_name, sub_query in self.sub_queries.items():
+    #         sub_queries += sub_query.build_all_subqueries()
+    #         if sub_queries:
+    #             start_idx = sub_queries[-1][3]
+    #         sql, values, name, start_idx = sub_query.build_subquery(sb_name, start_idx=start_idx)
+    #         sub_queries.append((sql, values, name, start_idx))
+            
+    #     return sub_queries
+
+
+    def build_query(self, with_subqueries: bool = False):
+        start_idx = 0
+        sub_queries = []
+        sq_values = []
+        joins = []
+        sq_sql = ""
+        alias = self.table_name[0]
+        if with_subqueries:
+            sub_queries = self.build_all_subqueries()
+            start_idx = sub_queries[-1][3]
+            if sub_queries:
+                sq_sql = ",\n".join([sq[0] for sq in sub_queries]) + "\n"
+                sq_values = [v for sq in sub_queries for v in sq[1]]
+                # sql += f"\nJOIN ({sql}) t ON t.id = {self.namespace.table_name}.id\n"        
+                sq_sql = "WITH " + sq_sql
+                joins = [{
+                    "primary_table": alias,
+                    "primary_key": self.namespace.primary_key.name,
+                    "foreign_table": sub_queries[-1][2],
+                    "foreign_key": self.namespace.get_relation(sub_queries[-1][4].table_name).foreign_key,
+                }]
+                # joins = self.namespace.get_relation_joins(sub_queries[-1][4].namespace.table_name, primary_alias=alias)
+        
+        sql, values = build_query(
+            self.namespace,
+            filters=self.filters,
+            limit=self.limit_value,
+            order_by=self.order_by_value,
+            offset=self.offset_value,
+            # select=select_types,
+            joins=self.joins + joins,
+            filter_proxy=self.filter_proxy,
+            start_placeholder=start_idx,
+            alias=alias,
+        )
+
+        if sub_queries:
+            sql = sq_sql + "\n" + sql
+            values = sq_values + values
+        
+        return sql, values
+
+    
+    
+    
     
     
     async def execute(self) -> List[MODEL]:
@@ -484,6 +632,19 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         )
         self._relations[name] = relation_info
         return relation_info
+    
+    
+    def get_relation(self, relation_name: str) -> NSRelationInfo:
+        return self._relations[relation_name]
+    
+    def get_relation_joins(self, relation_name: str, primary_alias: str | None = None, foreign_alias: str | None = None) -> list[JoinType]:
+        relation_info = self._relations[relation_name]
+        return [{
+            "primary_table": primary_alias or relation_info.primary_table,
+            "primary_key": relation_info.primary_key,
+            "foreign_table": foreign_alias or relation_info.foreign_table,
+            "foreign_key": relation_info.foreign_key,
+        }]
 
     
     async def create_namespace(self):
@@ -737,8 +898,9 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         self, 
         branch: int | Branch | None = None, 
         filters: dict[str, Any] | None = None, 
-        joins: list[NSRelationInfo] | None = None,
-        select: SelectFields | None = None
+        joins: list[JoinType] | None = None,
+        select: SelectFields | None = None,
+        **kwargs
     ) -> QuerySet:
         """
         Create a query for this namespace.
@@ -751,6 +913,17 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         """
         # branch = self.get_current_ctx_branch(branch) if self.is_versioned else None
         # partition, branch = self.get_current_ctx_partition_branch(partition=partition_id, branch=branch)
+        # if kwargs:
+        #     joins = joins or []
+        #     for k,v in kwargs.items():
+        #         joins.append(
+        #             JoinType(
+        #                 primary_table=self.table_name,
+        #                 primary_key=k,
+        #                 foreign_table=v.namespace.table_name,
+        #                 foreign_key=v.namespace.primary_key.name,
+        #             )
+        #         )
         
         return PostgresQuerySet(
             model_class=self.model_class, 
@@ -758,7 +931,8 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             branch_id=branch, 
             select=select, 
             joins=joins, 
-             filters=filters
+            filters=filters,
+            sub_queries=kwargs
         )
         
             

@@ -356,7 +356,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         return instance
     
     @classmethod
-    def query(cls: Type[MODEL], partition_id: int | None = None, branch: int | Branch | None = None) -> "QuerySet[MODEL]":
+    def query(cls: Type[MODEL], branch: int | Branch | None = None, **kwargs) -> "QuerySet[MODEL]":
         """
         Create a query for this model
         
@@ -364,7 +364,7 @@ class Model(BaseModel, metaclass=ModelMeta):
             branch: Optional branch ID to query from
         """            
         ns = cls.get_namespace()
-        return ns.query(partition_id, branch)
+        return ns.query(branch, **kwargs)
     
     
     # def join(self, model: Type[MODEL], partition: Partition | None = None, branch: Branch | int = 1) -> "QuerySet[MODEL]":
