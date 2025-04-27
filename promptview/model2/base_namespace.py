@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 import datetime as dt
 
+
 from promptview.utils.model_utils import is_list_type, unpack_list_model
 from promptview.utils.string_utils import camel_to_snake
 
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     from promptview.model2.namespace_manager import NamespaceManager
     from promptview.model2.model import Model
     from promptview.model2.versioning import Branch, Turn, Partition
+    from promptview.model2.query_filters import QuerySetProxy
 INDEX_TYPES = TypeVar("INDEX_TYPES", bound=str)
 
 
@@ -290,6 +292,13 @@ class QuerySet(Generic[MODEL]):
         """Make the query awaitable"""
         return self.execute().__await__()
     
+    @property
+    def q(self) -> "QuerySetProxy[MODEL, FIELD_INFO]":
+        """Get the query proxy"""
+        from promptview.model2.query_filters import QuerySetProxy
+        # raise NotImplementedError("Not implemented")
+        return QuerySetProxy[MODEL, FIELD_INFO](self)
+    
     def filter(self, filter_fn: Callable[[MODEL], bool] | None = None, **kwargs) -> "QuerySet[MODEL]":
         """Filter the query"""
         raise NotImplementedError("Not implemented")
@@ -342,7 +351,7 @@ class QuerySet(Generic[MODEL]):
         """Create a sub query"""
         raise NotImplementedError("Not implemented")
     
-    def cte(self, key: str) -> "QuerySet[MODEL]":
+    def cte(self, key: str, q1_labels: dict[str, str] | None = None, q2_labels: dict[str, str] | None = None) -> "QuerySet[MODEL]":
         """Create a common table expression"""
         raise NotImplementedError("Not implemented")
 
@@ -593,6 +602,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         filters: dict[str, Any] | None = None, 
         joins: list[Any] | None = None,
         select: SelectFields | None = None,
+        alias: str | None = None,
         **kwargs
     ) -> QuerySet:
         """

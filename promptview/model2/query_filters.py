@@ -8,7 +8,7 @@ import numpy as np
 from pydantic.fields import FieldInfo
 import datetime as dt
 
-from promptview.model2.base_namespace import Namespace
+from promptview.model2.base_namespace import Namespace, QuerySet
 
 if TYPE_CHECKING:  # pragma: nocoverage
     from .model import Model
@@ -177,17 +177,42 @@ class RangeFilter:
             if t != types[0]:
                 raise ValueError("All values must be of the same type")
         self.value = types[0]
-        self.ge = ge
-        self.le = le
-        self.gt = gt
-        self.lt = lt        
-        
+        self._ge = ge
+        self._le = le
+        self._gt = gt
+        self._lt = lt        
+    
+    @property
+    def ge(self):
+        if isinstance(self._ge, QuerySetField):
+            return self._ge.get()
+        return self._ge
+    
+    @property
+    def le(self):
+        if isinstance(self._le, QuerySetField):
+            return self._le.get()
+        return self._le
+    
+    @property
+    def gt(self):
+        if isinstance(self._gt, QuerySetField):
+            return self._gt.get()
+        return self._gt
+    
+    @property
+    def lt(self):
+        if isinstance(self._lt, QuerySetField):
+            return self._lt.get()
+        return self._lt
         
     def __setattr__(self, name: str, value: Any) -> None:
         if name in ["ge", "le", "gt", "lt"]:            
             if value is not None and type(value) != self.value:
                 raise ValueError(f"Value must be of type {self.value}")
         super().__setattr__(name, value)
+        
+    
         
     def __repr__(self):
         return f"RangeFilter(ge={self.ge}, le={self.le}, gt={self.gt}, lt={self.lt})"
@@ -201,7 +226,10 @@ class RangeFilter:
             "lt": self.lt,
             "_type": "range"
         }
-    
+
+
+class QueryField:
+    pass
 
 class PropertyComparable:
     
@@ -211,15 +239,19 @@ class PropertyComparable:
         self.type = type
         self._query_filter = None
         
-    def _validate_type(self, other):        
-        if self.type is not None and self.type != type(other):
+    def _validate_type(self, other):
+        if isinstance(other, PropertyComparable):
+            other_type = other.type
+        else:
+            other_type = type(other)
+        if self.type is not None and self.type != other_type:
             origin = get_origin(self.type)
             if origin == UnionType or origin == Union:
                 union_args = get_args(self.type)
-                if type(other) not in union_args:
-                    raise ValueError(f"Cannot compare {self.name} with {other}. Expected one of {union_args} got {type(other)}")
+                if other_type not in union_args:
+                    raise ValueError(f"Cannot compare {self.name} with {other}. Expected one of {union_args} got {other_type}")
             else:
-                raise ValueError(f"Cannot compare {self.name} with {other}. Expected {self.type} got {type(other)}")
+                raise ValueError(f"Cannot compare {self.name} with {other}. Expected {self.type} got {other_type}")
         # if not isinstance(other, FieldComparable):
             # raise ValueError(f"Cannot compare {self._field_name} with {other}")
 
@@ -297,7 +329,7 @@ class PropertyComparable:
         return QueryFilter(self, FieldOp.NULL, None)
     
     def __repr__(self):
-        return f"Field({self.name})"
+        return f"Property({self.name})"
     
     def model_dump(self):
         return {
@@ -314,8 +346,21 @@ class FieldComparable(PropertyComparable):
         self._field_info = field_info
         super().__init__(field_name, field_info.data_type) 
 
-
-  
+    def __repr__(self):
+        return f"Field({self.name})"
+    
+class QuerySetField(PropertyComparable):
+    def __init__(self, field_name: str, field_info: "NSFieldInfo", alias: str):
+        self._field_info = field_info
+        super().__init__(field_name, field_info.data_type) 
+        self.alias = alias
+    
+    def __repr__(self):
+        return f"QuerySetField({self.name})"
+        
+    def get(self):
+        return f"{self.alias}.{self.name}"
+        
         
 MODEL = TypeVar("MODEL", bound="Model")   
 FIELD_INFO = TypeVar("FIELD_INFO", bound="NSFieldInfo")
@@ -443,7 +488,18 @@ class QueryProxy(Generic[MODEL, FIELD_INFO]):
             raise AttributeError(f"{self.model.__name__} has no attribute {name}")
 
 
-
+class QuerySetProxy(QueryProxy[MODEL, FIELD_INFO]):
+    
+    def __init__(self, query_set: "QuerySet[MODEL]"):
+        super().__init__(query_set.model_class, query_set.namespace)
+        self.query_set = query_set
+        
+        
+    def __getattr__(self, name):
+        if field_info:= self.namespace.get_field(name):
+            return QuerySetField(name, field_info, alias=self.query_set.alias)
+        else:
+            raise AttributeError(f"{self.model.__name__} has no attribute {name}")
 
 
 def parse_query_params(conditions: QueryListType) -> QueryFilter | None:

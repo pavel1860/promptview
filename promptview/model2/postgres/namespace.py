@@ -50,6 +50,27 @@ class PgJoin:
         return f"{self.relation.foreign_table[0]}" + str(self.depth) + str(self.index)
 
 
+class PgCte:
+    key: str
+    q1_labels: dict[str, str] | None = None
+    q2_labels: dict[str, str] | None = None
+    def __init__(self, key: str, alias: str, join: PgJoin, q1_labels: dict[str, str] | None = None, q2_labels: dict[str, str] | None = None):
+        self.key = key
+        self.alias = alias
+        self.join = join
+        self.q1_labels = q1_labels
+        self.q2_labels = q2_labels
+        self._query_name = None
+        
+    def set_query_name(self, query_name: str):
+        self._query_name = query_name
+        
+    @property
+    def query_name(self) -> str:
+        if self._query_name is None:
+            raise ValueError("Query name not set")
+        return self._query_name
+
 class PgFieldInfo(NSFieldInfo):
     """PostgreSQL field information"""
     index: PgIndexType | None = None
@@ -224,7 +245,8 @@ class PostgresQuerySet(QuerySet[MODEL]):
     def __init__(
         self, 
         model_class: Type[MODEL], 
-        namespace: "PostgresNamespace", 
+        namespace: "PostgresNamespace",
+        alias: str | None = None,
         branch_id: int | None = None, 
         joins: list[PgJoin] | None = None,
         filters: dict[str, Any] | None = None,
@@ -234,6 +256,9 @@ class PostgresQuerySet(QuerySet[MODEL]):
         depth: int = 0,
     ):
         super().__init__(model_class=model_class)
+        if alias is None:
+            alias = "".join( [w[0] for w in namespace.table_name.split("_")])
+        self.alias = alias
         self.namespace = namespace
         self.branch_id = branch_id
         self.filters = filters or {}
@@ -250,7 +275,11 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.parent_query_set = parent_query_set
         self.depth = depth
         self._type = "query"
-        self.cte_key = None
+        # self.cte_target = None
+
+    # @property
+    # def q(self) -> QueryProxy[MODEL, PgFieldInfo]:
+        # return QueryProxy[MODEL, PgFieldInfo](self.model_class, self.namespace)
         
     @property
     def table_name(self) -> str:
@@ -318,19 +347,27 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.include_fields = fields
         return self
     
+    
+    
     def sub_query(self, query_set: "PostgresQuerySet", name: str | None = None) -> "PostgresQuerySet[MODEL]":
         """Create a sub query"""
         if name is None:
-            name = query_set.namespace.table_name
-        query_set._type = "sub_query"
-        self.sub_queries[name+"_sb"] = query_set
+            name = query_set.namespace.table_name + "_sb"
+            
+        if query_set.cte_target is not None:
+            query_set.cte_target.set_query_name(name)
+        # query_set.alias = name[0:2]
+        self.sub_queries[name] = query_set
         return self
     
-    def cte(self, key: str):
+    def cte(self, alias: str, key: str, q1_labels: dict[str, str] | None = None, q2_labels: dict[str, str] | None = None):
         """Create a common table expression"""
         self._type = "cte"
-        self.cte_key = key
-        self.join(self.model_class)
+        relation = self.namespace.get_relation_by_type(self.model_class)
+        query_set = PostgresQuerySet(relation.foreign_cls, relation.foreign_namespace, parent_query_set=self, depth=self.depth+1)
+        join = PgJoin(relation, query_set, self.depth+1)
+        self.cte_target = PgCte(key, alias, join, q1_labels, q2_labels)
+        # self.join(self.model_class)
         return self
     
     # def join(self, model: "Type[Model]") -> "PostgresQuerySet[MODEL]":
@@ -447,11 +484,12 @@ class PostgresQuerySet(QuerySet[MODEL]):
         return new_sql
     
     def wrap_select_clause(self, sql: str, from_clause: str, where_clause: str | None = None):
-        sql = f"SELECT {sql}\n"
-        sql += f"FROM {from_clause}\n"
+        new_sql = f"SELECT\n"
+        new_sql += textwrap.indent(sql, "   ")
+        new_sql += f"FROM {from_clause}\n"
         if where_clause:
-            sql += f"WHERE {where_clause}\n"
-        return sql
+            new_sql += f"WHERE {where_clause}\n"
+        return new_sql
 
     def list_fields_clause(self, alias: str | None = None) -> list[str]:
         if alias is None:
@@ -563,18 +601,26 @@ class PostgresQuerySet(QuerySet[MODEL]):
         sq_sql += "\n)"
         return sq_sql
     
+    
+    def iter_fields(self, select: list[str | dict[str, str]] | None = None) -> Generator[PgFieldInfo, None, None]:
+        if select is None:
+            for field in self.namespace.iter_fields():
+                yield field
+        else:
+            for field in select:
+                yield field
  
-    def build_select_clause(self, alias: str | None = None) -> str:
+    def build_select_clause(self, alias: str | None = None, select: list[str | dict[str, str]] | None = None) -> str:
         sql = ""
         
-        if self.sub_queries:
-            sub_queries = []
-            for idx, (sb_name, sub_query) in enumerate(self.sub_queries.items()):
-                sq_sql = sub_query.build_query(f"s{sb_name[0]}{idx}")
-                sub_queries.append(self.wrap_subquery_clause(sq_sql, sb_name))
+        # if self.sub_queries:
+        #     sub_queries = []
+        #     for idx, (sb_name, sub_query) in enumerate(self.sub_queries.items()):
+        #         sq_sql = sub_query.build_query(f"s{sb_name[0]}{idx}")
+        #         sub_queries.append(self.wrap_subquery_clause(sq_sql, sb_name))
                 
-            sql += "WITH " + ",\n".join(sub_queries) + "\n"
-            
+        #     sql += "WITH " + ",\n".join(sub_queries) + "\n"
+        alias = alias or self.alias
         if alias:
             sql += f'SELECT \n'
             fields = [f"""{alias}."{field.name}" """ for field in self.namespace.iter_fields()]            
@@ -596,27 +642,62 @@ class PostgresQuerySet(QuerySet[MODEL]):
     
     def build_query(self, alias: str | None = None):
         # alias = None
-        alias = alias or self.table_name[0]
-        sql = self.build_select_clause(alias)
+        # alias = alias or self.table_name[0]
+        alias = alias or self.alias
+        sql = ""
+        if self.sub_queries:
+            sub_queries = []
+            sub_query_clause = "WITH "
+            for idx, (sb_name, sub_query) in enumerate(self.sub_queries.items()):
+                if sub_query._type == "cte":
+                    sq_sql = sub_query.build_cte_query()
+                    sub_query_clause += "RECURSIVE "
+                    # sb_name = sub_query.cte_target.alias
+                else:
+                    sq_sql = sub_query.build_query(f"s{sb_name[0]}{idx}")
+                sub_queries.append(self.wrap_subquery_clause(sq_sql, sb_name))
+                
+            sql += sub_query_clause + ",\n".join(sub_queries) + "\n"
+            
+        sql += self.build_select_clause(alias)
         if self.joins or self.sub_queries:
-            sql += self.build_join_clause(alias)
+            sql += self.build_join_clause(self.alias)
         
         if self.filter_proxy:
             sql += "WHERE " + self.build_where_clause(self.filter_proxy, alias)
         if self.joins:
             sql += f"GROUP BY {alias}.{self.namespace.primary_key.name}\n"
-        return sql
-    
-    
-    def build_cte_query(self, alias: str | None = None):
-        sql = self.build_select_clause(alias)
-        if self.filter_proxy:
-            sql += "WHERE " + self.build_where_clause(self.filter_proxy, alias)
-        sql += "\nUNION ALL\n\n"
-        sql += self.build_query("bh")
+        
+        if self._type == "cte":
+            sql += self.build_cte_clause()
         
         return sql
     
+    
+    def build_cte_clause(self):
+        sql = "\nUNION ALL\n\n"
+        fields = [f"""b."{field.name}" """ for field in self.namespace.iter_fields()]
+        sql += self.wrap_select_clause(
+            self.build_fields_clause(*fields), 
+            # from_clause=f""" "{self.cte_target.alias}" AS b"""
+            from_clause=f""" "{self.cte_target.join.relation.primary_table}" AS b"""
+        )
+        sql += f"""JOIN "{self.cte_target.query_name}" {self.alias} ON b.id = {self.alias}.{self.cte_target.join.relation.foreign_key}"""
+        return sql
+    
+    def build_cte_query(self):
+        sql = ""
+        sql += self.build_select_clause("mb")
+        sql += "\nUNION ALL\n\n"
+        fields = [f"""b."{field.name}" """ for field in self.namespace.iter_fields()]
+        sql += self.wrap_select_clause(
+            self.build_fields_clause(*fields), 
+            # from_clause=f""" "{self.cte_target.alias}" AS b"""
+            from_clause=f""" "{self.cte_target.join.relation.primary_table}" AS b"""
+        )
+        sql += f"""JOIN "{self.cte_target.query_name}" {self.alias} ON b.id = {self.alias}.{self.cte_target.join.relation.foreign_key}"""
+        return sql
+    ##########################
     
     def build_subquery(self, name: str, start_idx: int=0, joins: list[JoinType] | None = None, alias: str | None = None):
         joins = joins or []

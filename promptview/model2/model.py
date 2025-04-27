@@ -260,14 +260,19 @@ class ModelMeta(ModelMetaclass, type):
         return cls_obj
     
     # def __getattribute__(cls, name: str) -> Any:
-    #     print(cls, name)
+    #     # print(cls, name)
     #     if NamespaceManager._is_initialized and name not in {"__name__", "model_fields", "__pydantic_fields__", "get_namespace", "get_namespace_name", "_namespace_name"}:        
-    #         print("entered")
+    #         # print("entered")
     #         if name in cls.model_fields:
     #             ns = NamespaceManager.get_namespace_or_none(build_namespace(cls.__name__))
     #             if ns:
-    #                 print("table",ns.table_name, name)
-    #             return
+    #                 if not ns.has_field(name):
+    #                     raise ValueError(f"Field {name} not found in namespace {ns.table_name}")
+    #                 return ns.get_field(name)
+    #                 # return FieldComparable(name, cls.model_fields[name])
+    #                 # print("table",ns.table_name, name)
+    #             else:
+    #                 raise ValueError(f"Namespace {build_namespace(cls.__name__)} not found")
     #     return super().__getattribute__(name)
     
     
