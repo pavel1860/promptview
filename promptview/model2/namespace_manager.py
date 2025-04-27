@@ -199,22 +199,22 @@ class NamespaceManager:
 
 
     @classmethod
-    async def create_turn(cls, partition_id: int, branch_id: int, state: Optional[Any] = None) -> "Turn":
+    async def create_turn(cls, branch_id: int, state: Optional[Any] = None, **kwargs) -> "Turn":
         """
         Create a turn for a partition.
         """
         return await ArtifactLog.create_turn(
-            partition_id=partition_id,
             branch_id=branch_id,
-            state=state
+            state=state,
+            **kwargs
         )
         
     @classmethod
-    async def get_last_turn(cls, partition_id: int, branch_id: int) -> "Turn | None":
+    async def get_last_turn(cls, branch_id: int, filters: dict[str, Any] = {}) -> "Turn | None":
         """
         Get the last turn for a partition and branch.
         """
-        return await ArtifactLog.get_last_turn(partition_id, branch_id)
+        return await ArtifactLog.get_last_turn(branch_id, filters)
     
     @classmethod
     async def get_turn(cls, turn_id: int) -> "Turn":

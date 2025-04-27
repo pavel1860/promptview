@@ -97,7 +97,7 @@ TURN_MODEL = TypeVar("TURN_MODEL", bound=Turn)
 
 class ArtifactLog(Generic[TURN_MODEL]):
     
-    _turn_model: Optional[Type[TURN_MODEL]]
+    _turn_model: Optional[Type[TURN_MODEL]] = Turn
     
     
     @classmethod
@@ -408,6 +408,20 @@ class ArtifactLog(Generic[TURN_MODEL]):
         #     turns.append(Turn(**data))
         return [cls._pack_turn(row) for row in reversed(rows)]
     
+    @classmethod
+    def build_turn_query(cls, branch_id: int | None = None, filters: dict[str, Any] = {}, limit: int = 10, offset: int = 0, order_by: str = "index", order_direction: str = "DESC", ) -> str:
+        query = f"""
+        SELECT * FROM turns
+        """
+        where_clause = []
+        if branch_id is not None:
+            where_clause.append(f"branch_id = {branch_id}")
+        if filters:
+            where_clause.append(" AND ".join([f"{k} = {v}" for k, v in filters.items()]))
+        if where_clause:
+            query += " WHERE " + " AND ".join(where_clause)
+        query += f" ORDER BY {order_by} {order_direction} LIMIT {limit} OFFSET {offset};"
+        return query
     
     @classmethod
     async def get_turn(cls, turn_id: int) -> Turn:
@@ -421,16 +435,16 @@ class ArtifactLog(Generic[TURN_MODEL]):
         
     
     @classmethod
-    async def get_last_turn(cls, partition_id: int, branch_id: int) -> Turn | None:
+    async def get_last_turn(cls, branch_id: int, filters: dict[str, Any] = {}) -> Turn | None:
         """Get the last turn for a partition and branch"""
-        query = "SELECT * FROM turns WHERE partition_id = $1 AND branch_id = $2 ORDER BY index DESC LIMIT 1;"
-        turn_row = await PGConnectionManager.fetch_one(query, partition_id, branch_id)
+        query = cls.build_turn_query(branch_id=branch_id, filters=filters, limit=1, offset=0, order_by="index", order_direction="DESC")
+        turn_row = await PGConnectionManager.fetch_one(query)
         return cls._pack_turn(turn_row) if turn_row is not None else None
     
     @classmethod
-    async def list_turns(cls, limit: int = 100, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[Turn]:
-        query = f"SELECT * FROM turns ORDER BY {order_by} {order_direction} LIMIT $1 OFFSET $2;"
-        turns = await PGConnectionManager.fetch(query, limit, offset)
+    async def list_turns(cls, branch_id: int | None = None, filters: dict[str, Any] = {}, limit: int = 100, offset: int = 0, order_by: str = "created_at", order_direction: str = "DESC") -> List[Turn]:
+        query = cls.build_turn_query(branch_id=branch_id, filters=filters, limit=limit, offset=offset, order_by=order_by, order_direction=order_direction)
+        turns = await PGConnectionManager.fetch(query)
         return [cls._pack_turn(turn) for turn in turns]
     
     

@@ -35,7 +35,6 @@ class InitStrategy(StrEnum):
 class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     partition_model: Type[PARTITION_MODEL]
     context_model: Type[CONTEXT_MODEL]
-    _partition_id: int | None
     
     _ctx_token: contextvars.Token | None
     _branch_id: int
@@ -45,17 +44,16 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     _user: PARTITION_MODEL | None
     def __init__(
         self,
-        user: PARTITION_MODEL,
-        partition: "Partition", 
-        on_exit: Literal["commit", "revert", "none"],
+        user: PARTITION_MODEL,              
+        on_exit: Literal["commit", "revert", "none"], 
         branch: int | None = 1,
+        filters: dict[str, Any] | None = None,       
         span_name: str | None = None,         
         state: Any | None = None
     ):
-
-        self._partition = partition
         self._user = user
         self._init_method = InitStrategy.RESUME_TURN        
+        self.filters = filters or {}
         # self._init_params = {"branch_id": branch if type(branch) is int else branch.id}
         self._branch_id = branch if branch is not None else 1
         self._ctx_token = None
@@ -150,21 +148,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
                 else:
                     branch_id = ctx.branch.id
         return branch_id
-    
-    @classmethod
-    async def get_current_partition(cls, partition: "int | Partition | None", ctx: "Context | None" = None):
-        partition_id = None
-        if ctx is None:
-            ctx = Context.get_current(raise_error=False)
-        if partition is not None:
-            if isinstance(partition, int):
-                partition_id = partition
-            else:
-                partition_id = partition.id
-        else:
-            if ctx:
-                partition_id = ctx.partition.id
-        return partition_id
+        
     
     @classmethod
     async def get_current_turn(cls, turn: "int | Turn | None" = None, ctx: "Context | None" = None):
@@ -192,12 +176,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     def is_initialized(self):
         return self._branch is not None and self._turn is not None
     
-    @property
-    def partition_id(self):
-        if self._partition is None:
-            raise ValueError("Partition ID not set")
-        return self._partition.id
-    
+  
     @property
     def branch(self):
         # if self._branch is None:
@@ -214,12 +193,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
     def can_push(self):
         return self._init_method != InitStrategy.NO_PARTITION
     
-    @property
-    def partition(self):
-        if self._partition is None:
-            raise ValueError("Partition not set")
-        return self._partition
-    
+  
     def start_turn(self, branch_id: int | None = None, auto_commit: bool = False):
         if branch_id is None:
             branch_id = 1
@@ -236,7 +210,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
 
     
     def build_child(self, span_name: str | None = None):
-        child = Context(user=self.user, partition=self.partition, on_exit="none", span_name=span_name)
+        child = Context(user=self.user, filters=self.filters, on_exit="none", span_name=span_name)
         child._branch = self._branch
         child._turn = self._turn
         child._parent_ctx = self
@@ -249,7 +223,6 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
         #         raise ValueError(f"Branch {self._init_params['branch_id']} not found")
         #     self._branch = branch
         self._turn = await NamespaceManager.create_turn(
-            partition_id=self.partition_id,
             branch_id=self._branch_id,
             state=self._state
         )
