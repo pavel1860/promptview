@@ -337,6 +337,10 @@ class QuerySet(Generic[MODEL]):
     def join(self, *models: "Type[Model]") -> "QuerySet[MODEL]":
         """Join the query"""
         raise NotImplementedError("Not implemented")
+    
+    def sub_query(self, query_set: "QuerySet") -> "QuerySet[MODEL]":
+        """Create a sub query"""
+        raise NotImplementedError("Not implemented")
 
 FIELD_INFO = TypeVar("FIELD_INFO", bound=NSFieldInfo)
 

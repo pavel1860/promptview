@@ -315,6 +315,13 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.include_fields = fields
         return self
     
+    def sub_query(self, query_set: "PostgresQuerySet", name: str | None = None) -> "PostgresQuerySet[MODEL]":
+        """Create a sub query"""
+        if name is None:
+            name = query_set.namespace.table_name
+        self.sub_queries[name+"_sb"] = query_set
+        return self
+    
     # def join(self, model: "Type[Model]") -> "PostgresQuerySet[MODEL]":
     #     """Join the query with another model"""
     #     relation = self.namespace.get_relation_by_type(model)
@@ -528,6 +535,9 @@ class PostgresQuerySet(QuerySet[MODEL]):
             sql += f"""JOIN "{join.relation.foreign_table}" AS {join.alias} ON {join.alias}.{join.relation.foreign_key} = {alias}.{qs.namespace.primary_key.name}\n"""
             alias = join.alias
             qs = join.query_set
+        for idx, (sb_name, sub_query) in enumerate(self.sub_queries.items()):
+            sb_alias = f"{sb_name[0]}{idx}s"
+            sql += f"""JOIN {sb_name} AS {sb_alias} ON {sb_alias}.{sub_query.namespace.primary_key.name} = {alias}.{self.namespace.primary_key.name}\n"""
         return sql
     
     # def build_select_clause(self, alias: str | None = None) -> str:
@@ -547,12 +557,28 @@ class PostgresQuerySet(QuerySet[MODEL]):
     
     def build_fields_clause(self, *fields: str) -> str:
         return ",\n".join(fields) + "\n"
-        
     
+    
+    def wrap_subquery_clause(self, sql: str, name: str) -> str:
+        sq_sql = f"{name} AS (\n"
+        sq_sql += textwrap.indent(sql, "  ")
+        sq_sql += "\n)"
+        return sq_sql
+    
+ 
     def build_select_clause(self, alias: str | None = None) -> str:
+        sql = ""
         
+        if self.sub_queries:
+            sub_queries = []
+            for idx, (sb_name, sub_query) in enumerate(self.sub_queries.items()):
+                sq_sql = sub_query.build_query(f"s{sb_name[0]}{idx}")
+                sub_queries.append(self.wrap_subquery_clause(sq_sql, sb_name))
+                
+            sql += "WITH " + ",\n".join(sub_queries) + "\n"
+            
         if alias:
-            sql = f'SELECT \n'
+            sql += f'SELECT \n'
             fields = [f"""{alias}."{field.name}" """ for field in self.namespace.iter_fields()]            
             for join in self.joins:                
                 join_sql = join.query_set.build_join_select_clause(join)
@@ -577,12 +603,13 @@ class PostgresQuerySet(QuerySet[MODEL]):
        return build_where_clause(filter_proxy, alias) + "\n"
        
     
-    def build_query(self):
+    def build_query(self, alias: str | None = None):
         # alias = None
-        alias = self.table_name[0]
+        alias = alias or self.table_name[0]
         sql = self.build_select_clause(alias)
-        if self.joins:
+        if self.joins or self.sub_queries:
             sql += self.build_join_clause(alias)
+        
         if self.filter_proxy:
             sql += "WHERE " + self.build_where_clause(self.filter_proxy, alias)
         if self.joins:
