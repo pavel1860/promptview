@@ -7,6 +7,15 @@ from contextlib import asynccontextmanager
 T = TypeVar('T')
 R = TypeVar('R')
 
+
+def print_error_sql(sql: str, values: Any | None = None, error: Exception | None = None):
+    print("---------- SQL ------------:\n", sql)
+    if values:
+        print("---------- VALUES ----------:\n", values)
+    if error:
+        print("---------- ERROR ----------:\n", error)
+
+
 class Transaction:
     """
     A class representing a database transaction.
@@ -94,12 +103,16 @@ class PGConnectionManager:
 
     @classmethod
     async def execute(cls, query: str, *args) -> str:
-        """Execute a query."""
-        if cls._pool is None:
-            await cls.initialize()
-        assert cls._pool is not None, "Pool must be initialized"
-        async with cls._pool.acquire() as conn:
-            return await conn.execute(query, *args)
+        try:
+            """Execute a query."""
+            if cls._pool is None:
+                await cls.initialize()
+            assert cls._pool is not None, "Pool must be initialized"
+            async with cls._pool.acquire() as conn:
+                return await conn.execute(query, *args)
+        except Exception as e:
+            print_error_sql(query, args, e)
+            raise e
 
     @classmethod
     async def fetch(cls, query: str, *args) -> List[asyncpg.Record]:
@@ -112,12 +125,16 @@ class PGConnectionManager:
     
     @classmethod
     async def fetch_one(cls, query: str, *args) -> Optional[asyncpg.Record]:
-        """Fetch a single row from the database."""
-        if cls._pool is None:
-            await cls.initialize()
-        assert cls._pool is not None, "Pool must be initialized"
-        async with cls._pool.acquire() as conn:
-            return await conn.fetchrow(query, *args)
+        try:
+            """Fetch a single row from the database."""
+            if cls._pool is None:
+                await cls.initialize()
+            assert cls._pool is not None, "Pool must be initialized"
+            async with cls._pool.acquire() as conn:
+                return await conn.fetchrow(query, *args)
+        except Exception as e:
+            print_error_sql(query, args, e)
+            raise e
     
     @classmethod
     async def drop_tables(cls, table_names: list[str]) -> None:

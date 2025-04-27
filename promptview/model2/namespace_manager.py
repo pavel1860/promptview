@@ -18,6 +18,7 @@ class NamespaceManager:
     """Manager for namespaces"""
     _namespaces: dict[str, Namespace] = {}
     _relations: dict[str, dict[str, dict[str, Any]]] = {}
+    _is_initialized: bool = False
     
     @classmethod
     def initialize(cls):
@@ -81,6 +82,17 @@ class NamespaceManager:
         return cls._namespaces[model_name]
     
     @classmethod
+    def get_namespace_or_none(cls, model_name: str) -> Namespace | None:
+        """
+        Get a namespace by model name.
+        """
+        if not cls._namespaces:
+            return None
+        if not model_name in cls._namespaces:
+            return None
+        return cls._namespaces[model_name]
+    
+    @classmethod
     async def create_all_namespaces(cls, partition_table: str, key: str = "id", versioning: bool = True):
         """
         Create all registered namespaces in the database.
@@ -130,6 +142,8 @@ class NamespaceManager:
             main_branch = await ArtifactLog.get_branch(1)
         except ValueError as e:        
             await ArtifactLog.create_branch(name="main")
+            
+        cls._is_initialized = True
         
     @classmethod
     def get_all_namespaces(cls) -> List[Namespace]:

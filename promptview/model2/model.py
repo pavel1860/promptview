@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict, Generic, Optional, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, List, Optional, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
 import uuid
 from pydantic import BaseModel, Field, PrivateAttr
 from pydantic.config import JsonDict
@@ -14,6 +14,7 @@ from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet, QuerySetSingleAdapter
 from promptview.model2.versioning import ArtifactLog, Branch, Turn, Partition
 from promptview.model2.postgres.operations import PostgresOperations
+from promptview.utils.model_utils import unpack_list_model
 from promptview.utils.string_utils import camel_to_snake
 
 
@@ -63,7 +64,47 @@ def check_if_context_model(bases: Any, name: str):
     if len(bases) >= 1 and bases[0].__name__ == "ContextModel":
         return True
     return False
-            
+
+
+def unpack_extra(field_info: FieldInfo) -> dict[str, Any]:
+    extra_json = field_info.json_schema_extra
+    extra: Dict[str, Any] = {}
+    
+    # Convert json_schema_extra to a dictionary
+    if extra_json is not None:
+        if isinstance(extra_json, dict):
+            extra = dict(extra_json)
+        elif callable(extra_json):
+            # If it's a callable, create an empty dict
+            # In a real implementation, we might want to call it
+            extra = {}
+    return extra
+
+def unpack_relation_extra(extra: dict[str, Any], field_origin: Type[Any], is_versioned: bool) -> tuple[str, str, list[str] | None, str, Type[Any] | None, str, str]:
+    primary_key = extra.get("primary_key") or ("artifact_id" if is_versioned else "id")
+    foreign_key = extra.get("foreign_key")
+    on_delete=extra.get("on_delete", "CASCADE")
+    on_update=extra.get("on_update", "CASCADE")
+    junction_keys = extra.get("junction_keys", None)
+    junction_model = extra.get("junction_model", None)
+    relation_type = "one_to_one"                
+    if field_origin is Iterable:
+        if junction_model is not None:
+            relation_type = "many_to_many"
+        else:
+            relation_type = "one_to_many"
+    
+    if not foreign_key:
+        raise ValueError("foreign_key is required for one_to_many relation")
+    
+    print(primary_key, foreign_key, on_delete, on_update)
+    if not foreign_key:
+        raise ValueError("foreign_key is required for one_to_many relation")
+    
+    return primary_key, foreign_key, junction_keys, relation_type, junction_model, on_delete, on_update
+
+
+
 class ModelMeta(ModelMetaclass, type):
     """Metaclass for Model
     
@@ -83,7 +124,7 @@ class ModelMeta(ModelMetaclass, type):
         # Get model name and namespace
         model_name = name
         db_type = get_dct_private_attributes(dct, "_db_type", "postgres")
-        namespace_name = get_dct_private_attributes(dct, "_namespace_name", build_namespace(model_name))        
+        namespace_name = get_dct_private_attributes(dct, "_namespace_name", build_namespace(model_name))
         
         
         # Check if this is a repo model or an artifact model
@@ -123,37 +164,45 @@ class ModelMeta(ModelMetaclass, type):
             if field_type is None:
                 continue
             
-            # Extract field metadata
-            extra_json = field_info.json_schema_extra
-            extra: Dict[str, Any] = {}
-            
-            # Convert json_schema_extra to a dictionary
-            if extra_json is not None:
-                if isinstance(extra_json, dict):
-                    extra = dict(extra_json)
-                elif callable(extra_json):
-                    # If it's a callable, create an empty dict
-                    # In a real implementation, we might want to call it
-                    extra = {}
+            extra = unpack_extra(field_info)
             
             # Check if this is a relation field
-            field_origin = get_origin(field_type)
-            if field_origin and (field_origin == Relation or field_origin == ManyRelation):
+            
+            if extra.get("is_relation", False):
                 # Get the model class from the relation                                
                 
-                primary_key = extra.get("primary_key") or ("artifact_id" if ns.is_versioned else "id")
-                foreign_key = extra.get("foreign_key")
-                on_delete=extra.get("on_delete", "CASCADE")
-                on_update=extra.get("on_update", "CASCADE")
+                # primary_key = extra.get("primary_key") or ("artifact_id" if ns.is_versioned else "id")
+                # foreign_key = extra.get("foreign_key")
+                # on_delete=extra.get("on_delete", "CASCADE")
+                # on_update=extra.get("on_update", "CASCADE")
+                # junction_keys = extra.get("junction_keys", None)
+                # junction_model = extra.get("junction_model", None)
+                # relation_type = "one_to_one"                
+                # if field_origin is Iterable:
+                #     if junction_model is not None:
+                #         relation_type = "many_to_many"
+                #     else:
+                #         relation_type = "one_to_many"
                 
-                if not foreign_key:
-                    raise ValueError("foreign_key is required for one_to_many relation")
+                # if not foreign_key:
+                #     raise ValueError("foreign_key is required for one_to_many relation")
                 
-                print(primary_key, foreign_key, on_delete, on_update)
-                if not foreign_key:
-                    raise ValueError("foreign_key is required for one_to_many relation")
-                if field_origin == Relation:
-                    foreign_cls = get_one_to_many_relation_model(field_type)                    
+                # print(primary_key, foreign_key, on_delete, on_update)
+                # if not foreign_key:
+                #     raise ValueError("foreign_key is required for one_to_many relation")
+                field_origin = get_origin(field_type)
+                foreign_cls = None
+                if field_origin is list:
+                    foreign_cls = unpack_list_model(field_type)
+                    if not issubclass(foreign_cls, Model):
+                        raise ValueError(f"foreign_cls must be a subclass of Model: {foreign_cls}")
+                if not foreign_cls:
+                    raise ValueError(f"foreign_cls is required for relation: {field_type} on Model {name}")
+                    
+                primary_key, foreign_key, junction_keys, relation_type, junction_cls, on_delete, on_update = unpack_relation_extra(extra, field_origin, ns.is_versioned)
+                                
+                if relation_type == "one_to_one" or relation_type == "one_to_many":                    
+                    # foreign_cls = get_one_to_many_relation_model(field_type)                    
                     relation_field = ns.add_relation(
                         name=field_name,
                         primary_key=primary_key,
@@ -162,11 +211,15 @@ class ModelMeta(ModelMetaclass, type):
                         on_delete=on_delete,
                         on_update=on_update,
                     )
-                    field_info.default_factory = make_relation_default_factory(ns, relation_field)
+                    # field_info.default_factory = make_relation_default_factory(ns, relation_field)
 
                 else:  # many to many relation
-                    foreign_cls, junction_cls = get_many_to_many_relation_model(field_type)
-                    junction_keys = extra.get("junction_keys", None)
+                    # foreign_cls, junction_cls = get_many_to_many_relation_model(field_type)
+                    if junction_cls is None:
+                        raise ValueError(f"junction_cls is required for many to many relation: {field_type} on Model {name}")
+                    if not junction_keys:
+                        raise ValueError(f"junction_keys is required for many to many relation: {field_type} on Model {name}")
+                    
                     relation_field = ns.add_many_relation(
                         name=field_name,
                         primary_key=primary_key,
@@ -177,7 +230,7 @@ class ModelMeta(ModelMetaclass, type):
                         on_delete=on_delete,
                         on_update=on_update,
                     )                
-                    field_info.default_factory = make_many_relation_default_factory(ns, relation_field)
+                    # field_info.default_factory = make_many_relation_default_factory(ns, relation_field)
                 
                 relations[field_name] = relation_field
                 # Skip adding this field to the namespace
@@ -202,33 +255,20 @@ class ModelMeta(ModelMetaclass, type):
         ns.set_model_class(cls_obj)
         cls_obj._namespace_name = namespace_name
         cls_obj._is_versioned = is_versioned
-        # Register relations with the namespace manager
-        # for relation_name, relation_info in relations.items():
-            # target_cls: Any = relation_info["target_type"]
-            # # If target_type is a ForwardRef, we need to resolve it later
-            # target_namespace = None
-            # if not isinstance(target_cls, ForwardRef) and hasattr(target_cls, "_namespace_name"):
-            #     target_namespace = target_cls._namespace_name
-            
-            # # Get the key, on_delete, and on_update values
-            # key = relation_info.get("key", "id")
-            # on_delete = relation_info.get("on_delete", "CASCADE")
-            # on_update = relation_info.get("on_update", "CASCADE")
-            # Register the relation
-            
-            
-            # NamespaceManager.register_relation(
-            #     source_namespace=namespace_name,
-            #     relation_name=relation_name,
-            #     target_namespace=target_namespace,
-            #     target_forward_ref=target_cls if isinstance(target_cls, ForwardRef) else None,
-            #     key=key,
-            #     on_delete=on_delete,
-            #     on_update=on_update,
-            # )
 
         
         return cls_obj
+    
+    # def __getattribute__(cls, name: str) -> Any:
+    #     print(cls, name)
+    #     if NamespaceManager._is_initialized and name not in {"__name__", "model_fields", "__pydantic_fields__", "get_namespace", "get_namespace_name", "_namespace_name"}:        
+    #         print("entered")
+    #         if name in cls.model_fields:
+    #             ns = NamespaceManager.get_namespace_or_none(build_namespace(cls.__name__))
+    #             if ns:
+    #                 print("table",ns.table_name, name)
+    #             return
+    #     return super().__getattribute__(name)
     
     
     
@@ -332,6 +372,19 @@ class Model(BaseModel, metaclass=ModelMeta):
         ns = self.get_namespace()
         result = await ns.delete(id=self.primary_id)
         return result
+    
+    
+    async def add(self, obj: "Model", **kwargs) -> "Model":
+        """Add a model instance to the database"""
+        ns = self.get_namespace()
+        relation = ns.get_relation_by_type(obj.__class__)
+        if not relation:
+            raise ValueError(f"Relation model not found for type: {obj.__class__.__name__}")
+        key = getattr(self, relation.primary_key)
+        setattr(obj, relation.foreign_key, key)
+        result = await obj.save()
+        return result
+    
     
     @classmethod
     async def get(cls: Type[MODEL], id: Any) -> MODEL:

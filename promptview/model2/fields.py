@@ -70,10 +70,12 @@ def RefField(
     return Field(default, json_schema_extra=extra, description=description)
 
 def RelationField(
+    default: Any = None,
     *,
     primary_key: str | None = None,
     foreign_key: str | None = None,
     junction_keys: list[str] | None = None,
+    junction_model: "Type[Model] | None" = None,
     on_delete: str = "CASCADE",
     on_update: str = "CASCADE",
     description: str | None = _Unset,
@@ -93,7 +95,8 @@ def RelationField(
     
     if not primary_key and not foreign_key and not junction_keys:
         raise ValueError("primary_key or foreign_key or junction_keys must be provided")
-
+    if not default:
+        default = []
     
     extra = {}
     extra["is_relation"] = True
@@ -102,9 +105,19 @@ def RelationField(
     extra["junction_keys"] = junction_keys
     extra["on_delete"] = on_delete
     extra["on_update"] = on_update
+    extra["junction_model"] = junction_model
+    
+    if junction_keys:
+        if not primary_key or not foreign_key:
+            raise ValueError("primary_key and foreign_key must be provided if junction_keys are provided")
+        if not junction_model:
+            raise ValueError("junction_model must be provided if junction_keys are provided")
+        # extra["type"] = "many_to_many"
+    # elif foreign_key:
+    #     extra["type"] = "many_to_one"
     
     # Create the field with the extra metadata and make it optional
-    return Field(json_schema_extra=extra, description=description)
+    return Field(default, json_schema_extra=extra, description=description)
     # return Field(json_schema_extra=extra, **kwargs)
     # return Field(json_schema_extra=extra, default_factory=lambda: None, **kwargs)
 

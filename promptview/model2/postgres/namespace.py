@@ -390,18 +390,19 @@ class PostgresQuerySet(QuerySet[MODEL]):
         alias = self.table_name[0]
         if with_subqueries:
             sub_queries = self.build_all_subqueries()
-            start_idx = sub_queries[-1][3]
             if sub_queries:
-                sq_sql = ",\n".join([sq[0] for sq in sub_queries]) + "\n"
-                sq_values = [v for sq in sub_queries for v in sq[1]]
-                # sql += f"\nJOIN ({sql}) t ON t.id = {self.namespace.table_name}.id\n"        
-                sq_sql = "WITH " + sq_sql
-                joins = [{
-                    "primary_table": alias,
-                    "primary_key": self.namespace.primary_key.name,
-                    "foreign_table": sub_queries[-1][2],
-                    "foreign_key": self.namespace.get_relation(sub_queries[-1][4].table_name).foreign_key,
-                }]
+                start_idx = sub_queries[-1][3]
+                if sub_queries:
+                    sq_sql = ",\n".join([sq[0] for sq in sub_queries]) + "\n"
+                    sq_values = [v for sq in sub_queries for v in sq[1]]
+                    # sql += f"\nJOIN ({sql}) t ON t.id = {self.namespace.table_name}.id\n"        
+                    sq_sql = "WITH " + sq_sql
+                    joins = [{
+                        "primary_table": alias,
+                        "primary_key": self.namespace.primary_key.name,
+                        "foreign_table": sub_queries[-1][2],
+                        "foreign_key": self.namespace.get_relation(sub_queries[-1][4].table_name).foreign_key,
+                    }]
                 # joins = self.namespace.get_relation_joins(sub_queries[-1][4].namespace.table_name, primary_alias=alias)
         
         sql, values = build_query(
@@ -634,8 +635,8 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         return relation_info
     
     
-    def get_relation(self, relation_name: str) -> NSRelationInfo:
-        return self._relations[relation_name]
+    # def get_relation(self, relation_name: str) -> NSRelationInfo:
+    #     return self._relations[relation_name]
     
     def get_relation_joins(self, relation_name: str, primary_alias: str | None = None, foreign_alias: str | None = None) -> list[JoinType]:
         relation_info = self._relations[relation_name]
@@ -924,6 +925,27 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         #                 foreign_key=v.namespace.primary_key.name,
         #             )
         #         )
+        sub_queries = {}
+        joins = joins or []
+        if kwargs:
+            for k,v in kwargs.items():
+                if isinstance(v, bool):
+                    relation =self.get_relation(k)
+                    if not relation:
+                        raise ValueError(f"Relation {k} not found in namespace {self.name}")
+                    # sub_queries[k] = relation.foreign_cls.query().limit(10)
+                    joins.append(
+                        JoinType(
+                            primary_table=self.table_name,
+                            primary_key=k,
+                            foreign_table=relation.foreign_table,
+                            foreign_key=relation.foreign_key,
+                        )
+                    )
+                elif isinstance(v, PostgresQuerySet):
+                    sub_queries[k] = v
+                else:
+                    raise ValueError(f"Invalid argument {k} = {v}")
         
         return PostgresQuerySet(
             model_class=self.model_class, 
@@ -932,7 +954,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             select=select, 
             joins=joins, 
             filters=filters,
-            sub_queries=kwargs
+            sub_queries=sub_queries
         )
         
             
