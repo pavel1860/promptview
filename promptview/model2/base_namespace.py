@@ -1,6 +1,7 @@
 from abc import abstractmethod
 from enum import Enum
 import inspect
+import json
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterator, List, Literal, Type, TypeVar, TypedDict, Optional, get_args, get_origin
 import uuid
 from pydantic import BaseModel
@@ -207,7 +208,9 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
         return self.foreign_cls.get_namespace()
     
     
-    
+    def deserialize(self, value: Any) -> Any:
+        json_value = json.loads(value)
+        return json_value
      
     
 JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
@@ -331,7 +334,9 @@ class QuerySet(Generic[MODEL]):
         """Execute the query"""
         raise NotImplementedError("Not implemented")
 
-
+    async def join(self, model: "Type[Model]") -> "QuerySet[MODEL]":
+        """Join the query"""
+        raise NotImplementedError("Not implemented")
 
 FIELD_INFO = TypeVar("FIELD_INFO", bound=NSFieldInfo)
 
@@ -442,6 +447,10 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     def iter_fields(self) -> Iterator[FIELD_INFO]:
         for field in self._fields.values():
             yield field
+            
+    def iter_relations(self) -> Iterator[NSRelationInfo]:
+        for relation in self._relations.values():
+            yield relation
             
     def get_field_names(self) -> list[str]:
         return list(self._fields.keys())

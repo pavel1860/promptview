@@ -27,9 +27,11 @@ def build_where_clause(query_filter: QueryFilter, alias: str | None = None) -> s
     """Convert QueryFilter to SQL WHERE clause."""
     if isinstance(query_filter._operator, QueryOp):
         if query_filter._operator == QueryOp.AND:
-            return f"({build_where_clause(query_filter._left, alias)} AND {build_where_clause(query_filter._right, alias)})"
+            # return f"({build_where_clause(query_filter._left, alias)} AND {build_where_clause(query_filter._right, alias)})"
+            return f"{build_where_clause(query_filter._left, alias)} AND {build_where_clause(query_filter._right, alias)}"
         elif query_filter._operator == QueryOp.OR:
-            return f"({build_where_clause(query_filter._left, alias)} OR {build_where_clause(query_filter._right, alias)})"
+            # return f"({build_where_clause(query_filter._left, alias)} OR {build_where_clause(query_filter._right, alias)})"
+            return f"{build_where_clause(query_filter._left, alias)} OR {build_where_clause(query_filter._right, alias)}"
     elif isinstance(query_filter._operator, FieldOp):
         field = query_filter.field
         field_name = f'"{field.name}"'
@@ -131,10 +133,12 @@ def build_where_clause(query_filter: QueryFilter, alias: str | None = None) -> s
                     conditions.append(f"{field_name} <= {query_filter.value.le}")
                 else:
                     conditions.append(f"{field_name} <= '{query_filter.value.le}'")
-            if len(conditions) > 1:
-                return f"({' AND '.join(conditions)})"
-            else:
-                return conditions[0]
+            conditions_sql = ' AND '.join(conditions)
+            return conditions_sql
+            # if len(conditions) > 1:
+            #     return f"({conditions_str})"
+            # else:
+            #     return conditions[0]
         else:
             raise ValueError(f"Unsupported query filter operator: {query_filter._operator}")
     return ""
@@ -154,8 +158,6 @@ class SelectType(TypedDict):
     """Select information"""
     namespace: str
     fields: list[str]
-
-
 
 
 
@@ -244,3 +246,8 @@ def build_query(
             
             
         return sql, values
+
+
+
+
+

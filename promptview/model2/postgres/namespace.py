@@ -24,6 +24,32 @@ if TYPE_CHECKING:
 PgIndexType = Literal["btree", "hash", "gin", "gist", "spgist", "brin"]
 
 
+
+class PgJoin:
+    relation: NSRelationInfo
+    _index: int | None = None
+    
+    def __init__(
+        self,
+        relation: NSRelationInfo,
+        query_set: "PostgresQuerySet | None" = None,
+    ):
+        self.relation = relation
+        self._index = None
+        if not query_set:
+            query_set = PostgresQuerySet(relation.foreign_cls, self.relation.foreign_namespace)
+        self.query_set = query_set 
+    @property
+    def index(self) -> int:
+        if self._index is None:
+            raise ValueError("Join index not set")
+        return self._index
+    
+    @property
+    def alias(self) -> str:
+        return f"{self.relation.foreign_table[0]}" + str(self.index)
+
+
 class PgFieldInfo(NSFieldInfo):
     """PostgreSQL field information"""
     index: PgIndexType | None = None
@@ -200,7 +226,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
         model_class: Type[MODEL], 
         namespace: "PostgresNamespace", 
         branch_id: int | None = None, 
-        joins: list[JoinType] | None = None,
+        joins: list[PgJoin] | None = None,
         filters: dict[str, Any] | None = None,
         select: list[list[SelectFields]] | None = None,
         sub_queries: dict[str, Any] | None = None
@@ -286,7 +312,17 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.include_fields = fields
         return self
     
+    def join(self, model: "Type[Model]") -> "QuerySet[MODEL]":
+        """Join the query with another model"""
+        relation = self.namespace.get_relation_by_type(model)
+        if not relation:
+            raise ValueError(f"Relation {model} not found in namespace {self.namespace.name}")
+        self._add_join(PgJoin(relation))
+        return self
     
+    def _add_join(self, join: PgJoin):
+        join._index = len(self.joins)
+        self.joins.append(join)
     
     # def build_subquery2(self, name: str):        
     #     sub_queries = []
@@ -319,6 +355,69 @@ class PostgresQuerySet(QuerySet[MODEL]):
     #         sub_sql += "\n)"
     #         sql_list.append((sub_sql, values))
     #     return sql_list
+    
+    def build_join_select_clause(self, alias: str, as_alias: str | None = None) -> str:
+        sql = (
+           "COALESCE(\n" 
+           "\tjson_agg(\n"
+           "\t\tDISTINCT jsonb_build_object(\n"
+        )
+        
+        for field in self.namespace.iter_fields():
+            sql += f"\t\t\t'{field.name}', {alias}.{field.name}, \n"
+        sql = sql.rstrip(", \n") + "\n"
+        sql += (
+            f"\t\t)\n"
+            f"\t) FILTER (WHERE {alias}.{self.namespace.primary_key.name} IS NOT NULL),\n"
+            "\t'[]'\n"
+        )
+        if as_alias:
+            sql += f") AS {as_alias}\n"
+        else:
+            sql += ")\n"
+        return sql
+    
+    def build_join_clause(self, alias: str) -> str:
+        sql = ""
+        for join in self.joins:
+            sql += f"""JOIN "{join.relation.foreign_table}" AS {join.alias} ON {join.alias}.{join.relation.foreign_key} = {alias}.{self.namespace.primary_key.name}\n"""
+        return sql
+    
+    # def build_select_clause(self, alias: str | None = None) -> str:
+    #     select_clause = "*"
+    #     if alias:
+    #         select_clause = f"{alias}.*"
+    #     alias_clause = f" AS {alias}" if alias else ""
+    #     sql = f'SELECT {select_clause}\n'
+    #     sql += f'FROM "{self.namespace.table_name}"{alias_clause}\n'        
+    #     return sql
+    def build_select_clause(self, alias: str | None = None) -> str:
+        
+        if alias:
+            sql = f'SELECT \n'
+            for field in self.namespace.iter_fields():
+                sql += f"\t{alias}.{field.name}, \n"
+            
+            
+            for join in self.joins:                
+                join_sql = join.query_set.build_join_select_clause(join.alias, as_alias=join.relation.name)
+                sql += textwrap.indent(join_sql, "\t")                            
+            sql = sql.rstrip(", ")
+            sql += f'FROM "{self.namespace.table_name}" AS {alias}\n'        
+        else:
+            sql = f'SELECT *\n'
+            sql += f'FROM "{self.namespace.table_name}"\n'        
+        
+        return sql
+    
+    
+    def build_where_clause(self, alias: str | None = None) -> str:
+        if not self.filter_proxy:
+            return ""
+        where_clause = build_where_clause(self.filter_proxy, alias)
+        if where_clause:
+            return where_clause + "\n"
+        return ""
     
     
     def build_subquery(self, name: str, start_idx: int=0, joins: list[JoinType] | None = None, alias: str | None = None):
@@ -368,6 +467,18 @@ class PostgresQuerySet(QuerySet[MODEL]):
             queries.append((sql, values, name, start_idx, qs))
         return queries
     
+    
+    def build_query(self):
+        # alias = None
+        alias = self.table_name[0]
+        sql = self.build_select_clause(alias)
+        if self.joins:
+            sql += self.build_join_clause(alias)
+        sql += self.build_where_clause(alias)        
+        if self.joins:
+            sql += f"GROUP BY {alias}.{self.namespace.primary_key.name}\n"
+        return sql
+    
     # def build_all_subqueries(self):
     #     sub_queries = []
     #     start_idx = 0
@@ -381,7 +492,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
     #     return sub_queries
 
 
-    def build_query(self, with_subqueries: bool = False):
+    def build_query2(self, with_subqueries: bool = False):
         start_idx = 0
         sub_queries = []
         sq_values = []
@@ -425,11 +536,14 @@ class PostgresQuerySet(QuerySet[MODEL]):
         return sql, values
 
     
-    
-    
-    
-    
     async def execute(self) -> List[MODEL]:
+        sql = self.build_query()
+        results = await PGConnectionManager.fetch(sql)        
+        return [self.model_class(**self.pack_record(dict(result))) for result in results]
+    
+    
+    
+    async def execute2(self) -> List[MODEL]:
         """Execute the query"""
         # Use PostgresOperations to execute the query with versioning support
         if self.select:
@@ -684,8 +798,18 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             if key in ("id", "branch_id", "turn_id"):
                 rec[key] = value
             else:
-                field_info = self.get_field(key)
-                rec[key] = field_info.deserialize(value)
+                if self.has_field(key):
+                    field_info = self.get_field(key)
+                    if not field_info:
+                        raise ValueError(f"Unknown key: {key}")
+                    rec[key] = field_info.deserialize(value)
+                elif self.has_relation(key):
+                    relation_info = self.get_relation(key)
+                    if not relation_info:
+                        raise ValueError(f"Unknown key: {key}")
+                    rec[key] = relation_info.deserialize(value)
+                else:
+                    raise ValueError(f"Unknown key: {key}")
         return rec
     
 
