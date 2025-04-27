@@ -334,7 +334,7 @@ class QuerySet(Generic[MODEL]):
         """Execute the query"""
         raise NotImplementedError("Not implemented")
 
-    async def join(self, model: "Type[Model]") -> "QuerySet[MODEL]":
+    def join(self, *models: "Type[Model]") -> "QuerySet[MODEL]":
         """Join the query"""
         raise NotImplementedError("Not implemented")
 

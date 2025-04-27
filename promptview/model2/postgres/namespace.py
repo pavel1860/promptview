@@ -2,7 +2,7 @@ from enum import Enum
 import inspect
 import json
 import textwrap
-from typing import TYPE_CHECKING, Any, Callable, Dict, Literal, Type, Optional, List, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Literal, Type, Optional, List, get_args, get_origin
 import uuid
 from typing_extensions import TypeVar
 from pydantic import BaseModel
@@ -28,17 +28,17 @@ PgIndexType = Literal["btree", "hash", "gin", "gist", "spgist", "brin"]
 class PgJoin:
     relation: NSRelationInfo
     _index: int | None = None
-    
+    depth: int = 0
     def __init__(
         self,
         relation: NSRelationInfo,
-        query_set: "PostgresQuerySet | None" = None,
+        query_set: "PostgresQuerySet",
+        depth: int = 0,
     ):
         self.relation = relation
-        self._index = None
-        if not query_set:
-            query_set = PostgresQuerySet(relation.foreign_cls, self.relation.foreign_namespace)
+        self._index = None        
         self.query_set = query_set 
+        self.depth = depth
     @property
     def index(self) -> int:
         if self._index is None:
@@ -47,7 +47,7 @@ class PgJoin:
     
     @property
     def alias(self) -> str:
-        return f"{self.relation.foreign_table[0]}" + str(self.index)
+        return f"{self.relation.foreign_table[0]}" + str(self.depth) + str(self.index)
 
 
 class PgFieldInfo(NSFieldInfo):
@@ -229,7 +229,9 @@ class PostgresQuerySet(QuerySet[MODEL]):
         joins: list[PgJoin] | None = None,
         filters: dict[str, Any] | None = None,
         select: list[list[SelectFields]] | None = None,
-        sub_queries: dict[str, Any] | None = None
+        sub_queries: dict[str, Any] | None = None,
+        parent_query_set: "PostgresQuerySet | None" = None,
+        depth: int = 0,
     ):
         super().__init__(model_class=model_class)
         self.namespace = namespace
@@ -245,7 +247,8 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.turn_limit_value = None
         self.turn_order_direction = None
         self.sub_queries = sub_queries or {}
-        
+        self.parent_query_set = parent_query_set
+        self.depth = depth
     @property
     def table_name(self) -> str:
         return self.namespace.table_name
@@ -312,17 +315,33 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.include_fields = fields
         return self
     
-    def join(self, model: "Type[Model]") -> "QuerySet[MODEL]":
+    # def join(self, model: "Type[Model]") -> "PostgresQuerySet[MODEL]":
+    #     """Join the query with another model"""
+    #     relation = self.namespace.get_relation_by_type(model)
+    #     if not relation:
+    #         raise ValueError(f"Relation {model} not found in namespace {self.namespace.name}")
+        
+    #     query_set = PostgresQuerySet(relation.foreign_cls, relation.foreign_namespace, parent_query_set=self, depth=self.depth+1)
+    #     join = self._add_join(PgJoin(relation, query_set, self.depth+1))
+    #     return join.query_set
+    
+    def join(self, *models: "Type[Model]") -> "QuerySet[MODEL]":
         """Join the query with another model"""
-        relation = self.namespace.get_relation_by_type(model)
-        if not relation:
-            raise ValueError(f"Relation {model} not found in namespace {self.namespace.name}")
-        self._add_join(PgJoin(relation))
+        prev_query_set = self
+        
+        for model in models:
+            relation = prev_query_set.namespace.get_relation_by_type(model)
+            if not relation:
+                raise ValueError(f"Relation {model} not found in namespace {self.namespace.name}")        
+            query_set = PostgresQuerySet(relation.foreign_cls, relation.foreign_namespace, parent_query_set=self, depth=self.depth+1)
+            join = prev_query_set._add_join(PgJoin(relation, query_set, prev_query_set.depth+1))            
+            prev_query_set = query_set
         return self
     
     def _add_join(self, join: PgJoin):
         join._index = len(self.joins)
         self.joins.append(join)
+        return join
     
     # def build_subquery2(self, name: str):        
     #     sub_queries = []
@@ -356,31 +375,159 @@ class PostgresQuerySet(QuerySet[MODEL]):
     #         sql_list.append((sub_sql, values))
     #     return sql_list
     
-    def build_join_select_clause(self, alias: str, as_alias: str | None = None) -> str:
-        sql = (
-           "COALESCE(\n" 
-           "\tjson_agg(\n"
-           "\t\tDISTINCT jsonb_build_object(\n"
-        )
+    
+    # def build_join_select_clause(self, alias: str, as_alias: str | None = None) -> str:
+    #     sql = (
+    #        "COALESCE(\n" 
+    #        "\tjson_agg(\n"
+    #        "\t\tDISTINCT jsonb_build_object(\n"
+    #     )
         
-        for field in self.namespace.iter_fields():
-            sql += f"\t\t\t'{field.name}', {alias}.{field.name}, \n"
-        sql = sql.rstrip(", \n") + "\n"
-        sql += (
-            f"\t\t)\n"
-            f"\t) FILTER (WHERE {alias}.{self.namespace.primary_key.name} IS NOT NULL),\n"
-            "\t'[]'\n"
-        )
-        if as_alias:
-            sql += f") AS {as_alias}\n"
+    #     for field in self.namespace.iter_fields():
+    #         sql += f"\t\t\t'{field.name}', {alias}.{field.name}, \n"
+    #     for join in self.joins:
+    #         join_sql = join.query_set.build_join_select_clause(join.alias, as_alias=join.relation.name)
+    #         sql += textwrap.indent(join_sql, "\t")
+    #     sql = sql.rstrip(", \n") + "\n"
+    #     sql += (
+    #         f"\t\t)\n"
+    #         f"\t) FILTER (WHERE {alias}.{self.namespace.primary_key.name} IS NOT NULL),\n"
+    #         "\t'[]'\n"
+    #     )
+    #     if as_alias:
+    #         sql += f") AS {as_alias}\n"
+    #     else:
+    #         sql += ")\n"
+    #     return sql
+    
+    def add_json_agg(self, sql: str, filter_clause: str | None = None):
+        new_sql = "json_agg(\n"
+        new_sql += textwrap.indent(sql, "   ")
+        if filter_clause:
+            new_sql += f") FILTER (WHERE {filter_clause})\n"
         else:
-            sql += ")\n"
+            new_sql += ")\n"
+        return new_sql
+    
+    def add_jsonb_build_object(self, sql: str, distinct: bool = False):
+        new_sql = "jsonb_build_object(\n"
+        if distinct:
+            new_sql = "DISTINCT " + new_sql
+        new_sql += textwrap.indent(sql, "   ")
+        new_sql += ")\n"
+        return new_sql
+            
+        
+    def add_coalesce(self, sql: str, default_value: str = "'[]'", as_alias: str | None = None):
+        new_sql = "COALESCE(\n"
+        new_sql += textwrap.indent(sql, "   ")
+        new_sql += f", {default_value}\n"        
+        if as_alias:
+            new_sql += f") AS {as_alias}\n"
+        else:
+            new_sql += ")\n"
+        return new_sql
+    
+    def wrap_select_clause(self, sql: str, from_clause: str, where_clause: str | None = None):
+        sql = f"SELECT {sql}\n"
+        sql += f"FROM {from_clause}\n"
+        if where_clause:
+            sql += f"WHERE {where_clause}\n"
         return sql
+
+    def list_fields_clause(self, alias: str | None = None) -> list[str]:
+        if alias is None:
+            return [f""" "{field.name}" """ for field in self.namespace.iter_fields()]
+        return [f"""'{field.name}', {alias}."{field.name}" """ for field in self.namespace.iter_fields()]
+    
+    # def build_nested_join_select_clause(self, name: str, parent_alias: str, alias: str) -> str:
+    #     sql = ""
+    #     fields = self.list_fields_clause(alias)
+    #     for join in self.joins:
+    #         join_sql = join.query_set.build_nested_join_select_clause(join.relation.name, alias, join.alias)
+    #         fields.append(join_sql)
+    #     sql = self.build_fields_clause(*fields)
+    #     sql = self.add_jsonb_build_object(sql, distinct=False)
+    #     sql = self.add_json_agg(sql)
+    #     sql = self.wrap_select_clause(
+    #         sql, 
+    #         from_clause=f""" "{self.namespace.table_name}" {alias}""", 
+    #         where_clause=f"{alias}.{self.namespace.primary_key.name}={parent_alias}.{self.namespace.primary_key.name}"
+    #         )
+    #     sql = "(\n" + textwrap.indent(sql, "    ") + "\n)"
+    #     sql = self.add_coalesce(sql, default_value="'[]'")
+    #     sql = f"'{name}', {sql}"
+    #     return sql
+    
+        
+    # def build_join_select_clause(self, name: str, alias: str, as_alias: str | None = None) -> str:        
+    #     sql = ""
+
+    #     fields = self.list_fields_clause(alias)
+    #     for join in self.joins:
+    #         join_sql = join.query_set.build_nested_join_select_clause(join.relation.name, alias, join.alias)
+    #         fields.append(join_sql)
+        
+    #     sql = self.build_fields_clause(*fields)        
+    #     sql = self.add_jsonb_build_object(sql, distinct=True)
+    #     sql = self.add_json_agg(sql, filter_clause=f"{alias}.{self.namespace.primary_key.name} IS NOT NULL")
+    #     sql = self.add_coalesce(sql, default_value="'[]'")
+    #     sql = sql.rstrip(", \n")
+    #     sql = sql + f" AS {name} \n"
+    #     return sql
+    
+    
+    def build_nested_join_select_clause(self, join: PgJoin, parent_alias: str) -> str:
+        sql = ""
+        fields = self.list_fields_clause(join.alias)
+        for sub_join in self.joins:
+            join_sql = sub_join.query_set.build_nested_join_select_clause(sub_join, join.alias)
+            fields.append(join_sql)
+        sql = self.build_fields_clause(*fields)
+        sql = self.add_jsonb_build_object(sql, distinct=False)
+        sql = self.add_json_agg(sql)
+        sql = self.wrap_select_clause(
+            sql, 
+            from_clause=f""" "{self.namespace.table_name}" {join.alias}""", 
+            where_clause=f"{join.alias}.{join.relation.foreign_key}={parent_alias}.{join.relation.primary_key}"
+            )
+        sql = "(\n" + textwrap.indent(sql, "    ") + "\n)"
+        sql = self.add_coalesce(sql, default_value="'[]'")
+        sql = f"'{join.relation.name}', {sql}"
+        return sql
+
+
+    def build_join_select_clause(self, join: PgJoin) -> str:        
+        sql = ""
+
+        fields = self.list_fields_clause(join.alias)
+        for sub_join in self.joins:
+            join_sql = sub_join.query_set.build_nested_join_select_clause(sub_join, join.alias)
+            fields.append(join_sql)
+        
+        sql = self.build_fields_clause(*fields)        
+        sql = self.add_jsonb_build_object(sql, distinct=True)
+        sql = self.add_json_agg(sql, filter_clause=f"""{join.alias}."{self.namespace.primary_key.name}" IS NOT NULL""")
+        sql = self.add_coalesce(sql, default_value="'[]'")
+        sql = sql.rstrip(", \n")
+        sql = sql + f" AS {join.relation.name} \n"
+        return sql
+
+    
+    
+    def get_joins(self) -> Generator[PgJoin, None, None]:        
+        for join in self.joins:
+            yield join
+            yield from join.query_set.get_joins()
     
     def build_join_clause(self, alias: str) -> str:
         sql = ""
-        for join in self.joins:
-            sql += f"""JOIN "{join.relation.foreign_table}" AS {join.alias} ON {join.alias}.{join.relation.foreign_key} = {alias}.{self.namespace.primary_key.name}\n"""
+        qs = self
+        for join in self.get_joins():
+            # sql += f"""JOIN "{join.relation.foreign_table}" AS {join.alias} ON {join.alias}.{join.relation.foreign_key} = {alias}.{self.namespace.primary_key.name}\n"""
+            sql += f"""JOIN "{join.relation.foreign_table}" AS {join.alias} ON {join.alias}.{join.relation.foreign_key} = {alias}.{qs.namespace.primary_key.name}\n"""
+            alias = join.alias
+            qs = join.query_set
         return sql
     
     # def build_select_clause(self, alias: str | None = None) -> str:
@@ -391,18 +538,26 @@ class PostgresQuerySet(QuerySet[MODEL]):
     #     sql = f'SELECT {select_clause}\n'
     #     sql += f'FROM "{self.namespace.table_name}"{alias_clause}\n'        
     #     return sql
+    
+    # def build_field_clause(self, alias: str | None = None) -> str:
+    #     sql = ""
+    #     for field in self.namespace.iter_fields():
+    #         sql += f"\t{alias}.{field.name}, \n"
+    #     return sql
+    
+    def build_fields_clause(self, *fields: str) -> str:
+        return ",\n".join(fields) + "\n"
+        
+    
     def build_select_clause(self, alias: str | None = None) -> str:
         
         if alias:
             sql = f'SELECT \n'
-            for field in self.namespace.iter_fields():
-                sql += f"\t{alias}.{field.name}, \n"
-            
-            
+            fields = [f"""{alias}."{field.name}" """ for field in self.namespace.iter_fields()]            
             for join in self.joins:                
-                join_sql = join.query_set.build_join_select_clause(join.alias, as_alias=join.relation.name)
-                sql += textwrap.indent(join_sql, "\t")                            
-            sql = sql.rstrip(", ")
+                join_sql = join.query_set.build_join_select_clause(join)
+                fields.append(join_sql)                
+            sql += textwrap.indent(self.build_fields_clause(*fields), "  ")
             sql += f'FROM "{self.namespace.table_name}" AS {alias}\n'        
         else:
             sql = f'SELECT *\n'
@@ -418,6 +573,18 @@ class PostgresQuerySet(QuerySet[MODEL]):
         if where_clause:
             return where_clause + "\n"
         return ""
+    
+    def build_query(self):
+        # alias = None
+        alias = self.table_name[0]
+        sql = self.build_select_clause(alias)
+        if self.joins:
+            sql += self.build_join_clause(alias)
+        sql += self.build_where_clause(alias)        
+        if self.joins:
+            sql += f"GROUP BY {alias}.{self.namespace.primary_key.name}\n"
+        return sql
+    
     
     
     def build_subquery(self, name: str, start_idx: int=0, joins: list[JoinType] | None = None, alias: str | None = None):
@@ -468,16 +635,6 @@ class PostgresQuerySet(QuerySet[MODEL]):
         return queries
     
     
-    def build_query(self):
-        # alias = None
-        alias = self.table_name[0]
-        sql = self.build_select_clause(alias)
-        if self.joins:
-            sql += self.build_join_clause(alias)
-        sql += self.build_where_clause(alias)        
-        if self.joins:
-            sql += f"GROUP BY {alias}.{self.namespace.primary_key.name}\n"
-        return sql
     
     # def build_all_subqueries(self):
     #     sub_queries = []
@@ -534,12 +691,19 @@ class PostgresQuerySet(QuerySet[MODEL]):
             values = sq_values + values
         
         return sql, values
+    
+    def root_query_set(self) -> "PostgresQuerySet":
+        ex_query = self
+        while ex_query.parent_query_set:
+            ex_query = ex_query.parent_query_set
+        return ex_query
 
     
     async def execute(self) -> List[MODEL]:
-        sql = self.build_query()
+        ex_query = self.root_query_set()
+        sql = ex_query.build_query()
         results = await PGConnectionManager.fetch(sql)        
-        return [self.model_class(**self.pack_record(dict(result))) for result in results]
+        return [ex_query.model_class(**ex_query.pack_record(dict(result))) for result in results]
     
     
     
