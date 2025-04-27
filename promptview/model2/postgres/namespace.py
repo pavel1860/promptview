@@ -249,6 +249,9 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.sub_queries = sub_queries or {}
         self.parent_query_set = parent_query_set
         self.depth = depth
+        self._type = "query"
+        self.cte_key = None
+        
     @property
     def table_name(self) -> str:
         return self.namespace.table_name
@@ -319,7 +322,15 @@ class PostgresQuerySet(QuerySet[MODEL]):
         """Create a sub query"""
         if name is None:
             name = query_set.namespace.table_name
+        query_set._type = "sub_query"
         self.sub_queries[name+"_sb"] = query_set
+        return self
+    
+    def cte(self, key: str):
+        """Create a common table expression"""
+        self._type = "cte"
+        self.cte_key = key
+        self.join(self.model_class)
         return self
     
     # def join(self, model: "Type[Model]") -> "PostgresQuerySet[MODEL]":
@@ -540,20 +551,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
             sql += f"""JOIN {sb_name} AS {sb_alias} ON {sb_alias}.{sub_query.namespace.primary_key.name} = {alias}.{self.namespace.primary_key.name}\n"""
         return sql
     
-    # def build_select_clause(self, alias: str | None = None) -> str:
-    #     select_clause = "*"
-    #     if alias:
-    #         select_clause = f"{alias}.*"
-    #     alias_clause = f" AS {alias}" if alias else ""
-    #     sql = f'SELECT {select_clause}\n'
-    #     sql += f'FROM "{self.namespace.table_name}"{alias_clause}\n'        
-    #     return sql
-    
-    # def build_field_clause(self, alias: str | None = None) -> str:
-    #     sql = ""
-    #     for field in self.namespace.iter_fields():
-    #         sql += f"\t{alias}.{field.name}, \n"
-    #     return sql
+ 
     
     def build_fields_clause(self, *fields: str) -> str:
         return ",\n".join(fields) + "\n"
@@ -591,14 +589,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
         
         return sql
     
-    
-    # def build_where_clause(self, alias: str | None = None) -> str:
-    #     if not self.filter_proxy:
-    #         return ""
-    #     where_clause = build_where_clause(self.filter_proxy, alias)
-    #     if where_clause:
-    #         return where_clause + "\n"
-    #     return ""
+
     def build_where_clause(self, filter_proxy: QueryProxy[MODEL, PgFieldInfo], alias: str | None = None) -> str:
        return build_where_clause(filter_proxy, alias) + "\n"
        
@@ -616,6 +607,15 @@ class PostgresQuerySet(QuerySet[MODEL]):
             sql += f"GROUP BY {alias}.{self.namespace.primary_key.name}\n"
         return sql
     
+    
+    def build_cte_query(self, alias: str | None = None):
+        sql = self.build_select_clause(alias)
+        if self.filter_proxy:
+            sql += "WHERE " + self.build_where_clause(self.filter_proxy, alias)
+        sql += "\nUNION ALL\n\n"
+        sql += self.build_query("bh")
+        
+        return sql
     
     
     def build_subquery(self, name: str, start_idx: int=0, joins: list[JoinType] | None = None, alias: str | None = None):

@@ -194,7 +194,7 @@ class ModelMeta(ModelMetaclass, type):
                 foreign_cls = None
                 if field_origin is list:
                     foreign_cls = unpack_list_model(field_type)
-                    if not issubclass(foreign_cls, Model):
+                    if not issubclass(foreign_cls, Model) and not isinstance(foreign_cls, ForwardRef):
                         raise ValueError(f"foreign_cls must be a subclass of Model: {foreign_cls}")
                 if not foreign_cls:
                     raise ValueError(f"foreign_cls is required for relation: {field_type} on Model {name}")

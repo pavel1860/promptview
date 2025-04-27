@@ -93,6 +93,33 @@ class NamespaceManager:
         return cls._namespaces[model_name]
     
     @classmethod
+    def get_namespace_by_model_cls(cls, model_cls: Type[MODEL] | str) -> Namespace:
+        """
+        Get a namespace by model class.
+        """
+        if isinstance(model_cls, str):
+            for namespace in cls._namespaces.values():
+                if namespace.model_class.__name__ == model_cls:
+                    return namespace
+        else:
+            for namespace in cls._namespaces.values():
+                if namespace.model_class == model_cls:
+                    return namespace
+    
+    @classmethod
+    def replace_forward_refs(cls):
+        """
+        Replace forward refs with the actual model class.
+        """
+        for namespace in cls._namespaces.values():
+            for relation in namespace.iter_relations():
+                if isinstance(relation.foreign_cls, ForwardRef):
+                    ns = cls.get_namespace_by_model_cls(relation.foreign_cls.__forward_arg__)
+                    if ns is None:
+                        raise ValueError(f"Namespace for model {relation.foreign_cls.__forward_arg__} not found")
+                    relation.foreign_cls = ns.model_class
+    
+    @classmethod
     async def create_all_namespaces(cls, partition_table: str, key: str = "id", versioning: bool = True):
         """
         Create all registered namespaces in the database.
@@ -128,6 +155,8 @@ class NamespaceManager:
                     on_delete="CASCADE",
                     on_update="CASCADE",
                 )
+                
+        cls.replace_forward_refs()
                 
         turn_fields = ArtifactLog.get_extra_turn_fields()
         if turn_fields:

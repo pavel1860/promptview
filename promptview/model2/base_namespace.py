@@ -341,6 +341,10 @@ class QuerySet(Generic[MODEL]):
     def sub_query(self, query_set: "QuerySet") -> "QuerySet[MODEL]":
         """Create a sub query"""
         raise NotImplementedError("Not implemented")
+    
+    def cte(self, key: str) -> "QuerySet[MODEL]":
+        """Create a common table expression"""
+        raise NotImplementedError("Not implemented")
 
 FIELD_INFO = TypeVar("FIELD_INFO", bound=NSFieldInfo)
 
