@@ -566,13 +566,16 @@ class PostgresQuerySet(QuerySet[MODEL]):
         return sql
     
     
-    def build_where_clause(self, alias: str | None = None) -> str:
-        if not self.filter_proxy:
-            return ""
-        where_clause = build_where_clause(self.filter_proxy, alias)
-        if where_clause:
-            return where_clause + "\n"
-        return ""
+    # def build_where_clause(self, alias: str | None = None) -> str:
+    #     if not self.filter_proxy:
+    #         return ""
+    #     where_clause = build_where_clause(self.filter_proxy, alias)
+    #     if where_clause:
+    #         return where_clause + "\n"
+    #     return ""
+    def build_where_clause(self, filter_proxy: QueryProxy[MODEL, PgFieldInfo], alias: str | None = None) -> str:
+       return build_where_clause(filter_proxy, alias) + "\n"
+       
     
     def build_query(self):
         # alias = None
@@ -580,7 +583,8 @@ class PostgresQuerySet(QuerySet[MODEL]):
         sql = self.build_select_clause(alias)
         if self.joins:
             sql += self.build_join_clause(alias)
-        sql += self.build_where_clause(alias)        
+        if self.filter_proxy:
+            sql += "WHERE " + self.build_where_clause(self.filter_proxy, alias)
         if self.joins:
             sql += f"GROUP BY {alias}.{self.namespace.primary_key.name}\n"
         return sql
