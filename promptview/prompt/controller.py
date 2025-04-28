@@ -1,6 +1,8 @@
 import inspect
 from typing import (Any, Callable, Dict, Generic, TypeVar, ParamSpec)
 
+from promptview.context import ExecutionContext
+
 # from promptview.conversation.history import History
 
 
@@ -40,9 +42,10 @@ class Controller(Generic[P, R]):
         if curr_ctx is not None:
             ctx = curr_ctx.build_child(self._name)
         else:
-            raise ValueError("Context is not set")
+            # raise ValueError("Context is not set")
             # ctx = Context().start()
             # ctx = Context()
+            ctx = ExecutionContext(self._name)
         return ctx    
         
 

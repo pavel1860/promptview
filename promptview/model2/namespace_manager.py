@@ -106,6 +106,13 @@ class NamespaceManager:
             for namespace in cls._namespaces.values():
                 if namespace.model_class == model_cls:
                     return namespace
+                
+    @classmethod
+    def get_turn_namespace(cls) -> Namespace:
+        """
+        Get the namespace for the turn model.
+        """
+        return cls._namespaces["turns"]
     
     @classmethod
     def replace_forward_refs(cls):

@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 PgIndexType = Literal["btree", "hash", "gin", "gist", "spgist", "brin"]
 
 
+        
 
 class PgJoin:
     relation: NSRelationInfo
@@ -1155,6 +1156,26 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         return res
     
     
+    def get_fields_insert(self, model_dump: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """Get the fields to insert into the database"""
+        keys = []
+        placeholders = []
+        values = []
+        
+        for field in self._fields.values():
+            if not field.is_key or field.name == "artifact_id":
+                value = model_dump.get(field.name)                
+                if field.validate_value(value):
+                    placeholder = field.get_placeholder(len(values) + 1)
+                    processed_value = field.serialize(value)                    
+                    keys.append(f'"{field.name}"')
+                    placeholders.append(placeholder)
+                    values.append(processed_value)
+                else:
+                    raise ValueError(f"Field {field.name} is not valid")
+        return {k: {"key": k, "placeholder": p, "value": v} for k, p, v in zip(keys, placeholders, values)}
+    
+    
     def build_insert_query(self, model_dump: dict[str, Any]) -> tuple[str, list[Any]]:
         """Build an insert query for the model"""                
         keys = []
@@ -1173,13 +1194,45 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                 else:
                     raise ValueError(f"Field {field.name} is not valid")
         
-        sql = f"""
-        INSERT INTO "{self.table_name}" ({", ".join(keys)})
-        VALUES ({", ".join(placeholders)})
-        RETURNING *;
-        """
+        
+        sql = (
+            f"""INSERT INTO "{self.table_name}" ({", ".join(keys)})\n"""
+            f"""VALUES ({", ".join(placeholders)})\n"""
+            f"""RETURNING *\n"""
+        )
         return sql, values
     
+    
+    def get_fields_update(self, model_dump: dict[str, Any]) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+        """Get the fields to update in the database"""
+        keys = []
+        placeholders = []
+        values = []
+        key = None
+        key_placeholder = None
+        key_value = None
+        
+        for field in self._fields.values():
+            value = model_dump.get(field.name)
+            if field.validate_value(value):
+                placeholder = field.get_placeholder(len(values) + 1)
+                processed_value = field.serialize(value)
+                if field.is_key:
+                    key=processed_value
+                    key_placeholder = placeholder
+                    key_value = value
+                else:
+                    keys.append(f'"{field.name}"')
+                    placeholders.append(placeholder)
+                    values.append(processed_value)
+            else:
+                raise ValueError(f"Field {field.name} is not valid")
+        if key is None:
+            raise ValueError("Primary key is required")
+        key_field = {"key": key, "placeholder": key_placeholder, "value": key_value}
+        fields = {k: {"key": k, "placeholder": p, "value": v} for k, p, v in zip(keys, placeholders, values)}
+        return key_field, fields
+
     
     def build_update_query(self, model_dump: dict[str, Any]) -> tuple[str, list[Any]]:
         """Build an update query for the model"""
@@ -1203,15 +1256,10 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             raise ValueError("Primary key is required")
         values.append(key)
 
-        # sql = f"""
-        # UPDATE "{self.table_name}"
-        # SET {", ".join(set_parts)}
-        # WHERE {self.primary_key.name} = ${len(values)}
-        # RETURNING *;
-        # """
+        set_clause = ", \n".join(set_parts)
         sql = (
             f"""UPDATE "{self.table_name}"\n"""
-            f"""SET {", ".join(set_parts)}\n"""
+            f"""SET \n{textwrap.indent(set_clause, "    ")}\n"""
             f"""WHERE {self.primary_key.name} = ${len(values)}\n"""
             f"""RETURNING *\n"""
         )
@@ -1355,6 +1403,15 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         return self.pack_record(dict(result)) if result else None
     
     
+    async def execute(self, sql: str, *values: Any) -> Any:
+        """Execute a raw query"""
+        result = await PGConnectionManager.execute(sql, *values)
+        return result
+    
+    async def fetch(self, sql: str, *values: Any) -> List[MODEL]:
+        """Fetch multiple rows from the database."""
+        result = await PGConnectionManager.fetch(sql, *values)
+        return [self.pack_record(dict(row)) for row in result]
     
     def query(
         self, 

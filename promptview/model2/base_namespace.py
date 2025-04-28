@@ -28,6 +28,8 @@ class SelectFields(TypedDict):
     fields: "list[NSFieldInfo]"
 
 
+
+
     
 
     
@@ -496,8 +498,10 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
             return self.namespace_manager.get_namespace(self.repo_namespace)
         return None
     
-    def iter_fields(self) -> Iterator[FIELD_INFO]:
+    def iter_fields(self, keys: bool = True) -> Iterator[FIELD_INFO]:
         for field in self._fields.values():
+            if field.is_key and not keys:
+                continue
             yield field
             
     def iter_relations(self) -> Iterator[NSRelationInfo]:
@@ -629,6 +633,14 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         """Delete data from the namespace"""
         raise NotImplementedError("Not implemented")
 
+    
+    async def execute(self, *args, **kwargs) -> Any:
+        """Execute a raw query"""
+        raise NotImplementedError("Not implemented")
+    
+    async def fetch(self, *args, **kwargs) -> List[MODEL]:
+        """Execute a raw model query"""
+        raise NotImplementedError("Not implemented")
     
     def query(
         self, 
