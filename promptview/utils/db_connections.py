@@ -117,11 +117,15 @@ class PGConnectionManager:
     @classmethod
     async def fetch(cls, query: str, *args) -> List[asyncpg.Record]:
         """Fetch multiple rows from the database."""
-        if cls._pool is None:
-            await cls.initialize()
-        assert cls._pool is not None, "Pool must be initialized"
-        async with cls._pool.acquire() as conn:
-            return await conn.fetch(query, *args)
+        try:
+            if cls._pool is None:
+                await cls.initialize()
+            assert cls._pool is not None, "Pool must be initialized"
+            async with cls._pool.acquire() as conn:
+                return await conn.fetch(query, *args)
+        except Exception as e:
+            print_error_sql(query, args, e)
+            raise e
     
     @classmethod
     async def fetch_one(cls, query: str, *args) -> Optional[asyncpg.Record]:

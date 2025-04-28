@@ -12,6 +12,7 @@ from promptview.model2.context import Context
 from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet, QuerySetSingleAdapter
+from promptview.model2.query_filters import SelectFieldProxy
 from promptview.model2.versioning import ArtifactLog, Branch, Turn, Partition
 from promptview.model2.postgres.operations import PostgresOperations
 from promptview.utils.model_utils import unpack_list_model
@@ -268,14 +269,24 @@ class ModelMeta(ModelMetaclass, type):
     #             if ns:
     #                 if not ns.has_field(name):
     #                     raise ValueError(f"Field {name} not found in namespace {ns.table_name}")
-    #                 return ns.get_field(name)
+    #                 return SelectField(ns.get_field(name))
     #                 # return FieldComparable(name, cls.model_fields[name])
     #                 # print("table",ns.table_name, name)
     #             else:
     #                 raise ValueError(f"Namespace {build_namespace(cls.__name__)} not found")
     #     return super().__getattribute__(name)
     
-    
+    # def get_field(cls, name: str) -> SelectField:
+    #     if name in cls.model_fields:
+    #         ns = NamespaceManager.get_namespace_or_none(build_namespace(cls.__name__))
+    #         if ns:
+    #             if not ns.has_field(name):
+    #                 raise ValueError(f"Field {name} not found in namespace {ns.table_name}")
+    #             return SelectField(ns.get_field(name))                    
+    #     raise ValueError(f"Namespace {build_namespace(cls.__name__)} not found")
+    @property
+    def f(cls: "Type[Model]") -> SelectFieldProxy:
+        return SelectFieldProxy(cls, cls.get_namespace())
     
     
 MODEL = TypeVar("MODEL", bound="Model")

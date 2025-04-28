@@ -10,7 +10,7 @@ from pydantic.fields import FieldInfo
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.operations import JoinType, PostgresOperations, SelectType
 from promptview.model2.postgres.query_parser import build_query, build_where_clause
-from promptview.model2.query_filters import QueryFilter, QueryProxy, parse_query_params
+from promptview.model2.query_filters import QueryFilter, QueryProxy, SelectField, parse_query_params
 from promptview.model2.versioning import ArtifactLog, Branch, Turn
 from promptview.utils.model_utils import get_list_type, is_list_type, make_json_serializable
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter, SelectFields
@@ -234,6 +234,10 @@ class PgFieldInfo(NSFieldInfo):
         if db_field_type is None:
             raise ValueError(f"Unsupported field type: {field_type}")
         return db_field_type
+    
+    def __repr__(self) -> str:
+        params = self._param_repr_list()
+        return f"PgFieldInfo(name={self.name}, data_type={self.data_type.__name__}, sql_type={self.sql_type}, {', '.join(params)})"
 
 
 MODEL = TypeVar("MODEL", bound="Model")
@@ -256,9 +260,9 @@ class PostgresQuerySet(QuerySet[MODEL]):
         depth: int = 0,
     ):
         super().__init__(model_class=model_class)
-        if alias is None:
-            alias = "".join( [w[0] for w in namespace.table_name.split("_")])
-        self.alias = alias
+        # if alias is None:
+            # alias = "".join( [w[0] for w in namespace.table_name.split("_")])
+        self._alias = alias
         self.namespace = namespace
         self.branch_id = branch_id
         self.filters = filters or {}
@@ -268,14 +272,15 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.order_by_value = None
         self.include_fields = None
         self.joins = joins or []
-        self.select = select or []
+        self._select = select or []
         self.turn_limit_value = None
         self.turn_order_direction = None
         self.sub_queries = sub_queries or {}
         self.parent_query_set = parent_query_set
         self.depth = depth
         self._type = "query"
-        # self.cte_target = None
+        self._raw_query = None
+        self.cte_target = None
 
     # @property
     # def q(self) -> QueryProxy[MODEL, PgFieldInfo]:
@@ -284,6 +289,16 @@ class PostgresQuerySet(QuerySet[MODEL]):
     @property
     def table_name(self) -> str:
         return self.namespace.table_name
+    
+    
+    def _gen_alias(self, index: int | None = None) -> str:
+        post_fix = ""
+        if self.depth > 0:
+            post_fix += str(self.depth)
+        if index is not None:
+            post_fix += str(index)
+        alias = "".join( [w[0] for w in self.namespace.table_name.split("_")])
+        return alias + post_fix
         
     def filter(self, filter_fn: Callable[[MODEL], bool] | None = None, **kwargs) -> "PostgresQuerySet[MODEL]":
         """Filter the query"""
@@ -342,11 +357,27 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self.order_by_value = "created_at asc"
         return self
     
-    def include(self, fields: list[str]) -> "PostgresQuerySet[MODEL]":
+    def include(self, *fields: "SelectField | str") -> "PostgresQuerySet[MODEL]":
         """Include a relation field in the query results."""
-        self.include_fields = fields
+        if self.include_fields is not None:
+            raise ValueError("Include fields already set")
+        self.include_fields = []
+        for field in fields:
+            if isinstance(field, str):
+                field_info = self.namespace.get_field(field)
+                if field_info is None:
+                    raise ValueError(f"Field {field} not found in namespace {self.namespace.name}")
+                field = SelectField(field, field_info)            
+            self.include_fields.append(field)
         return self
     
+    
+    
+    
+    def alias(self, alias: str) -> "PostgresQuerySet[MODEL]":
+        """Set the alias for the query"""
+        self._alias = alias
+        return self
     
     
     def sub_query(self, query_set: "PostgresQuerySet", name: str | None = None) -> "PostgresQuerySet[MODEL]":
@@ -397,6 +428,11 @@ class PostgresQuerySet(QuerySet[MODEL]):
         join._index = len(self.joins)
         self.joins.append(join)
         return join
+    
+    
+    def raw_query(self, sql: str) -> "QuerySet[MODEL]":
+        self._raw_query = textwrap.dedent(sql.strip())
+        return self
     
     # def build_subquery2(self, name: str):        
     #     sub_queries = []
@@ -580,7 +616,6 @@ class PostgresQuerySet(QuerySet[MODEL]):
         sql = ""
         qs = self
         for join in self.get_joins():
-            # sql += f"""JOIN "{join.relation.foreign_table}" AS {join.alias} ON {join.alias}.{join.relation.foreign_key} = {alias}.{self.namespace.primary_key.name}\n"""
             sql += f"""JOIN "{join.relation.foreign_table}" AS {join.alias} ON {join.alias}.{join.relation.foreign_key} = {alias}.{qs.namespace.primary_key.name}\n"""
             alias = join.alias
             qs = join.query_set
@@ -602,13 +637,27 @@ class PostgresQuerySet(QuerySet[MODEL]):
         return sq_sql
     
     
-    def iter_fields(self, select: list[str | dict[str, str]] | None = None) -> Generator[PgFieldInfo, None, None]:
-        if select is None:
+    def iter_fields(self) -> Generator[str, None, None]:
+        if self.include_fields is None:
             for field in self.namespace.iter_fields():
-                yield field
+                if self._alias:
+                    yield f'{self._alias}."{field.name}"'
+                else:
+                    yield f'"{field.name}"'
         else:
-            for field in select:
-                yield field
+            for field in self.include_fields:
+                name = field.get()
+                if self._alias:
+                    yield f'{self._alias}.{name}'
+                else:
+                    yield name
+        # else:
+        #     for sf in select:
+        #         if sf is dict:
+                    
+        #         field = self.namespace.get_field(sf)
+        #         yield         
+        
  
     def build_select_clause(self, alias: str | None = None, select: list[str | dict[str, str]] | None = None) -> str:
         sql = ""
@@ -620,7 +669,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
         #         sub_queries.append(self.wrap_subquery_clause(sq_sql, sb_name))
                 
         #     sql += "WITH " + ",\n".join(sub_queries) + "\n"
-        alias = alias or self.alias
+        alias = alias or self._alias
         if alias:
             sql += f'SELECT \n'
             fields = [f"""{alias}."{field.name}" """ for field in self.namespace.iter_fields()]            
@@ -641,9 +690,13 @@ class PostgresQuerySet(QuerySet[MODEL]):
        
     
     def build_query(self, alias: str | None = None):
+        if self._raw_query is not None:
+            return self._raw_query
         # alias = None
         # alias = alias or self.table_name[0]
-        alias = alias or self.alias
+        alias = alias or self._alias
+        if alias is None and self.joins:
+            alias = self._gen_alias()
         sql = ""
         if self.sub_queries:
             sub_queries = []
@@ -661,15 +714,15 @@ class PostgresQuerySet(QuerySet[MODEL]):
             
         sql += self.build_select_clause(alias)
         if self.joins or self.sub_queries:
-            sql += self.build_join_clause(self.alias)
+            sql += self.build_join_clause(alias)
         
         if self.filter_proxy:
             sql += "WHERE " + self.build_where_clause(self.filter_proxy, alias)
         if self.joins:
             sql += f"GROUP BY {alias}.{self.namespace.primary_key.name}\n"
         
-        if self._type == "cte":
-            sql += self.build_cte_clause()
+        # if self._type == "cte":
+        #     sql += self.build_cte_clause()
         
         return sql
     
@@ -682,10 +735,12 @@ class PostgresQuerySet(QuerySet[MODEL]):
             # from_clause=f""" "{self.cte_target.alias}" AS b"""
             from_clause=f""" "{self.cte_target.join.relation.primary_table}" AS b"""
         )
-        sql += f"""JOIN "{self.cte_target.query_name}" {self.alias} ON b.id = {self.alias}.{self.cte_target.join.relation.foreign_key}"""
+        sql += f"""JOIN "{self.cte_target.query_name}" {self._alias} ON b.id = {self._alias}.{self.cte_target.join.relation.foreign_key}"""
         return sql
     
     def build_cte_query(self):
+        if self._raw_query is not None:
+            return self._raw_query
         sql = ""
         sql += self.build_select_clause("mb")
         sql += "\nUNION ALL\n\n"
@@ -695,7 +750,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
             # from_clause=f""" "{self.cte_target.alias}" AS b"""
             from_clause=f""" "{self.cte_target.join.relation.primary_table}" AS b"""
         )
-        sql += f"""JOIN "{self.cte_target.query_name}" {self.alias} ON b.id = {self.alias}.{self.cte_target.join.relation.foreign_key}"""
+        sql += f"""JOIN "{self.cte_target.query_name}" {self._alias} ON b.id = {self._alias}.{self.cte_target.join.relation.foreign_key}"""
         return sql
     ##########################
     
@@ -811,7 +866,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
         return ex_query
 
     
-    async def execute(self) -> List[MODEL]:
+    async def execute(self) -> List[MODEL]:            
         ex_query = self.root_query_set()
         sql = ex_query.build_query()
         results = await PGConnectionManager.fetch(sql)        
@@ -822,8 +877,8 @@ class PostgresQuerySet(QuerySet[MODEL]):
     async def execute2(self) -> List[MODEL]:
         """Execute the query"""
         # Use PostgresOperations to execute the query with versioning support
-        if self.select:
-            select_types = [SelectType(namespace=sf["namespace"].name, fields=[f.name for f in sf["fields"]]) for sf in self.select]
+        if self._select:
+            select_types = [SelectType(namespace=sf["namespace"].name, fields=[f.name for f in sf["fields"]]) for sf in self._select]
         else:
             select_types = None
         # partition_id, branch_id = await self.namespace.get_current_ctx_partition_branch(partition=self.partition_id, branch=self.branch_id)
@@ -1148,12 +1203,18 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             raise ValueError("Primary key is required")
         values.append(key)
 
-        sql = f"""
-        UPDATE "{self.table_name}"
-        SET {", ".join(set_parts)}
-        WHERE {self.primary_key.name} = ${len(values)}
-        RETURNING *;
-        """
+        # sql = f"""
+        # UPDATE "{self.table_name}"
+        # SET {", ".join(set_parts)}
+        # WHERE {self.primary_key.name} = ${len(values)}
+        # RETURNING *;
+        # """
+        sql = (
+            f"""UPDATE "{self.table_name}"\n"""
+            f"""SET {", ".join(set_parts)}\n"""
+            f"""WHERE {self.primary_key.name} = ${len(values)}\n"""
+            f"""RETURNING *\n"""
+        )
         return sql, values
     # async def save(self, data: Dict[str, Any], id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: int | Turn | None = None, branch: int | Branch | None = None ) -> Dict[str, Any]:
     #     """

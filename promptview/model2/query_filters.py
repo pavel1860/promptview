@@ -360,6 +360,31 @@ class QuerySetField(PropertyComparable):
         
     def get(self):
         return f"{self.alias}.{self.name}"
+    
+    
+class SelectField(PropertyComparable):
+    def __init__(self, field_name: str, field_info: "NSFieldInfo"):
+        self._field_info = field_info
+        super().__init__(field_name, field_info.data_type) 
+        self._label = None
+        
+        
+    def __repr__(self):
+        if self._label:
+            return f"SelectField({self.name}, label={self._label})"
+        else:
+            return f"SelectField({self.name})"
+        
+    def label(self, label: str):
+        self._label = label
+        return self
+    
+    def get(self):
+        if self._label:
+            return f'"{self._label}" AS "{self._field_info.name}"'
+        else:
+            return f'"{self._field_info.name}"'
+        
         
         
 MODEL = TypeVar("MODEL", bound="Model")   
@@ -500,6 +525,22 @@ class QuerySetProxy(QueryProxy[MODEL, FIELD_INFO]):
             return QuerySetField(name, field_info, alias=self.query_set.alias)
         else:
             raise AttributeError(f"{self.model.__name__} has no attribute {name}")
+
+
+class SelectFieldProxy(QueryProxy[MODEL, FIELD_INFO]):
+    
+    def __init__(self, model: Type[MODEL], namespace: Namespace[MODEL, FIELD_INFO]):
+        super().__init__(model, namespace)
+        
+    def __getattr__(self, name):
+        if sel_field:= self.namespace.get_field(name):
+            return SelectField(name, sel_field)
+        else:
+            raise AttributeError(f"{self.model.__name__} has no attribute {name}")
+        
+        
+        
+        
 
 
 def parse_query_params(conditions: QueryListType) -> QueryFilter | None:

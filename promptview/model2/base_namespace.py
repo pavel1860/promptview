@@ -27,6 +27,12 @@ class SelectFields(TypedDict):
     namespace: "Namespace"
     fields: "list[NSFieldInfo]"
 
+
+    
+
+    
+
+    
 class NSFieldInfo:
     name: str
     field_type: Type[Any]
@@ -153,6 +159,31 @@ class NSFieldInfo:
     def deserialize(self, value: Any) -> Any:
         """Deserialize the value from the database"""
         raise NotImplementedError("Not implemented")
+    
+    
+    def _param_repr_list(self) -> list[str]:
+        params = []
+        if self.is_primary_key:
+            params.append("is_primary_key=True")
+        if self.is_key:
+            params.append("is_key=True")
+        if self.is_optional:
+            params.append("is_optional=True")
+        if self.is_list:
+            params.append("is_list=True")
+        if self.is_temporal:
+            params.append("is_temporal=True")
+        if self.is_enum:
+            params.append("is_enum=True")
+        if self.is_literal:
+            params.append("is_literal=True")
+        if self.is_foreign_key:
+            params.append("is_foreign_key=True")  
+        return params
+    
+    def __repr__(self) -> str:
+        params = self._param_repr_list()        
+        return f"NSFieldInfo(name={self.name}, data_type={self.data_type.__name__}, {', '.join(params)})"
 
 
 MODEL = TypeVar("MODEL", bound="Model")
@@ -354,6 +385,11 @@ class QuerySet(Generic[MODEL]):
     def cte(self, key: str, q1_labels: dict[str, str] | None = None, q2_labels: dict[str, str] | None = None) -> "QuerySet[MODEL]":
         """Create a common table expression"""
         raise NotImplementedError("Not implemented")
+    
+    
+    def raw_query(self, *args, **kwargs) -> "QuerySet[MODEL]":
+        """Execute a raw query"""
+        raise NotImplementedError("Not implemented")
 
 FIELD_INFO = TypeVar("FIELD_INFO", bound=NSFieldInfo)
 
@@ -430,8 +466,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     def set_model_class(self, model_class: Type[MODEL]):
         self._model_cls = model_class
         for relation_info in self._relations.values():
-            relation_info.set_primary_cls(model_class)
-    
+            relation_info.set_primary_cls(model_class)    
     
     
     def get_field(self, name: str) -> FIELD_INFO | None:
