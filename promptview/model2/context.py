@@ -227,17 +227,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             state=self._state
         )
         return self._turn
-        
-    async def _resume_turn(self):
-        if "branch_id" in self._init_params:
-            branch = await NamespaceManager.get_branch(self._init_params["branch_id"])
-            if branch is None:
-                raise ValueError(f"Branch {self._init_params['branch_id']} not found")
-            self._branch = branch
-        self._turn = await NamespaceManager.get_last_turn(
-            partition_id=self.partition_id,
-            branch_id=self.branch.id
-        )
+            
         
     def _set_context(self):
         self._ctx_token = CURR_CONTEXT.set(self)

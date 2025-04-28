@@ -9,7 +9,7 @@ from promptview.model2.versioning import ArtifactLog
 
 if TYPE_CHECKING:
     from promptview.model2.model import Model
-    from promptview.model2.versioning import Branch, Turn
+    from promptview.model2.version_control_models import Branch, Turn
 
 
 MODEL = TypeVar("MODEL", bound="Model")
@@ -19,6 +19,7 @@ class NamespaceManager:
     _namespaces: dict[str, Namespace] = {}
     _relations: dict[str, dict[str, dict[str, Any]]] = {}
     _is_initialized: bool = False
+    _main_branch: "Branch | None" = None
     
     @classmethod
     def initialize(cls):
@@ -120,18 +121,28 @@ class NamespaceManager:
                     relation.foreign_cls = ns.model_class
     
     @classmethod
+    async def get_or_create_main_branch(cls):
+        from .version_control_models import Branch
+        branch = await Branch.query().filter(id=1).first()
+        if branch is None:
+            branch = await Branch(name="main").save()
+        return branch
+        
+    
+    @classmethod
     async def create_all_namespaces(cls, partition_table: str, key: str = "id", versioning: bool = True):
         """
         Create all registered namespaces in the database.
         
         This method should be called after all models have been registered.
         """
+        from .version_control_models import Branch
         if not cls._namespaces:
             raise ValueError("No namespaces registered")
         for namespace in cls.iter_namespaces("postgres"):
             await SQLBuilder.create_enum_types(namespace)
-        if versioning:
-            await ArtifactLog.initialize_versioning()            
+        # if versioning:
+            # await ArtifactLog.initialize_versioning()            
             
         # for namespace in cls._namespaces.values():
         for namespace in cls.iter_namespaces("postgres"):
@@ -158,19 +169,21 @@ class NamespaceManager:
                 
         cls.replace_forward_refs()
                 
-        turn_fields = ArtifactLog.get_extra_turn_fields()
-        if turn_fields:
-            await SQLBuilder.update_table_fields("turns", turn_fields)
+                
+        cls._main_branch = await cls.get_or_create_main_branch()
+        # turn_fields = ArtifactLog.get_extra_turn_fields()
+        # if turn_fields:
+        #     await SQLBuilder.update_table_fields("turns", turn_fields)
             
         # if versioning:
             # await ArtifactLog.add_partition_id_to_turns(partition_table, key)
             
         
         
-        try:
-            main_branch = await ArtifactLog.get_branch(1)
-        except ValueError as e:        
-            await ArtifactLog.create_branch(name="main")
+        # try:
+        #     main_branch = await ArtifactLog.get_branch(1)
+        # except ValueError as e:        
+        #     await ArtifactLog.create_branch(name="main")
             
         cls._is_initialized = True
         
