@@ -190,7 +190,6 @@ class QueryField:
         self.field_info = field_info
         self._value: Optional[Any] = None
         self._custom_value: Optional[str] = None
-        self._label: Optional[str] = None
         self._is_dirty: bool = False
 
     @property
@@ -218,13 +217,7 @@ class QueryField:
     @property
     def include_in_insert_query(self) -> bool:
         return self._is_dirty and not self.field_info.is_key
-    
-    @property
-    def output_name(self) -> str:
-        return self._label or self.name
 
-    def label(self, label: str):
-        self._label = label
 
     def set(self, value: Any):
         self._value = self.field_info.serialize(value)
@@ -241,14 +234,14 @@ class QueryField:
         field_str = f'"{self.name}"' if add_quotes else self.name
         return f'{alias}.{field_str}' if alias else field_str
 
-    def render_return(self, alias: Optional[str] = None) -> str:
-        field_str = self._label or self.render_field(alias)
+    def render_return(self, alias: Optional[str] = None, label: Optional[str] = None) -> str:
+        field_str = label or self.render_field(alias)
         return field_str
 
-    def render_select(self, idx: int, alias: Optional[str] = None) -> tuple[str, int]:
+    def render_select(self, idx: int, alias: Optional[str] = None, label: Optional[str] = None) -> tuple[str, int]:
         field_str = self.render_field(alias)
-        if self._label:
-            field_str += f' AS {self._label}'
+        if label:
+            field_str += f' AS {label}'
         return field_str, idx
 
     def render_set(self, idx: int, alias: Optional[str] = None) -> tuple[str, int]:
@@ -269,12 +262,16 @@ class NamespaceQueryFields:
     the setting the values of the fields will include them in the insert and update queries.
     
     """
-    def __init__(self, namespace, alias: Optional[str] = None, select: Optional[Set[str]] = None):
+    def __init__(
+        self, 
+        namespace, 
+        alias: Optional[str] = None, 
+    ):
         self.namespace = namespace
         self.alias = alias
         self._fields = {field_info.name: QueryField(field_info) for field_info in namespace.iter_fields()}
-        self._select = select
-
+        
+        
     @property
     def table_name(self) -> str:
         return self.namespace.table_name
@@ -285,6 +282,9 @@ class NamespaceQueryFields:
     
     def get_inputs(self, key: bool = True) -> list[Any]:
         return [field for field in self.iter_fields() if field.is_input(key)]
+    
+    def inputs_len(self) -> int:
+        return len(self.get_inputs())
     
     def get_outputs(self) -> list[Any]:
         return [field for field in self.iter_fields()]
@@ -307,14 +307,14 @@ class NamespaceQueryFields:
             raise KeyError(f"Field {key} not found in namespace.")
         self._fields[key].override(value)
 
-    def select(self, select: Set[str]):
-        self._select = select
+    # def select(self, select: Set[str]):
+    #     self._select = select
 
-    def iter_fields(self, keys: bool = True, do_select: bool = True) -> Iterator[QueryField]:
+    def iter_fields(self, keys: bool = True, select: Set[str] | None = None) -> Iterator[QueryField]:
         for field in self._fields.values():
             if not keys and field.field_info.is_key:
                 continue
-            if do_select and self._select and field.name not in self._select:
+            if select and field.name not in select:
                 continue
             yield field
 
@@ -327,33 +327,41 @@ class NamespaceQueryFields:
                 parts.append(part)
         return ", \n".join(parts)
     
-
-    def build_returning_clause(self) -> str:
-        if not self._select:
-            return "*"
-        return_fields = [field.render_return(self.alias) for field in self.iter_fields()]
-        return ", ".join(return_fields) if return_fields else "*"
     
-    def build_select_clause(self, new_line: bool = True) -> str:
-        if not self._select:
+    def render(self, select: Set[str] | None = None, alias: str | None = None, labels: dict[str, str] = {}, new_line: bool = True) -> str:
+        if not select:
             return "*"
         delimiter = ", \n" if new_line else ", "
-        return_fields = [field.render_return(self.alias) for field in self.iter_fields()]
+        return_fields = [field.render_return(alias, labels.get(field.name, None)) for field in self.iter_fields(select=select)]
         return delimiter.join(return_fields) if return_fields else "*"
     
-    def build_insert_clause(self) -> str:
-        return ", ".join([field.render_field(add_quotes=False) for field in self.iter_fields(keys=False, do_select=False) if field.include_in_insert_query])
+
+    def render_return(self, select: Set[str] | None = None, alias: str | None = None) -> str:
+        if not select:
+            return "*"
+        return_fields = [field.render_return(alias) for field in self.iter_fields(select=select)]
+        return ", ".join(return_fields) if return_fields else "*"
+    
+    def render_select(self, select: Set[str] | None = None, alias: str | None = None, new_line: bool = True, labels: dict[str, str] = {}) -> str:
+        if not select:
+            return "*"
+        delimiter = ", \n" if new_line else ", "
+        return_fields = [field.render_return(alias, labels.get(field.name, None)) for field in self.iter_fields(select=select)]
+        return delimiter.join(return_fields) if return_fields else "*"
+    
+    def render_insert(self, select: Set[str] | None = None, alias: str | None = None) -> str:
+        return ", ".join([field.render_field(add_quotes=False) for field in self.iter_fields(keys=False) if field.include_in_insert_query])
     
     # def build_select_clause(self) -> str:
     #     return ", ".join([field.render_field(add_quotes=False) for field in self.iter_fields(keys=False) if field.include_in_select_query])
     
-    def build_values(self) -> List[Any]:
+    def get_values(self) -> List[Any]:
         return [field.value for field in self.iter_fields(keys=False) if field.include_in_insert_query and field.need_placeholder]
 
-    def build_placeholders(self) -> str:
-        idx = 1
+    def render_placeholders(self, select: Set[str] | None = None, start_idx: int = 1) -> str:
+        idx = start_idx
         placeholders = []
-        for field in self.iter_fields(do_select=False):
+        for field in self.iter_fields(select=select):
             if field.include_in_set_query:
                 if field.need_placeholder:
                     placeholders.append(f'${idx}')
