@@ -6,6 +6,8 @@ from promptview.model2.model import Model
 from promptview.model2.fields import KeyField, ModelField, RelationField
 import datetime as dt
 
+from promptview.model2.postgres.fields_query import NamespaceQueryFields
+
 
 CURR_TURN = contextvars.ContextVar("curr_turn")
 CURR_BRANCH = contextvars.ContextVar("curr_branch")
@@ -103,7 +105,15 @@ class Branch(Model):
     async def add_turn(self, index: int, status: TurnStatus):
         from promptview.model2.namespace_manager import NamespaceManager
         # ns = self.get_namespace()
-        ns = NamespaceManager.get_turn_namespace()
+        branch_fields = NamespaceQueryFields(self.get_namespace())
+        turn_fields = NamespaceQueryFields(NamespaceManager.get_turn_namespace())
+        branch_fields["current_index"].override("current_index + 1")
+        branch_fields.select({"id", "current_index"})
+        turn_fields.select({"branch_id", "index", "status", "message", "trace_id"})
+        turn_fields.set_model(Turn)
+        
+        
+        
         
         
         
