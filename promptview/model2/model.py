@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, List, Optional, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, Iterator, List, Optional, Set, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
 import uuid
 from pydantic import BaseModel, Field, PrivateAttr
 from pydantic.config import JsonDict
@@ -11,7 +11,7 @@ import datetime as dt
 from promptview.model2.context import Context
 from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet, QuerySetSingleAdapter
+from promptview.model2.base_namespace import DatabaseType, NSFieldInfo, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet, QuerySetSingleAdapter
 from promptview.model2.query_filters import SelectFieldProxy
 
 
@@ -364,6 +364,11 @@ class Model(BaseModel, metaclass=ModelMeta):
             
         dump = self.model_dump(exclude={"id", "score", "_vector", *relation_fields, *version_fields})
         return dump
+    
+    @classmethod
+    def iter_fields(cls, keys: bool = True, select: Set[str] | None = None) -> Iterator[NSFieldInfo]:
+        ns = cls.get_namespace()
+        return ns.iter_fields(keys, select)
     
     async def save(self, *args, **kwargs):
         """

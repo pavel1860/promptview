@@ -2,7 +2,7 @@ from abc import abstractmethod
 from enum import Enum
 import inspect
 import json
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterator, List, Literal, Type, TypeVar, TypedDict, Optional, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterator, List, Literal, Set, Type, TypeVar, TypedDict, Optional, get_args, get_origin
 import uuid
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
@@ -498,9 +498,17 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
             return self.namespace_manager.get_namespace(self.repo_namespace)
         return None
     
-    def iter_fields(self, keys: bool = True) -> Iterator[FIELD_INFO]:
+    # def iter_fields(self, keys: bool = True) -> Iterator[FIELD_INFO]:
+    #     for field in self._fields.values():
+    #         if field.is_key and not keys:
+    #             continue
+    #         yield field
+    
+    def iter_fields(self, keys: bool = True, select: Set[str] | None = None) -> "Iterator[FIELD_INFO]":
         for field in self._fields.values():
-            if field.is_key and not keys:
+            if not keys and field.is_key:
+                continue
+            if select and field.name not in select:
                 continue
             yield field
             

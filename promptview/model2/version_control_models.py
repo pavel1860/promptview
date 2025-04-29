@@ -82,6 +82,7 @@ class Turn(Model):
         
 
 class Branch(Model):
+    _namespace_name = "branches"
     id: int = KeyField(primary_key=True)
     name: str | None = ModelField(default=None)
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
@@ -102,17 +103,28 @@ class Branch(Model):
         return branch
     
     
-    async def add_turn(self, index: int, status: TurnStatus):
-        from promptview.model2.namespace_manager import NamespaceManager
-        # ns = self.get_namespace()
-        branch_fields = NamespaceQueryFields(self.get_namespace())
-        turn_fields = NamespaceQueryFields(NamespaceManager.get_turn_namespace())
-        branch_fields["current_index"].override("current_index + 1")
-        branch_fields.select({"id", "current_index"})
-        turn_fields.select({"branch_id", "index", "status", "message", "trace_id"})
-        turn_fields.set_model(Turn)
+    async def add_turn(self, message: str | None = None, status: TurnStatus = TurnStatus.STAGED, **kwargs):
+        query = f"""
+        WITH updated_branch AS (
+            UPDATE branches
+            SET current_index = current_index + 1
+            WHERE id = $1
+            RETURNING id, current_index
+        ),
+        new_turn AS (
+            INSERT INTO turns (branch_id, index, created_at, status{"".join([", " + k for k in kwargs.keys()])})
+            SELECT id, current_index, current_timestamp, $2{"".join([", $" + str(i) for i in range(3, len(kwargs) + 3)])}
+            FROM updated_branch
+            RETURNING *
+        )
+        SELECT * FROM new_turn;
+        """        
+        turn_ns = Turn.get_namespace()
         
-        
+        turn_record = await turn_ns.fetch(query, self.id, status.value, *[kwargs[k] for k in kwargs.keys()])
+        if not turn_record:
+            raise ValueError("Failed to add turn")
+        return Turn(**turn_record[0])
         
         
         
