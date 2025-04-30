@@ -395,7 +395,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         return result
     
     
-    async def add(self, obj: "Model", **kwargs) -> "Model":
+    async def add(self, obj: MODEL, **kwargs) -> MODEL:
         """Add a model instance to the database"""
         ns = self.get_namespace()
         relation = ns.get_relation_by_type(obj.__class__)

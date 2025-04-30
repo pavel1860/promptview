@@ -1,13 +1,15 @@
 
 import enum
 import contextvars
-from typing import List
+from typing import TYPE_CHECKING, List, TypeVar, overload
+
 from promptview.model2.model import Model
 from promptview.model2.fields import KeyField, ModelField, RelationField
 import datetime as dt
 
 from promptview.model2.postgres.fields_query import NamespaceQueryFields
-
+if TYPE_CHECKING:
+    from promptview.model2.artifact_model import ArtifactModel
 
 CURR_TURN = contextvars.ContextVar("curr_turn")
 CURR_BRANCH = contextvars.ContextVar("curr_branch")
@@ -19,6 +21,7 @@ class TurnStatus(enum.StrEnum):
     REVERTED = "reverted"
 
 
+TURN_MODEL = TypeVar("TURN_MODEL", bound="TurnModel")
 
 class Turn(Model):
     id: int = KeyField(primary_key=True)
@@ -30,7 +33,7 @@ class Turn(Model):
     branch_id: int = ModelField(foreign_key=True)
     trace_id: str | None = ModelField(default=None)
     _ctx_token: contextvars.Token | None = None
-    
+    _auto_commit: bool = True
     
     # def model_post_init(self, __context): 
         
@@ -59,6 +62,10 @@ class Turn(Model):
     async def __aexit__(self, exc_type, exc_value, traceback):
         if self._ctx_token is not None:
             CURR_TURN.reset(self._ctx_token)
+        if exc_type is not None:
+            await self.revert()
+        elif self._auto_commit:
+            await self.commit()
     
     @classmethod
     def current(cls, throw_error: bool = True):
@@ -80,6 +87,22 @@ class Turn(Model):
         self.status = TurnStatus.REVERTED
         await self.save()
         
+    @overload  
+    async def add(self, obj: TURN_MODEL, **kwargs) -> TURN_MODEL:
+        ...
+    
+    @overload
+    async def add(self, obj: "Model", **kwargs) -> "Model":
+        ...
+        
+    async def add(self, obj: "Model", **kwargs) -> "Model":
+        if not isinstance(obj, TurnModel):
+            raise TypeError("Can only add ArtifactModel instances")
+        obj.turn_id = self.id
+        obj.branch_id = self.branch_id
+        return await obj.save()
+
+
 
 class Branch(Model):
     _namespace_name = "branches"
@@ -94,7 +117,13 @@ class Branch(Model):
     children: List["Branch"] = RelationField(foreign_key="forked_from_branch_id")
     
     
-    async def fork(self, index: int, name: str | None = None):
+    async def fork(self, index: int | None = None, name: str | None = None, turn: Turn | None = None):
+        if turn is not None:
+            index = turn.index
+        elif index is None:
+            raise ValueError("Index is required")
+        
+        
         branch = await Branch(
             forked_from_index=index,
             forked_from_branch_id=self.id,
@@ -144,3 +173,19 @@ class Branch(Model):
             else:
                 return None
         return branch
+    
+    
+    
+    
+    
+    
+    
+    
+    
+class TurnModel(Model):
+    id: int = KeyField(primary_key=True)    
+    branch_id: int = ModelField(foreign_key=True)
+    turn_id: int = ModelField(foreign_key=True)    
+    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    updated_at: dt.datetime | None = ModelField(default=None)
+    deleted_at: dt.datetime | None = ModelField(default=None)
