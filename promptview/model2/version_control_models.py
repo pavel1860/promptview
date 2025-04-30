@@ -157,7 +157,7 @@ class Branch(Model):
         
         
         
-        
+    
 
     
     
@@ -177,7 +177,28 @@ class Branch(Model):
     
     
     
+
+def get_branch_id(branch: "int | Branch | None" = None) -> int:
+    if branch is None:
+        branch = Branch.current(throw_error=False)        
+        return branch.id if branch is not None else 1
+    elif isinstance(branch, int):
+        return branch
+    elif isinstance(branch, Branch):
+        return branch.id
+    else:
+        raise ValueError("Invalid branch")
     
+def get_turn_id(turn: "int | Turn | None" = None) -> int | None:
+    if turn is None:
+        turn = Turn.current(throw_error=False)
+        return turn.id if turn is not None else None
+    elif isinstance(turn, int):
+        return turn
+    elif isinstance(turn, Turn):
+        return turn.id
+    else:
+        raise ValueError("Invalid turn")
     
     
     

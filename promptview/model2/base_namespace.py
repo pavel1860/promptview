@@ -449,7 +449,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     @property
     def primary_key(self) -> FIELD_INFO:
-        if self.is_versioned:
+        if self.is_artifact:
             return self._fields["artifact_id"]
         if self._model_cls is None:
             raise ValueError("Model class not set")

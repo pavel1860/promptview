@@ -1,4 +1,4 @@
-from promptview.model2.base_namespace import DatabaseType, Namespace
+from promptview.model2.base_namespace import DatabaseType, NSRelationInfo, Namespace
 from typing import TYPE_CHECKING, Iterator, Type, TypeVar, Dict, List, Any, Optional, ForwardRef
 
 from promptview.model2.postgres.builder import SQLBuilder
@@ -18,6 +18,7 @@ class NamespaceManager:
     """Manager for namespaces"""
     _namespaces: dict[str, Namespace] = {}
     _relations: dict[str, dict[str, dict[str, Any]]] = {}
+    _reversed_relations: dict[str, dict[str, NSRelationInfo]] = {}
     _is_initialized: bool = False
     _main_branch: "Branch | None" = None
     
@@ -26,6 +27,7 @@ class NamespaceManager:
         """Initialize the namespace manager"""
         cls._namespaces = {}
         cls._relations = {}
+        cls._reversed_relations = {}
         
     @classmethod
     def build_namespace(cls, model_name: str, db_type: DatabaseType, is_versioned: bool = True, is_context: bool = False, is_artifact: bool = False, is_repo: bool = False, repo_namespace: Optional[str] = None) -> Namespace:
@@ -134,10 +136,11 @@ class NamespaceManager:
         if branch is None:
             branch = await Branch(name="main").save()
         return branch
+    
         
     
     @classmethod
-    async def create_all_namespaces(cls, partition_table: str, key: str = "id", versioning: bool = True):
+    async def create_all_namespaces(cls):
         """
         Create all registered namespaces in the database.
         
@@ -176,7 +179,10 @@ class NamespaceManager:
                 
         cls.replace_forward_refs()
                 
-                
+        for namespace in cls.iter_namespaces("postgres"):            
+            for relation in namespace.iter_relations():
+                cls.add_reversed_relation(relation)
+                                
         cls._main_branch = await cls.get_or_create_main_branch()
         # turn_fields = ArtifactLog.get_extra_turn_fields()
         # if turn_fields:
@@ -212,6 +218,15 @@ class NamespaceManager:
         for namespace in cls._namespaces.values():
             if db_type is None or namespace.db_type == db_type:
                 yield namespace
+                
+    @classmethod
+    def add_reversed_relation(cls, relation_info: NSRelationInfo):
+        """
+        Add a reversed relation to the namespace manager.
+        """
+        if relation_info.foreign_table not in cls._reversed_relations:
+            cls._reversed_relations[relation_info.foreign_table] = {}
+        cls._reversed_relations[relation_info.foreign_table][relation_info.foreign_key] = relation_info
     
     @classmethod
     def register_relation(
@@ -311,5 +326,10 @@ class NamespaceManager:
         return await ArtifactLog.commit_turn(turn_id, message)
     
     
-    
+    @classmethod
+    async def drop_all_namespaces(cls):
+        """
+        Drop all namespaces.
+        """
+        await SQLBuilder.drop_all_tables()
     

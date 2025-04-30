@@ -15,11 +15,13 @@ from promptview.model2.base_namespace import DatabaseType, NSFieldInfo, NSManyTo
 from promptview.model2.query_filters import SelectFieldProxy
 
 
+
 from promptview.utils.model_utils import unpack_list_model
 from promptview.utils.string_utils import camel_to_snake
 
 
 if TYPE_CHECKING:
+    from promptview.model2.version_control_models import Branch
     from promptview.prompt.block6 import Block
     from promptview.llms.llm3 import OutputModel
 
@@ -133,7 +135,7 @@ class ModelMeta(ModelMetaclass, type):
         is_artifact = check_if_artifact_model(bases, name)
         is_context = check_if_context_model(bases, name)
         # If _repo is specified, the model is automatically versioned
-        is_versioned = get_dct_private_attributes(dct, "_is_versioned", False) or (len(bases) >= 1 and (bases[0].__name__ == "ArtifactModel" or bases[0].__name__ == "ContextModel"))
+        is_versioned = get_dct_private_attributes(dct, "_is_versioned", False) or (len(bases) >= 1 and (bases[0].__name__ == "ArtifactModel" or bases[0].__name__ == "ContextModel" or bases[0].__name__ == "TurnModel"))
         repo_namespace = get_dct_private_attributes(dct, "_repo", "main" if is_versioned else None)
         if repo_namespace is None and is_versioned:
             raise ValueError("RepoModel must have a repo namespace")
@@ -429,16 +431,20 @@ class Model(BaseModel, metaclass=ModelMeta):
         instance._update_relation_instance()
         return instance
     
+    
+    
     @classmethod
-    def query(cls: Type[MODEL], **kwargs) -> "QuerySet[MODEL]":
+    def query(cls: Type[MODEL], branch: "int | Branch | None" = None, turn: "int | Turn | None" = None, **kwargs) -> "QuerySet[MODEL]":
         """
         Create a query for this model
         
         Args:
             branch: Optional branch ID to query from
-        """            
+        """
+        from promptview.model2.version_control_models import get_branch_id, get_turn_id
+        branch_id = get_branch_id(branch)
         ns = cls.get_namespace()
-        return ns.query(**kwargs)
+        return ns.query(branch_id=branch_id, **kwargs)
     
     
     # def join(self, model: Type[MODEL], partition: Partition | None = None, branch: Branch | int = 1) -> "QuerySet[MODEL]":

@@ -232,15 +232,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
         # self.join(self.model_class)
         return self
     
-    # def join(self, model: "Type[Model]") -> "PostgresQuerySet[MODEL]":
-    #     """Join the query with another model"""
-    #     relation = self.namespace.get_relation_by_type(model)
-    #     if not relation:
-    #         raise ValueError(f"Relation {model} not found in namespace {self.namespace.name}")
-        
-    #     query_set = PostgresQuerySet(relation.foreign_cls, relation.foreign_namespace, parent_query_set=self, depth=self.depth+1)
-    #     join = self._add_join(PgJoin(relation, query_set, self.depth+1))
-    #     return join.query_set
+
     
     def join(self, *models: "Type[Model]") -> "QuerySet[MODEL]":
         """Join the query with another model"""
@@ -265,62 +257,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
         self._raw_query = textwrap.dedent(sql.strip())
         return self
     
-    # def build_subquery2(self, name: str):        
-    #     sub_queries = []
-    #     for sb_name, sub_query in self.sub_queries.items():
-    #         sub_queries += sub_query.build_subquery(sb_name)
-        
-    #     sql = f"{name}_subquery AS (\n"
-    #     sql += textwrap.indent(self.build_query(name), "    ")
-    #     sql += "\n)"
-    #     sub_queries.append(sql)
-    #     return sub_queries
     
-    # def build_subquery3(self, name: str):
-    #     sql_list = []        
-    #     for sb_name, sub_query in self.sub_queries.items():
-    #         sql, values = build_query(
-    #             sub_query.namespace,
-    #             filters=sub_query.filters,
-    #             limit=sub_query.limit_value,
-    #             order_by=sub_query.order_by_value,
-    #             offset=sub_query.offset_value,
-    #             # select=select_types,
-    #             # joins=self.joins,
-    #             alias="t",
-    #             start_placeholder=len(sql_list[-1][1]) if sql_list else 0,
-    #             filter_proxy=sub_query.filter_proxy,
-    #         )
-    #         sub_sql = f"{name}_subquery AS (\n"
-    #         sub_sql += textwrap.indent(sql, "    ")
-    #         sub_sql += "\n)"
-    #         sql_list.append((sub_sql, values))
-    #     return sql_list
-    
-    
-    # def build_join_select_clause(self, alias: str, as_alias: str | None = None) -> str:
-    #     sql = (
-    #        "COALESCE(\n" 
-    #        "\tjson_agg(\n"
-    #        "\t\tDISTINCT jsonb_build_object(\n"
-    #     )
-        
-    #     for field in self.namespace.iter_fields():
-    #         sql += f"\t\t\t'{field.name}', {alias}.{field.name}, \n"
-    #     for join in self.joins:
-    #         join_sql = join.query_set.build_join_select_clause(join.alias, as_alias=join.relation.name)
-    #         sql += textwrap.indent(join_sql, "\t")
-    #     sql = sql.rstrip(", \n") + "\n"
-    #     sql += (
-    #         f"\t\t)\n"
-    #         f"\t) FILTER (WHERE {alias}.{self.namespace.primary_key.name} IS NOT NULL),\n"
-    #         "\t'[]'\n"
-    #     )
-    #     if as_alias:
-    #         sql += f") AS {as_alias}\n"
-    #     else:
-    #         sql += ")\n"
-    #     return sql
     
     def add_json_agg(self, sql: str, filter_clause: str | None = None):
         new_sql = "json_agg(\n"
@@ -362,42 +299,6 @@ class PostgresQuerySet(QuerySet[MODEL]):
         if alias is None:
             return [f""" "{field.name}" """ for field in self.namespace.iter_fields()]
         return [f"""'{field.name}', {alias}."{field.name}" """ for field in self.namespace.iter_fields()]
-    
-    # def build_nested_join_select_clause(self, name: str, parent_alias: str, alias: str) -> str:
-    #     sql = ""
-    #     fields = self.list_fields_clause(alias)
-    #     for join in self.joins:
-    #         join_sql = join.query_set.build_nested_join_select_clause(join.relation.name, alias, join.alias)
-    #         fields.append(join_sql)
-    #     sql = self.build_fields_clause(*fields)
-    #     sql = self.add_jsonb_build_object(sql, distinct=False)
-    #     sql = self.add_json_agg(sql)
-    #     sql = self.wrap_select_clause(
-    #         sql, 
-    #         from_clause=f""" "{self.namespace.table_name}" {alias}""", 
-    #         where_clause=f"{alias}.{self.namespace.primary_key.name}={parent_alias}.{self.namespace.primary_key.name}"
-    #         )
-    #     sql = "(\n" + textwrap.indent(sql, "    ") + "\n)"
-    #     sql = self.add_coalesce(sql, default_value="'[]'")
-    #     sql = f"'{name}', {sql}"
-    #     return sql
-    
-        
-    # def build_join_select_clause(self, name: str, alias: str, as_alias: str | None = None) -> str:        
-    #     sql = ""
-
-    #     fields = self.list_fields_clause(alias)
-    #     for join in self.joins:
-    #         join_sql = join.query_set.build_nested_join_select_clause(join.relation.name, alias, join.alias)
-    #         fields.append(join_sql)
-        
-    #     sql = self.build_fields_clause(*fields)        
-    #     sql = self.add_jsonb_build_object(sql, distinct=True)
-    #     sql = self.add_json_agg(sql, filter_clause=f"{alias}.{self.namespace.primary_key.name} IS NOT NULL")
-    #     sql = self.add_coalesce(sql, default_value="'[]'")
-    #     sql = sql.rstrip(", \n")
-    #     sql = sql + f" AS {name} \n"
-    #     return sql
     
     
     def build_nested_join_select_clause(self, join: PgJoin, parent_alias: str) -> str:
@@ -482,24 +383,11 @@ class PostgresQuerySet(QuerySet[MODEL]):
                     yield f'{self._alias}.{name}'
                 else:
                     yield name
-        # else:
-        #     for sf in select:
-        #         if sf is dict:
-                    
-        #         field = self.namespace.get_field(sf)
-        #         yield         
+       
         
  
     def build_select_clause(self, alias: str | None = None, select: list[str | dict[str, str]] | None = None) -> str:
         sql = ""
-        
-        # if self.sub_queries:
-        #     sub_queries = []
-        #     for idx, (sb_name, sub_query) in enumerate(self.sub_queries.items()):
-        #         sq_sql = sub_query.build_query(f"s{sb_name[0]}{idx}")
-        #         sub_queries.append(self.wrap_subquery_clause(sq_sql, sb_name))
-                
-        #     sql += "WITH " + ",\n".join(sub_queries) + "\n"
         alias = alias or self._alias
         if alias:
             sql += f'SELECT \n'
@@ -551,9 +439,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
             sql += "WHERE " + self.build_where_clause(self.filter_proxy, alias)
         if self.joins:
             sql += f"GROUP BY {alias}.{self.namespace.primary_key.name}\n"
-        
-        # if self._type == "cte":
-        #     sql += self.build_cte_clause()
+
         
         return sql
     
@@ -583,7 +469,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
         )
         sql += f"""JOIN "{self.cte_target.query_name}" {self._alias} ON b.id = {self._alias}.{self.cte_target.join.relation.foreign_key}"""
         return sql
-    ##########################
+
     
     def build_subquery(self, name: str, start_idx: int=0, joins: list[JoinType] | None = None, alias: str | None = None):
         joins = joins or []
@@ -612,83 +498,7 @@ class PostgresQuerySet(QuerySet[MODEL]):
             sub_queries += sub_query.flat_subqueries() + [sub_query]
         return sub_queries
     
-    def build_all_subqueries(self) -> list[tuple[str, list[Any], str, int, "PostgresQuerySet"]]:
-        query_list = self.flat_subqueries()
-        start_idx = 0
-        queries = []
-        for idx, qs in enumerate(query_list):
-            joins = None
-            alias = f"{qs.table_name[0]}{idx}"
-            if idx > 0:
-                prev_qs = query_list[idx-1]
-                joins = [{
-                    "primary_table": alias,
-                    "primary_key": qs.namespace.primary_key.name,
-                    "foreign_table": queries[idx-1][2],
-                    "foreign_key": qs.namespace.get_relation(prev_qs.namespace.table_name).foreign_key,
-                }]
-                # joins = qs.namespace.get_relation_joins(prev_qs.namespace.table_name, primary_alias=alias)
-            sql, values, name, start_idx = qs.build_subquery(f"{qs.table_name}_sq_{idx}", start_idx=start_idx, joins=joins, alias=alias)
-            queries.append((sql, values, name, start_idx, qs))
-        return queries
     
-    
-    
-    # def build_all_subqueries(self):
-    #     sub_queries = []
-    #     start_idx = 0
-    #     for sb_name, sub_query in self.sub_queries.items():
-    #         sub_queries += sub_query.build_all_subqueries()
-    #         if sub_queries:
-    #             start_idx = sub_queries[-1][3]
-    #         sql, values, name, start_idx = sub_query.build_subquery(sb_name, start_idx=start_idx)
-    #         sub_queries.append((sql, values, name, start_idx))
-            
-    #     return sub_queries
-
-
-    def build_query2(self, with_subqueries: bool = False):
-        start_idx = 0
-        sub_queries = []
-        sq_values = []
-        joins = []
-        sq_sql = ""
-        alias = self.table_name[0]
-        if with_subqueries:
-            sub_queries = self.build_all_subqueries()
-            if sub_queries:
-                start_idx = sub_queries[-1][3]
-                if sub_queries:
-                    sq_sql = ",\n".join([sq[0] for sq in sub_queries]) + "\n"
-                    sq_values = [v for sq in sub_queries for v in sq[1]]
-                    # sql += f"\nJOIN ({sql}) t ON t.id = {self.namespace.table_name}.id\n"        
-                    sq_sql = "WITH " + sq_sql
-                    joins = [{
-                        "primary_table": alias,
-                        "primary_key": self.namespace.primary_key.name,
-                        "foreign_table": sub_queries[-1][2],
-                        "foreign_key": self.namespace.get_relation(sub_queries[-1][4].table_name).foreign_key,
-                    }]
-                # joins = self.namespace.get_relation_joins(sub_queries[-1][4].namespace.table_name, primary_alias=alias)
-        
-        sql, values = build_query(
-            self.namespace,
-            filters=self.filters,
-            limit=self.limit_value,
-            order_by=self.order_by_value,
-            offset=self.offset_value,
-            # select=select_types,
-            joins=self.joins + joins,
-            filter_proxy=self.filter_proxy,
-            start_placeholder=start_idx,
-            alias=alias,
-        )
-
-        if sub_queries:
-            sql = sq_sql + "\n" + sql
-            values = sq_values + values
-        
-        return sql, values
     
     def root_query_set(self) -> "PostgresQuerySet":
         ex_query = self
@@ -700,10 +510,97 @@ class PostgresQuerySet(QuerySet[MODEL]):
     async def execute(self) -> List[MODEL]:            
         ex_query = self.root_query_set()
         sql = ex_query.build_query()
-        results = await PGConnectionManager.fetch(sql)        
+        # results = await PGConnectionManager.fetch(sql)   
+        if ex_query.namespace.is_versioned:
+            results = await self.execute_with_versioning(
+                table_name=ex_query.namespace.table_name,
+                sql=sql,
+                is_event_source=ex_query.namespace.is_artifact,
+                turn_limit=ex_query.turn_limit_value,
+                turn_direction=ex_query.turn_order_direction or "DESC",
+                branch_id=ex_query.branch_id,
+            )
+        else:
+            results = await self.execute_sql(sql)
         return [ex_query.model_class(**ex_query.pack_record(dict(result))) for result in results]
     
+        
+    async def execute_sql(self, sql: str, *values: Any) -> List[Any]:
+        return await PGConnectionManager.fetch(sql, *values)
+        
     
+    async def execute_with_versioning(
+        self, 
+        table_name: str,
+        sql: str,  
+        is_event_source: bool = True, 
+        turn_limit: int | None = None, 
+        turn_direction: str = "DESC",
+        branch_id: int | None = None,
+    ) -> List[Any]:
+        filtered_alias = f"filtered_{table_name}"
+        sql = sql.replace(table_name, filtered_alias)       
+        if turn_limit:
+            turn_order_by_clause = f"ORDER BY t.index {turn_direction} LIMIT {turn_limit}"
+        else:
+            turn_order_by_clause = ""
+
+        
+        turn_where_clause = []
+        # if partition_id is not None:
+        #     turn_where_clause.append(f"t.partition_id = {partition_id}")
+        if is_event_source:
+            turn_where_clause.append("m.deleted_at IS NULL")
+        turn_where_clause = " AND ".join(turn_where_clause)
+        if turn_where_clause:
+            turn_where_clause = f"WHERE {turn_where_clause}"
+        
+        event_source_select_clause = " DISTINCT ON (m.artifact_id)" if is_event_source else ""
+        event_source_order_by_clause = "ORDER BY m.artifact_id, m.version DESC" if is_event_source else ""
+
+        versioned_sql = f"""
+            WITH RECURSIVE branch_hierarchy AS (
+                SELECT
+                    id,
+                    name,
+                    forked_from_index,
+                    forked_from_branch_id,
+                    current_index AS start_turn_index
+                FROM branches
+                WHERE id = {branch_id}
+                
+                UNION ALL
+                
+                SELECT
+                    b.id,
+                    b.name,
+                    b.forked_from_index,
+                    b.forked_from_branch_id,
+                    bh.forked_from_index AS start_turn_index
+                FROM branches b
+                JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id
+            ),
+            turn_hierarchy AS (
+                SELECT t.* 
+                FROM branch_hierarchy bh
+                JOIN turns t ON bh.id = t.branch_id
+                WHERE t.index <= bh.start_turn_index AND t.status != 'reverted'
+                {turn_order_by_clause}
+            ),
+            {filtered_alias} AS (
+                SELECT{event_source_select_clause}
+                    m.*
+                FROM turn_hierarchy t               
+                JOIN "{table_name}" m ON t.id = m.turn_id
+                {turn_where_clause}
+                {event_source_order_by_clause}
+            )
+            {sql}
+            """
+        # versioned_sql = textwrap.dedent(versioned_sql)
+        results = await PGConnectionManager.fetch(versioned_sql)
+        return [dict(row) for row in results]
+        
     
     async def execute2(self) -> List[MODEL]:
         """Execute the query"""
@@ -712,7 +609,6 @@ class PostgresQuerySet(QuerySet[MODEL]):
             select_types = [SelectType(namespace=sf["namespace"].name, fields=[f.name for f in sf["fields"]]) for sf in self._select]
         else:
             select_types = None
-        # partition_id, branch_id = await self.namespace.get_current_ctx_partition_branch(partition=self.partition_id, branch=self.branch_id)
         sql, values = build_query(
             self.namespace,
             filters=self.filters,

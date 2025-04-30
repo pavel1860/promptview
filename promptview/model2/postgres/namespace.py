@@ -518,7 +518,8 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
     
     def query(
         self, 
-        branch: int | Branch | None = None, 
+        branch_id: int, 
+        turn_id: int | None = None,
         filters: dict[str, Any] | None = None, 
         joins: list[JoinType] | None = None,
         select: SelectFields | None = None,
@@ -571,7 +572,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         return PostgresQuerySet(
             model_class=self.model_class, 
             namespace=self,  
-            branch_id=branch, 
+            branch_id=branch_id, 
             select=select, 
             joins=joins, 
             filters=filters,
