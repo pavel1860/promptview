@@ -14,11 +14,15 @@ from typing_extensions import TypeVar
 from promptview.model2.base_namespace import Namespace
 from promptview.model2.model import Model
 from promptview.model2.postgres.fields_query import PgFieldInfo
-from promptview.model2.postgres.query_builders2 import Coalesce, JsonAgg, JsonBuild, SelectQuery, Where
+from promptview.model2.postgres.query_builders2 import Coalesce, Filter, JsonAgg, JsonBuild, SelectQuery, TableName, Where
 from promptview.model2.query_filters import QueryProxy
 
 
 MODEL = TypeVar("MODEL", bound="Model")
+
+
+
+    
     
 class SelectQuerySet(Generic[MODEL]):
     query: SelectQuery
@@ -27,8 +31,9 @@ class SelectQuerySet(Generic[MODEL]):
         self.model_class = model_class
         self.query = SelectQuery(
             select="*",
-            from_table=self.model_class.get_namespace().table_name,
+            from_table=TableName(self.model_class.get_namespace().table_name)
         )
+
         
     def select(self, *args: str, **kwargs: str) -> "SelectQuerySet[MODEL]":
         fields = list(args) 
@@ -41,22 +46,31 @@ class SelectQuerySet(Generic[MODEL]):
         self.query.alias(alias)
         return self
     
+    
+    
     def join(self, model: Type[Model] | "SelectQuerySet[Model]") -> "SelectQuerySet[MODEL]":
         if issubclass(model, Model):
             relation = self.namespace.get_relation_by_type(model)
             fields = [f.name for f in model.iter_fields()]
+            foreign_table = TableName(model.get_namespace().table_name)
             sub_query = Coalesce(
                 JsonAgg(
                     JsonBuild(
-                        table_name="u",
+                        # table_name="u",
+                        table_name=self.query.table_name,
                         select=fields,
                     ),
-                    filter=f"{relation.foreign_key}=aasdf", 
+                    filter=Filter(
+                        table_name=foreign_table, 
+                        filters={
+                            f"{relation.foreign_key}": "IS NOT NULL"
+                        }), 
+                    
                 ),
                 default="[]",
             )
             self.query._select += [(sub_query, relation.name)]
-            self.query.join(relation.primary_table, relation.primary_key, relation.foreign_table, relation.foreign_key)
+            self.query.join(self.query.table_name, relation.primary_key, foreign_table, relation.foreign_key)
         return self
     
     def render(self) -> str:
