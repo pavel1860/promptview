@@ -14,18 +14,38 @@ from typing_extensions import TypeVar
 from promptview.model2.base_namespace import Namespace
 from promptview.model2.model import Model
 from promptview.model2.postgres.fields_query import PgFieldInfo
-from promptview.model2.postgres.query_builders2 import Coalesce, Filter, JsonAgg, JsonBuild, SelectQuery, TableName, Where
+from promptview.model2.postgres.query_builders2 import Coalesce, Filter, JsonAgg, JsonBuild, JsonNestedQuery, SelectQuery, TableName, Where
 from promptview.model2.query_filters import QueryProxy
 
 
 MODEL = TypeVar("MODEL", bound="Model")
 
+ORIG_MODEL = TypeVar("ORIG_MODEL", bound="Model")
 
+QUERY_TYPE = TypeVar("QUERY_TYPE", bound=SelectQuery)
 
+class BaseQuerySet(Generic[MODEL, QUERY_TYPE]):
+    query: QUERY_TYPE
     
+    def __init__(self, model_class: Type[MODEL]):
+        self.model_class = model_class
+        self.query = self.init_query(model_class)
+        
+        
+    def init_query(self, model_class: Type[MODEL]) -> QUERY_TYPE:
+        raise NotImplementedError("Subclasses must implement this method")
+        
+    def select(self, *args: str, **kwargs: str) -> "SelectQuerySet[MODEL]":
+        raise NotImplementedError("Subclasses must implement this method")
     
-class SelectQuerySet(Generic[MODEL]):
+    def alias(self, alias: str) -> "SelectQuerySet[MODEL]":
+        raise NotImplementedError("Subclasses must implement this method")
+        
+        
+    
+class SelectQuerySet(BaseQuerySet[MODEL, SelectQuery]):
     query: SelectQuery
+    
     
     def __init__(self, model_class: Type[MODEL]):
         self.model_class = model_class
@@ -53,28 +73,36 @@ class SelectQuerySet(Generic[MODEL]):
             relation = self.namespace.get_relation_by_type(model)
             fields = [f.name for f in model.iter_fields()]
             foreign_table = TableName(model.get_namespace().table_name)
-            sub_query = Coalesce(
-                JsonAgg(
-                    JsonBuild(
-                        # table_name="u",
-                        table_name=self.query.table_name,
-                        select=fields,
-                    ),
-                    filter=Filter(
-                        table_name=foreign_table, 
-                        filters={
-                            f"{relation.foreign_key}": "IS NOT NULL"
-                        }), 
-                    
-                ),
-                default="[]",
+            # sub_query = Coalesce(
+            #     JsonAgg(
+            #         JsonBuild(
+            #             # table_name="u",
+            #             table_name=self.query.table_name,
+            #             select=fields,
+            #         ),
+            #         filter=Filter(
+            #             table_name=foreign_table, 
+            #             filters={
+            #                 f"{relation.foreign_key}": "IS NOT NULL"
+            #             }),                    
+            #     ),
+            #     default="[]",
+            # )
+            # self.query._select += [(sub_query, relation.name)]
+            query = JsonNestedQuery(
+                select=fields,
+                from_table=self.query.table_name,
+                parent_table=TableName(model.get_namespace().table_name),
+                foreign_key=relation.foreign_key,
             )
-            self.query._select += [(sub_query, relation.name)]
+            self.query.add_select((query, relation.name))
             self.query.join(self.query.table_name, relation.primary_key, foreign_table, relation.foreign_key)
         return self
     
+    
     def render(self) -> str:
         return self.query.render()
+      
         
     @property
     def namespace(self) -> Namespace[MODEL, PgFieldInfo]:
@@ -88,3 +116,25 @@ class SelectQuerySet(Generic[MODEL]):
         return self
     
     
+    
+    
+class AggQuerySet(BaseQuerySet[MODEL, Coalesce]):
+        
+    def __init__(self, model_class: Type[MODEL]):
+        super().__init__(model_class)
+        foreign_table = TableName(model.get_namespace().table_name)
+        self.query = Coalesce(
+            JsonAgg(
+                JsonBuild(
+                    # table_name="u",
+                    table_name=self.query.table_name,
+                    select=fields,
+                ),
+                filter=Filter(
+                    table_name=foreign_table, 
+                    filters={
+                        f"{relation.foreign_key}": "IS NOT NULL"
+                    }),                    
+            ),
+            default="[]",
+        )

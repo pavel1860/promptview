@@ -213,20 +213,19 @@ class Where(Query):
         if new_line:
             sql += "\n"
         return sql
-    
-    
-    
-class SelectQuery(Query):
+
+
+
+class BaseSelectQuery(Query):
     
     def __init__(
-        self, 
-        select: List[str | Tuple[str, str] | Tuple[Query, str]] | Literal["*"] | Query | None,
-        from_table: TableName | str,
-        alias: str | None = None,        
+        self,
+        select: List[SelectType] | Literal["*"] | Query | None,
+        from_table: TableName,        
         joins: list[Join] | None = None,
         where: Where | None = None,
     ):
-        self._table_name = from_table if isinstance(from_table, TableName) else TableName(from_table, alias)
+        self._table_name = from_table
         self._select = select
         self._joins = joins or []
         self._where = where
@@ -252,6 +251,48 @@ class SelectQuery(Query):
     def join(self, primary_table: TableName, primary_key: str, foreign_table: TableName, foreign_key: str, alias: str | None = None):
         self._joins.append(Join(primary_table, primary_key, foreign_table, foreign_key))
         return self
+    
+    def add_select(self, field: str | Dict[str, str] | Dict[str, Query]):
+        self._select.append(field)
+        return self
+    
+class SelectQuery(BaseSelectQuery):
+    
+    def __init__(
+        self, 
+        select: List[SelectType] | Literal["*"] | Query | None,
+        from_table: TableName,
+        alias: str | None = None,        
+        joins: list[Join] | None = None,
+        where: Where | None = None,
+    ):
+        super().__init__(select, from_table, joins, where)
+        self._table_name = from_table if isinstance(from_table, TableName) else TableName(from_table, alias)
+        self._select = select
+        self._joins = joins or []
+        self._where = where
+    
+    # @property
+    # def table_name(self) -> TableName:
+    #     return self._table_name
+        
+    # @property
+    # def outputs(self):
+    #     return {field.name: field for field in self._select.values()}
+    
+    
+    # def alias(self, alias: str):
+    #     self._table_name.set_alias(alias)
+    #     return self
+    
+    # def where(self, where: QueryFilter |  Dict[str, str] | str):
+    #     self._where = Where(where, self._table_name)
+    #     return self
+    
+    
+    # def join(self, primary_table: TableName, primary_key: str, foreign_table: TableName, foreign_key: str, alias: str | None = None):
+    #     self._joins.append(Join(primary_table, primary_key, foreign_table, foreign_key))
+    #     return self
     
     def render_field(self, field: str | Dict[str, str] | Dict[str, Query]):
         if isinstance(field, str):
@@ -291,13 +332,41 @@ class SelectQuery(Query):
     
     
     
-    
-    
-    
-    
-    
 
-
+class JsonNestedQuery(BaseSelectQuery):
+    
+    def __init__(
+            self,
+            select: List[SelectType],
+            from_table: TableName,
+            parent_table: TableName,
+            foreign_key: str,
+            join: list[Join] | None = None,            
+            where: Where | None = None,            
+        ):
+        super().__init__(select, from_table, join, where)
+        self._parent_table = parent_table
+        self.query = Coalesce(
+                JsonAgg(
+                    JsonBuild(
+                        select=select,
+                        table_name=self._table_name,                        
+                    ),
+                    filter=Filter(
+                        table_name=self._parent_table, 
+                        filters={
+                            f"{foreign_key}": "IS NOT NULL"
+                        }),                    
+                ),
+                default="[]",
+            )
+    
+    
+    
+    def render(self, new_line: bool = True):
+        return self.query.render(new_line)
+    
+    
 
 # class PgQuerySet:
     
