@@ -1,4 +1,5 @@
 from abc import abstractmethod
+import contextvars
 from enum import Enum
 import inspect
 import json
@@ -406,6 +407,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     is_repo: bool
     db_type: DatabaseType
     _primary_key: FIELD_INFO | None = None
+    _curr_ctx_model: contextvars.ContextVar
     def __init__(
         self, 
         name: str, 
@@ -429,6 +431,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         self.db_type = db_type
         self._model_cls = None
         self._primary_key = None
+        self._curr_ctx_model = contextvars.ContextVar(f"curr_ctx_{self._name}")
 
        
         
@@ -470,6 +473,20 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         for relation_info in self._relations.values():
             relation_info.set_primary_cls(model_class)    
     
+    def set_ctx(self, model: MODEL):
+        self._curr_ctx_model.set(model)
+        
+    def get_ctx(self) -> MODEL:
+        return self._curr_ctx_model.get(None)
+    
+    def get_ctx_or_none(self, throw_error: bool = True) -> MODEL | None:
+        try:
+            model = self._curr_ctx_model.get(None)
+        except LookupError:
+            if throw_error:
+                raise ValueError(f"Context model for {self._name} not set")
+            return None
+        return model
     
     def get_field(self, name: str) -> FIELD_INFO | None:
         return self._fields.get(name, None)

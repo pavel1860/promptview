@@ -32,7 +32,6 @@ class Turn(Model):
     message: str | None = ModelField(default=None)
     branch_id: int = ModelField(foreign_key=True)
     trace_id: str | None = ModelField(default=None)
-    _ctx_token: contextvars.Token | None = None
     _auto_commit: bool = True
     
     # def model_post_init(self, __context): 
@@ -54,9 +53,16 @@ class Turn(Model):
         turn = await cls(branch_id=branch_id).save()        
         return turn
     
+    def __enter__(self):
+        raise NotImplementedError("Turns should be used with async context manager")
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        raise NotImplementedError("Turns should be used with async context manager")
+    
     
     async def __aenter__(self):
-        self._ctx_token = CURR_TURN.set(self)
+        # self._ctx_token = CURR_TURN.set(self)
+        self.get_namespace().set_ctx(self)
         return self
     
     async def __aexit__(self, exc_type, exc_value, traceback):
@@ -67,16 +73,16 @@ class Turn(Model):
         elif self._auto_commit:
             await self.commit()
     
-    @classmethod
-    def current(cls, throw_error: bool = True):
-        try:
-            turn = CURR_TURN.get()
-        except LookupError:
-            if throw_error:
-                raise
-            else:
-                return None
-        return turn
+    # @classmethod
+    # def current(cls, throw_error: bool = True):
+    #     try:
+    #         turn = CURR_TURN.get()
+    #     except LookupError:
+    #         if throw_error:
+    #             raise
+    #         else:
+    #             return None
+    #     return turn
     
     async def commit(self):
         self.status = TurnStatus.COMMITTED
@@ -96,8 +102,12 @@ class Turn(Model):
         ...
         
     async def add(self, obj: "Model", **kwargs) -> "Model":
+        from promptview.prompt import Block
+        from promptview.model2.block_model import BlockModel
         if not isinstance(obj, TurnModel):
             raise TypeError("Can only add ArtifactModel instances")
+        if isinstance(obj, Block):
+            obj = BlockModel.from_block(obj)
         obj.turn_id = self.id
         obj.branch_id = self.branch_id
         return await obj.save()
@@ -163,16 +173,16 @@ class Branch(Model):
     
 
 
-    @classmethod
-    def current(cls, throw_error: bool = True):
-        try:
-            branch = CURR_BRANCH.get()
-        except LookupError:
-            if throw_error:
-                raise
-            else:
-                return None
-        return branch
+    # @classmethod
+    # def current(cls, throw_error: bool = True):
+    #     try:
+    #         branch = CURR_BRANCH.get()
+    #     except LookupError:
+    #         if throw_error:
+    #             raise
+    #         else:
+    #             return None
+    #     return branch
     
     
     
@@ -180,8 +190,8 @@ class Branch(Model):
 
 def get_branch_id(branch: "int | Branch | None" = None) -> int:
     if branch is None:
-        branch = Branch.current(throw_error=False)        
-        return branch.id if branch is not None else 1
+        branch_model = Branch.current_or_none()        
+        return branch_model.id if branch_model is not None else 1
     elif isinstance(branch, int):
         return branch
     elif isinstance(branch, Branch):
@@ -191,8 +201,8 @@ def get_branch_id(branch: "int | Branch | None" = None) -> int:
     
 def get_turn_id(turn: "int | Turn | None" = None) -> int | None:
     if turn is None:
-        turn = Turn.current(throw_error=False)
-        return turn.id if turn is not None else None
+        turn_model = Turn.current_or_none()
+        return turn_model.id if turn_model is not None else None
     elif isinstance(turn, int):
         return turn
     elif isinstance(turn, Turn):

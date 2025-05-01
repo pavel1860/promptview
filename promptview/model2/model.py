@@ -1,3 +1,4 @@
+import contextvars
 from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, Iterator, List, Optional, Set, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
 import uuid
 from pydantic import BaseModel, Field, PrivateAttr
@@ -303,7 +304,9 @@ class Model(BaseModel, metaclass=ModelMeta):
     _namespace_name: str = PrivateAttr(default=None)
     _db_type: DatabaseType = PrivateAttr(default="postgres")
     _is_versioned: bool = PrivateAttr(default=False)
-    _relations: Dict[str, Dict[str, Any]] = PrivateAttr(default_factory=dict)    
+    _relations: Dict[str, Dict[str, Any]] = PrivateAttr(default_factory=dict) 
+    _ctx_token: contextvars.Token | None = PrivateAttr(default=None)    
+    _is_base: bool = True
     
     @classmethod
     def get_namespace_name(cls) -> str:
@@ -327,6 +330,18 @@ class Model(BaseModel, metaclass=ModelMeta):
         return getattr(self, self.get_key_field())
     
     @classmethod
+    def current(cls) -> MODEL:
+        """Get the current model in context"""
+        ns = cls.get_namespace()
+        return ns.get_ctx()
+    
+    @classmethod
+    def current_or_none(cls) -> MODEL | None:
+        """Get the current model in context or None if it is not set"""
+        ns = cls.get_namespace()
+        return ns.get_ctx_or_none()
+    
+    @classmethod
     async def initialize(cls):
         """Initialize the model (create table)"""
         ns = cls.get_namespace()
@@ -336,6 +351,21 @@ class Model(BaseModel, metaclass=ModelMeta):
         """Get the names of relation fields."""
         ns = self.get_namespace()
         return list(ns._relations.keys())
+    
+    
+    def __enter__(self):
+        """Enter the context"""
+        ns = self.get_namespace()
+        self._ctx_token = ns.set_ctx(self)
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Exit the context"""
+        ns = self.get_namespace()
+        ns.set_ctx(None)
+        self._ctx_token = None
+        
+    
     
     def _update_relation_instance(self):
         """Update the instance for all relations."""
