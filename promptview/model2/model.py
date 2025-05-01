@@ -1,5 +1,5 @@
 import contextvars
-from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, Iterator, List, Optional, Set, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, Iterator, List, Optional, Set, Tuple, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
 import uuid
 from pydantic import BaseModel, Field, PrivateAttr
 from pydantic.config import JsonDict
@@ -92,7 +92,7 @@ def unpack_relation_extra(extra: dict[str, Any], field_origin: Type[Any], is_ver
     junction_keys = extra.get("junction_keys", None)
     junction_model = extra.get("junction_model", None)
     relation_type = "one_to_one"                
-    if field_origin is Iterable:
+    if field_origin is list and junction_keys is not None:
         if junction_model is not None:
             relation_type = "many_to_many"
         else:
@@ -121,7 +121,8 @@ class ModelMeta(ModelMetaclass, type):
         
         
         # Skip processing for the base Model class
-        if name == "Model" or name == "RepoModel" or name == "ArtifactModel" or name == "ContextModel" or name == "AuthModel" or name == "TurnModel":
+        # if name == "Model" or name == "RepoModel" or name == "ArtifactModel" or name == "ContextModel" or name == "AuthModel" or name == "TurnModel":
+        if dct.get("_is_base", False):
             cls_obj = super().__new__(cls, name, bases, dct)
             return cls_obj
         
@@ -293,6 +294,7 @@ class ModelMeta(ModelMetaclass, type):
     
     
 MODEL = TypeVar("MODEL", bound="Model")
+JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
 
 class Model(BaseModel, metaclass=ModelMeta):
     """Base class for all models
@@ -301,12 +303,13 @@ class Model(BaseModel, metaclass=ModelMeta):
     The ORM functionality is added by the metaclass.
     """
     # Namespace reference - will be set by the metaclass
+    _is_base: bool = True
     _namespace_name: str = PrivateAttr(default=None)
     _db_type: DatabaseType = PrivateAttr(default="postgres")
     _is_versioned: bool = PrivateAttr(default=False)
     _relations: Dict[str, Dict[str, Any]] = PrivateAttr(default_factory=dict) 
     _ctx_token: contextvars.Token | None = PrivateAttr(default=None)    
-    _is_base: bool = True
+    
     
     @classmethod
     def get_namespace_name(cls) -> str:
@@ -427,17 +430,35 @@ class Model(BaseModel, metaclass=ModelMeta):
         return result
     
     
-    async def add(self, obj: MODEL, **kwargs) -> MODEL:
+    async def add(self, model: MODEL, **kwargs) -> MODEL:
         """Add a model instance to the database"""
         ns = self.get_namespace()
-        relation = ns.get_relation_by_type(obj.__class__)
+        relation = ns.get_relation_by_type(model.__class__)
         if not relation:
-            raise ValueError(f"Relation model not found for type: {obj.__class__.__name__}")
-        key = getattr(self, relation.primary_key)
-        setattr(obj, relation.foreign_key, key)
-        result = await obj.save()
+            raise ValueError(f"Relation model not found for type: {model.__class__.__name__}")
+        if isinstance(relation, NSManyToManyRelationInfo):
+            result = await model.save()
+            junction = relation.create_junction(self, result)            
+            junction = await junction.save()            
+        else:
+            key = getattr(self, relation.primary_key)
+            setattr(model, relation.foreign_key, key)
+            result = await model.save()
         return result
     
+    
+    async def add_rel(self, relation: JUNCTION_MODEL, model: MODEL) -> Tuple[JUNCTION_MODEL, MODEL]:
+        ns = self.get_namespace()
+        relation = ns.get_relation_by_type(model.__class__)
+        if not relation:
+            raise ValueError(f"Relation model not found for type: {model.__class__.__name__}")
+        if isinstance(relation, NSManyToManyRelationInfo):
+            result = await model.save()
+            junction = relation.create_junction(self, result)            
+            junction = await junction.save()
+        else:
+            raise ValueError("Relation is not a many to many relation")
+        return junction, result
     
     @classmethod
     async def get(cls: Type[MODEL], id: Any) -> MODEL:

@@ -7,7 +7,7 @@ from promptview.model2.postgres.operations import JoinType, PostgresOperations, 
 from promptview.model2.postgres.query_parser import build_query, build_where_clause
 from promptview.model2.query_filters import QueryFilter, QueryProxy, SelectField
 from promptview.model2.versioning import ArtifactLog
-from promptview.model2.base_namespace import NSRelationInfo, QuerySet, QuerySetSingleAdapter, SelectFields
+from promptview.model2.base_namespace import NSManyToManyRelationInfo, NSRelationInfo, QuerySet, QuerySetSingleAdapter, SelectFields
 from promptview.utils.db_connections import PGConnectionManager
 
 from promptview.model2.postgres.fields_query import PgFieldInfo
@@ -242,9 +242,17 @@ class PostgresQuerySet(QuerySet[MODEL]):
             relation = prev_query_set.namespace.get_relation_by_type(model)
             if not relation:
                 raise ValueError(f"Relation {model} not found in namespace {self.namespace.name}")        
-            query_set = PostgresQuerySet(relation.foreign_cls, relation.foreign_namespace, parent_query_set=self, depth=self.depth+1)
-            join = prev_query_set._add_join(PgJoin(relation, query_set, prev_query_set.depth+1))            
-            prev_query_set = query_set
+            if isinstance(relation, NSManyToManyRelationInfo):
+                print("many to many relation")
+                junction_query_set = PostgresQuerySet(relation.junction_cls, relation.junction_namespace, parent_query_set=self, depth=prev_query_set.depth+1)
+                prev_query_set._add_join(PgJoin(relation.junction_relation, junction_query_set, prev_query_set.depth+1))
+                query_set = PostgresQuerySet(relation.foreign_cls, relation.foreign_namespace, parent_query_set=junction_query_set, depth=prev_query_set.depth+2)
+                junction_query_set._add_join(PgJoin(relation.foreign_relation, query_set, prev_query_set.depth+2))
+                prev_query_set = query_set
+            else:
+                query_set = PostgresQuerySet(relation.foreign_cls, relation.foreign_namespace, parent_query_set=self, depth=prev_query_set.depth+1)
+                prev_query_set._add_join(PgJoin(relation, query_set, prev_query_set.depth+1))            
+                prev_query_set = query_set
         return self
     
     def _add_join(self, join: PgJoin):
