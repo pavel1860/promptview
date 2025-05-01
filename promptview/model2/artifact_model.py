@@ -17,6 +17,7 @@ class ArtifactModel(Model):
     """
     A model that is versioned and belongs to a repo.
     """
+    _is_base: bool = True
     id: int = KeyField(primary_key=True)
     artifact_id: uuid.UUID = KeyField(default=None, type="uuid")
     version: int = ModelField(default=1)    

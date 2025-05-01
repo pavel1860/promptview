@@ -214,6 +214,7 @@ def get_turn_id(turn: "int | Turn | None" = None) -> int | None:
     
     
 class TurnModel(Model):
+    _is_base: bool = True
     id: int = KeyField(primary_key=True)    
     branch_id: int = ModelField(foreign_key=True)
     turn_id: int = ModelField(foreign_key=True)    

@@ -45,6 +45,7 @@ from promptview.utils.db_connections import PGConnectionManager
 
 
 class AuthModel(Model):
+    _is_base: bool = True
     id: int = KeyField(primary_key=True)
     user_token: UUID = ModelField(None)
     name: str | None = ModelField(None)
