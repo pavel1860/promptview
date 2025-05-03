@@ -3,7 +3,7 @@ from typing import Dict, Generic, List, Literal, Set, Tuple
 from typing_extensions import TypeVar
 
 from promptview.model2.postgres.query_parser import build_where_clause
-from promptview.model2.query_filters import QueryFilter, QueryProxy
+from promptview.model2.query_filters import QueryFilter, QueryListType, QueryProxy, parse_query_params
 
 
 class Renderable:
@@ -86,8 +86,24 @@ class TableName:
     def __repr__(self):
         return f"TableName({self._table_name}, alias={self._alias})"
 
+
+class TableField(Renderable):
     
-class Join:
+    def __init__(self, table_name: TableName, field_name: str):
+        self._table_name = table_name
+        self._field_name = field_name
+        
+    def __repr__(self):
+        return f"TableField({self._table_name}, {self._field_name})"
+    
+    def render(self, new_line: bool = True):
+        if self._table_name._alias:
+            return f"{self._table_name.table_ref}.{self._field_name}"
+        else:
+            return self._field_name
+        
+    
+class Join(Renderable):
     
     def __init__(
         self,
@@ -106,7 +122,32 @@ class Join:
         if new_line:
             sql += "\n"
         return sql
+
+
+def wrap_par(sql: str, prefix) -> str:
+    new_sql = "("
+    new_sql += textwrap.indent(sql, "  ")
+    new_sql += ")"
+    return new_sql
+
+
+class Wrap(Query):
+    
+    def __init__(self, prefix: str, query: Query, suffix: str):
+        self.prefix = prefix
+        self.query = query
+        self.suffix = suffix
         
+    def render(self, new_line: bool = True):
+        new_sql = f"{self.prefix}\n" if new_line else self.prefix
+        sql =self.query.render(new_line)
+        if new_line:
+            new_sql += textwrap.indent(sql, "  ")
+        else:
+            new_sql += sql
+        new_sql += f"{self.suffix}" if new_line else self.suffix
+        return new_sql
+
 
 class Coalesce(Query):
     
@@ -132,7 +173,7 @@ class JsonBuild(Query):
         select: List[SelectType],
     ):
         self._table_name = table_name
-        self.select = select
+        self._select = select
         
     def render_field(self, field: SelectType):
         if isinstance(field, str):
@@ -144,10 +185,13 @@ class JsonBuild(Query):
                 return f"""'{field[1]}', {field[0].render()}"""
         else:
             return field.render()
-                
+        
+    def render_select(self):
+        return ",\n".join([self.render_field(field) for field in self._select]) + "\n"
+    
     def render(self, new_line: bool = True):
         sql = "jsonb_build_object(\n"
-        fields_sql = ",\n".join([self.render_field(field) for field in self.select]) + "\n"
+        fields_sql = self.render_select()
         sql += textwrap.indent(fields_sql, "    ")
         sql += ")"        
         if new_line:
@@ -187,7 +231,7 @@ class JsonAgg(Query):
     def render(self, new_line: bool = True):
         sql = f"json_agg(\n"
         if self.distinct:
-            sql += " DISTINCT ON (id)"
+            sql += " DISTINCT"
         sql += f"  {self.query.render()}"
         # if sql.endswith("\n"):
             # sql = sql[:-1]
@@ -200,22 +244,51 @@ class JsonAgg(Query):
         return sql
 
 
+class Condition(Query):
+    
+    def __init__(
+        self,
+        left: TableField,
+        operator: str,
+        right: TableField | int | str | bool,
+        ):
+        self._left = left
+        self._operator = operator
+        self._right = right
+        
+    def render_right(self):
+        if isinstance(self._right, TableField):
+            return self._right.render()
+        else:
+            return str(self._right)
+        
+    def render(self, new_line: bool = True):
+        return f"{self._left.render()} {self._operator} {self.render_right()}"
+
+
+
+   
+    
+
 class Where(Query):
     
-    def __init__(self, statment: QueryFilter |  Dict[str, str] | str, table_name: TableName):
+    def __init__(self, statment: QueryFilter |  List[Condition], table_name: TableName):
         self.statment = statment
         self.table_name = table_name
         
     def render(self, new_line: bool = True):
         if isinstance(self.statment, QueryFilter):
             sql = f"WHERE {build_where_clause(self.statment, self.table_name.table_ref)}"
-        elif isinstance(self.statment, dict):
-            raise ValueError("Where clause cannot be a dictionary")
+        elif isinstance(self.statment, list):
+            sql = f"WHERE " + " AND ".join([condition.render() for condition in self.statment])
         else:
             sql = f"WHERE {self.statment}"
         if new_line:
             sql += "\n"
         return sql
+    
+    
+    
 
 
 
@@ -336,7 +409,8 @@ class SelectQuery(BaseSelectQuery):
             sql += "\n"
             sql += self._where.render()
         if self._group_by:
-            sql += f"\nGROUP BY {self._table_name.table_ref}.{self._group_by}"
+            alias = self._table_name.table_ref +"." if self._table_name.table_ref else ""
+            sql += f"\nGROUP BY {alias}{self._group_by}"
         if new_line:
             sql += "\n"
         return sql
@@ -344,78 +418,135 @@ class SelectQuery(BaseSelectQuery):
     
     
 
+# class JsonNestedQuery(BaseSelectQuery):
+    
+#     def __init__(
+#             self,
+#             select: List[SelectType],
+#             from_table: TableName,
+#             primary_key: str,
+#             join: list[Join] | None = None,            
+#             where: Where | None = None,            
+#         ):
+#         super().__init__(select, from_table, join, where)
+#         self.query = Coalesce(
+#                 JsonAgg(
+#                     JsonBuild(
+#                         select=select,
+#                         table_name=self._table_name,                        
+#                     ),
+#                     filter=Filter(
+#                         table_name=self._table_name, 
+#                         filters={
+#                             f"{primary_key}": "IS NOT NULL"
+#                         }),                    
+#                 ),
+#                 default="[]",
+#             )
+    
+#     def render(self, new_line: bool = True):
+#         return self.query.render(new_line)
+    
+    
+    
+    
+    
+# class JsonSubNestedQuery(BaseSelectQuery):
+    
+#     def __init__(
+#             self,
+#             select: List[SelectType],
+#             from_table: TableName,
+#             parent_table: TableName,
+#             primary_key: str,
+#             join: list[Join] | None = None,            
+#             where: Where | None = None,            
+#         ):
+#         super().__init__(select, from_table, join, where)
+#         self._parent_table = parent_table
+#         self.query = Coalesce(
+#             SelectQuery(
+#                 JsonAgg(
+#                     JsonBuild(
+#                         table_name=from_table,
+#                         select=select,
+#                     )
+#                 ),  
+#                 from_table=from_table,
+#             ),
+#             default="[]"
+#         )
+    
+#     def render(self, new_line: bool = True):
+#         return self.query.render(new_line)
+
+
+
 class JsonNestedQuery(BaseSelectQuery):
     
     def __init__(
             self,
             select: List[SelectType],
             from_table: TableName,
-            parent_table: TableName,
             primary_key: str,
             join: list[Join] | None = None,            
             where: Where | None = None,            
         ):
+        self._primary_key = primary_key
         super().__init__(select, from_table, join, where)
-        self._parent_table = parent_table
-        self.query = Coalesce(
-                JsonAgg(
-                    JsonBuild(
-                        select=select,
-                        table_name=self._table_name,                        
-                    ),
-                    filter=Filter(
-                        table_name=self._table_name, 
-                        filters={
-                            f"{primary_key}": "IS NOT NULL"
-                        }),                    
-                ),
-                default="[]",
-            )
+        
     
     def render(self, new_line: bool = True):
-        return self.query.render(new_line)
-    
-    
-    
-    
-    
+        query = Coalesce(
+            JsonAgg(
+                JsonBuild(
+                    select=self._select,
+                    table_name=self._table_name,                        
+                ),
+                filter=Filter(
+                    table_name=self._table_name, 
+                    filters={
+                        f"{self._primary_key}": "IS NOT NULL"
+                    }),                    
+                distinct=True,
+            ),
+            default="[]",
+        )
+        return query.render(new_line)
+
+
+
 class JsonSubNestedQuery(BaseSelectQuery):
     
-    def __init__(
-            self,
-            select: List[SelectType],
-            from_table: TableName,
-            parent_table: TableName,
-            foreign_key: str,
-            join: list[Join] | None = None,            
-            where: Where | None = None,            
-        ):
-        super().__init__(select, from_table, join, where)
-        self._parent_table = parent_table
-        self.query = Coalesce(
-            SelectQuery(
-                JsonAgg(
-                    JsonBuild(
-                        table_name=from_table,
-                        select=select,
-                    )
-                ),  
-                from_table=from_table,
+    # def __init__(
+    #         self,
+    #         select: List[SelectType],
+    #         from_table: TableName,
+    #         parent_table: TableName,
+    #         primary_key: str,
+    #         join: list[Join] | None = None,            
+    #         where: Where | None = None,            
+    #     ):
+    #     super().__init__(select, from_table, join, where)        
+    
+    def render(self, new_line: bool = True):
+        query = Coalesce(
+            Wrap(
+                "(",
+                    SelectQuery(
+                        JsonAgg(
+                            JsonBuild(
+                                table_name=self._table_name,
+                                select=self._select,
+                            )
+                        ),  
+                        from_table=self._table_name,
+                        where=self._where,
+                    ),
+                ")",
             ),
             default="[]"
         )
-    
-    def render(self, new_line: bool = True):
-        return self.query.render(new_line)
-    
-    
-
-# class PgQuerySet:
-    
-#     def __init__(self, query: Query):
-#         self.query = query
-        
-#     def render(self, new_line: bool = True):
-#         return self.query.render(new_line)
+        return query.render(new_line)
     
     

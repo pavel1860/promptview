@@ -537,14 +537,24 @@ class SelectFieldProxy(QueryProxy[MODEL, FIELD_INFO]):
             return SelectField(name, sel_field)
         else:
             raise AttributeError(f"{self.model.__name__} has no attribute {name}")
-        
+ 
         
         
         
 
 
 def parse_query_params(conditions: QueryListType) -> QueryFilter | None:
-    """Parse query parameters string into a QueryFilter object"""
+    """Parse query parameters string into a QueryFilter object
+    
+    example:
+    conditions = [
+        ["test", "==", 1],
+        ["test", ">=", 1],
+        ["test", "<=", 1],
+        ["test", ">", 1],
+        ["test", "<", 1],
+    ]
+    """
     # Split into individual conditions
     # conditions = query_params.split('&')
     

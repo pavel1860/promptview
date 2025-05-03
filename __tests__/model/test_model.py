@@ -124,12 +124,8 @@ async def seeded_database():
     
     try:
     
-        await NamespaceManager.create_all_namespaces(
-            "users", 
-        )
-        
-        
-        
+        await NamespaceManager.create_all_namespaces()
+
         data = {}
         
         data['user'] = await User(name="John", age=30, user_token=uuid.uuid4()).save()
@@ -151,8 +147,6 @@ async def seeded_database():
         data['p2c1_like4'] = await data['p2_comment1'].add(Like(type=LikeType.DISLIKE, user_id=data['user'].id))
         data['p2_comment2'] = await data['post2'].add(Comment(content="post 2 comment 2", user_id=data['user'].id))
         data['p2c2_like1'] = await data['p2_comment2'].add(Like(type=LikeType.LIKE, user_id=data['user'].id))
-
-
 
         yield data
     finally:
