@@ -23,3 +23,4 @@ def assert_sql(query, expected_sql: str, expected_params: list, compiler_cls=Non
         
     assert formatted_actual == formatted_expected, "SQL does not match"
     assert actual_params == expected_params, "Parameters do not match"
+

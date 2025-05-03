@@ -47,6 +47,7 @@ class SelectQuery:
         self.limit = None
         self.offset = None
         self.distinct = False
+        self.alias = None
         
     
     
@@ -63,7 +64,11 @@ class SelectQuery:
     def inner_join(self, table, condition, alias=None):
         return self.join(table, condition, 'INNER', alias)
 
-        
+
+class Subquery:
+    def __init__(self, query: SelectQuery, alias: str):
+        self.query = query
+        self.alias = alias      
         
         
 class InsertQuery:

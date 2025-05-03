@@ -5,7 +5,7 @@
 
 
 from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, Value, And, Or, Not, IsNull, In, Between, Like, Function
-from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Table, UpdateQuery, Column
+from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery, Column
 
 
 
@@ -47,13 +47,25 @@ class Compiler:
         return placeholder
 
     def compile_expr(self, expr):
+        # if isinstance(expr, Column):
+        #     table_prefix = f"{expr.table}." if expr.table else ""
+        #     base = f"{table_prefix}{expr.name}"
+        #     return f"{base} AS {expr.alias}" if expr.alias else base
         if isinstance(expr, Column):
-            table_prefix = f"{expr.table}." if expr.table else ""
+            table_prefix = ""
+            if expr.table:
+                if isinstance(expr.table, Subquery):
+                    table_prefix = f"{expr.table.alias}."
+                else:
+                    table_prefix = f"{expr.table}."
+
             base = f"{table_prefix}{expr.name}"
             return f"{base} AS {expr.alias}" if expr.alias else base
 
         elif isinstance(expr, Value):
-            if expr.inline:
+            if expr.value == "*":
+                return "*"
+            elif expr.inline:
                 return repr(expr.value)  # inline as string
             else:
                 return self.add_param(expr.value)
@@ -124,9 +136,15 @@ class Compiler:
         )
 
     def compile_table(self, table):
+        if isinstance(table, Subquery):
+            sub_sql, _ = self.compile(table.query)  # compile inner query
+            return f"({sub_sql}) AS {table.alias}"
+        
         if hasattr(table, "name") and hasattr(table, "alias"):
             return f"{table.name}" + (f" AS {table.alias}" if table.alias else "")
+
         return str(table)
+
 
     def _compile_select(self, q: SelectQuery):
         sql = "SELECT "
