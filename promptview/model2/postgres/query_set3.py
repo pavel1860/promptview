@@ -14,12 +14,13 @@ from typing_extensions import TypeVar
 from promptview.model2.base_namespace import Namespace, NSRelationInfo
 from promptview.model2.model import Model
 from promptview.model2.postgres.fields_query import PgFieldInfo
-from promptview.model2.query_filters import QueryProxy
+# from promptview.model2.query_filters import QueryProxy
+from promptview.model2.postgres.sql.helpers import NestedQuery
 from promptview.utils.db_connections import PGConnectionManager
 
 
 from promptview.model2.postgres.sql.queries import SelectQuery, Table, Column, Subquery
-from promptview.model2.postgres.sql.expressions import Eq, IsNull, NestedQuery, Not, Value, Function, Coalesce, Gt, json_build_object
+from promptview.model2.postgres.sql.expressions import Eq, IsNull, Not, Value, Function, Coalesce, Gt, json_build_object
 from promptview.model2.postgres.sql.compiler import Compiler
 
 # Your ORM interfaces
@@ -36,37 +37,14 @@ MODEL = TypeVar("MODEL", bound="Model")
 
 
 
-# class NestedQuery:
-    
-    
-#     def __init__(self, query: "SelectQuerySet", alias: str, pk_col: Column, parent_query: "SelectQuerySet"):
-#         self.query_set = query
-#         self.alias = alias
-#         self.pk_col = pk_col
-#         self.parent_query = parent_query
-        
-#     @property
-#     def query(self):
-#         return self.query_set.query
-    
-#     @property
-#     def depth(self):
-#         return self.parent_query.query_depth + 1
-    
-#     def wrap_query_in_json_agg(self) -> Coalesce:
-#         obj = json_build_object(**{col.name: col for col in self.query.columns})
-#         agg = Function(
-#             "json_agg",
-#             obj,
-#             distinct=True,
-#             filter_where=Not(IsNull(self.pk_col))
-#         )
-#         return Coalesce(agg, Value("[]", inline=True), alias=self.alias)
+class QueryProxy:
+    def __init__(self, model_class, table: Table):
+        self.model_class = model_class
+        self.table = table
+        # self.table.alias = model_class.get_namespace().table_alias  # or pass in if needed
 
-#     def embed_query_as_subquery(self, outer_query: SelectQuery):
-#         subquery = Subquery(self.query, alias=self.alias)
-#         outer_query.from_table = subquery
-#         return outer_query
+    def __getattr__(self, field_name):
+        return Column(field_name, self.table)
 
 
 def wrap_query_in_json_agg(query: SelectQuery, alias: str, pk_col: Column) -> Coalesce:
@@ -156,8 +134,8 @@ class SelectQuerySet(Generic[MODEL]):
         return self
     
 
-    def where(self, condition: Callable[[Any], Any]) -> "SelectQuerySet[MODEL]":
-        proxy = QueryProxy(self.model_class)
+    def where(self, condition: Callable[[MODEL], Any]) -> "SelectQuerySet[MODEL]":
+        proxy = QueryProxy(self.model_class, self.curr_table)
         self.query.where(condition(proxy))
         return self
     

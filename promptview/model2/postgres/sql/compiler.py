@@ -4,7 +4,8 @@
 
 
 
-from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, NestedQuery, Value, And, Or, Not, IsNull, In, Between, Like, Function
+from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, Value, And, Or, Not, IsNull, In, Between, Like, Function
+from promptview.model2.postgres.sql.helpers import NestedQuery
 from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery, Column
 
 

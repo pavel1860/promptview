@@ -4,7 +4,7 @@
 
 
 from promptview.model2.postgres.sql.joins import Join
-
+from promptview.model2.postgres.sql.expressions import Eq, Expression, Neq, Gt, Gte, Lt, Lte, Value, param
 
 class Table:
     def __init__(self, name, alias=None):
@@ -34,6 +34,28 @@ class Column:
 
     def __repr__(self):
         return str(self)
+    
+    
+    # Inside Column class (or better: a ColumnExpression wrapper if you want to separate it from raw SQL)
+
+    def __eq__(self, other):
+        return Eq(self, param(other) if not isinstance(other, Expression) else other)
+
+    def __ne__(self, other):
+        return Neq(self, param(other) if not isinstance(other, Expression) else other)
+
+    def __gt__(self, other):
+        return Gt(self, param(other) if not isinstance(other, Expression) else other)
+
+    def __ge__(self, other):
+        return Gte(self, param(other) if not isinstance(other, Expression) else other)
+
+    def __lt__(self, other):
+        return Lt(self, param(other) if not isinstance(other, Expression) else other)
+
+    def __le__(self, other):
+        return Lte(self, param(other) if not isinstance(other, Expression) else other)
+
 
 
 

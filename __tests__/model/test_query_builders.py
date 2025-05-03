@@ -1,10 +1,13 @@
 import pytest
 
+from promptview.model2.fields import ModelField
+from promptview.model2.model import Model
+from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2.postgres.sql.compiler import Compiler
 from promptview.model2.postgres.sql.expressions import And, Like, In, Between, Eq, Gt, Value, Or, Not, Function, Coalesce, IsNull
 from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery
 from __tests__.model.utils import assert_sql
-
+import datetime as dt
 
 
 
@@ -463,3 +466,37 @@ def test_multiple_ctes():
     expected_params = [10]
 
     assert_sql(query, expected_sql, expected_params)
+
+
+
+class Post(Model):
+    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    updated_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    topic: str = ModelField()
+    content: str = ModelField()
+    views: int = ModelField()
+    author: str = ModelField()
+    uuid: str = ModelField()
+
+
+
+
+def test_basic_eq():
+    qs = SelectQuerySet(Post).select("*").where(lambda x: x.topic == "animals")
+    sql = qs.render()
+    assert "WHERE (p.topic = $1)" in sql
+    assert qs._params == ["animals"]
+
+def test_combined_and_or():
+    qs = SelectQuerySet(Post).select("*").where(
+        lambda x: (x.topic == "a") & (x.views > 5) | (x.author == "admin")
+    )
+    sql = qs.render()
+    assert "WHERE (((p.topic = $1) AND (p.views > $2)) OR (p.author = $3))" in sql
+    assert qs._params == ["a", 5, "admin"]
+
+def test_negation():
+    qs = SelectQuerySet(Post).select("*").where(lambda x: ~(x.topic == "a"))
+    sql = qs.render()
+    assert "WHERE (NOT (p.topic = $1))" in sql
+    assert qs._params == ["a"]
