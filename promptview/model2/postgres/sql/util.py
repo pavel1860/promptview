@@ -63,7 +63,7 @@ def print_sql(sql: str, new_line: bool = False):
 
     # Step 2: Apply function formatting AFTER sqlparse
     if new_line:
-        for fn in ["json_agg", "json_build_object"]:
+        for fn in ["COALESCE", "json_agg", "jsonb_build_object"]:
             sql = format_function_multiline(sql, fn, indent=10)
 
     print(sql)
