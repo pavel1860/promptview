@@ -17,7 +17,7 @@ class Expression:
 
 
 class Value(Expression):
-    def __init__(self, value, inline=False):
+    def __init__(self, value, inline=True):
         self.value = value
         self.inline = inline
 

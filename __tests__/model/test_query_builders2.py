@@ -1,7 +1,33 @@
 import pytest
+
 from promptview.model2.postgres.sql.compiler import Compiler
 from promptview.model2.postgres.sql.expressions import And, Like, In, Between, Eq, Gt, Value, Or, Not, Function, Coalesce, IsNull
 from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Table, UpdateQuery
+from __tests__.model.utils import assert_sql
+
+
+
+
+def test_simple_select():
+    users = Table("users", "u")
+    u_id = Column("id", users)
+    u_name = Column("name", users)
+
+    query = SelectQuery()
+    query.columns = [u_id, u_name]
+    query.from_table = users
+    query.where_clause = Eq(u_id, Value(42, inline=False))
+
+    expected_sql = """
+    SELECT u.id, u.name
+    FROM users AS u
+    WHERE (u.id = $1)
+    """
+    expected_params = [42]
+
+    assert_sql(query, expected_sql, expected_params)
+
+
 
 def test_simple_select_with_where_and_join():
     users = Table("users", alias="u")
@@ -14,7 +40,7 @@ def test_simple_select_with_where_and_join():
         posts,
         Eq(Column("id", users), Column("user_id", posts))
     )
-    query.where_clause = Gt(Column("age", users), Value(21))
+    query.where_clause = Gt(Column("age", users), Value(21, inline=False))
 
     compiler = Compiler()
     sql, params = compiler.compile(query)
@@ -26,8 +52,7 @@ def test_simple_select_with_where_and_join():
         "WHERE (u.age > $1)"
     )
 
-    assert sql.strip() == expected_sql.strip()
-    assert params == [21]
+    assert_sql(query, expected_sql, [21])
 
 def test_select_with_multiple_conditions_and():
     users = Table("users", alias="u")
@@ -36,8 +61,8 @@ def test_select_with_multiple_conditions_and():
     query.from_table = users
     query.columns = [Column("id", users)]
     query.where_clause = (
-        Gt(Column("age", users), Value(21)) &
-        Eq(Column("is_active", users), Value(True))
+        Gt(Column("age", users), Value(21, inline=False)) &
+        Eq(Column("is_active", users), Value(True, inline=False))
     )
 
     compiler = Compiler()
@@ -49,8 +74,9 @@ def test_select_with_multiple_conditions_and():
         "WHERE ((u.age > $1) AND (u.is_active = $2))"
     )
 
-    assert sql.strip() == expected_sql.strip()
-    assert params == [21, True]
+    assert_sql(query, expected_sql, [21, True])
+
+
 
 def test_select_with_or_and_not():
     users = Table("users", alias="u")
@@ -62,13 +88,10 @@ def test_select_with_or_and_not():
     query.columns = [Column("id", users)]
     query.where_clause = Not(
         Or(
-            Eq(Column("role", users), Value("admin")),
-            Eq(Column("role", users), Value("moderator")),
+            Eq(Column("role", users), Value("admin", inline=False)),
+            Eq(Column("role", users), Value("moderator", inline=False)),
         )
     )
-
-    compiler = Compiler()
-    sql, params = compiler.compile(query)
 
     expected_sql = (
         "SELECT u.id\n"
@@ -76,8 +99,7 @@ def test_select_with_or_and_not():
         "WHERE (NOT ((u.role = $1) OR (u.role = $2)))"
     )
 
-    assert sql.strip() == expected_sql.strip()
-    assert params == ["admin", "moderator"]
+    assert_sql(query, expected_sql, ["admin", "moderator"])
 
 
 
@@ -120,7 +142,7 @@ def test_select_with_coalesce_and_json_agg():
     likes_subq.from_table = likes
     likes_subq.where_clause = Eq(l_post_id, p_id)
 
-    likes_coalesced = Coalesce(likes_subq, Value("[]"))
+    likes_coalesced = Coalesce(likes_subq, Value("[]", inline=True))
 
     # Posts aggregation
     post_obj = Function(
@@ -139,7 +161,7 @@ def test_select_with_coalesce_and_json_agg():
         filter_where=Not(IsNull(p_id))
     )
 
-    posts_coalesced = Coalesce(posts_agg, Value("[]"), alias="posts")
+    posts_coalesced = Coalesce(posts_agg, Value("[]", inline=True), alias="posts")
 
     # Final query
     query = SelectQuery()
@@ -148,18 +170,20 @@ def test_select_with_coalesce_and_json_agg():
     query.join(posts, Eq(u_id, p_user_id))
     query.join(likes, Eq(p_id, l_post_id))
     query.group_by = [u_id]
-
-
-
-    compiler = Compiler()
-    sql, params = compiler.compile(query)   
+  
     
-    assert sql == """SELECT u.id, u.created_at, u.name, u.age, u.address, COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'created_at', p.created_at, 'title', p.title, 'content', p.content, 'user_id', p.user_id, 'likes', COALESCE((SELECT json_agg(jsonb_build_object('id', l.id, 'created_at', l.created_at, 'post_id', l.post_id))
-FROM likes AS l
-WHERE (l.post_id = p.id)), '[]'))) FILTER (WHERE (NOT (p.id IS NULL))), '[]') AS posts
-FROM users AS u
-INNER JOIN posts AS p ON (u.id = p.user_id) INNER JOIN likes AS l ON (p.id = l.post_id)
-GROUP BY u.id"""
+    expected_sql = """
+    SELECT u.id, u.created_at, u.name, u.age, u.address, COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'created_at', p.created_at, 'title', p.title, 'content', p.content, 'user_id', p.user_id, 'likes', COALESCE((SELECT json_agg(jsonb_build_object('id', l.id, 'created_at', l.created_at, 'post_id', l.post_id))
+    FROM likes AS l
+    WHERE (l.post_id = p.id)), '[]'))) FILTER (WHERE (NOT (p.id IS NULL))), '[]') AS posts
+    FROM users AS u
+    INNER JOIN posts AS p ON (u.id = p.user_id) INNER JOIN likes AS l ON (p.id = l.post_id)
+    GROUP BY u.id
+    """
+    expected_params = []
+    assert_sql(query, expected_sql, expected_params)
+
+
 
 
 
@@ -179,13 +203,13 @@ def test_where_clause():
     where_expr = And(
         Or(
             And(
-                Gt(u_age, Value(21)),
-                Like(u_name, Value("J%"))
+                Gt(u_age, Value(21, inline=False)),
+                Like(u_name, Value("J%", inline=False))
             ),
             Not(IsNull(u_address))
         ),
         In(u_id, [1, 2, 3]),
-        Between(u_created, Value("2023-01-01"), Value("2023-12-31"))
+        Between(u_created, Value("2023-01-01", inline=False), Value("2023-12-31", inline=False))
     )
 
     # Build the query
@@ -223,8 +247,8 @@ def test_insert_query():
     q = InsertQuery(users)
     q.columns = [u_id, u_name, u_email]
     q.values = [
-        [Value(1), Value("Alice"), Value("alice@example.com")],
-        [Value(2), Value("Bob"), Value("bob@example.com")]
+        [Value(1, inline=False), Value("Alice", inline=False), Value("alice@example.com", inline=False)],
+        [Value(2, inline=False), Value("Bob", inline=False), Value("bob@example.com", inline=False)]
     ]
     q.returning = [u_id]
 
@@ -248,10 +272,10 @@ def test_update_query():
 
     q = UpdateQuery(users)
     q.set_clauses = {
-        u_name: Value("Alice Updated"),
-        u_email: Value("alice@newmail.com")
+        u_name: Value("Alice Updated", inline=False),
+        u_email: Value("alice@newmail.com", inline=False)
     }
-    q.where_clause = Eq(u_id, Value(1))
+    q.where_clause = Eq(u_id, Value(1, inline=False))
     q.returning = [u_id]
 
     compiler = Compiler()
@@ -274,7 +298,7 @@ def test_delete_query():
     u_name = Column("name", users)
 
     q = DeleteQuery(users)
-    q.where_clause = Eq(u_name, Value("Bob"))
+    q.where_clause = Eq(u_name, Value("Bob", inline=False))
     q.returning = [u_id]
 
     compiler = Compiler()

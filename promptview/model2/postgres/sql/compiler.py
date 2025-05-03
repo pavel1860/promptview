@@ -52,10 +52,6 @@ class Compiler:
             base = f"{table_prefix}{expr.name}"
             return f"{base} AS {expr.alias}" if expr.alias else base
 
-        # elif isinstance(expr, Value):
-        #     if isinstance(expr.value, str):
-        #         return f"'{expr.value}'"
-        #     return self.add_param(expr.value)
         elif isinstance(expr, Value):
             if expr.inline:
                 return repr(expr.value)  # inline as string
