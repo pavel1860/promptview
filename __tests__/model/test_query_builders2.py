@@ -1,7 +1,7 @@
 import pytest
 from promptview.model2.postgres.sql.compiler import Compiler
 from promptview.model2.postgres.sql.expressions import And, Like, In, Between, Eq, Gt, Value, Or, Not, Function, Coalesce, IsNull
-from promptview.model2.postgres.sql.queries import Column, SelectQuery, Table
+from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Table, UpdateQuery
 
 def test_simple_select_with_where_and_join():
     users = Table("users", alias="u")
@@ -209,3 +209,81 @@ def test_where_clause():
     assert "IN ($" in sql or "IN (" in sql  # Depending on your param rendering
     assert len(params) == 7
     assert params == [21, "J%", 1, 2, 3, "2023-01-01", "2023-12-31"][:len(params)]
+
+
+
+
+
+def test_insert_query():
+    users = Table("users", "u")
+    u_id = Column("id", users)
+    u_name = Column("name", users)
+    u_email = Column("email", users)
+
+    q = InsertQuery(users)
+    q.columns = [u_id, u_name, u_email]
+    q.values = [
+        [Value(1), Value("Alice"), Value("alice@example.com")],
+        [Value(2), Value("Bob"), Value("bob@example.com")]
+    ]
+    q.returning = [u_id]
+
+    compiler = Compiler()
+    sql, params = compiler.compile(q)
+
+    print(sql)
+    print("Params:", params)
+
+    assert sql.startswith("INSERT INTO users")
+    assert "VALUES" in sql
+    assert "RETURNING" in sql
+    assert params == [1, "Alice", "alice@example.com", 2, "Bob", "bob@example.com"]
+
+
+def test_update_query():
+    users = Table("users", "u")
+    u_id = Column("id", users)
+    u_name = Column("name", users)
+    u_email = Column("email", users)
+
+    q = UpdateQuery(users)
+    q.set_clauses = {
+        u_name: Value("Alice Updated"),
+        u_email: Value("alice@newmail.com")
+    }
+    q.where_clause = Eq(u_id, Value(1))
+    q.returning = [u_id]
+
+    compiler = Compiler()
+    sql, params = compiler.compile(q)
+
+    print(sql)
+    print("Params:", params)
+
+    assert sql.startswith("UPDATE users")
+    assert "SET" in sql
+    assert "WHERE" in sql
+    assert "RETURNING" in sql
+    assert params == ["Alice Updated", "alice@newmail.com", 1]
+
+
+
+def test_delete_query():
+    users = Table("users", "u")
+    u_id = Column("id", users)
+    u_name = Column("name", users)
+
+    q = DeleteQuery(users)
+    q.where_clause = Eq(u_name, Value("Bob"))
+    q.returning = [u_id]
+
+    compiler = Compiler()
+    sql, params = compiler.compile(q)
+
+    print(sql)
+    print("Params:", params)
+
+    assert sql.startswith("DELETE FROM users")
+    assert "WHERE" in sql
+    assert "RETURNING" in sql
+    assert params == ["Bob"]

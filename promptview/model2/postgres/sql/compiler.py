@@ -29,6 +29,12 @@ class Compiler:
 
         if isinstance(query, SelectQuery):
             sql = self._compile_select(query)
+        elif isinstance(query, InsertQuery):
+            sql = self._compile_insert(query)
+        elif isinstance(query, UpdateQuery):
+            sql = self._compile_update(query)
+        elif isinstance(query, DeleteQuery):
+            sql = self._compile_delete(query)
         else:
             raise TypeError(f"Unsupported query type: {type(query)}")
 
@@ -153,5 +159,70 @@ class Compiler:
 
         if q.offset is not None:
             sql += f"\nOFFSET {q.offset}"
+
+        return sql
+
+
+
+    def _compile_insert(self, q: InsertQuery):
+        table = self.compile_table(q.table)
+
+        # Compile column names
+        columns = ", ".join(col.name for col in q.columns)
+
+        # Compile values
+        value_rows = []
+        for row in q.values:
+            placeholders = [self.compile_expr(v) for v in row]
+            value_rows.append(f"({', '.join(placeholders)})")
+        values_sql = ",\n".join(value_rows)
+
+        sql = f"INSERT INTO {table} ({columns})\nVALUES {values_sql}"
+
+        # RETURNING clause
+        if q.returning:
+            returning = ", ".join(self.compile_expr(c) for c in q.returning)
+            sql += f"\nRETURNING {returning}"
+
+        return sql
+
+    
+    def _compile_update(self, q: UpdateQuery):
+        table = self.compile_table(q.table)
+
+        # SET clause
+        set_fragments = []
+        for col, val in q.set_clauses.items():
+            col_sql = self.compile_expr(col)
+            val_sql = self.compile_expr(val)
+            set_fragments.append(f"{col_sql} = {val_sql}")
+        set_clause = ", ".join(set_fragments)
+
+        sql = f"UPDATE {table}\nSET {set_clause}"
+
+        # WHERE clause
+        if q.where_clause:
+            sql += f"\nWHERE {self.compile_expr(q.where_clause)}"
+
+        # RETURNING clause
+        if q.returning:
+            returning_sql = ", ".join(self.compile_expr(c) for c in q.returning)
+            sql += f"\nRETURNING {returning_sql}"
+
+        return sql
+
+
+    def _compile_delete(self, q: DeleteQuery):
+        table = self.compile_table(q.table)
+        sql = f"DELETE FROM {table}"
+
+        # WHERE clause
+        if q.where_clause:
+            sql += f"\nWHERE {self.compile_expr(q.where_clause)}"
+
+        # RETURNING clause
+        if q.returning:
+            returning_sql = ", ".join(self.compile_expr(c) for c in q.returning)
+            sql += f"\nRETURNING {returning_sql}"
 
         return sql
