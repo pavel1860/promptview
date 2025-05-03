@@ -2,7 +2,7 @@ import pytest
 
 from promptview.model2.postgres.sql.compiler import Compiler
 from promptview.model2.postgres.sql.expressions import And, Like, In, Between, Eq, Gt, Value, Or, Not, Function, Coalesce, IsNull
-from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Table, UpdateQuery
+from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery
 from __tests__.model.utils import assert_sql
 
 
@@ -311,3 +311,155 @@ def test_delete_query():
     assert "WHERE" in sql
     assert "RETURNING" in sql
     assert params == ["Bob"]
+
+
+
+
+
+
+
+
+
+def test_sub_queries():
+    posts = Table("posts", "p")
+    p_user_id = Column("user_id", posts)
+
+    # Subquery: SELECT user_id, COUNT(*) AS post_count FROM posts GROUP BY user_id
+    inner_query = SelectQuery()
+    inner_query.columns = [
+        Column("user_id", posts),
+        Function("COUNT", Value("*"), alias="post_count")
+    ]
+    inner_query.from_table = posts
+    inner_query.group_by = [Column("user_id", posts)]
+
+    subquery = Subquery(inner_query, alias="pc")
+
+    # Outer query: SELECT p.user_id, pc.post_count ...
+    outer_query = SelectQuery()
+    outer_query.columns = [
+        Column("user_id", posts),
+        Column("post_count", subquery)
+    ]
+    outer_query.from_table = subquery
+    outer_query.join(posts, Eq(Column("user_id", posts), Column("user_id", subquery)))
+
+    expected_sql = """
+    SELECT p.user_id, pc.post_count
+    FROM (
+        SELECT p.user_id, COUNT(*) AS post_count
+        FROM posts AS p
+        GROUP BY p.user_id
+    ) AS pc
+    INNER JOIN posts AS p ON (p.user_id = pc.user_id)
+    """
+
+
+
+    assert_sql(outer_query, expected_sql, [])
+    
+    
+    
+    
+    
+    
+    
+def test_cte_support():
+    posts = Table("posts", "p")
+    users = Table("users", "u")
+
+    p_user_id = Column("user_id", posts)
+    p_created = Column("created_at", posts)
+    u_id = Column("id", users)
+    u_name = Column("name", users)
+
+    # CTE query: recent posts
+    recent_posts = SelectQuery()
+    recent_posts.columns = [p_user_id]
+    recent_posts.from_table = posts
+    recent_posts.where_clause = Gt(p_created, Value("2024-01-01", inline=False))
+
+    # Outer query: users + recent posts
+    cte_alias = "recent_posts"
+    cte_table = Table(cte_alias, "rp")
+
+    rp_user_id = Column("user_id", cte_table)
+
+    query = SelectQuery()
+    query.ctes = [(cte_alias, recent_posts)]
+    query.columns = [u_id, u_name]
+    query.from_table = users
+    query.join(cte_table, Eq(u_id, rp_user_id))
+
+    expected_sql = """
+    WITH recent_posts AS (
+        SELECT p.user_id
+        FROM posts AS p
+        WHERE (p.created_at > $1)
+    )
+    SELECT u.id, u.name
+    FROM users AS u
+    INNER JOIN recent_posts AS rp ON (u.id = rp.user_id)
+    """
+    expected_params = ["2024-01-01"]
+
+    assert_sql(query, expected_sql, expected_params)
+
+
+
+
+
+def test_multiple_ctes():
+    posts = Table("posts", "p")
+    users = Table("users", "u")
+    user_counts_cte = Table("user_counts", "uc")
+    top_users_cte = Table("top_users", "t")
+
+    # Columns
+    p_user_id = Column("user_id", posts)
+    u_id = Column("id", users)
+    u_name = Column("name", users)
+    uc_user_id = Column("user_id", user_counts_cte)
+    uc_post_count = Column("post_count", user_counts_cte)
+    t_user_id = Column("user_id", top_users_cte)
+
+    # First CTE: user_counts
+    user_counts = SelectQuery()
+    user_counts.columns = [
+        p_user_id,
+        Function("COUNT", Value("*"), alias="post_count")
+    ]
+    user_counts.from_table = posts
+    user_counts.group_by = [p_user_id]
+
+    # Second CTE: top_users
+    top_users = SelectQuery()
+    top_users.columns = [uc_user_id]
+    top_users.from_table = user_counts_cte
+    top_users.where_clause = Gt(uc_post_count, Value(10, inline=False))
+
+    # Final query
+    query = SelectQuery()
+    query.ctes = [("user_counts", user_counts), ("top_users", top_users)]
+    query.columns = [u_id, u_name]
+    query.from_table = users
+    query.join(top_users_cte, Eq(u_id, t_user_id))
+
+    expected_sql = """
+    WITH user_counts AS (
+        SELECT p.user_id, COUNT(*) AS post_count
+        FROM posts AS p
+        GROUP BY p.user_id
+    ),
+    top_users AS (
+        SELECT uc.user_id
+        FROM user_counts AS uc
+        WHERE (uc.post_count > $1)
+    )
+    SELECT u.id, u.name
+    FROM users AS u
+    INNER JOIN top_users AS t ON (u.id = t.user_id)
+    """
+    expected_params = [10]
+
+    assert_sql(query, expected_sql, expected_params)

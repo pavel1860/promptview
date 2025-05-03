@@ -48,7 +48,7 @@ class SelectQuery:
         self.offset = None
         self.distinct = False
         self.alias = None
-        
+        self.ctes = []  
     
     
     def join(self, table, condition, join_type='INNER', alias=None):

@@ -28,7 +28,13 @@ class Compiler:
         self.param_counter = 1
 
         if isinstance(query, SelectQuery):
-            sql = self._compile_select(query)
+            sql = ""
+
+            # Add CTEs first
+            if query.ctes:
+                sql += self._compile_ctes(query.ctes) + "\n"
+
+            sql += self._compile_select(query)
         elif isinstance(query, InsertQuery):
             sql = self._compile_insert(query)
         elif isinstance(query, UpdateQuery):
@@ -240,3 +246,12 @@ class Compiler:
             sql += f"\nRETURNING {returning_sql}"
 
         return sql
+
+    
+    
+    def _compile_ctes(self, ctes):
+        parts = []
+        for alias, cte_query in ctes:
+            cte_sql, _ = self.compile(cte_query)  # Don't use params from inner queries
+            parts.append(f"{alias} AS ({cte_sql})")
+        return "WITH " + ",\n     ".join(parts)
