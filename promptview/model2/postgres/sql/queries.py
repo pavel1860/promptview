@@ -1,6 +1,8 @@
 
 
 
+
+
 from promptview.model2.postgres.sql.joins import Join
 
 
@@ -131,6 +133,13 @@ class DeleteQuery:
         self.table = table
         self.where_clause = None
         self.returning = []
+
+
+
+
+
+
+
 
 
 

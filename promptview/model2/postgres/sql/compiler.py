@@ -4,7 +4,7 @@
 
 
 
-from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, Value, And, Or, Not, IsNull, In, Between, Like, Function
+from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, NestedQuery, Value, And, Or, Not, IsNull, In, Between, Like, Function
 from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery, Column
 
 
@@ -61,7 +61,7 @@ class Compiler:
             table_prefix = ""
             if expr.table:
                 if isinstance(expr.table, Subquery):
-                    table_prefix = f"{expr.table.alias}."
+                    table_prefix = f"{expr.table.alias}."                    
                 else:
                     table_prefix = f"{expr.table}."
 
@@ -131,7 +131,10 @@ class Compiler:
             if expr.alias:
                 compiled += f" AS {expr.alias}"
             return compiled
-
+        
+        elif isinstance(expr, NestedQuery):
+            query = expr.build_query()
+            return self.compile_expr(query)
         else:
             raise TypeError(f"Unknown expression type: {type(expr)}")
 
