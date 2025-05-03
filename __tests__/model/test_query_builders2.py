@@ -1,7 +1,7 @@
 import pytest
-from promptview.model2.postgres.compiler import Compiler
-from promptview.model2.postgres.expressions import Eq, Gt, Value, Or, Not
-from promptview.model2.postgres.query_builders3 import Column, SelectQuery, Table
+from promptview.model2.postgres.sql.compiler import Compiler
+from promptview.model2.postgres.sql.expressions import Eq, Gt, Value, Or, Not
+from promptview.model2.postgres.sql.queries import Column, SelectQuery, Table
 
 def test_simple_select_with_where_and_join():
     users = Table("users", alias="u")

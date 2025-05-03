@@ -22,10 +22,12 @@ class Value(Expression):
         self.inline = inline
 
 class Function(Expression):
-    def __init__(self, name, *args, alias=None):
+    def __init__(self, name, *args, alias=None, filter_where=None, distinct=False):
         self.name = name
         self.args = args
         self.alias = alias
+        self.filter_where = filter_where
+        self.distinct = distinct
 
     def __str__(self):
         inner = ", ".join(str(arg) for arg in self.args)
@@ -33,6 +35,10 @@ class Function(Expression):
 
 
 
+class Coalesce(Expression):
+    def __init__(self, *values, alias=None):
+        self.values = values
+        self.alias = alias
 
 def json_build_object(**kwargs):
     args = []

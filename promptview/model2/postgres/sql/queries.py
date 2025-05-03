@@ -1,7 +1,7 @@
 
 
 
-from promptview.model2.postgres.joins import Join
+from promptview.model2.postgres.sql.joins import Join
 
 
 class Table:
