@@ -63,6 +63,43 @@ class SelectQuery:
 
     def inner_join(self, table, condition, alias=None):
         return self.join(table, condition, 'INNER', alias)
+    
+    
+    def select(self, *columns):
+        self.columns = list(columns)
+        return self
+
+    def from_(self, table):
+        self.from_table = table
+        return self
+
+    def where(self, condition):
+        self.where_clause = condition
+        return self
+
+    def group_by_(self, *cols):
+        self.group_by = list(cols)
+        return self
+
+    def order_by_(self, *cols):
+        self.order_by = list(cols)
+        return self
+
+    def limit_(self, count):
+        self.limit = count
+        return self
+
+    def offset_(self, count):
+        self.offset = count
+        return self
+
+    def with_cte(self, name, query):
+        self.ctes.append((name, query))
+        return self
+
+    def distinct_(self, enabled=True):
+        self.distinct = enabled
+        return self
 
 
 class Subquery:

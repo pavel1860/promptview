@@ -20,6 +20,10 @@ class Value(Expression):
     def __init__(self, value, inline=True):
         self.value = value
         self.inline = inline
+        
+        
+def param(value):
+    return Value(value, inline=False)
 
 class Function(Expression):
     def __init__(self, name, *args, alias=None, filter_where=None, distinct=False):
