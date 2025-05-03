@@ -8,11 +8,11 @@
 
 
 
-from typing import Any, Callable, Generic, List, Literal, Self, Type
+from typing import TYPE_CHECKING, Any, Callable, Generator, Generic, List, Literal, Self, Type
 from typing_extensions import TypeVar
 
 from promptview.model2.base_namespace import Namespace, NSRelationInfo
-from promptview.model2.model import Model
+
 from promptview.model2.postgres.fields_query import PgFieldInfo
 # from promptview.model2.query_filters import QueryProxy
 from promptview.model2.postgres.sql.helpers import NestedQuery
@@ -20,11 +20,16 @@ from promptview.utils.db_connections import PGConnectionManager
 
 
 from promptview.model2.postgres.sql.queries import SelectQuery, Table, Column, Subquery
-from promptview.model2.postgres.sql.expressions import Eq, IsNull, Not, Value, Function, Coalesce, Gt, json_build_object
+from promptview.model2.postgres.sql.expressions import Eq, IsNull, Not, Value, Function, Coalesce, Gt, json_build_object, param, OrderBy
 from promptview.model2.postgres.sql.compiler import Compiler
+from functools import reduce
+from operator import and_
+
+
 
 # Your ORM interfaces
-
+if TYPE_CHECKING:
+    from promptview.model2.model import Model
 
 class QueryWrapper:
     def __init__(self, query: SelectQuery, type: Literal["select", "join_nested", "join_first"]):
@@ -34,6 +39,23 @@ class QueryWrapper:
     
 
 MODEL = TypeVar("MODEL", bound="Model")
+
+T_co = TypeVar("T_co", covariant=True)
+
+class QuerySetSingleAdapter(Generic[T_co]):
+    def __init__(self, queryset: "SelectQuerySet[T_co]"):
+        self.queryset = queryset
+
+    def __await__(self) -> Generator[Any, None, T_co]:
+        async def await_query():
+            results = await self.queryset.execute()
+            if results:
+                return results[0]
+            return None
+            # raise ValueError("No results found")
+            # return None
+            # raise DoesNotExist(self.queryset.model)
+        return await_query().__await__()  
 
 
 
@@ -85,6 +107,10 @@ class SelectQuerySet(Generic[MODEL]):
             alias = f"{base}{i}"
         self.alias_lookup[alias] = name
         return alias
+    
+    
+    def __await__(self):
+        return self.execute().__await__()
 
     @property
     def namespace(self) -> Namespace[MODEL, PgFieldInfo]:
@@ -103,7 +129,7 @@ class SelectQuerySet(Generic[MODEL]):
         return self.model_stack[-1]
     
     @curr_model.setter
-    def curr_model(self, model: Type[Model]):
+    def curr_model(self, model: Type["Model"]):
         self.model_stack.append(model)
         
     @property
@@ -134,10 +160,26 @@ class SelectQuerySet(Generic[MODEL]):
         return self
     
 
-    def where(self, condition: Callable[[MODEL], Any]) -> "SelectQuerySet[MODEL]":
-        proxy = QueryProxy(self.model_class, self.curr_table)
-        self.query.where(condition(proxy))
+    def where(self, condition: Callable[[MODEL], Any] | None = None, **kwargs) -> "SelectQuerySet[MODEL]":
+        expressions = []
+
+        if condition is not None:
+            proxy = QueryProxy(self.model_class, self.curr_table)
+            self.query.where(condition(proxy))
+        if kwargs:
+            for field, value in kwargs.items():
+                col = Column(field, self.curr_table)
+                expressions.append(Eq(col, param(value)))
+                
+        if expressions:
+            expr = reduce(and_, expressions) if len(expressions) > 1 else expressions[0]
+            self.query.where(expr)
+
         return self
+    
+    
+    def filter(self, condition: Callable[[MODEL], Any] | None = None, **kwargs) -> "SelectQuerySet[MODEL]":
+        return self.where(condition, **kwargs)
     
     def join(self, query_set: "SelectQuerySet") -> "SelectQuerySet[MODEL]":
         rel = self.curr_model.get_namespace().get_relation_by_type(query_set.model_class)
@@ -163,7 +205,7 @@ class SelectQuerySet(Generic[MODEL]):
         
         
 
-    def join_old(self, related_model: Type[Model]) -> "SelectQuerySet[MODEL]":
+    def join_old(self, related_model: "Type[Model]") -> "SelectQuerySet[MODEL]":
         rel = self.curr_model.get_namespace().get_relation_by_type(related_model)
         if rel is None:
             raise ValueError("No relation found")
@@ -191,7 +233,7 @@ class SelectQuerySet(Generic[MODEL]):
 
         return self
     
-    def _join_first_table(self, related_model: Type[Model], related_table: Table, rel: NSRelationInfo):
+    def _join_first_table(self, related_model: "Type[Model]", related_table: Table, rel: NSRelationInfo):
         
         # Add JSON aggregation
         json_obj = json_build_object(**{
@@ -212,7 +254,7 @@ class SelectQuerySet(Generic[MODEL]):
         self.curr_model = related_model
         self.curr_table = related_table
             
-    def _join_nested_table(self, related_model: Type[Model], related_table: Table, rel: NSRelationInfo):                
+    def _join_nested_table(self, related_model: "Type[Model]", related_table: Table, rel: NSRelationInfo):                
         json_obj = json_build_object(**{
             f.name: Column(f.name, related_table) for f in related_model.iter_fields()
         })
@@ -237,9 +279,21 @@ class SelectQuerySet(Generic[MODEL]):
         else:
             args = self.args + args            
 
+    # def order_by(self, *fields: str) -> "SelectQuerySet[MODEL]":
+    #     self.query.order_by(*[Column(f, self.table) for f in fields])
+    #     return self
     def order_by(self, *fields: str) -> "SelectQuerySet[MODEL]":
-        self.query.order_by(*[Column(f, self.table) for f in fields])
+        orderings = []
+        for field in fields:
+            direction = "ASC"
+            if field.startswith("-"):
+                direction = "DESC"
+                field = field[1:]
+            orderings.append(OrderBy(Column(field, self.curr_table), direction))
+
+        self.query.order_by_(*orderings)
         return self
+
 
     def limit(self, n: int) -> "SelectQuerySet[MODEL]":
         self.query.limit_(n)
@@ -248,6 +302,19 @@ class SelectQuerySet(Generic[MODEL]):
     def offset(self, n: int) -> "SelectQuerySet[MODEL]":
         self.query.offset_(n)
         return self
+    
+    
+    def first(self) -> "QuerySetSingleAdapter[MODEL]":
+        self.order_by(self.model_class.get_key_field())
+        self.limit(1)
+        return QuerySetSingleAdapter(self)
+    
+    def last(self) -> "QuerySetSingleAdapter[MODEL]":
+        self.order_by("-" + self.model_class.get_key_field())
+        self.limit(1)
+        return QuerySetSingleAdapter(self)
+    
+
 
     def render(self) -> str:
         compiler = Compiler()

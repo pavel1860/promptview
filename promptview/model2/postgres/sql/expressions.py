@@ -1,6 +1,12 @@
 
 
 
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from promptview.model2.postgres.sql.queries import Column
+
 
 class Expression:
     def __and__(self, other):
@@ -101,7 +107,10 @@ class Not(Expression):
         self.condition = condition
 
 
-
+class OrderBy(Expression):
+    def __init__(self, column: "Column", direction: str = "ASC"):
+        self.column = column
+        self.direction = direction.upper()
 
 
 

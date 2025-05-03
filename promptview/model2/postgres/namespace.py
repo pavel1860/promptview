@@ -5,6 +5,7 @@ from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.operations import JoinType, PostgresOperations, SelectType
 
 from promptview.model2.postgres.query_set import PostgresQuerySet
+from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2.versioning import ArtifactLog, Branch, Turn
 
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter, SelectFields
@@ -534,50 +535,38 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         Returns:
             A query set for this namespace
         """
-        # branch = self.get_current_ctx_branch(branch) if self.is_versioned else None
-        # partition, branch = self.get_current_ctx_partition_branch(partition=partition_id, branch=branch)
+        # sub_queries = {}
+        # joins = joins or []
         # if kwargs:
-        #     joins = joins or []
         #     for k,v in kwargs.items():
-        #         joins.append(
-        #             JoinType(
-        #                 primary_table=self.table_name,
-        #                 primary_key=k,
-        #                 foreign_table=v.namespace.table_name,
-        #                 foreign_key=v.namespace.primary_key.name,
+        #         if isinstance(v, bool):
+        #             relation =self.get_relation(k)
+        #             if not relation:
+        #                 raise ValueError(f"Relation {k} not found in namespace {self.name}")
+        #             # sub_queries[k] = relation.foreign_cls.query().limit(10)
+        #             joins.append(
+        #                 JoinType(
+        #                     primary_table=self.table_name,
+        #                     primary_key=k,
+        #                     foreign_table=relation.foreign_table,
+        #                     foreign_key=relation.foreign_key,
+        #                 )
         #             )
-        #         )
-        sub_queries = {}
-        joins = joins or []
-        if kwargs:
-            for k,v in kwargs.items():
-                if isinstance(v, bool):
-                    relation =self.get_relation(k)
-                    if not relation:
-                        raise ValueError(f"Relation {k} not found in namespace {self.name}")
-                    # sub_queries[k] = relation.foreign_cls.query().limit(10)
-                    joins.append(
-                        JoinType(
-                            primary_table=self.table_name,
-                            primary_key=k,
-                            foreign_table=relation.foreign_table,
-                            foreign_key=relation.foreign_key,
-                        )
-                    )
-                elif isinstance(v, PostgresQuerySet):
-                    sub_queries[k] = v
-                else:
-                    raise ValueError(f"Invalid argument {k} = {v}")
+        #         elif isinstance(v, PostgresQuerySet):
+        #             sub_queries[k] = v
+        #         else:
+        #             raise ValueError(f"Invalid argument {k} = {v}")
         
-        return PostgresQuerySet(
-            model_class=self.model_class, 
-            namespace=self,  
-            branch_id=branch_id, 
-            select=select, 
-            joins=joins, 
-            filters=filters,
-            sub_queries=sub_queries
-        )
+        # return PostgresQuerySet(
+        #     model_class=self.model_class, 
+        #     namespace=self,  
+        #     branch_id=branch_id, 
+        #     select=select, 
+        #     joins=joins, 
+        #     filters=filters,
+        #     sub_queries=sub_queries
+        # )
+        return SelectQuerySet(self.model_class).select("*")
         
             
         

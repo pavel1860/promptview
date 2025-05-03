@@ -13,6 +13,7 @@ from promptview.model2.context import Context
 from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.base_namespace import DatabaseType, NSFieldInfo, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet, QuerySetSingleAdapter
+from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2.query_filters import SelectFieldProxy
 
 
@@ -485,7 +486,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     @classmethod
-    def query(cls: Type[MODEL], branch: "int | Branch | None" = None, turn: "int | Turn | None" = None, **kwargs) -> "QuerySet[MODEL]":
+    def query(cls: Type[MODEL], branch: "int | Branch | None" = None, turn: "int | Turn | None" = None, **kwargs) -> "SelectQuerySet[MODEL]":
         """
         Create a query for this model
         

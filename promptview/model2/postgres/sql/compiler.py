@@ -4,7 +4,7 @@
 
 
 
-from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, Value, And, Or, Not, IsNull, In, Between, Like, Function
+from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, Value, And, Or, Not, IsNull, In, Between, Like, Function, OrderBy
 from promptview.model2.postgres.sql.helpers import NestedQuery
 from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery, Column
 
@@ -132,6 +132,8 @@ class Compiler:
             if expr.alias:
                 compiled += f" AS {expr.alias}"
             return compiled
+        elif isinstance(expr, OrderBy):
+            return f"{self.compile_expr(expr.column)} {expr.direction}"
         
         elif isinstance(expr, NestedQuery):
             query = expr.build_query()
