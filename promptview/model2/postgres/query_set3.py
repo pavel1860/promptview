@@ -181,7 +181,23 @@ class SelectQuerySet(Generic[MODEL]):
     def filter(self, condition: Callable[[MODEL], Any] | None = None, **kwargs) -> "SelectQuerySet[MODEL]":
         return self.where(condition, **kwargs)
     
-    def join(self, query_set: "SelectQuerySet") -> "SelectQuerySet[MODEL]":
+    def _get_query_set(self, target: "SelectQuerySet | Type[Model]") -> "SelectQuerySet":
+        if isinstance(target, SelectQuerySet):
+            query_set = target
+        else:
+            query_set = SelectQuerySet(target)
+        self._gen_query_set_alias(query_set)
+        return query_set
+        
+        
+    def _gen_query_set_alias(self, query: "SelectQuerySet"):
+        if not query.query.from_table:
+            raise ValueError("Query set has no from table")
+        query.query.from_table.alias = self._set_alias(query.query.from_table.name)
+        return query
+        
+    def join(self, target: "SelectQuerySet | Type[Model]") -> "SelectQuerySet[MODEL]":
+        query_set = self._get_query_set(target)
         rel = self.curr_model.get_namespace().get_relation_by_type(query_set.model_class)
         if rel is None:
             raise ValueError("No relation found")

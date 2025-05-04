@@ -196,3 +196,13 @@ class PGConnectionManager:
             except Exception as e:
                 # Transaction will be automatically rolled back by the context manager
                 raise e
+            
+            
+    @classmethod
+    async def create_database(cls, database_name: str, user: str, password: str, host: str = "localhost", port: int = 5432) -> None:
+        """Create a new database."""
+        await cls.execute(f"""CREATE DATABASE "{database_name}" WITH OWNER "{user}" ENCODING "UTF8" TEMPLATE template1""")
+        
+        
+        
+        

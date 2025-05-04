@@ -333,3 +333,11 @@ class NamespaceManager:
         """
         await SQLBuilder.drop_all_tables()
     
+    
+    @classmethod
+    async def recreate_all_namespaces(cls):
+        """
+        Recreate all namespaces.
+        """
+        await cls.drop_all_namespaces()
+        await cls.create_all_namespaces()
