@@ -12,6 +12,7 @@ from typing import List
 from promptview.model2 import Model, ModelField, KeyField, RelationField
 from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2 import NamespaceManager
+from promptview.utils.db_connections import PGConnectionManager
 
 
 class Like(Model):
@@ -44,16 +45,28 @@ class User(Model):
 
     
 @pytest_asyncio.fixture(scope="function")
-async def clean_database(request):
-    """Fixture that ensures the database is clean before and after each test."""
-    # Setup: Clean the database before the test
-    await NamespaceManager.recreate_all_namespaces()
+async def test_db_pool():
+    """Create an isolated connection pool for each test."""
+    # Close any existing pool
+    if PGConnectionManager._pool is not None:
+        await PGConnectionManager.close()
     
-    # Run the test
+    # Create a unique pool for this test
+    await PGConnectionManager.initialize(
+        url=f"postgresql://ziggi:Aa123456@localhost:5432/promptview_test"
+    )
+    
     yield
     
-    # Teardown: Clean the database after the test
-    await NamespaceManager.drop_all_namespaces()
+    # Clean up this test's pool
+    await PGConnectionManager.close()
+
+@pytest_asyncio.fixture()
+async def clean_database(test_db_pool):
+    # Now uses an isolated pool
+    await NamespaceManager.recreate_all_namespaces()
+    yield
+    await NamespaceManager.recreate_all_namespaces()
 
 
 
@@ -163,9 +176,9 @@ async def parametrized_database(clean_database, request):
 
 # Define test scenarios with different data configurations
 test_scenarios = [
-    # {"num_users": 1, "posts_per_user": 2, "likes_per_post": 2},
-    # {"num_users": 3, "posts_per_user": 2, "likes_per_post": 2},
-    # {"num_users": 1, "posts_per_user": 5, "likes_per_post": 3},
+    {"num_users": 1, "posts_per_user": 2, "likes_per_post": 2},
+    {"num_users": 3, "posts_per_user": 2, "likes_per_post": 2},
+    {"num_users": 1, "posts_per_user": 5, "likes_per_post": 3},
     {"num_users": 2, "posts_per_user": 3, "likes_per_post": 4},
 ]
 

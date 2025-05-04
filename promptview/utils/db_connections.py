@@ -65,21 +65,25 @@ class Transaction:
 
 class PGConnectionManager:
     _pool: Optional[asyncpg.Pool] = None
+    _initialization_lock = asyncio.Lock()
 
     @classmethod
     async def initialize(cls, url: Optional[str] = None) -> None:
-        """Initialize the connection pool."""
-        if cls._pool is None:
-            url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/promptview_test")
-            cls._pool = await asyncpg.create_pool(dsn=url)
-
-    @classmethod
-    async def close(cls) -> None:
-        """Close the connection pool."""
-        if cls._pool:
-            await cls._pool.close()
-            cls._pool = None
-
+        """Initialize the connection pool if not already initialized."""
+        # Use a lock to prevent multiple concurrent initializations
+        async with cls._initialization_lock:
+            if cls._pool is None:
+                url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/promptview_test")
+                
+                # Create pool with proper configs
+                cls._pool = await asyncpg.create_pool(
+                    dsn=url,
+                    min_size=5,          # Minimum connections in pool
+                    max_size=20,         # Maximum connections in pool
+                    max_inactive_connection_lifetime=300.0,  # Recycle connections after 5 minutes
+                    command_timeout=60.0  # Command timeout
+                )
+                
     @classmethod
     def transaction(cls):
         """
@@ -102,12 +106,22 @@ class PGConnectionManager:
         return Transaction()
 
     @classmethod
+    async def get_connection(cls) -> AsyncContextManager[asyncpg.Connection]:
+        """Get a connection from the pool with proper context management."""
+        if cls._pool is None:
+            await cls.initialize()
+        assert cls._pool is not None, "Pool must be initialized"
+        
+        # This ensures the connection is always returned to the pool
+        return cls._pool.acquire()
+
+    @classmethod
     async def execute(cls, query: str, *args) -> str:
+        """Execute a query with proper connection management."""
         try:
-            """Execute a query."""
             if cls._pool is None:
                 await cls.initialize()
-            assert cls._pool is not None, "Pool must be initialized"
+            
             async with cls._pool.acquire() as conn:
                 return await conn.execute(query, *args)
         except Exception as e:
@@ -202,6 +216,13 @@ class PGConnectionManager:
     async def create_database(cls, database_name: str, user: str, password: str, host: str = "localhost", port: int = 5432) -> None:
         """Create a new database."""
         await cls.execute(f"""CREATE DATABASE "{database_name}" WITH OWNER "{user}" ENCODING "UTF8" TEMPLATE template1""")
+        
+    @classmethod
+    async def close(cls) -> None:
+        """Close the connection pool and release all connections."""
+        if cls._pool is not None:
+            await cls._pool.close()
+            cls._pool = None
         
         
         
