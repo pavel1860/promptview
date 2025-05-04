@@ -231,6 +231,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         """Pack the record for the database"""
         rec = {}
         for key, value in record.items():
+            key = key.strip('"').strip("'")
             if key in ("id", "branch_id", "turn_id"):
                 rec[key] = value
             else:

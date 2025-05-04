@@ -218,7 +218,7 @@ class Compiler:
 
         # SET clause
         set_fragments = []
-        for col, val in q.set_clauses.items():
+        for col, val in q.set_clauses:
             col_sql = self.compile_expr(col)
             val_sql = self.compile_expr(val)
             set_fragments.append(f"{col_sql} = {val_sql}")

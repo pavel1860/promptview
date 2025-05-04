@@ -274,10 +274,12 @@ def test_update_query():
     u_email = Column("email", users)
 
     q = UpdateQuery(users)
-    q.set_clauses = {
-        u_name: Value("Alice Updated", inline=False),
-        u_email: Value("alice@newmail.com", inline=False)
-    }
+    q.set(
+        [
+            (u_name, Value("Alice Updated", inline=False)),
+            (u_email, Value("alice@newmail.com", inline=False))
+        ]
+    )
     q.where_clause = Eq(u_id, Value(1, inline=False))
     q.returning = [u_id]
 

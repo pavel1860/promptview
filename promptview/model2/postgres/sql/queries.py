@@ -3,6 +3,7 @@
 
 
 
+import re
 from promptview.model2.postgres.sql.joins import Join
 from promptview.model2.postgres.sql.expressions import Eq, Expression, Neq, Gt, Gte, Lt, Lte, Value, param
 
@@ -19,11 +20,17 @@ class Table:
         return f"<Table {self.name} AS {self.alias}>" if self.alias else f"<Table {self.name}>"
 
 
+def is_camel_case(name: str) -> bool:
+    return bool(re.fullmatch(r'[a-z]+(?:[A-Z][a-z]*)+', name))
 
 
 class Column:
     def __init__(self, name, table=None, alias=None):
-        self.name = name
+        # some table coumns have camel case names
+        #the query returned parenthesized column name if it is camel case
+        # self.name = name
+        self.name = name if not is_camel_case(name) else f'"{name}"'
+        # self.name = name if all(c.islower() for c in name) else f'"{name}"'
         self.table = table
         self.alias = alias
         
@@ -145,9 +152,13 @@ class InsertQuery:
 class UpdateQuery:
     def __init__(self, table):
         self.table = table
-        self.set_clauses = {}  # Dict[column] = value
+        self.set_clauses = []
         self.where_clause = None
         self.returning = []
+        
+    def set(self, values: list[tuple[Column, Value]]):
+        self.set_clauses = values
+        return self
 
 
 class DeleteQuery:
