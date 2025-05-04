@@ -26,6 +26,32 @@ class VersioningError(Exception):
     pass
 
 
+class TurnContext:
+    def __init__(self, branch: "Branch", init_params: dict | None = None):
+        self.branch = branch
+        init_params = init_params or {}
+        if "message" in init_params:
+            raise VersioningError("message is reserved for internal use")
+        if "status" in init_params:
+            raise VersioningError("status is reserved for internal use")
+        self.init_params = init_params or {}
+        self.turn = None
+        
+    async def __aenter__(self):
+        self.turn = await self.branch.add_turn(**self.init_params)
+        self.turn.__enter__()
+        return self.turn
+    
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        if self.turn is None:
+            raise VersioningError("Turn is not set")
+        if exc_type is not None:
+            await self.turn.revert()
+        else:
+            await self.turn.commit()
+        self.turn.__exit__(exc_type, exc_value, traceback)
+
+
 class Turn(Model):
     id: int = KeyField(primary_key=True)
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
@@ -40,41 +66,41 @@ class Turn(Model):
     # def model_post_init(self, __context): 
         
     
-    @classmethod
-    async def start(cls, branch: "Branch | int | None" = None) -> "Turn":
-        branch_id = 1
-        if branch is None:
-            branch = Branch.current(throw_error=False)
-            if branch is not None:
-                branch_id = branch.id
-        elif isinstance(branch, int):
-            branch_id = branch
-        elif isinstance(branch, Branch):
-            branch_id = branch.id
-        else:
-            raise VersioningError("Invalid branch")
-        turn = await cls(branch_id=branch_id).save()        
-        return turn
+    # @classmethod
+    # async def start(cls, branch: "Branch | int | None" = None) -> "Turn":
+    #     branch_id = 1
+    #     if branch is None:
+    #         branch = Branch.current(throw_error=False)
+    #         if branch is not None:
+    #             branch_id = branch.id
+    #     elif isinstance(branch, int):
+    #         branch_id = branch
+    #     elif isinstance(branch, Branch):
+    #         branch_id = branch.id
+    #     else:
+    #         raise VersioningError("Invalid branch")
+    #     turn = await cls(branch_id=branch_id).save()        
+    #     return turn
     
-    def __enter__(self):
-        raise NotImplementedError("Turns should be used with async context manager")
+    # def __enter__(self):
+    #     raise NotImplementedError("Turns should be used with async context manager")
     
-    def __exit__(self, exc_type, exc_value, traceback):
-        raise NotImplementedError("Turns should be used with async context manager")
+    # def __exit__(self, exc_type, exc_value, traceback):
+    #     raise NotImplementedError("Turns should be used with async context manager")
     
     
-    async def __aenter__(self):
-        # self._ctx_token = CURR_TURN.set(self)
-        self.get_namespace().set_ctx(self)
-        return self
+    # async def __aenter__(self):
+    #     # self._ctx_token = CURR_TURN.set(self)
+    #     self.get_namespace().set_ctx(self)
+    #     return self
     
-    async def __aexit__(self, exc_type, exc_value, traceback):
-        if self._ctx_token is not None:
-            CURR_TURN.reset(self._ctx_token)
-        if exc_type is not None:
-            await self.revert()
-        elif self._auto_commit:
-            await self.commit()
+    # async def __aexit__(self, exc_type, exc_value, traceback):
+    #     if self._ctx_token is not None:
+    #         CURR_TURN.reset(self._ctx_token)
+    #     if exc_type is not None:
+    #         await self.revert()
+    #     elif self._auto_commit:
+    #         await self.commit()
     
     # @classmethod
     # def current(cls, throw_error: bool = True):
@@ -88,13 +114,34 @@ class Turn(Model):
     #     return turn
     
     async def commit(self):
+        self.ended_at = dt.datetime.now()   
         self.status = TurnStatus.COMMITTED
         await self.save()
     
     
     async def revert(self):
+        self.ended_at = dt.datetime.now()   
         self.status = TurnStatus.REVERTED
         await self.save()
+        
+    # instantiation methods
+    @classmethod
+    def start(cls, branch: "Branch | int | None" = None, **kwargs) -> TurnContext:
+        branch = Branch.current()
+        if branch is None:
+            raise VersioningError("Branch is required")
+        return TurnContext(branch, init_params=kwargs)
+    
+    @classmethod
+    async def create(cls, branch: "Branch | int | None" = None, **kwargs):
+        branch_id = get_branch_id(branch, use_default=False)
+        turn = await cls(branch_id=branch_id, **kwargs).save()
+        return turn
+    
+    
+        
+        
+        
         
     @overload  
     async def add(self, obj: TURN_MODEL, **kwargs) -> TURN_MODEL:

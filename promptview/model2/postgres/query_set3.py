@@ -337,11 +337,98 @@ class SelectQuerySet(Generic[MODEL]):
         sql, params = compiler.compile(self.query)
         self._params = params
         return sql
+    
+    
+    async def execute(self) -> List[MODEL]:
+        sql = self.render()
+        if self.namespace.is_versioned:
+            results = await self.execute_versioned_sql(
+                self.namespace.table_name,
+                sql,
+                is_event_source=self.namespace.is_artifact,
+                # turn_limit= ,
+                # turn_direction= ,
+            )
+        else:
+            results = await self.execute_sql(sql, *self._params)
+        return [self.model_class(**self.namespace.pack_record(dict(row))) for row in results]
+
+
 
     async def execute_sql(self, sql: str, *params: Any):
         return await PGConnectionManager.fetch(sql, *params)
+    
+    
 
-    async def execute(self) -> List[MODEL]:
-        sql = self.render()
-        results = await self.execute_sql(sql, *self._params)
-        return [self.model_class(**self.namespace.pack_record(dict(row))) for row in results]
+    
+    async def execute_versioned_sql(
+        self, 
+        table_name: str,
+        sql: str,  
+        is_event_source: bool = True, 
+        turn_limit: int | None = None, 
+        turn_direction: str = "DESC",
+        branch_id: int | None = None,
+    ) -> List[Any]:
+        filtered_alias = f"filtered_{table_name}"
+        sql = sql.replace(table_name, filtered_alias)       
+        if turn_limit:
+            turn_order_by_clause = f"ORDER BY t.index {turn_direction} LIMIT {turn_limit}"
+        else:
+            turn_order_by_clause = ""
+
+        
+        turn_where_clause = []
+        # if partition_id is not None:
+        #     turn_where_clause.append(f"t.partition_id = {partition_id}")
+        if is_event_source:
+            turn_where_clause.append("m.deleted_at IS NULL")
+        turn_where_clause = " AND ".join(turn_where_clause)
+        if turn_where_clause:
+            turn_where_clause = f"WHERE {turn_where_clause}"
+        
+        event_source_select_clause = " DISTINCT ON (m.artifact_id)" if is_event_source else ""
+        event_source_order_by_clause = "ORDER BY m.artifact_id, m.version DESC" if is_event_source else ""
+
+        versioned_sql = f"""
+            WITH RECURSIVE branch_hierarchy AS (
+                SELECT
+                    id,
+                    name,
+                    forked_from_index,
+                    forked_from_branch_id,
+                    current_index AS start_turn_index
+                FROM branches
+                WHERE id = {branch_id}
+                
+                UNION ALL
+                
+                SELECT
+                    b.id,
+                    b.name,
+                    b.forked_from_index,
+                    b.forked_from_branch_id,
+                    bh.forked_from_index AS start_turn_index
+                FROM branches b
+                JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id
+            ),
+            turn_hierarchy AS (
+                SELECT t.* 
+                FROM branch_hierarchy bh
+                JOIN turns t ON bh.id = t.branch_id
+                WHERE t.index <= bh.start_turn_index AND t.status != 'reverted'
+                {turn_order_by_clause}
+            ),
+            {filtered_alias} AS (
+                SELECT{event_source_select_clause}
+                    m.*
+                FROM turn_hierarchy t               
+                JOIN "{table_name}" m ON t.id = m.turn_id
+                {turn_where_clause}
+                {event_source_order_by_clause}
+            )
+            {sql}
+            """
+        # versioned_sql = textwrap.dedent(versioned_sql)
+        results = await PGConnectionManager.fetch(versioned_sql)
+        return [dict(row) for row in results]

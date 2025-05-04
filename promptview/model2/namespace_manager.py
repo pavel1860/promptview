@@ -227,6 +227,14 @@ class NamespaceManager:
         if relation_info.foreign_table not in cls._reversed_relations:
             cls._reversed_relations[relation_info.foreign_table] = {}
         cls._reversed_relations[relation_info.foreign_table][relation_info.foreign_key] = relation_info
+        
+    @classmethod
+    def get_reversed_relation(cls, table_name: str, key: str) -> NSRelationInfo | None:
+        """
+        Get a reversed relation by table name and key.
+        """
+        return cls._reversed_relations.get(table_name, {}).get(key)
+    
     
     @classmethod
     def register_relation(

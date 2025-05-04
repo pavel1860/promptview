@@ -11,7 +11,8 @@ from promptview.model2.version_control_models import VersioningError
 
 class Like(TurnModel):
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
-    post_id: int = ModelField(foreign_key=True)    
+    post_id: int = ModelField(foreign_key=True)  
+    user_id: int = ModelField(foreign_key=True)
 
 class Post(TurnModel):
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
@@ -28,6 +29,7 @@ class User(Model):
     age: int = ModelField()
     address: str = ModelField()
     posts: List[Post] = RelationField(foreign_key="user_id")
+    likes: List[Like] = RelationField(foreign_key="user_id")
 
 
 
@@ -47,3 +49,44 @@ async def test_turn_model_error_when_no_turn_id_is_provided(clean_database):
 
 
 
+@pytest.mark.asyncio
+async def test_missing_foreign_key_context(clean_database):
+    branch = await Branch.query().where(id=1).first()
+    user = await User(name="Arnold", age=30, address="test").save()
+    with pytest.raises(ValueError):
+        with branch:    
+            async with Turn.start():
+                post = await user.add(Post(title="post 1", content="content 1"))
+                like1 = await post.add(Like(post_id=post.id))
+                like2 = await post.add(Like(post_id=post.id))
+
+
+
+@pytest.mark.asyncio
+async def test_turn_revert(clean_database):
+    branch = await Branch.query().where(id=1).first()
+    user = await User(name="Arnold", age=30, address="test").save()
+    
+    with branch:    
+        with user:
+            async with Turn.start():
+                post1 = await user.add(Post(title="post 1", content="content 1"))
+                like1 = await post1.add(Like(post_id=post1.id))
+                like2 = await post1.add(Like(post_id=post1.id))
+
+        try:
+            async with Turn.start():
+                post2 = await user.add(Post(title="post 2", content="content 2"))
+                like3 = await post2.add(Like(post_id=post2.id))
+                like4 = await post2.add(Like(post_id=post2.id))
+        except Exception as e:
+            pass
+        
+        user = await user.query().join(Post).first()
+        assert len(user.posts) == 1
+        assert len(user.posts[0].likes) == 2
+
+            
+
+                
+                
