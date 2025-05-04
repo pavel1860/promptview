@@ -247,6 +247,10 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
     def deserialize(self, value: Any) -> Any:
         json_value = json.loads(value)
         return json_value
+    
+    
+    def __repr__(self) -> str:
+        return f"NSRelationInfo(name={self.name}, primary_key={self.primary_key}, foreign_key={self.foreign_key}, foreign_cls={self.foreign_cls.__name__}, primary_cls={self.primary_cls.__name__})"
      
     
 JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
@@ -288,6 +292,9 @@ class NSManyToManyRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL], NS
     @property
     def junction_foreign_key(self) -> str:
         return self.junction_keys[1]
+    
+    def __repr__(self) -> str:
+        return f"NSManyToManyRelationInfo(name={self.name}, primary_key={self.primary_key}, foreign_key={self.foreign_key}, foreign_cls={self.foreign_cls.__name__}, junction_cls={self.junction_cls.__name__}, junction_keys={self.junction_keys})"
     
 T_co = TypeVar("T_co", covariant=True)
 
@@ -488,8 +495,11 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
             return None
         return model
     
-    def get_field(self, name: str) -> FIELD_INFO | None:
-        return self._fields.get(name, None)
+    def get_field(self, name: str, throw_error: bool = True) -> FIELD_INFO | None:
+        field = self._fields.get(name, None)
+        if field is None and throw_error:
+            raise ValueError(f"""Field "{name}" not found in "{self._name}" namespace""")
+        return field
     
     def has_field(self, name: str) -> bool:
         return name in self._fields

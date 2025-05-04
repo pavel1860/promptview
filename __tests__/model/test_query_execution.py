@@ -13,7 +13,7 @@ from promptview.model2 import Model, ModelField, KeyField, RelationField
 from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2 import NamespaceManager
 from promptview.utils.db_connections import PGConnectionManager
-
+from __tests__.utils import clean_database, test_db_pool
 
 class Like(Model):
     id: int = KeyField(primary_key=True)
@@ -42,31 +42,31 @@ class User(Model):
 #     await NamespaceManager.drop_all_namespaces()
 #     await NamespaceManager.create_all_namespaces()
 
+# @pytest_asyncio.fixture(scope="function")
+# async def test_db_pool():
+#     """Create an isolated connection pool for each test."""
+#     # Close any existing pool
+#     if PGConnectionManager._pool is not None:
+#         await PGConnectionManager.close()
+    
+#     # Create a unique pool for this test
+#     await PGConnectionManager.initialize(
+#         url=f"postgresql://ziggi:Aa123456@localhost:5432/promptview_test"
+#     )
+    
+#     yield
+    
+#     # Clean up this test's pool
+#     await PGConnectionManager.close()
 
+# @pytest_asyncio.fixture()
+# async def clean_database(test_db_pool):
+#     # Now uses an isolated pool
+#     await NamespaceManager.recreate_all_namespaces()
+#     yield
+#     await NamespaceManager.recreate_all_namespaces()
     
-@pytest_asyncio.fixture(scope="function")
-async def test_db_pool():
-    """Create an isolated connection pool for each test."""
-    # Close any existing pool
-    if PGConnectionManager._pool is not None:
-        await PGConnectionManager.close()
-    
-    # Create a unique pool for this test
-    await PGConnectionManager.initialize(
-        url=f"postgresql://ziggi:Aa123456@localhost:5432/promptview_test"
-    )
-    
-    yield
-    
-    # Clean up this test's pool
-    await PGConnectionManager.close()
 
-@pytest_asyncio.fixture()
-async def clean_database(test_db_pool):
-    # Now uses an isolated pool
-    await NamespaceManager.recreate_all_namespaces()
-    yield
-    await NamespaceManager.recreate_all_namespaces()
 
 
 

@@ -1,5 +1,5 @@
 import contextvars
-from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, Iterator, List, Optional, Set, Tuple, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, Iterator, List, Optional, Self, Set, Tuple, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
 import uuid
 from pydantic import BaseModel, Field, PrivateAttr
 from pydantic.config import JsonDict
@@ -85,8 +85,8 @@ def unpack_extra(field_info: FieldInfo) -> dict[str, Any]:
             extra = {}
     return extra
 
-def unpack_relation_extra(extra: dict[str, Any], field_origin: Type[Any], is_versioned: bool) -> tuple[str, str, list[str] | None, str, Type[Any] | None, str, str]:
-    primary_key = extra.get("primary_key") or ("artifact_id" if is_versioned else "id")
+def unpack_relation_extra(extra: dict[str, Any], field_origin: Type[Any], is_versioned: bool, is_artifact: bool) -> tuple[str, str, list[str] | None, str, Type[Any] | None, str, str]:
+    primary_key = extra.get("primary_key") or ("artifact_id" if is_artifact else "id")
     foreign_key = extra.get("foreign_key")
     on_delete=extra.get("on_delete", "CASCADE")
     on_update=extra.get("on_update", "CASCADE")
@@ -205,7 +205,7 @@ class ModelMeta(ModelMetaclass, type):
                 if not foreign_cls:
                     raise ValueError(f"foreign_cls is required for relation: {field_type} on Model {name}")
                     
-                primary_key, foreign_key, junction_keys, relation_type, junction_cls, on_delete, on_update = unpack_relation_extra(extra, field_origin, ns.is_versioned)
+                primary_key, foreign_key, junction_keys, relation_type, junction_cls, on_delete, on_update = unpack_relation_extra(extra, field_origin, ns.is_versioned, ns.is_artifact)
                                 
                 if relation_type == "one_to_one" or relation_type == "one_to_many":                    
                     # foreign_cls = get_one_to_many_relation_model(field_type)                    
@@ -406,7 +406,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         ns = cls.get_namespace()
         return ns.iter_fields(keys, select)
     
-    async def save(self, *args, **kwargs):
+    async def save(self, *args, **kwargs) -> Self:
         """
         Save the model instance to the database
         """        
@@ -494,7 +494,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         Args:
             branch: Optional branch ID to query from
         """
-        from promptview.model2.version_control_models import get_branch_id, get_turn_id
+        from promptview.model2.version_control_models import get_branch_id, get_turn_id_or_none
         branch_id = get_branch_id(branch)
         ns = cls.get_namespace()
         return ns.query(branch_id=branch_id, **kwargs)

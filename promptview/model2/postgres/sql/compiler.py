@@ -159,6 +159,8 @@ class Compiler:
 
 
     def _compile_select(self, q: SelectQuery):
+        if not q.columns:
+            raise ValueError("Select query has no columns")
         sql = "SELECT "
         sql += "DISTINCT " if q.distinct else ""
         sql += ", ".join(self.compile_expr(col) for col in q.columns or ['*'])

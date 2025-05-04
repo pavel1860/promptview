@@ -185,7 +185,7 @@ class SelectQuerySet(Generic[MODEL]):
         if isinstance(target, SelectQuerySet):
             query_set = target
         else:
-            query_set = SelectQuerySet(target)
+            query_set = SelectQuerySet(target).select("*")
         self._gen_query_set_alias(query_set)
         return query_set
         

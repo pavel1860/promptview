@@ -59,6 +59,8 @@ class NestedQuery:
             
     #     return self.parent_query.query_depth + 1
     def build_query(self):
+        if not self.query.columns:
+            raise ValueError(f"Nested Query set for model {self.query_set.model_class.__name__} has no columns")
         if self.depth == 1:
             return self.wrap_query_in_json_agg()
         else:

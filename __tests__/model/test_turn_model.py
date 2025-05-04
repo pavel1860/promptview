@@ -36,7 +36,7 @@ from promptview.prompt import Block, ToolCall
 from promptview.model2.version_control_models import Turn, Branch
 from promptview.model2 import TurnModel
 
-
+from __tests__.utils import clean_database, test_db_pool
 
 
     
@@ -144,47 +144,43 @@ class User(AuthModel):
 
 
 @pytest_asyncio.fixture()
-async def seeded_database():
+async def seeded_database(clean_database):
     
-    try:
+    branch = await Branch.query().filter(lambda b: b.id == 1).last()
     
-        branch = await Branch.query().filter(lambda b: b.id == 1).last()
+    turn1 = await branch.add_turn()
+    async with turn1:
+        b1_t1_message1 = await turn1.add(Message(content="Hello"))
+        b1_t1_message2 = await turn1.add(Message(content="Hello, world!", role="assistant"))
         
-        turn1 = await branch.add_turn()
-        async with turn1:
-            b1_t1_message1 = await turn1.add(Message(content="Hello"))
-            b1_t1_message2 = await turn1.add(Message(content="Hello, world!", role="assistant"))
-            
-        turn2 = await branch.add_turn()
-        async with turn2:
-            b1_t2_message1 = await turn2.add(Message(content="Who are you?"))
-            b1_t2_message2 = await turn2.add(Message(content="I'm a helpful assistant."))
-            
-        turn3 = await branch.add_turn()
-        async with turn3:
-            b1_t3_message1 = await turn3.add(Message(content="What is the capital of France?"))
-            b1_t3_message2 = await turn3.add(Message(content="Paris is the capital of France."))
-
-
-        branch2 = await branch.fork(turn=turn2)
-        turn21 = await branch2.add_turn()
-        async with turn21:
-            b2_t1_message1 = await turn21.add(Message(content="What is the capital of Italy?"))
-            b2_t1_message2 = await turn21.add(Message(content="Rome is the capital of Italy.", role="assistant"))
+    turn2 = await branch.add_turn()
+    async with turn2:
+        b1_t2_message1 = await turn2.add(Message(content="Who are you?"))
+        b1_t2_message2 = await turn2.add(Message(content="I'm a helpful assistant."))
         
+    turn3 = await branch.add_turn()
+    async with turn3:
+        b1_t3_message1 = await turn3.add(Message(content="What is the capital of France?"))
+        b1_t3_message2 = await turn3.add(Message(content="Paris is the capital of France."))
 
-        yield {
-            "b1_t1_message1": b1_t1_message1,
-            "b1_t1_message2": b1_t1_message2,
-            "b1_t2_message1": b1_t2_message1,
-            "b1_t2_message2": b1_t2_message2,
-            "b1_t3_message1": b1_t3_message1,
-            "b1_t3_message2": b1_t3_message2,
-            "b2_t1_message1": b2_t1_message1,
-            "b2_t1_message2": b2_t1_message2,
-        }
-    finally:
-        await NamespaceManager.drop_all_namespaces()
+
+    branch2 = await branch.fork(turn=turn2)
+    turn21 = await branch2.add_turn()
+    async with turn21:
+        b2_t1_message1 = await turn21.add(Message(content="What is the capital of Italy?"))
+        b2_t1_message2 = await turn21.add(Message(content="Rome is the capital of Italy.", role="assistant"))
+    
+
+    yield {
+        "b1_t1_message1": b1_t1_message1,
+        "b1_t1_message2": b1_t1_message2,
+        "b1_t2_message1": b1_t2_message1,
+        "b1_t2_message2": b1_t2_message2,
+        "b1_t3_message1": b1_t3_message1,
+        "b1_t3_message2": b1_t3_message2,
+        "b2_t1_message1": b2_t1_message1,
+        "b2_t1_message2": b2_t1_message2,
+    }
 
 
 

@@ -1,7 +1,6 @@
-
 import enum
 import contextvars
-from typing import TYPE_CHECKING, List, TypeVar, overload
+from typing import TYPE_CHECKING, List, Self, TypeVar, overload
 
 from promptview.model2.model import Model
 from promptview.model2.fields import KeyField, ModelField, RelationField
@@ -22,6 +21,10 @@ class TurnStatus(enum.StrEnum):
 
 
 TURN_MODEL = TypeVar("TURN_MODEL", bound="TurnModel")
+
+class VersioningError(Exception):
+    pass
+
 
 class Turn(Model):
     id: int = KeyField(primary_key=True)
@@ -49,7 +52,7 @@ class Turn(Model):
         elif isinstance(branch, Branch):
             branch_id = branch.id
         else:
-            raise ValueError("Invalid branch")
+            raise VersioningError("Invalid branch")
         turn = await cls(branch_id=branch_id).save()        
         return turn
     
@@ -105,7 +108,7 @@ class Turn(Model):
         from promptview.prompt import Block
         from promptview.model2.block_model import BlockModel
         if not isinstance(obj, TurnModel):
-            raise TypeError("Can only add ArtifactModel instances")
+            raise VersioningError("Can only add ArtifactModel instances")
         if isinstance(obj, Block):
             obj = BlockModel.from_block(obj)
         obj.turn_id = self.id
@@ -131,7 +134,7 @@ class Branch(Model):
         if turn is not None:
             index = turn.index
         elif index is None:
-            raise ValueError("Index is required")
+            raise VersioningError("Index is required")
         
         
         branch = await Branch(
@@ -162,7 +165,7 @@ class Branch(Model):
         
         turn_record = await turn_ns.fetch(query, self.id, status.value, *[kwargs[k] for k in kwargs.keys()])
         if not turn_record:
-            raise ValueError("Failed to add turn")
+            raise VersioningError("Failed to add turn")
         return Turn(**turn_record[0])
         
         
@@ -188,18 +191,23 @@ class Branch(Model):
     
     
 
-def get_branch_id(branch: "int | Branch | None" = None) -> int:
+def get_branch_id(branch: "int | Branch | None" = None, use_default: bool = True) -> int:
     if branch is None:
-        branch_model = Branch.current_or_none()        
-        return branch_model.id if branch_model is not None else 1
+        branch_model = Branch.current_or_none()  
+        if branch_model:
+            return branch_model.id
+        if use_default:
+            return 1
+        raise VersioningError("Branch is required")
     elif isinstance(branch, int):
         return branch
     elif isinstance(branch, Branch):
         return branch.id
     else:
-        raise ValueError("Invalid branch")
+        raise VersioningError("Invalid branch")
     
-def get_turn_id(turn: "int | Turn | None" = None) -> int | None:
+    
+def get_turn_id_or_none(turn: "int | Turn | None" = None) -> int | None:
     if turn is None:
         turn_model = Turn.current_or_none()
         return turn_model.id if turn_model is not None else None
@@ -208,9 +216,13 @@ def get_turn_id(turn: "int | Turn | None" = None) -> int | None:
     elif isinstance(turn, Turn):
         return turn.id
     else:
-        raise ValueError("Invalid turn")
+        raise VersioningError("Invalid turn")
     
-    
+def get_turn_id(turn: "int | Turn | None" = None) -> int:
+    turn_id = get_turn_id_or_none(turn)
+    if turn_id is None:
+        raise VersioningError("Turn is required")
+    return turn_id
     
     
 class TurnModel(Model):
@@ -221,3 +233,26 @@ class TurnModel(Model):
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
     updated_at: dt.datetime | None = ModelField(default=None)
     deleted_at: dt.datetime | None = ModelField(default=None)
+    
+    
+    
+    def get_turn_id(self, turn: "int | Turn | None" = None) -> int:
+        turn_id = get_turn_id_or_none(turn)
+        if turn_id is None:
+            raise VersioningError(f"Turn is required for {self.__class__.__name__} {self.id}")
+        return turn_id
+
+    
+    
+    @overload
+    async def save(self) -> Self:
+        ...
+    
+    @overload
+    async def save(self, turn: Turn | int | None = None, branch: Branch | int | None = None) -> Self:
+        ...
+    
+    async def save(self, turn: Turn | int | None = None, branch: Branch | int | None = None):        
+        self.turn_id = self.get_turn_id(turn)
+        self.branch_id = get_branch_id(branch)
+        return await super().save()
