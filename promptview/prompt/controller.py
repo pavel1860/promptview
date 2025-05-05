@@ -6,7 +6,7 @@ from typing import (Any, Callable, Dict, Generic, TypeVar, ParamSpec)
 
 from promptview.prompt.block6 import Block
 from .depends import  DependsContainer, resolve_dependency
-from ..model2.context import Context
+from ..model2.context import Context, ExecutionContext
 from ..utils.function_utils import filter_args_by_exclude
 
 
@@ -35,15 +35,16 @@ class Controller(Generic[P, R]):
             return output.content
         return output
     
-    def build_execution_ctx(self) -> Context:
+    def build_execution_ctx(self) -> ExecutionContext:
         curr_ctx: Context | None = Context.get_current(False)
         if curr_ctx is not None:
             ctx = curr_ctx.build_child(self._name)
         else:
-            raise ValueError("Context is not set")
+            # raise ValueError("Context is not set")
             # ctx = Context().start()
             # ctx = Context()
-        return ctx    
+            ctx = ExecutionContext(self._name)
+        return ctx
         
 
     async def _inject_dependencies(self, *args: P.args, **kwargs: P.kwargs) -> Dict[str, Any]:

@@ -1,8 +1,10 @@
+import re
 from typing import Any, Dict, List, Optional, TYPE_CHECKING, TypedDict, Union
 import json
 import datetime as dt
 from datetime import datetime, timezone
 import uuid
+from asyncpg import DataError
 from pydantic import BaseModel
 
 from promptview.model2.postgres.query_parser import build_where_clause
@@ -21,6 +23,16 @@ def print_error_sql(sql: str, values: Any | None = None, error: Exception | None
         print("---------- VALUES ----------:\n", values)
     if error:
         print("---------- ERROR ----------:\n", error)
+        
+        
+def print_data_error(error: DataError):
+    match = re.search(r'\$(\d+)', error.args[0])
+    if match:
+        index = int(match.group(1))
+        if index <= len(values):
+            values[index - 1] = str(values[index - 1])
+        
+        
         
 class JoinType(TypedDict):
     """Join information"""
@@ -356,7 +368,22 @@ class PostgresOperations:
         """
         
         # Execute query
-        result = await PGConnectionManager.fetch_one(sql, *values)
+        try:
+            result = await PGConnectionManager.fetch_one(sql, *values)
+        except DataError as e:
+            match = re.search(r'\$(\d+)', e.args[0])
+            if match:
+                index = int(match.group(1))
+                if index <= len(values):
+                    values[index - 1] = str(values[index - 1])
+                    data_items = list(data.items())
+                    if index <= len(data_items):
+                        field, field_info = data_items[index - 1]
+                        print(f"Field {field} is not valid")
+                    else:
+                        print("id is not valid" + e.args[0])
+            print_error_sql(sql, values, e)
+            raise e
         
         # Convert result to dictionary
         return dict(result) if result else {"id": data["id"], **data}        
