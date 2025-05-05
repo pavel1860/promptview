@@ -20,7 +20,7 @@ from promptview.utils.db_connections import PGConnectionManager
 
 
 from promptview.model2.postgres.sql.queries import SelectQuery, Table, Column, Subquery
-from promptview.model2.postgres.sql.expressions import Eq, IsNull, Not, Value, Function, Coalesce, Gt, json_build_object, param, OrderBy
+from promptview.model2.postgres.sql.expressions import Eq, IsNull, Not, RawSQL, Value, Function, Coalesce, Gt, json_build_object, param, OrderBy
 from promptview.model2.postgres.sql.compiler import Compiler
 from functools import reduce
 from operator import and_
@@ -84,7 +84,7 @@ def embed_query_as_subquery(outer_query: SelectQuery, inner_query: SelectQuery, 
     outer_query.from_table = subquery
     return outer_query
 
-
+ 
 class SelectQuerySet(Generic[MODEL]):
     def __init__(self, model_class: Type[MODEL]):
         self.model_class = model_class
@@ -195,12 +195,23 @@ class SelectQuerySet(Generic[MODEL]):
             raise ValueError("Query set has no from table")
         query.query.from_table.alias = self._set_alias(query.query.from_table.name)
         return query
-        
+    
+    def with_cte(self, name: str, query: "SelectQuery | SelectQuerySet | RawSQL"):
+        if hasattr(query, "query"):  # If it's a SelectQuerySet
+            query = query.query
+        self.query.with_cte(name, query)
+        return self
+    
+    
     def join(self, target: "SelectQuerySet | Type[Model]") -> "SelectQuerySet[MODEL]":
         query_set = self._get_query_set(target)
         rel = self.curr_model.get_namespace().get_relation_by_type(query_set.model_class)
         if rel is None:
             raise ValueError("No relation found")
+        
+        if query_set.query.ctes:
+            self.query.ctes = query_set.query.ctes + self.query.ctes
+            query_set.query.ctes = []
         
         self.curr_query.join(
             query_set.curr_table, 
@@ -209,7 +220,8 @@ class SelectQuerySet(Generic[MODEL]):
                 Column(rel.foreign_key, query_set.curr_table)
             )
         )
-        nested_query = NestedQuery(query_set, rel.name, Column(rel.primary_key, self.curr_table), self, self.curr_table, rel)        
+        # nested_query = NestedQuery(query_set, rel.name, Column(rel.primary_key, self.curr_table), self, self.curr_table, rel)        
+        wrap_query_in_json_agg(self.curr_query, rel.name, Column(rel.primary_key, self.curr_table))
         nested_query.update_depth()
         self.query.columns.append(nested_query)
         # self.query.columns.append(Column(rel.name, subquery, alias=rel.name))
@@ -218,6 +230,33 @@ class SelectQuerySet(Generic[MODEL]):
             p_id = Column(pk, self.table)
             self.query.group_by = [p_id] 
         return self
+      
+    # def join(self, target: "SelectQuerySet | Type[Model]") -> "SelectQuerySet[MODEL]":
+    #     query_set = self._get_query_set(target)
+    #     rel = self.curr_model.get_namespace().get_relation_by_type(query_set.model_class)
+    #     if rel is None:
+    #         raise ValueError("No relation found")
+        
+    #     if query_set.query.ctes:
+    #         self.query.ctes = query_set.query.ctes + self.query.ctes
+    #         query_set.query.ctes = []
+        
+    #     self.curr_query.join(
+    #         query_set.curr_table, 
+    #         Eq(
+    #             Column(rel.primary_key, self.curr_table), 
+    #             Column(rel.foreign_key, query_set.curr_table)
+    #         )
+    #     )
+    #     nested_query = NestedQuery(query_set, rel.name, Column(rel.primary_key, self.curr_table), self, self.curr_table, rel)        
+    #     nested_query.update_depth()
+    #     self.query.columns.append(nested_query)
+    #     # self.query.columns.append(Column(rel.name, subquery, alias=rel.name))
+    #     if not self.query.group_by:
+    #         pk = self.model_class.get_namespace().primary_key.name
+    #         p_id = Column(pk, self.table)
+    #         self.query.group_by = [p_id] 
+    #     return self
         
         
 

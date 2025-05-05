@@ -4,7 +4,7 @@
 
 
 
-from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, Value, And, Or, Not, IsNull, In, Between, Like, Function, OrderBy
+from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, RawSQL, Value, And, Or, Not, IsNull, In, Between, Like, Function, OrderBy
 from promptview.model2.postgres.sql.helpers import NestedQuery
 from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery, Column
 
@@ -260,6 +260,10 @@ class Compiler:
     def _compile_ctes(self, ctes):
         parts = []
         for alias, cte_query in ctes:
-            cte_sql, _ = self.compile(cte_query)  # Don't use params from inner queries
-            parts.append(f"{alias} AS ({cte_sql})")
+            if isinstance(cte_query, RawSQL):
+                parts.append(f"{alias} AS ({cte_query.sql})")
+                self.params.extend(cte_query.params)
+            else:
+                cte_sql, _ = self.compile(cte_query)
+                parts.append(f"{alias} AS ({cte_sql})")
         return "WITH " + ",\n     ".join(parts)

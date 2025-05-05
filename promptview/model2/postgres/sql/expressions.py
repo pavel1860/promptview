@@ -138,3 +138,8 @@ class Like(Expression):
 
 
 
+
+class RawSQL:
+    def __init__(self, sql: str, params: list | None = None):
+        self.sql = sql
+        self.params = params or []
