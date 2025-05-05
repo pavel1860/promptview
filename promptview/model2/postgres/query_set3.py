@@ -19,8 +19,8 @@ from promptview.model2.postgres.sql.helpers import NestedQuery
 from promptview.utils.db_connections import PGConnectionManager
 
 
-from promptview.model2.postgres.sql.queries import SelectQuery, Table, Column, Subquery
-from promptview.model2.postgres.sql.expressions import Eq, IsNull, Not, RawSQL, Value, Function, Coalesce, Gt, json_build_object, param, OrderBy
+from promptview.model2.postgres.sql.queries import JoinType, SelectQuery, Table, Column, Subquery
+from promptview.model2.postgres.sql.expressions import Eq, Expression, IsNull, Not, RawSQL, Value, Function, Coalesce, Gt, json_build_object, param, OrderBy
 from promptview.model2.postgres.sql.compiler import Compiler
 from functools import reduce
 from operator import and_
@@ -86,17 +86,28 @@ def wrap_query_in_json_agg(query: SelectQuery, alias: str, pk_col: Column) -> Co
 
 
 def embed_query_as_subquery(query, rel, parent_table):
-        obj = json_build_object(**{
-            c.name: c for c in query.columns
-        })
+    try:
+        columns = {}
+        join_filter = set()
+        for c in query.columns:
+            if isinstance(c, Column):
+                columns[c.name] = c
+            elif isinstance(c, Expression):
+                columns[c.alias] = c
+                join_filter.add(c.alias)
+                c.alias = None
+        obj = json_build_object(**columns)
         subq = SelectQuery()
         subq.columns = [Function("json_agg", obj)]
         subq.from_table = query.from_table
-        subq.joins = query.joins
+        subq.joins = [j for j in query.joins if j.table.name not in join_filter]
         # subq.where_clause = self.query.where_clause
         subq.where_clause = Eq(Column(rel.foreign_key, query.from_table), Column(rel.primary_key, parent_table))
         coalesced = Coalesce(subq, Value("[]", inline=True))
         return coalesced
+    except Exception as e:
+        print(e)
+        raise
 
  
 class SelectQuerySet(Generic[MODEL]):
@@ -199,7 +210,8 @@ class SelectQuerySet(Generic[MODEL]):
         if isinstance(target, SelectQuerySet):
             query_set = target
         else:
-            query_set = SelectQuerySet(target).select("*")
+            # query_set = SelectQuerySet(target).select("*")
+            query_set = target.query()
         self._gen_query_set_alias(query_set)
         return query_set
         
@@ -226,7 +238,7 @@ class SelectQuerySet(Generic[MODEL]):
         return self
     
     
-    def join_cte(self, cte_name: str, on_left: str, on_right: str, alias=None):
+    def join_cte(self, cte_name: str, on_left: str, on_right: str, alias=None, join_type: JoinType = "LEFT"):
         """
         Join a Common Table Expression (CTE) to the current query.
 
@@ -246,30 +258,49 @@ class SelectQuerySet(Generic[MODEL]):
         cte_table = Table(cte_name, alias=alias)
         self.curr_query.join(
             cte_table,
-            Eq(Column(on_left, self.curr_table), Column(on_right, cte_table))
+            Eq(Column(on_left, self.curr_table), Column(on_right, cte_table)),
+            join_type
         )
         return self
     
     
-    def join(self, target: "SelectQuerySet | Type[Model]") -> "SelectQuerySet[MODEL]":
+    def _copy_ctes(self, query_set: "SelectQuerySet"):
+        cte_lookup = {}
+        for cte in query_set.query.ctes:
+            cte_lookup[cte[0]] = cte
+        for cte in self.query.ctes:
+            cte_lookup[cte[0]] = cte
+            # if cte.name in cte_lookup:
+                # cte.query = cte_lookup[cte.name].query
+        return [cte for cte in cte_lookup.values()]
+    
+    
+    def join(self, target: "SelectQuerySet | Type[Model]", join_type: JoinType = "LEFT") -> "SelectQuerySet[MODEL]":
         query_set = self._get_query_set(target)
         rel = self.curr_model.get_namespace().get_relation_by_type(query_set.model_class)
         if rel is None:
             raise ValueError("No relation found")
         
-        # if query_set.query.ctes:
-        #     self.query.ctes = query_set.query.ctes + self.query.ctes
-        #     query_set.query.ctes = []
+        if query_set.query.ctes:
+            # self.query.ctes = query_set.query.ctes + self.query.ctes
+            self.query.ctes = self._copy_ctes(query_set)
+            query_set.query.ctes = []
+            if query_set.query.recursive:
+                self.query.recursive = True
+                query_set.query.recursive = False
         
         self.curr_query.join(
             query_set.curr_table, 
             Eq(
                 Column(rel.primary_key, self.curr_table), 
                 Column(rel.foreign_key, query_set.curr_table)
-            )
+            ),
+            join_type
         )        
         nested_query = embed_query_as_subquery(query_set.query, rel, self.curr_table)    
+        nested_query.alias = rel.name
         self.query.columns.append(nested_query)
+        # self.query.columns.append(Column("", nested_query, alias=rel.name))
         if not self.query.group_by:
             pk = self.model_class.get_namespace().primary_key.name
             p_id = Column(pk, self.table)
@@ -424,17 +455,10 @@ class SelectQuerySet(Generic[MODEL]):
     
     
     async def execute(self) -> List[MODEL]:
-        sql = self.render()
-        if self.namespace.is_versioned:
-            results = await self.execute_versioned_sql(
-                self.namespace.table_name,
-                sql,
-                is_event_source=self.namespace.is_artifact,
-                # turn_limit= ,
-                # turn_direction= ,
-            )
-        else:
-            results = await self.execute_sql(sql, *self._params)
+        # sql = self.render()        
+        compiler = Compiler()
+        sql, params = compiler.compile(self.query)
+        results = await self.execute_sql(sql, *params)
         return [self.model_class(**self.namespace.pack_record(dict(row))) for row in results]
 
 

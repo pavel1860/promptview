@@ -23,7 +23,7 @@ from promptview.utils.string_utils import camel_to_snake
 
 
 if TYPE_CHECKING:
-    from promptview.model2.version_control_models import Branch
+    from promptview.model2.version_control_models import Branch, Turn
     from promptview.prompt.block6 import Block
     from promptview.llms.llm3 import OutputModel
 
@@ -485,19 +485,30 @@ class Model(BaseModel, metaclass=ModelMeta):
         return instance
     
     
-    
     @classmethod
-    def query(cls: Type[MODEL], branch: "int | Branch | None" = None, turn: "int | Turn | None" = None, **kwargs) -> "SelectQuerySet[MODEL]":
+    def query(cls: Type[Self], **kwargs) -> "SelectQuerySet[Self]":
         """
         Create a query for this model
         
         Args:
             branch: Optional branch ID to query from
         """
-        from promptview.model2.version_control_models import get_branch_id, get_turn_id_or_none
-        branch_id = get_branch_id(branch)
         ns = cls.get_namespace()
-        return ns.query(branch_id=branch_id, **kwargs)
+        return ns.query(**kwargs)
+
+    
+    # @classmethod
+    # def query(cls: Type[MODEL], branch: "int | Branch | None" = None, turn: "int | Turn | None" = None, **kwargs) -> "SelectQuerySet[MODEL]":
+    #     """
+    #     Create a query for this model
+        
+    #     Args:
+    #         branch: Optional branch ID to query from
+    #     """
+    #     from promptview.model2.version_control_models import get_branch_id, get_turn_id_or_none
+    #     branch_id = get_branch_id(branch)
+    #     ns = cls.get_namespace()
+    #     return ns.query(branch_id=branch_id, **kwargs)
     
     
     # def join(self, model: Type[MODEL], partition: Partition | None = None, branch: Branch | int = 1) -> "QuerySet[MODEL]":

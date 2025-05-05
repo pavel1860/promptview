@@ -77,8 +77,7 @@ class Post(TurnModel):
 class Message(TurnModel):
     content: str = ModelField(default="")
     name: str | None = ModelField(default=None)
-    sender_id: int | None = ModelField(default=None)
-    task_id: UUID | None = ModelField(default=None, foreign_key=True)
+    sender_id: int | None = ModelField(default=None)    
     role: Literal["user", "assistant", "system", "tool"] = ModelField(default="user")
     platform_id: str | None = ModelField(default=None)
     tool_calls: List[ToolCall] = ModelField(default=[])
@@ -114,27 +113,13 @@ class Message(TurnModel):
 
 
 
-class User(AuthModel):
+class User(Model):
+    id: int = KeyField(primary_key=True)
     # name: str = ModelField()
     age: int = ModelField()
     posts: List[Post] = RelationField([], foreign_key="owner_id")
     likes: List[Like] = RelationField([], foreign_key="user_id")
     comments: List[Comment] = RelationField([], foreign_key="user_id")
-    
-    
-    
-    # comments: ManyRelation[Comment, UserCommentRel] = RelationField(foreign_key="user_rel_id", junction_keys=["user_id", "comment_id"])
-    
-    async def send_message(self, content: str):
-        return await Message(content=content, name=self.name, role="user", sender_id=self.id).save()
-    
-    async def list_messages(self, limit: int = 10):
-        return await Message.query().tail(limit)
-    
-
-
-
-    
     
 
 
@@ -145,33 +130,36 @@ class User(AuthModel):
 
 @pytest_asyncio.fixture()
 async def seeded_database(clean_database):
-    
+    user = await User(name="John", age=30).save()
     branch = await Branch.query().filter(lambda b: b.id == 1).last()
     
-    turn1 = await branch.add_turn()
-    async with turn1:
-        b1_t1_message1 = await turn1.add(Message(content="Hello"))
-        b1_t1_message2 = await turn1.add(Message(content="Hello, world!", role="assistant"))
+    with user:
+        with branch:
         
-    turn2 = await branch.add_turn()
-    async with turn2:
-        b1_t2_message1 = await turn2.add(Message(content="Who are you?"))
-        b1_t2_message2 = await turn2.add(Message(content="I'm a helpful assistant."))
-        
-    turn3 = await branch.add_turn()
-    async with turn3:
-        b1_t3_message1 = await turn3.add(Message(content="What is the capital of France?"))
-        b1_t3_message2 = await turn3.add(Message(content="Paris is the capital of France."))
+            async with Turn.start() as turn1:
+                b1_t1_message1 = await turn1.add(Message(content="Hello"))
+                b1_t1_message2 = await turn1.add(Message(content="Hello, world!", role="assistant"))
+            
+            async with Turn.start() as turn2:
+                b1_t2_message1 = await turn2.add(Message(content="Who are you?"))
+                b1_t2_message2 = await turn2.add(Message(content="I'm a helpful assistant."))
+            
+            async with Turn.start() as turn3:
+                b1_t3_message1 = await turn3.add(Message(content="What is the capital of France?"))
+                b1_t3_message2 = await turn3.add(Message(content="Paris is the capital of France."))
 
 
-    branch2 = await branch.fork(turn=turn2)
-    turn21 = await branch2.add_turn()
-    async with turn21:
-        b2_t1_message1 = await turn21.add(Message(content="What is the capital of Italy?"))
-        b2_t1_message2 = await turn21.add(Message(content="Rome is the capital of Italy.", role="assistant"))
+        branch2 = await branch.fork(turn=turn2)
+        with branch2:
+            async with Turn.start() as turn21:
+                b2_t1_message1 = await turn21.add(Message(content="What is the capital of Italy?"))
+                b2_t1_message2 = await turn21.add(Message(content="Rome is the capital of Italy.", role="assistant"))
     
 
     yield {
+        "user": user,
+        "branch": branch,
+        "branch2": branch2,
         "b1_t1_message1": b1_t1_message1,
         "b1_t1_message2": b1_t1_message2,
         "b1_t2_message1": b1_t2_message1,
@@ -185,7 +173,32 @@ async def seeded_database(clean_database):
 
 
 
-  
+@pytest.mark.asyncio
+async def test_branching(seeded_database):
+    
+    msgs = await Message.query().limit(20)
+    assert len(msgs) == 6
+    assert msgs[0].id == seeded_database['b1_t1_message1'].id
+    assert msgs[1].id == seeded_database['b1_t1_message2'].id
+    assert msgs[2].id == seeded_database['b1_t2_message1'].id
+    assert msgs[3].id == seeded_database['b1_t2_message2'].id
+    assert msgs[4].id == seeded_database['b1_t3_message1'].id
+    assert msgs[5].id == seeded_database['b1_t3_message2'].id
+    branch = await Branch.query().filter(lambda b: b.id == 2).last()
+    with branch:
+        msgs = await Message.query().limit(20)
+        for m in msgs:
+            print(m.role + ":", m.content)
+
+    assert len(msgs) == 6
+    assert msgs[0].id == seeded_database['b1_t1_message1'].id
+    assert msgs[1].id == seeded_database['b1_t1_message2'].id
+    assert msgs[2].id == seeded_database['b1_t2_message1'].id
+    assert msgs[3].id == seeded_database['b1_t2_message2'].id
+    assert msgs[4].id == seeded_database['b2_t1_message1'].id
+    assert msgs[5].id == seeded_database['b2_t1_message2'].id
+
+
 
 
 @pytest.mark.asyncio

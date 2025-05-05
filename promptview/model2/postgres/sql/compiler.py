@@ -4,7 +4,7 @@
 
 
 
-from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, RawSQL, Value, And, Or, Not, IsNull, In, Between, Like, Function, OrderBy
+from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, Expression, RawSQL, RawValue, Value, And, Or, Not, IsNull, In, Between, Like, Function, OrderBy
 from promptview.model2.postgres.sql.helpers import NestedQuery
 from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery, Column
 
@@ -25,8 +25,8 @@ class Compiler:
         self.param_counter = 1
 
     def compile(self, query):
-        self.params = []
-        self.param_counter = 1
+        # self.params = []
+        # self.param_counter = 1
 
         if isinstance(query, SelectQuery):
             sql = ""
@@ -63,6 +63,8 @@ class Compiler:
             if expr.table:
                 if isinstance(expr.table, Subquery):
                     table_prefix = f"{expr.table.alias}."                    
+                elif isinstance(expr.table, Expression):
+                    table_prefix = self.compile_expr(expr.table)
                 else:
                     table_prefix = f"{expr.table}."
 
@@ -76,7 +78,8 @@ class Compiler:
                 return repr(expr.value)  # inline as string
             else:
                 return self.add_param(expr.value)
-
+        elif isinstance(expr, RawValue):
+            return expr.value
         elif isinstance(expr, BinaryExpression):
             left = self.compile_expr(expr.left)
             right = self.compile_expr(expr.right)
@@ -264,8 +267,9 @@ class Compiler:
                 parts.append(f"{alias} AS ({cte_query.sql})")
                 self.params.extend(cte_query.params)
             else:
-                cte_sql, _ = self.compile(cte_query)
+                cte_sql, params = self.compile(cte_query)
                 parts.append(f"{alias} AS ({cte_sql})")
+                # self.params.extend(params)
         prefix = "WITH "
         if recursive:
             prefix = "WITH RECURSIVE "

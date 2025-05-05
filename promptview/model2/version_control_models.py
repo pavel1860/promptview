@@ -1,12 +1,14 @@
 import enum
 import contextvars
-from typing import TYPE_CHECKING, List, Self, TypeVar, overload
+from typing import TYPE_CHECKING, List, Self, Type, TypeVar, overload
 
 from promptview.model2.model import Model
 from promptview.model2.fields import KeyField, ModelField, RelationField
 import datetime as dt
 
 from promptview.model2.postgres.fields_query import NamespaceQueryFields
+from promptview.model2.postgres.query_set3 import SelectQuerySet
+from promptview.model2.postgres.sql.expressions import RawSQL, RawValue, Value
 if TYPE_CHECKING:
     from promptview.model2.artifact_model import ArtifactModel
 
@@ -19,7 +21,7 @@ class TurnStatus(enum.StrEnum):
     COMMITTED = "committed"
     REVERTED = "reverted"
 
-
+MODEL = TypeVar("MODEL", bound="Model")
 TURN_MODEL = TypeVar("TURN_MODEL", bound="TurnModel")
 
 class VersioningError(Exception):
@@ -186,6 +188,7 @@ class Branch(Model):
         
         branch = await Branch(
             forked_from_index=index,
+            current_index=index + 1,
             forked_from_branch_id=self.id,
             name=name,
         ).save()
@@ -270,7 +273,48 @@ def get_turn_id(turn: "int | Turn | None" = None) -> int:
     if turn_id is None:
         raise VersioningError("Turn is required")
     return turn_id
+
+
+
+
+
+def create_versioned_cte(branch_id: int, status: TurnStatus = TurnStatus.COMMITTED):
     
+    sql = f"""
+        SELECT
+            id,
+            name,
+            forked_from_index,
+            forked_from_branch_id,
+            current_index AS start_turn_index
+        FROM branches
+        WHERE id = {branch_id}
+                        
+        UNION ALL
+                        
+        SELECT
+            b.id,
+            b.name,
+            b.forked_from_index,
+            b.forked_from_branch_id,
+            bh.forked_from_index AS start_turn_index
+        FROM branches b
+        JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id              
+        """
+
+    cte = RawSQL(sql)
+
+
+    committed_cte = (
+        Turn.query()
+        .select("id")
+        .where(lambda t: (t.status == status) & (t.index <= RawValue("bh.start_turn_index")))
+        .with_cte("branch_hierarchy", cte, recursive=True)
+        .order_by("index")
+    )
+    committed_cte.join_cte("branch_hierarchy", "branch_id", "id", "bh")
+    return committed_cte
+
     
 class TurnModel(Model):
     _is_base: bool = True
@@ -303,3 +347,71 @@ class TurnModel(Model):
         self.turn_id = self.get_turn_id(turn)
         self.branch_id = get_branch_id(branch)
         return await super().save()
+    
+    
+    # @overload
+    # @classmethod
+    # def query(cls, **kwargs) -> "SelectQuerySet[TurnModel]":
+    #     ...
+    
+    @overload
+    @classmethod
+    def query(cls: "Type[Self]", **kwargs) -> "SelectQuerySet[Self]":
+        ...
+    
+    
+    @overload
+    @classmethod
+    def query(cls: "Type[Self]", branch: "int | Branch | None" = None, **kwargs) -> "SelectQuerySet[Self]":
+        ...
+        
+        
+        
+    # @overload
+    # @classmethod
+    # def query(cls: "Type[TURN_MODEL]", branch: "int | Branch | None" = None,  **kwargs) -> "SelectQuerySet[TURN_MODEL]":
+    #     ...
+    
+    
+    
+    # @classmethod
+    # def query(cls: "Type[TURN_MODEL]", branch: "int | Branch | None" = None,  **kwargs) -> "SelectQuerySet[TURN_MODEL]":
+    #     """
+    #     Create a query for this model
+        
+    #     Args:
+    #         branch: Optional branch ID to query from
+    #     """        
+    #     branch_id = get_branch_id(branch)
+    #     # turn_id = get_turn_id_or_none(turn)
+    #     # if turn_id is None:
+    #     #     raise VersioningError(f"Turn is required for {cls.__name__} {cls.id}")
+    #     ns = cls.get_namespace()
+    #     query = ns.query(**kwargs)
+    #     query = (
+    #         query.with_cte("turn_hierarchy", create_versioned_cte(branch_id))
+    #         .join_cte("turn_hierarchy", "turn_id", "id", "th")
+    #     )
+    #     return query
+    
+    
+    @classmethod
+    def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, **kwargs) -> "SelectQuerySet[Self]":
+        """
+        Create a query for this model
+        
+        Args:
+            branch: Optional branch ID to query from
+        """   
+        branch_id = get_branch_id(branch)
+        # turn_id = get_turn_id_or_none(turn)
+        # if turn_id is None:
+        #     raise VersioningError(f"Turn is required for {cls.__name__} {cls.id}")
+        ns = cls.get_namespace()
+        query = ns.query(**kwargs)
+        query = (
+            query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status))
+            .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
+        )
+        return query
+    

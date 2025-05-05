@@ -19,8 +19,9 @@ class Expression:
         return Not(self)
 
     
-    
-
+class RawValue(Expression):
+    def __init__(self, value):
+        self.value = value
 
 
 class Value(Expression):

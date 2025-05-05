@@ -82,7 +82,7 @@ async def test_turn_revert(clean_database):
         except Exception as e:
             pass
         
-        user = await user.query().join(Post).first()
+        user = await user.query().join(Post.query().join(Like)).first()
         assert len(user.posts) == 1
         assert len(user.posts[0].likes) == 2
 

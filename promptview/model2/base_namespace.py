@@ -679,12 +679,6 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     def query(
         self, 
-        partition_id: int | None = None, 
-        branch: "int | Branch | None" = None, 
-        filters: dict[str, Any] | None = None, 
-        joins: list[Any] | None = None,
-        select: SelectFields | None = None,
-        alias: str | None = None,
         **kwargs
     ) -> QuerySet:
         """

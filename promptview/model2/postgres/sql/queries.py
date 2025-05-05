@@ -4,6 +4,7 @@
 
 
 import re
+from typing import Literal
 from promptview.model2.postgres.sql.joins import Join
 from promptview.model2.postgres.sql.expressions import Eq, Expression, Neq, Gt, Gte, Lt, Lte, Value, param
 
@@ -64,7 +65,7 @@ class Column:
         return Lte(self, param(other) if not isinstance(other, Expression) else other)
 
 
-
+JoinType = Literal["LEFT", "RIGHT", "INNER"]
 
 class SelectQuery:
     def __init__(self):
@@ -83,7 +84,7 @@ class SelectQuery:
         self.recursive = False  # <-
     
     
-    def join(self, table, condition, join_type='INNER', alias=None):
+    def join(self, table, condition, join_type='LEFT', alias=None):
         self.joins.append(Join(table, condition, join_type, alias))
         return self
 

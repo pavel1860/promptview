@@ -537,11 +537,6 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
     
     def query(
         self, 
-        branch_id: int, 
-        turn_id: int | None = None,
-        filters: dict[str, Any] | None = None, 
-        joins: list[JoinType] | None = None,
-        select: SelectFields | None = None,
         **kwargs
     ) -> QuerySet:
         """
@@ -553,37 +548,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         Returns:
             A query set for this namespace
         """
-        # sub_queries = {}
-        # joins = joins or []
-        # if kwargs:
-        #     for k,v in kwargs.items():
-        #         if isinstance(v, bool):
-        #             relation =self.get_relation(k)
-        #             if not relation:
-        #                 raise ValueError(f"Relation {k} not found in namespace {self.name}")
-        #             # sub_queries[k] = relation.foreign_cls.query().limit(10)
-        #             joins.append(
-        #                 JoinType(
-        #                     primary_table=self.table_name,
-        #                     primary_key=k,
-        #                     foreign_table=relation.foreign_table,
-        #                     foreign_key=relation.foreign_key,
-        #                 )
-        #             )
-        #         elif isinstance(v, PostgresQuerySet):
-        #             sub_queries[k] = v
-        #         else:
-        #             raise ValueError(f"Invalid argument {k} = {v}")
         
-        # return PostgresQuerySet(
-        #     model_class=self.model_class, 
-        #     namespace=self,  
-        #     branch_id=branch_id, 
-        #     select=select, 
-        #     joins=joins, 
-        #     filters=filters,
-        #     sub_queries=sub_queries
-        # )
         return SelectQuerySet(self.model_class).select("*")
         
             
