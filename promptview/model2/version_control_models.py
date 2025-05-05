@@ -1,6 +1,7 @@
 import enum
 import contextvars
 from typing import TYPE_CHECKING, List, Self, Type, TypeVar, overload
+import uuid
 
 from promptview.model2.model import Model
 from promptview.model2.fields import KeyField, ModelField, RelationField
@@ -404,9 +405,6 @@ class TurnModel(Model):
             branch: Optional branch ID to query from
         """   
         branch_id = get_branch_id(branch)
-        # turn_id = get_turn_id_or_none(turn)
-        # if turn_id is None:
-        #     raise VersioningError(f"Turn is required for {cls.__name__} {cls.id}")
         ns = cls.get_namespace()
         query = ns.query(**kwargs)
         query = (
@@ -415,3 +413,77 @@ class TurnModel(Model):
         )
         return query
     
+    
+    
+    
+    
+    
+    
+class ArtifactModel(TurnModel):
+    _is_base: bool = True
+    artifact_id: uuid.UUID = KeyField(default=None, type="uuid")
+    version: int = ModelField(default=1)
+    
+    
+    # async def save(self, turn: int | Turn | None = None, branch: int | Branch | None = None):
+    #     """
+    #     Save the artifact model instance to the database
+        
+    #     Args:
+    #         branch: Optional branch ID to save to
+    #         turn: Optional turn ID to save to
+    #     """        
+    #     ns = self.get_namespace()
+    #     result = await ns.save(self)
+    #     # Update instance with returned data (e.g., ID)
+    #     for key, value in result.items():
+    #         setattr(self, key, value)
+        
+    #     # Update relation instance IDs
+    #     self._update_relation_instance()
+        
+    #     return self
+    
+    @classmethod
+    async def get_artifact(cls: Type[Self], artifact_id: uuid.UUID, version: int | None = None) -> Self:
+        """
+        Get an artifact model instance by artifact ID and version
+        """
+        ns = cls.get_namespace()
+        data = await ns.get_artifact(artifact_id, version)
+        if data is None:
+            raise ValueError(f"Artifact '{artifact_id}' with version '{version}' not found")
+        instance = cls(**data)
+        instance._update_relation_instance()
+        return instance
+    
+    
+    async def delete(self, turn: int | Turn | None = None, branch: int | Branch | None = None):
+        """
+        Delete the artifact model instance from the database
+        """
+        ns = self.get_namespace()
+        data = self._payload_dump()
+        result = await ns.delete(data=data, id=self.primary_id, artifact_id=self.artifact_id, version=self.version + 1, branch=branch, turn=turn)
+        return result
+
+
+
+    @classmethod
+    def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, **kwargs) -> "SelectQuerySet[Self]":
+        """
+        Create a query for this model
+        
+        Args:
+            branch: Optional branch ID to query from
+        """   
+        branch_id = get_branch_id(branch)
+        ns = cls.get_namespace()
+        query = ns.query(**kwargs)
+        query = (
+            query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status))
+            .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
+            .distinct_on("artifact_id")
+            .order_by("-artifact_id", "-version")
+        )
+        return query

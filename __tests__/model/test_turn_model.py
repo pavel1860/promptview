@@ -1,34 +1,16 @@
 import os
-import uuid
 os.environ["POSTGRES_URL"] = "postgresql://ziggi:Aa123456@localhost:5432/promptview_test"
 
 import pytest
 import pytest_asyncio
-
-from enum import StrEnum
-from typing import TYPE_CHECKING, Any, List, Literal, Type
-from uuid import UUID
-
-from pydantic import BaseModel, Field
-from promptview.auth.user_manager import AuthModel
 from promptview.model2 import Model, ArtifactModel, ModelField, RelationField, ArtifactModel
-import datetime as dt
 from promptview.model2.fields import KeyField, RelationField, ModelField
-from promptview.model2.namespace_manager import NamespaceManager
 from promptview.prompt import Block, ToolCall
 
 
-    
-
-
-
 
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, List, Literal, Type
-from uuid import UUID
-
-from pydantic import BaseModel, Field
-from promptview.auth.user_manager import AuthModel
 from promptview.model2 import Model, ArtifactModel, ModelField, RelationField, ArtifactModel
 import datetime as dt
 from promptview.model2.namespace_manager import NamespaceManager

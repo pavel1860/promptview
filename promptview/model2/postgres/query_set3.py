@@ -184,6 +184,11 @@ class SelectQuerySet(Generic[MODEL]):
             self.curr_query.select(*[Column(f, self.curr_table) for f in fields])
         return self
     
+    
+    def distinct_on(self, *fields: str) -> "SelectQuerySet[MODEL]":
+        self.query.distinct_on_(*[Column(f, self.curr_table) for f in fields])
+        return self
+
 
     def where(self, condition: Callable[[MODEL], Any] | None = None, **kwargs) -> "SelectQuerySet[MODEL]":
         expressions = []

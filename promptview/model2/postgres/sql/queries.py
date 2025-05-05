@@ -79,6 +79,7 @@ class SelectQuery:
         self.limit = None
         self.offset = None
         self.distinct = False
+        self.distinct_on = [] 
         self.alias = None
         self.ctes = []  
         self.recursive = False  # <-
@@ -134,6 +135,10 @@ class SelectQuery:
 
     def distinct_(self, enabled=True):
         self.distinct = enabled
+        return self
+        
+    def distinct_on_(self, *cols):
+        self.distinct_on = list(cols)
         return self
 
 

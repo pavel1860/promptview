@@ -4,6 +4,7 @@
 
 
 
+import textwrap
 from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, Expression, RawSQL, RawValue, Value, And, Or, Not, IsNull, In, Between, Like, Function, OrderBy
 from promptview.model2.postgres.sql.helpers import NestedQuery
 from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery, Column
@@ -52,6 +53,7 @@ class Compiler:
         placeholder = f"${self.param_counter}"
         self.param_counter += 1
         return placeholder
+    
 
     def compile_expr(self, expr):
         # if isinstance(expr, Column):
@@ -165,7 +167,13 @@ class Compiler:
         if not q.columns:
             raise ValueError("Select query has no columns")
         sql = "SELECT "
-        sql += "DISTINCT " if q.distinct else ""
+        
+        if q.distinct_on:
+            distinct_on_exprs = ", ".join(self.compile_expr(col) for col in q.distinct_on)
+            sql += f"DISTINCT ON ({distinct_on_exprs}) "
+        elif q.distinct:
+            sql += "DISTINCT "
+            
         sql += ", ".join(self.compile_expr(col) for col in q.columns or ['*'])
 
         sql += f"\nFROM {self.compile_table(q.from_table)}"
