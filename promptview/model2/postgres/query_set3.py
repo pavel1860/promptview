@@ -11,7 +11,7 @@
 from typing import TYPE_CHECKING, Any, Callable, Generator, Generic, List, Literal, Self, Type
 from typing_extensions import TypeVar
 
-from promptview.model2.base_namespace import Namespace, NSRelationInfo
+from promptview.model2.base_namespace import NSManyToManyRelationInfo, Namespace, NSRelationInfo
 
 from promptview.model2.postgres.fields_query import PgFieldInfo
 # from promptview.model2.query_filters import QueryProxy
@@ -285,7 +285,6 @@ class SelectQuerySet(Generic[MODEL]):
         rel = self.curr_model.get_namespace().get_relation_by_type(query_set.model_class)
         if rel is None:
             raise ValueError("No relation found")
-        
         if query_set.query.ctes:
             # self.query.ctes = query_set.query.ctes + self.query.ctes
             self.query.ctes = self._copy_ctes(query_set)
@@ -294,14 +293,39 @@ class SelectQuerySet(Generic[MODEL]):
                 self.query.recursive = True
                 query_set.query.recursive = False
         
-        self.curr_query.join(
-            query_set.curr_table, 
-            Eq(
-                Column(rel.primary_key, self.curr_table), 
-                Column(rel.foreign_key, query_set.curr_table)
-            ),
-            join_type
-        )        
+        if isinstance(rel, NSManyToManyRelationInfo):
+            
+            j_ns = rel.junction_namespace
+            # f_ns = rel.foreign_namespace
+            j_alias=self._set_alias(j_ns.table_name)
+            # f_alias=self._set_alias(f_ns.table_name)
+            junction_table = Table(j_ns.table_name, alias=j_alias)
+            # table_name = Table(f_ns.table_name, alias=f_alias)
+            self.curr_query.join(
+                junction_table, 
+                Eq(
+                    Column(rel.primary_key, self.curr_table), 
+                    Column(rel.junction_keys[0], junction_table)
+                ),
+                join_type
+            )            
+            self.curr_query.join(
+                query_set.curr_table, 
+                Eq(
+                    Column(rel.junction_keys[1], junction_table), 
+                    Column(rel.foreign_key, query_set.curr_table)
+                ),
+                join_type
+            )
+        else:
+            self.curr_query.join(
+                query_set.curr_table, 
+                Eq(
+                    Column(rel.primary_key, self.curr_table), 
+                    Column(rel.foreign_key, query_set.curr_table)
+                ),
+                join_type
+            )        
         nested_query = embed_query_as_subquery(query_set.query, rel, self.curr_table)    
         nested_query.alias = rel.name
         self.query.columns.append(nested_query)

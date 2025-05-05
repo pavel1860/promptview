@@ -1,4 +1,4 @@
-from promptview.model2.base_namespace import DatabaseType, NSRelationInfo, Namespace
+from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace
 from typing import TYPE_CHECKING, Iterator, Type, TypeVar, Dict, List, Any, Optional, ForwardRef
 
 from promptview.model2.postgres.builder import SQLBuilder
@@ -220,14 +220,29 @@ class NamespaceManager:
                 yield namespace
                 
     @classmethod
-    def add_reversed_relation(cls, relation_info: NSRelationInfo):
+    def add_reversed_relation(cls, relation_info: NSRelationInfo | NSManyToManyRelationInfo):
         """
         Add a reversed relation to the namespace manager.
         """
-        if relation_info.foreign_table not in cls._reversed_relations:
-            cls._reversed_relations[relation_info.foreign_table] = {}
-        cls._reversed_relations[relation_info.foreign_table][relation_info.foreign_key] = relation_info
+        if isinstance(relation_info, NSManyToManyRelationInfo):
+            table = relation_info.junction_table
+            if table not in cls._reversed_relations:
+                cls._reversed_relations[table] = {}                
+            keys = relation_info.junction_keys
+            cls._reversed_relations[table][keys[0]] = relation_info
+            cls._reversed_relations[table][keys[1]] = relation_info            
+        else:
+            if relation_info.foreign_table not in cls._reversed_relations:
+                cls._reversed_relations[relation_info.foreign_table] = {}
+            cls._reversed_relations[relation_info.foreign_table][relation_info.foreign_key] = relation_info
+        # target_table = relation_info.foreign_table if isinstance(relation_info, NSRelationInfo) else relation_info.junction_table
         
+        # if target_table not in cls._reversed_relations:
+        #     cls._reversed_relations[target_table] = {}
+        # cls._reversed_relations[target_table][relation_info.foreign_key] = relation_info
+        # if isinstance(relation_info, NSManyToManyRelationInfo):
+            
+            
     @classmethod
     def get_reversed_relation(cls, table_name: str, key: str) -> NSRelationInfo | None:
         """

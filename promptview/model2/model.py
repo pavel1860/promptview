@@ -439,8 +439,16 @@ class Model(BaseModel, metaclass=ModelMeta):
             raise ValueError(f"Relation model not found for type: {model.__class__.__name__}")
         if isinstance(relation, NSManyToManyRelationInfo):
             result = await model.save()
-            # junction = relation.create_junction(self, result)            
+            # junction = relation.create_junction(self, result)   
+            j_prim_key = relation.junction_keys[0]         
+            j_fore_key = relation.junction_keys[1]
             junction = relation.junction_cls(**kwargs)
+            
+            key = getattr(self, relation.primary_key)
+            f_key = getattr(result, relation.foreign_key)
+            
+            setattr(junction, j_prim_key, key)
+            setattr(junction, j_fore_key, f_key)
             junction = await junction.save()            
         else:
             key = getattr(self, relation.primary_key)
