@@ -79,10 +79,24 @@ def wrap_query_in_json_agg(query: SelectQuery, alias: str, pk_col: Column) -> Co
     )
     return Coalesce(agg, Value("[]", inline=True), alias=alias)
 
-def embed_query_as_subquery(outer_query: SelectQuery, inner_query: SelectQuery, alias: str):
-    subquery = Subquery(inner_query, alias=alias)
-    outer_query.from_table = subquery
-    return outer_query
+# def embed_query_as_subquery(outer_query: SelectQuery, inner_query: SelectQuery, alias: str):
+#     subquery = Subquery(inner_query, alias=alias)
+#     outer_query.from_table = subquery
+#     return outer_query
+
+
+def embed_query_as_subquery(query, rel, parent_table):
+        obj = json_build_object(**{
+            c.name: c for c in query.columns
+        })
+        subq = SelectQuery()
+        subq.columns = [Function("json_agg", obj)]
+        subq.from_table = query.from_table
+        subq.joins = query.joins
+        # subq.where_clause = self.query.where_clause
+        subq.where_clause = Eq(Column(rel.foreign_key, query.from_table), Column(rel.primary_key, parent_table))
+        coalesced = Coalesce(subq, Value("[]", inline=True))
+        return coalesced
 
  
 class SelectQuerySet(Generic[MODEL]):
@@ -196,10 +210,44 @@ class SelectQuerySet(Generic[MODEL]):
         query.query.from_table.alias = self._set_alias(query.query.from_table.name)
         return query
     
-    def with_cte(self, name: str, query: "SelectQuery | SelectQuerySet | RawSQL"):
+    def with_cte(self, name: str, query: "SelectQuery | SelectQuerySet | RawSQL", recursive: bool = False):
+        if isinstance(query, SelectQuerySet):
+            if query.query.ctes:
+                # move nested cte to the top level
+                self.query.ctes = query.query.ctes + self.query.ctes
+                if query.query.recursive:
+                    query.query.recursive = False
+                    self.query.recursive = True
+                query.query.ctes = []
         if hasattr(query, "query"):  # If it's a SelectQuerySet
             query = query.query
-        self.query.with_cte(name, query)
+            
+        self.query.with_cte(name, query, recursive=recursive)    
+        return self
+    
+    
+    def join_cte(self, cte_name: str, on_left: str, on_right: str, alias=None):
+        """
+        Join a Common Table Expression (CTE) to the current query.
+
+        Args:
+            cte_name (str): Name of the CTE to join with
+            on_left (str): Column name from the current table to use in the join condition
+            on_right (str): Column name from the CTE to use in the join condition 
+            alias (str, optional): Alias to give the CTE in the join. Defaults to None.
+
+        Returns:
+            SelectQuerySet[MODEL]: Returns self for method chaining
+
+        Example:
+            query.with_cte("my_cte", subquery) \
+                .join_cte("my_cte", "id", "parent_id")
+        """
+        cte_table = Table(cte_name, alias=alias)
+        self.curr_query.join(
+            cte_table,
+            Eq(Column(on_left, self.curr_table), Column(on_right, cte_table))
+        )
         return self
     
     
@@ -209,9 +257,9 @@ class SelectQuerySet(Generic[MODEL]):
         if rel is None:
             raise ValueError("No relation found")
         
-        if query_set.query.ctes:
-            self.query.ctes = query_set.query.ctes + self.query.ctes
-            query_set.query.ctes = []
+        # if query_set.query.ctes:
+        #     self.query.ctes = query_set.query.ctes + self.query.ctes
+        #     query_set.query.ctes = []
         
         self.curr_query.join(
             query_set.curr_table, 
@@ -219,12 +267,9 @@ class SelectQuerySet(Generic[MODEL]):
                 Column(rel.primary_key, self.curr_table), 
                 Column(rel.foreign_key, query_set.curr_table)
             )
-        )
-        # nested_query = NestedQuery(query_set, rel.name, Column(rel.primary_key, self.curr_table), self, self.curr_table, rel)        
-        wrap_query_in_json_agg(self.curr_query, rel.name, Column(rel.primary_key, self.curr_table))
-        nested_query.update_depth()
+        )        
+        nested_query = embed_query_as_subquery(query_set.query, rel, self.curr_table)    
         self.query.columns.append(nested_query)
-        # self.query.columns.append(Column(rel.name, subquery, alias=rel.name))
         if not self.query.group_by:
             pk = self.model_class.get_namespace().primary_key.name
             p_id = Column(pk, self.table)

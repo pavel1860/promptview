@@ -80,6 +80,7 @@ class SelectQuery:
         self.distinct = False
         self.alias = None
         self.ctes = []  
+        self.recursive = False  # <-
     
     
     def join(self, table, condition, join_type='INNER', alias=None):
@@ -124,8 +125,10 @@ class SelectQuery:
         self.offset = count
         return self
 
-    def with_cte(self, name, query):
+    def with_cte(self, name, query, recursive: bool = False):
         self.ctes.append((name, query))
+        if self.recursive == False:
+            self.recursive = recursive
         return self
 
     def distinct_(self, enabled=True):

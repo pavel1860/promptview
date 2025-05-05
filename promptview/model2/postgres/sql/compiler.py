@@ -33,7 +33,7 @@ class Compiler:
 
             # Add CTEs first
             if query.ctes:
-                sql += self._compile_ctes(query.ctes) + "\n"
+                sql += self._compile_ctes(query.ctes, query.recursive) + "\n"
 
             sql += self._compile_select(query)
         elif isinstance(query, InsertQuery):
@@ -257,7 +257,7 @@ class Compiler:
 
     
     
-    def _compile_ctes(self, ctes):
+    def _compile_ctes(self, ctes, recursive=False):
         parts = []
         for alias, cte_query in ctes:
             if isinstance(cte_query, RawSQL):
@@ -266,4 +266,7 @@ class Compiler:
             else:
                 cte_sql, _ = self.compile(cte_query)
                 parts.append(f"{alias} AS ({cte_sql})")
-        return "WITH " + ",\n     ".join(parts)
+        prefix = "WITH "
+        if recursive:
+            prefix = "WITH RECURSIVE "
+        return prefix + ",\n     ".join(parts)
