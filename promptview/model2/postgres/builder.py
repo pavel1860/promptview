@@ -299,5 +299,8 @@ class SQLBuilder:
 
 
 
-
+    @classmethod
+    async def create_extension(cls, extension_name: str) -> None:
+        """Create an extension"""
+        await cls.execute(f"CREATE EXTENSION IF NOT EXISTS {extension_name};")
 

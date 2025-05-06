@@ -9,6 +9,7 @@ import pydantic_core
 import datetime as dt
 
 
+
 from promptview.model2.context import Context
 from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
@@ -18,6 +19,7 @@ from promptview.model2.query_filters import SelectFieldProxy
 
 
 
+from promptview.resource_manager import ResourceManager
 from promptview.utils.model_utils import unpack_list_model
 from promptview.utils.string_utils import camel_to_snake
 
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
     from promptview.model2.version_control_models import Branch, Turn
     from promptview.prompt.block6 import Block
     from promptview.llms.llm3 import OutputModel
+    from promptview.algebra.vectors.base_vectorizer import BaseVectorizer
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -109,6 +112,10 @@ def unpack_relation_extra(extra: dict[str, Any], field_origin: Type[Any], is_ver
     return primary_key, foreign_key, junction_keys, relation_type, junction_model, on_delete, on_update
 
 
+def unpack_vector_extra(extra: dict[str, Any]) -> "tuple[int, Type[BaseVectorizer] | None]":
+    dimension = extra.get("dimension", 1536)
+    vectorizer = extra.get("vectorizer", None)
+    return dimension, vectorizer
 
 class ModelMeta(ModelMetaclass, type):
     """Metaclass for Model
@@ -176,26 +183,7 @@ class ModelMeta(ModelMetaclass, type):
             
             if extra.get("is_relation", False):
                 # Get the model class from the relation                                
-                
-                # primary_key = extra.get("primary_key") or ("artifact_id" if ns.is_versioned else "id")
-                # foreign_key = extra.get("foreign_key")
-                # on_delete=extra.get("on_delete", "CASCADE")
-                # on_update=extra.get("on_update", "CASCADE")
-                # junction_keys = extra.get("junction_keys", None)
-                # junction_model = extra.get("junction_model", None)
-                # relation_type = "one_to_one"                
-                # if field_origin is Iterable:
-                #     if junction_model is not None:
-                #         relation_type = "many_to_many"
-                #     else:
-                #         relation_type = "one_to_many"
-                
-                # if not foreign_key:
-                #     raise ValueError("foreign_key is required for one_to_many relation")
-                
-                # print(primary_key, foreign_key, on_delete, on_update)
-                # if not foreign_key:
-                #     raise ValueError("foreign_key is required for one_to_many relation")
+
                 field_origin = get_origin(field_type)
                 foreign_cls = None
                 if field_origin is list:
@@ -217,10 +205,8 @@ class ModelMeta(ModelMetaclass, type):
                         on_delete=on_delete,
                         on_update=on_update,
                     )
-                    # field_info.default_factory = make_relation_default_factory(ns, relation_field)
 
                 else:  # many to many relation
-                    # foreign_cls, junction_cls = get_many_to_many_relation_model(field_type)
                     if junction_cls is None:
                         raise ValueError(f"junction_cls is required for many to many relation: {field_type} on Model {name}")
                     if not junction_keys:
@@ -236,11 +222,16 @@ class ModelMeta(ModelMetaclass, type):
                         on_delete=on_delete,
                         on_update=on_update,
                     )                
-                    # field_info.default_factory = make_many_relation_default_factory(ns, relation_field)
                 
                 relations[field_name] = relation_field
                 # Skip adding this field to the namespace
                 continue
+            elif extra.get("is_vector", False):
+                dimension, vectorizer = unpack_vector_extra(extra)
+                if vectorizer is None:
+                    raise ValueError(f"vectorizer is required for vector field: {field_type} on Model {name}")
+                ResourceManager.register_vectorizer(field_name, vectorizer)
+                NamespaceManager.register_extension(db_type, "vector")
             
             # Add field to namespace
             field_extras[field_name] = extra
@@ -503,6 +494,22 @@ class Model(BaseModel, metaclass=ModelMeta):
         """
         ns = cls.get_namespace()
         return ns.query(**kwargs)
+    
+    
+    
+    
+    # @classmethod
+    # def __get_pydantic_core_schema__(cls, source, handler):
+    #     def validate_custom(value, info):
+    #         if isinstance(value, cls):
+    #             # if cls.validate_models(value):
+    #             if True:
+    #                 return value
+    #             else:
+    #                 raise TypeError("Relation must be a Model")
+    #         else:
+    #             raise TypeError("Invalid type for Relation; expected Relation instance")
+    #     return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
 
     
     # @classmethod

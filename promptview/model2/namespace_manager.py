@@ -14,6 +14,15 @@ if TYPE_CHECKING:
 
 MODEL = TypeVar("MODEL", bound="Model")
 
+
+class Extension:
+    name: str
+    is_installed: bool
+    
+    def __init__(self, name: str, is_installed: bool = False):
+        self.name = name
+        self.is_installed = is_installed
+
 class NamespaceManager:
     """Manager for namespaces"""
     _namespaces: dict[str, Namespace] = {}
@@ -21,12 +30,17 @@ class NamespaceManager:
     _reversed_relations: dict[str, dict[str, NSRelationInfo]] = {}
     _is_initialized: bool = False
     _main_branch: "Branch | None" = None
+    extensions: dict[str, dict[str, Extension]] = {}
     
     @classmethod
     def initialize(cls):
         """Initialize the namespace manager"""
         cls._namespaces = {}
         cls._relations = {}
+        cls.extensions = {
+            "postgres": {},
+            "qdrant": {},
+        }
         cls._reversed_relations = {}
         
     @classmethod
@@ -63,6 +77,25 @@ class NamespaceManager:
            raise ValueError(f"Invalid database type: {db_type}")
         cls._namespaces[model_name] = namespace
         return namespace
+    
+    @classmethod
+    def register_extension(cls, db_type: DatabaseType, extension_name: str):
+        if db_type not in cls.extensions:
+            raise ValueError(f"Invalid database type: {db_type}")
+        if extension_name not in cls.extensions[db_type]:
+            cls.extensions[db_type][extension_name] = Extension(extension_name)
+        
+        
+    @classmethod
+    async def install_extensions(cls):
+        """
+        Install the necessary PostgreSQL extensions.
+        """ 
+        for extension in cls.extensions["postgres"].values():
+            if not extension.is_installed:
+                await SQLBuilder.create_extension(extension.name)
+                extension.is_installed = True
+       
         
     @classmethod
     def get_namespace(cls, model_name: str) -> Namespace:
@@ -149,6 +182,7 @@ class NamespaceManager:
         from .version_control_models import Branch
         if not cls._namespaces:
             raise ValueError("No namespaces registered")
+        await cls.install_extensions()
         for namespace in cls.iter_namespaces("postgres"):
             await SQLBuilder.create_enum_types(namespace)
         # if versioning:

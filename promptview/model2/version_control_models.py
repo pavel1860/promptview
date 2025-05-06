@@ -7,11 +7,8 @@ from promptview.model2.model import Model
 from promptview.model2.fields import KeyField, ModelField, RelationField
 import datetime as dt
 
-from promptview.model2.postgres.fields_query import NamespaceQueryFields
 from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2.postgres.sql.expressions import RawSQL, RawValue, Value
-if TYPE_CHECKING:
-    from promptview.model2.artifact_model import ArtifactModel
 
 CURR_TURN = contextvars.ContextVar("curr_turn")
 CURR_BRANCH = contextvars.ContextVar("curr_branch")

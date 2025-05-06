@@ -4,8 +4,10 @@ from enum import Enum
 import json
 from typing import TYPE_CHECKING, List, Literal, Set, Any, Optional, Iterator
 import uuid
-
+import datetime as dt
+import numpy as np
 from pydantic import BaseModel
+from promptview.model2.vectors import Vector
 from promptview.utils.model_utils import get_list_type, is_list_type, make_json_serializable
 from promptview.model2.base_namespace import NSFieldInfo
 if TYPE_CHECKING:
@@ -129,9 +131,9 @@ class PgFieldInfo(NSFieldInfo):
         elif issubclass(self.data_type, BaseModel):
             sql_type = "JSONB"
         elif issubclass(self.data_type, Enum):
-            sql_type = "TEXT"        
-                
-        
+            sql_type = "TEXT"
+        elif self.data_type is Vector:
+            sql_type = f"VECTOR({self.dimension})"        
         if sql_type is None:
             raise ValueError(f"Unsupported field type: {self.data_type}")
         return sql_type
@@ -185,187 +187,6 @@ class PgFieldInfo(NSFieldInfo):
         return f"PgFieldInfo(name={self.name}, data_type={self.data_type.__name__}, sql_type={self.sql_type}, {', '.join(params)})"
 
 
-class QueryField:
-    def __init__(self, field_info: PgFieldInfo):
-        self.field_info = field_info
-        self._value: Optional[Any] = None
-        self._custom_value: Optional[str] = None
-        self._is_dirty: bool = False
-
-    @property
-    def name(self) -> str:
-        return self.field_info.name
-
-    @property
-    def value(self) -> Any: 
-        return self._custom_value or self._value
-
-    @property
-    def need_placeholder(self) -> bool:
-        return self._custom_value is None
-    
-    def is_input(self, key: bool = True):
-        if not key and self.field_info.is_key:
-            return False
-        return self._is_dirty
-            
-
-    @property
-    def include_in_set_query(self) -> bool:
-        return self._is_dirty
-    
-    @property
-    def include_in_insert_query(self) -> bool:
-        return self._is_dirty and not self.field_info.is_key
 
 
-    def set(self, value: Any):
-        self._value = self.field_info.serialize(value)
-        self._is_dirty = True
 
-    def override(self, value: str):
-        self._custom_value = value
-        self._is_dirty = True
-
-    def get_placeholder(self, idx: int) -> str:
-        return self._custom_value or self.field_info.get_placeholder(idx)
-
-    def render_field(self, alias: Optional[str] = None, add_quotes: bool = True) -> str:
-        field_str = f'"{self.name}"' if add_quotes else self.name
-        return f'{alias}.{field_str}' if alias else field_str
-
-    def render_return(self, alias: Optional[str] = None, label: Optional[str] = None) -> str:
-        field_str = label or self.render_field(alias)
-        return field_str
-
-    def render_select(self, idx: int, alias: Optional[str] = None, label: Optional[str] = None) -> tuple[str, int]:
-        field_str = self.render_field(alias)
-        if label:
-            field_str += f' AS {label}'
-        return field_str, idx
-
-    def render_set(self, idx: int, alias: Optional[str] = None) -> tuple[str, int]:
-        field_str = self.render_field(alias, add_quotes=False)
-        if self._custom_value:
-            return f'{field_str} = {self._custom_value}', idx
-        else:
-            return f'{field_str} = ${idx}', idx + 1
-        
-    def __repr__(self) -> str:
-        return f"QueryField(name={self.name}, value={self.value}, is_dirty={self._is_dirty})"
-
-
-class NamespaceQueryFields:
-    """
-    A class that represents the instantiated fields of a namespace.
-    the select parameter is the set of fields to select from the query.
-    the setting the values of the fields will include them in the insert and update queries.
-    
-    """
-    def __init__(
-        self, 
-        namespace, 
-        alias: Optional[str] = None, 
-    ):
-        self.namespace = namespace
-        self.alias = alias
-        self._fields = {field_info.name: QueryField(field_info) for field_info in namespace.iter_fields()}
-        
-        
-    @property
-    def table_name(self) -> str:
-        return self.namespace.table_name
-
-    @property
-    def primary_key(self) -> str:
-        return self.namespace.primary_key.name
-    
-    def get_inputs(self, key: bool = True) -> list[Any]:
-        return [field for field in self.iter_fields() if field.is_input(key)]
-    
-    def inputs_len(self) -> int:
-        return len(self.get_inputs())
-    
-    def get_outputs(self) -> list[Any]:
-        return [field for field in self.iter_fields()]
-
-    def __getitem__(self, key: str) -> QueryField:
-        return self._fields[key]
-
-    def set(self, key: str, value: Any):
-        """set the value of a field, this will include the field in the insert and update queries"""
-        if key not in self._fields:
-            raise KeyError(f"Field {key} not found in namespace.")
-        self._fields[key].set(value)
-        
-    def set_model(self, model: "Model"):
-        for key, value in model.model_dump(exclude_none=True).items():
-            self._fields[key].set(value)
-
-    def override(self, key: str, value: str):
-        if key not in self._fields:
-            raise KeyError(f"Field {key} not found in namespace.")
-        self._fields[key].override(value)
-
-    # def select(self, select: Set[str]):
-    #     self._select = select
-
-    def iter_fields(self, keys: bool = True, select: Set[str] | None = None) -> Iterator[QueryField]:
-        for field in self._fields.values():
-            if not keys and field.field_info.is_key:
-                continue
-            if select and field.name not in select:
-                continue
-            yield field
-
-    def build_clause(self, render_func: str) -> str:
-        idx = 1
-        parts = []
-        for field in self.iter_fields():
-            if getattr(field, "include_in_set_query", True):
-                part, idx = getattr(field, render_func)(idx, self.alias)
-                parts.append(part)
-        return ", \n".join(parts)
-    
-    
-    def render(self, select: Set[str] | None = None, alias: str | None = None, labels: dict[str, str] = {}, new_line: bool = True) -> str:
-        if not select:
-            return "*"
-        delimiter = ", \n" if new_line else ", "
-        return_fields = [field.render_return(alias, labels.get(field.name, None)) for field in self.iter_fields(select=select)]
-        return delimiter.join(return_fields) if return_fields else "*"
-    
-
-    def render_return(self, select: Set[str] | None = None, alias: str | None = None) -> str:
-        if not select:
-            return "*"
-        return_fields = [field.render_return(alias) for field in self.iter_fields(select=select)]
-        return ", ".join(return_fields) if return_fields else "*"
-    
-    def render_select(self, select: Set[str] | None = None, alias: str | None = None, new_line: bool = True, labels: dict[str, str] = {}) -> str:
-        if not select:
-            return "*"
-        delimiter = ", \n" if new_line else ", "
-        return_fields = [field.render_return(alias, labels.get(field.name, None)) for field in self.iter_fields(select=select)]
-        return delimiter.join(return_fields) if return_fields else "*"
-    
-    def render_insert(self, select: Set[str] | None = None, alias: str | None = None) -> str:
-        return ", ".join([field.render_field(add_quotes=False) for field in self.iter_fields(keys=False) if field.include_in_insert_query])
-    
-    # def build_select_clause(self) -> str:
-    #     return ", ".join([field.render_field(add_quotes=False) for field in self.iter_fields(keys=False) if field.include_in_select_query])
-    
-    def get_values(self) -> List[Any]:
-        return [field.value for field in self.iter_fields(keys=False) if field.include_in_insert_query and field.need_placeholder]
-
-    def render_placeholders(self, select: Set[str] | None = None, start_idx: int = 1) -> str:
-        idx = start_idx
-        placeholders = []
-        for field in self.iter_fields(select=select):
-            if field.include_in_set_query:
-                if field.need_placeholder:
-                    placeholders.append(f'${idx}')
-                    idx += 1
-                else:
-                    placeholders.append(field.value)
-        return ", ".join(placeholders)

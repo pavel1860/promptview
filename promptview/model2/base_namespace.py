@@ -90,6 +90,9 @@ class NSFieldInfo:
         self.is_key = extra and extra.get("is_key", False)
         if self.is_key:
             self.key_type = extra and extra.get("type", None)
+        self.dimension = extra and extra.get("dimension", None)
+        self.is_vector = extra and extra.get("is_vector", False)
+        
     @property
     def data_type(self) -> Type[Any]:
         if self.is_list:
@@ -295,6 +298,9 @@ class NSManyToManyRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL], NS
     
     def __repr__(self) -> str:
         return f"NSManyToManyRelationInfo(name={self.name}, primary_key={self.primary_key}, foreign_key={self.foreign_key}, foreign_cls={self.foreign_cls.__name__}, junction_cls={self.junction_cls.__name__}, junction_keys={self.junction_keys})"
+
+
+    
     
 T_co = TypeVar("T_co", covariant=True)
 
@@ -429,6 +435,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         self._name = name
         self._fields = {}
         self._relations = {}
+        self._vector_fields = {}
         self.is_versioned = is_versioned
         self.is_repo = is_repo
         self.is_context = is_context
@@ -531,11 +538,13 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     #             continue
     #         yield field
     
-    def iter_fields(self, keys: bool = True, select: Set[str] | None = None) -> "Iterator[FIELD_INFO]":
+    def iter_fields(self, keys: bool = True, select: Set[str] | None = None, is_vector: bool = True) -> "Iterator[FIELD_INFO]":
         for field in self._fields.values():
             if not keys and field.is_key:
                 continue
-            if select and field.name not in select:
+            if select is not None and field.name not in select:
+                continue
+            if not is_vector and field.is_vector:
                 continue
             yield field
             

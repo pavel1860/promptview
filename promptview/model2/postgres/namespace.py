@@ -11,7 +11,7 @@ from promptview.model2.versioning import ArtifactLog, Branch, Turn
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter, SelectFields
 from promptview.utils.db_connections import PGConnectionManager
 import datetime as dt
-from promptview.model2.postgres.fields_query import PgFieldInfo, QueryField, NamespaceQueryFields
+from promptview.model2.postgres.fields_query import PgFieldInfo
 if TYPE_CHECKING:
     from promptview.model2.namespace_manager import NamespaceManager
     from promptview.model2.model import Model
@@ -81,6 +81,8 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         if pg_field.is_primary_key:
             if curr_key:= self.find_primary_key() is not None:
                 raise ValueError(f"Primary key field {name} already exists. {curr_key} is already the primary key field.")
+        if pg_field.is_vector:
+            self._vector_fields[name] = pg_field                
         self._fields[name] = pg_field
         return pg_field    
     

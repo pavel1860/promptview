@@ -4,6 +4,9 @@ from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import _Unset, AliasPath, AliasChoices, FieldInfo, JsonDict, Unpack, _EmptyKwargs, Deprecated # type: ignore
 from typing import TYPE_CHECKING, Any, Callable, Dict, ForwardRef, Generic, List, Literal, Optional, Protocol, Self, Type, TypeVar, get_args, get_origin
 from pydantic_core import PydanticUndefined
+
+from promptview.algebra.vectors.base_vectorizer import BaseVectorizer
+from promptview.algebra.vectors.empty_vectorizer import EmptyVectorizer
 if TYPE_CHECKING:
     from promptview.model2.model import Model
 
@@ -120,5 +123,26 @@ def RelationField(
     return Field(default, json_schema_extra=extra, description=description)
     # return Field(json_schema_extra=extra, **kwargs)
     # return Field(json_schema_extra=extra, default_factory=lambda: None, **kwargs)
+
+
+
+
+
+def VectorField(
+    default: Any = None,
+    *,
+    dimension: int = 1536,
+    vectorizer: Type[BaseVectorizer] | None = None,
+    description: str | None = _Unset,
+) -> Any:
+    extra = {}
+    extra["dimension"] = dimension
+    extra["is_vector"] = True
+    if vectorizer is None:
+        vectorizer = EmptyVectorizer
+    extra["vectorizer"] = vectorizer
+    return Field(default, json_schema_extra=extra, description=description)
+
+
 
 
