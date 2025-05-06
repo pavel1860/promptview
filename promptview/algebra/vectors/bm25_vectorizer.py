@@ -1,4 +1,5 @@
 import asyncio
+from typing import ClassVar
 import openai
 import numpy as np
 from pydantic import BaseModel, Field
@@ -11,7 +12,7 @@ class BM25Vectorizer(BaseVectorizer[str, list[float]]):
     client: BM25Encoder = Field(default_factory=BM25Encoder.default)
     model: str = "bm25"
     type: VectorType = "sparse"
-    dimension: int = Field(default=30000)
+    dimension: ClassVar[int] = 30000
     
     
     async def embed_documents(self, docs: list[str]) -> list[np.ndarray]:

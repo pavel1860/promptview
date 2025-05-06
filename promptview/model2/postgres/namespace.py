@@ -426,13 +426,18 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             The saved data with any additional fields (e.g., ID)
         """
         model = self.validate_model_fields(model)
+        dump = model.model_dump()
+        if self.need_to_transform:
+            vector_payload = await self.transform_model(model)
+            dump.update(vector_payload)
+            
         if getattr(model, self.primary_key.name) is None:
-            dump = model.model_dump()
+            # dump = model.model_dump()
             if self.is_artifact:
                 dump["artifact_id"] = uuid.uuid4()                            
-            sql, values = self.build_insert_query(model.model_dump())
+            sql, values = self.build_insert_query(dump)
         else:
-            dump = model.model_dump()
+            # dump = model.model_dump()
             if self.is_artifact:
                 dump["version"] = model.version + 1
                 dump["updated_at"] = dt.datetime.now()

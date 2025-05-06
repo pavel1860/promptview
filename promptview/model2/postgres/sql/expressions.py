@@ -144,3 +144,19 @@ class RawSQL:
     def __init__(self, sql: str, params: list | None = None):
         self.sql = sql
         self.params = params or []
+
+
+
+
+class VectorDistance(BinaryExpression):
+    def __init__(self, left, operator: str, right):
+        super().__init__(left, operator, right)
+
+def l2_distance(left, right):
+    return VectorDistance(left, "<->", param(right))
+
+def cosine_distance(left, right):
+    return VectorDistance(left, "<=>", param(right))
+
+def inner_product(left, right):
+    return VectorDistance(left, "<#>", param(right))

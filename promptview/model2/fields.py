@@ -131,15 +131,21 @@ def RelationField(
 def VectorField(
     default: Any = None,
     *,
-    dimension: int = 1536,
+    dimension: int | None = None,
     vectorizer: Type[BaseVectorizer] | None = None,
     description: str | None = _Unset,
 ) -> Any:
     extra = {}
-    extra["dimension"] = dimension
-    extra["is_vector"] = True
+    
     if vectorizer is None:
         vectorizer = EmptyVectorizer
+        dimension = 300
+    else:
+        if not dimension:
+            dimension = vectorizer.dimension
+    
+    extra["dimension"] = dimension
+    extra["is_vector"] = True    
     extra["vectorizer"] = vectorizer
     return Field(default, json_schema_extra=extra, description=description)
 

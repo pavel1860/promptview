@@ -1,4 +1,4 @@
-from typing import List
+from typing import ClassVar, List
 import numpy as np
 from pydantic import BaseModel, Field
 from .base_vectorizer import BaseVectorizer, VectorType
@@ -9,7 +9,7 @@ from .base_vectorizer import BaseVectorizer, VectorType
 class EmptyVectorizer(BaseVectorizer[str, np.ndarray]):
     model: str = "empty"
     type: VectorType = "dense"
-    dimension: int = Field(default=300)
+    dimension: ClassVar[int] = 300
     
     async def embed_documents(self, docs: list[str]) -> List[np.ndarray]:
         """

@@ -4,9 +4,11 @@ from pydantic import AfterValidator, BeforeValidator, BaseModel, PlainSerializer
 from pydantic_core import core_schema
 from pydantic import GetCoreSchemaHandler
 
-from typing import Annotated, Any, List
+from typing import TYPE_CHECKING, Annotated, Any, Callable, List, Type
 import ast
 
+if TYPE_CHECKING:
+    from promptview.algebra.vectors.base_vectorizer import BaseVectorizer
 
 
 class Vector(np.ndarray):
@@ -43,8 +45,23 @@ class Vector(np.ndarray):
         return Vector(value)
 
     @staticmethod
-    def _serialize(instance: "Vector") -> list:
+    def _serialize(instance: "Vector | None") -> list | None:
+        if instance is None:
+            return None
         return instance.tolist()        
         
         
 class SparseVector(csr_matrix): pass
+
+
+
+
+
+
+
+def transformer(field_name: str, vectorizer_cls: "Type[BaseVectorizer]"):
+    def decorator(func: Callable):
+        func._transformer_field_name = field_name
+        func._vectorizer_cls = vectorizer_cls
+        return func
+    return decorator

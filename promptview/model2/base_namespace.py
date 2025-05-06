@@ -1,4 +1,5 @@
 from abc import abstractmethod
+import asyncio
 import contextvars
 from enum import Enum
 import inspect
@@ -8,6 +9,7 @@ import uuid
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 import datetime as dt
+
 
 
 from promptview.utils.model_utils import is_list_type, unpack_list_model
@@ -20,6 +22,7 @@ if TYPE_CHECKING:
     from promptview.model2.model import Model
     from promptview.model2.versioning import Branch, Turn, Partition
     from promptview.model2.query_filters import QuerySetProxy
+    from promptview.algebra.vectors.base_vectorizer import BaseVectorizer
 INDEX_TYPES = TypeVar("INDEX_TYPES", bound=str)
 
 
@@ -410,6 +413,25 @@ class QuerySet(Generic[MODEL]):
 FIELD_INFO = TypeVar("FIELD_INFO", bound=NSFieldInfo)
 
 
+
+
+class Transformer(Generic[MODEL]):
+    def __init__(self, field_name: str, transform_fn: Callable[[MODEL], Any], vectorizer_cls: "Type[BaseVectorizer]"):
+        self.field_name = field_name
+        self.transform_fn = transform_fn
+        self.vectorizer_cls = vectorizer_cls
+    
+    @property
+    def vectorizer(self) -> "BaseVectorizer":
+        from promptview.resource_manager import ResourceManager
+        return ResourceManager.get_vectorizer_by_name(self.field_name)
+        
+    async def __call__(self, models: list[MODEL]) -> list[Any]:        
+        docs = [self.transform_fn(model) for model in models]
+        return await self.vectorizer.embed_documents(docs)
+        
+
+
 class Namespace(Generic[MODEL, FIELD_INFO]):
     _model_cls: Type[MODEL] | None = None
     _name: str
@@ -421,6 +443,8 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     db_type: DatabaseType
     _primary_key: FIELD_INFO | None = None
     _curr_ctx_model: contextvars.ContextVar
+    _vector_fields: dict[str, FIELD_INFO]
+    _transformers: dict[str, Transformer]   
     def __init__(
         self, 
         name: str, 
@@ -442,6 +466,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         self.is_artifact = is_artifact
         self.repo_namespace = repo_namespace
         self.namespace_manager = namespace_manager
+        self._transformers = {}
         self.db_type = db_type
         self._model_cls = None
         self._primary_key = None
@@ -463,6 +488,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         if self._model_cls is None:
             raise ValueError("Model class not set")
         return self._model_cls
+    
     
     @property
     def primary_key(self) -> FIELD_INFO:
@@ -623,6 +649,48 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
             on_update: The action to take when the referenced row is updated
         """
         raise NotImplementedError("Not implemented")
+    
+    @property
+    def need_to_transform(self) -> bool:
+        return bool(self._transformers)
+    
+    def register_transformer(self, field_name: str, transformer: Callable[[MODEL], Any], vectorizer: "BaseVectorizer"):
+        self._transformers[field_name] = Transformer(field_name, transformer, vectorizer)
+        
+        
+    def get_transformers(self) -> dict[str, Transformer]:
+        return self._transformers
+    
+    def get_transformer(self, field_name: str) -> Transformer | None:
+        return self._transformers.get(field_name, None)
+    
+    # def transform_model(self, model: MODEL) -> dict[str, Any]:
+    #     vector_payload = {}
+    #     for field_name, transformer in self._transformers.items():
+    #         vector_payload[field_name] = transformer(model)
+    #     return vector_payload
+    
+    async def transform_field(self, field_name: str, model: MODEL) -> Any:
+        transformer = self._transformers[field_name]
+        return await transformer([model])
+    
+    
+    def get_vectorizer(self, field_name: str) -> "BaseVectorizer":
+        from promptview.resource_manager import ResourceManager
+        vectorizer = ResourceManager.get_vectorizer_by_name(field_name)
+        if vectorizer is None:
+            raise ValueError(f"Vectorizer for field {field_name} not found")
+        return vectorizer
+    
+
+    
+    async def transform_model_list(self, models: list[MODEL]) -> dict[str, list[Any]]:
+        res_list = await asyncio.gather(*[transformer(models) for transformer in self._transformers.values()])
+        return {field_name: res for field_name, res in zip(self._transformers.keys(), res_list)}
+    
+    async def transform_model(self, model: MODEL) -> dict[str, Any]:
+        res = await self.transform_model_list([model])
+        return {field_name: res[field_name][0] for field_name in res}
     
     async def get_current_ctx_head(self, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> tuple[int | None, int | None]:
         from promptview.model2.context import Context

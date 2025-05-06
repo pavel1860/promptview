@@ -44,6 +44,8 @@ class PgFieldInfo(NSFieldInfo):
         """Serialize the value for the database"""
         if self.is_key and self.key_type == "uuid" and value is None:
             value = str(uuid.uuid4())
+        elif self.is_vector:
+            value = f"[{', '.join(map(str, value))}]"
         elif self.sql_type == "JSONB":
             if self.is_list:
                 value = [make_json_serializable(item) if isinstance(item, dict) else item for item in value]
@@ -53,6 +55,7 @@ class PgFieldInfo(NSFieldInfo):
             elif self.data_type is dict:
                 value = make_json_serializable(value)
                 return json.dumps(value)
+
                 # parsed_values = {}
                 # for k, v in value.items():
                 #     if isinstance(v, uuid.UUID):
@@ -80,6 +83,8 @@ class PgFieldInfo(NSFieldInfo):
             if self.db_type:
                 return f'${index}::{self.db_type}'
             return f'${index}::TIMESTAMP'
+        # elif self.is_vector:
+            # return f'${index}::vector'
         else:
             return f'${index}'
     
@@ -97,6 +102,8 @@ class PgFieldInfo(NSFieldInfo):
             return self.data_type.model_validate_json(value)
         elif self.is_enum and not self.is_literal:
             return self.data_type(value)
+        elif self.is_vector:
+            return np.fromstring(value.strip("[]"), sep=",")
         return value
             
     

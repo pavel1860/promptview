@@ -1,3 +1,4 @@
+from typing import ClassVar
 from pydantic import BaseModel, Field
 import numpy as np
 import asyncio
@@ -34,6 +35,6 @@ class SentenceTransformersVectorizer(BaseVectorizer[str, np.ndarray]):
 
 
 class MiniLmL6Vectorizer(SentenceTransformersVectorizer):
-    dimension: int = Field(default=384)
+    dimension: ClassVar[int] = 384
     model: str = Field(default="all-MiniLM-L6-v2")
     

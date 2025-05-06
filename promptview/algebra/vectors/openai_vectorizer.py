@@ -1,3 +1,4 @@
+from typing import ClassVar
 import openai
 import numpy as np
 from pydantic import BaseModel, Field
@@ -37,11 +38,11 @@ class OpenAIVectorizer(BaseVectorizer[str, np.ndarray]):
 
 
 class OpenAISmallVectorizer(OpenAIVectorizer):
-    dimension: int = Field(default=1536)
+    dimension: ClassVar[int] = 1536
     model: str = Field(default="text-embedding-3-small")
     
 
 
 class OpenAILargeVectorizer(OpenAIVectorizer):
-    dimension: int = Field(default=3072)
+    dimension: ClassVar[int] = 3072
     model: str = Field(default="text-embedding-3-large")

@@ -5,7 +5,7 @@
 
 
 import textwrap
-from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, Expression, RawSQL, RawValue, Value, And, Or, Not, IsNull, In, Between, Like, Function, OrderBy
+from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, Expression, RawSQL, RawValue, Value, And, Or, Not, IsNull, In, Between, Like, Function, OrderBy, VectorDistance
 from promptview.model2.postgres.sql.helpers import NestedQuery
 from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery, Column
 
@@ -139,7 +139,10 @@ class Compiler:
             return compiled
         elif isinstance(expr, OrderBy):
             return f"{self.compile_expr(expr.column)} {expr.direction}"
-        
+        elif isinstance(expr, VectorDistance):
+            left = self.compile_expr(expr.left)
+            right = self.compile_expr(expr.right)
+            return f"({left} {expr.operator} {right})"
         elif isinstance(expr, NestedQuery):
             query = expr.build_query()
             return self.compile_expr(query)

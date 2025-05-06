@@ -6,7 +6,7 @@ from .namespace_manager import NamespaceManager
 from .version_control_models import Branch, Turn, TurnStatus, TurnModel, VersioningError, ArtifactModel
 from .block_model import BlockModel
 from .context import Context
-from .vectors import Vector, SparseVector
+from .vectors import Vector, SparseVector, transformer
 
 __all__ = [
     "Model", 
@@ -25,4 +25,5 @@ __all__ = [
     "VersioningError",
     "Vector",
     "SparseVector",
+    "transformer",
 ]

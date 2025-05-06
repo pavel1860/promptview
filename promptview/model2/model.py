@@ -166,6 +166,21 @@ class ModelMeta(ModelMetaclass, type):
         # Process fields and relations
         relations = {}
         field_extras = {}
+        transformers = {}
+        for field_name, field_info in dct.items():
+            if callable(field_info) and hasattr(field_info, "_transformer_field_name"):
+                field_name = getattr(field_info, "_transformer_field_name")
+                vectorizer_cls = getattr(field_info, "_vectorizer_cls")
+                # register it on the class
+                ns.register_transformer(field_name, field_info, vectorizer_cls)
+                ResourceManager.register_vectorizer(field_name, vectorizer_cls)
+        
+        
+            
+        
+
+        
+        
         for field_name, field_info in dct.items():
             # Skip fields without a type annotation
             check_reserved_fields(bases, name, field_name)
@@ -230,7 +245,12 @@ class ModelMeta(ModelMetaclass, type):
                 dimension, vectorizer = unpack_vector_extra(extra)
                 if vectorizer is None:
                     raise ValueError(f"vectorizer is required for vector field: {field_type} on Model {name}")
+                if dimension is None:
+                    raise ValueError(f"dimension is required for vector field: {field_type} on Model {name}")
+                if not ns.get_transformer(field_name):
+                    raise ValueError(f"transformer is required for vector field: {field_type} on Model {name}")
                 ResourceManager.register_vectorizer(field_name, vectorizer)
+                
                 NamespaceManager.register_extension(db_type, "vector")
             
             # Add field to namespace

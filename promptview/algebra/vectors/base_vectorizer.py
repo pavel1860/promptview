@@ -1,4 +1,4 @@
-from typing import List, Literal, TypeVar, Generic
+from typing import ClassVar, List, Literal, TypeVar, Generic
 from pydantic import BaseModel, Field
 
 
@@ -8,7 +8,7 @@ VEC = TypeVar('VEC')
 VectorType = Literal["dense", "sparse"]
 
 class BaseVectorizer(BaseModel, Generic[DOC, VEC]):    
-    dimension: int
+    dimension: ClassVar[int] = 1536
     type: VectorType
     
     class Config:
