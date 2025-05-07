@@ -399,22 +399,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
     #         record = await PostgresOperations.update(self, id, data, turn_id, branch_id )
     #     return self.pack_record(record)
     
-    def validate_model_fields(self, model: MODEL) -> MODEL:
-        """Validate the model fields"""
-        from promptview.model2.namespace_manager import NamespaceManager
-        for field in self._fields.values():
-            if field.is_foreign_key:
-                if getattr(model, field.name) is None:
-                    relation = NamespaceManager.get_reversed_relation(self.table_name, field.name)
-                    if relation is None:
-                        raise ValueError(f"""Field "{field.name}" on model "{self.model_class.__name__}" is a key field but has no reversed relation""")
-                    curr_rel_model = relation.primary_cls.current()
-                    if curr_rel_model is None:
-                        raise ValueError(f"""Field "{field.name}" on model "{self.model_class.__name__}" is a key field but no context was found for class "{relation.primary_cls.__name__}".""")
-                    setattr(model, field.name, curr_rel_model.id)
-        return model
-    
-    
+
     async def save(self, model: MODEL) -> MODEL:
         """
         Save data to the namespace.
@@ -425,8 +410,9 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         Returns:
             The saved data with any additional fields (e.g., ID)
         """
-        model = self.validate_model_fields(model)
+        
         dump = model.model_dump()
+        dump = self.validate_model_fields(dump)
         if self.need_to_transform:
             vector_payload = await self.transform_model(model)
             dump.update(vector_payload)
@@ -439,7 +425,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         else:
             # dump = model.model_dump()
             if self.is_artifact:
-                dump["version"] = model.version + 1
+                dump["version"] = dump.get("version", 0) + 1
                 dump["updated_at"] = dt.datetime.now()
                 sql, values = self.build_insert_query(dump)
             else:

@@ -6,53 +6,34 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
 from promptview.model.query import parse_query_params
-from promptview.model2.model import ArtifactModel
+from promptview.model2 import ArtifactModel
+from promptview.model2.model_context import ModelContext
 from promptview.model2.query_filters import QueryFilter, QueryListType
-from promptview.api.utils import get_head, query_filters, unpack_int_env_header, Head
+from promptview.api.utils import build_model_context_parser, get_head, query_filters, unpack_int_env_header, Head
 
 
-def create_artifact_router(model: Type[ArtifactModel]):
+def create_artifact_router(model: Type[ArtifactModel], model_context_cls: Type[ModelContext] | None = None):
+    
+    model_context_parser = build_model_context_parser(model_context_cls or ModelContext)
     
     router = APIRouter(prefix=f"/{model.__name__}", tags=[model.__name__.lower()])
     
-    
-    # async def get_head(request: Request, auth_user: AuthModel = Depends(get_auth_user)) -> Head | None:
-    #     partition_id = unpack_int_env_header(request, "partition_id")
-    #     if partition_id is None:
-    #         if not auth_user.is_admin:
-    #             raise HTTPException(status_code=401, detail="Unauthorized")
-    #     if partition_id != auth_user.id:
-    #         if not auth_user.is_admin:
-    #             raise HTTPException(status_code=401, detail="Unauthorized")
-    #     if not model._is_versioned:
-    #         return None
-    #     branch_id = unpack_int_env_header(request, "branch_id")
-    #     if branch_id is None:
-    #         branch_id = 1
-    #     turn_id = unpack_int_env_header(request, "turn_id")
-    #     head = Head(branch_id=branch_id, turn_id=turn_id)
-    #     return head
-    
-    # get_head = build_head_parser(model)
     @router.get("/list", response_model=List[dict])
     async def list_artifacts(
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=10, ge=1, le=100),
-        filters: QueryListType | None = Depends(query_filters), 
-        head: Head | None = Depends(get_head)
+        filters: QueryListType | None = Depends(query_filters),         
+        ctx_params: dict = Depends(model_context_parser)
     ):
         """List all artifacts with pagination"""
         
-        if head is None:
-            query = model.query()
-        else:
-            query = model.query(branch=head.branch_id)
+        query = model.query(**ctx_params)
                 
         model_query = query.limit(limit).offset(offset).order_by("created_at", "desc")
         if filters:
             model_query = model_query.set_filter(filters)
         # model_query._filters = filters
-        instances = await model_query 
+        instances = await model_query
         return [instance.model_dump() for instance in instances]       
     
     @router.get("/{artifact_id}")
@@ -74,7 +55,10 @@ def create_artifact_router(model: Type[ArtifactModel]):
 
     
     @router.post("/")
-    async def create_artifact(artifact: model):
+    async def create_artifact(
+        artifact: model,
+        ctx_params: dict = Depends(model_context_parser)
+    ):
         """Create a new artifact"""
         try:
             created_artifact = await artifact.save()
@@ -113,19 +97,21 @@ def create_artifact_router(model: Type[ArtifactModel]):
     @router.get("/last")
     async def last_artifact(
         skip: int = Query(default=0, ge=0),
-        limit: int = Query(default=10, ge=1, le=100)
+        limit: int = Query(default=10, ge=1, le=100),
+        ctx_params: dict = Depends(model_context_parser)
     ):
         """Get the last artifact with pagination"""
-        artifact = await model.query().last()
+        artifact = await model.query(**ctx_params).last()
         return artifact
     
     @router.get("/first")
     async def first_artifact(
         skip: int = Query(default=0, ge=0),
-        limit: int = Query(default=10, ge=1, le=100)
+        limit: int = Query(default=10, ge=1, le=100),
+        ctx_params: dict = Depends(model_context_parser)
     ):
         """Get the first artifact with pagination"""
-        artifact = await model.query().first()
+        artifact = await model.query(**ctx_params).first()
         return artifact
     
     

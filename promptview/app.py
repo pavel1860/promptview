@@ -14,9 +14,9 @@ from promptview.api.artifact_router import create_artifact_router
 from promptview.api.utils import Head, get_head
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthManager, AuthModel
-from promptview.model2.model import ArtifactModel
+from promptview.model2 import ArtifactModel, Model, NamespaceManager, Context
+from promptview.model2.model_context import ModelContext
 from promptview.testing.test_manager import TestManager
-from promptview.model2 import Model, NamespaceManager, Context
 from promptview.api.auth_router import create_auth_router
 from promptview.api.artifact_log_api import router as artifact_log_router
 from promptview.api.testing_router import connect_testing_routers
@@ -25,7 +25,7 @@ from promptview.api.user_router import connect_user_model_routers
 
 MSG_MODEL = TypeVar('MSG_MODEL', bound=Model)
 USER_MODEL = TypeVar('USER_MODEL', bound=AuthModel)
-CTX_MODEL = TypeVar('CTX_MODEL', bound=Context)
+CTX_MODEL = TypeVar('CTX_MODEL', bound=ModelContext)
 
 P = ParamSpec('P')
 
@@ -39,13 +39,12 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
     _message_model: Type[MSG_MODEL]
     _user_model: Type[USER_MODEL]
     _ctx_model: Type[CTX_MODEL]
-    
     def __init__(
         self, 
         message_model: Type[MSG_MODEL], 
         user_model: Type[USER_MODEL], 
-        ctx_model: Type[CTX_MODEL],
         auth_manager: Type[AuthManager[USER_MODEL]],
+        model_context_cls: Type[CTX_MODEL] | None = None,
         app: FastAPI | None = None
     ):
         
@@ -55,7 +54,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
             ns = user_model.get_namespace()
             await auth_manager.initialize_tables()
             auth_manager.register_user_model(user_model)
-            await NamespaceManager.create_all_namespaces(ns.name)
+            await NamespaceManager.create_all_namespaces()
             # Yield to hand control back to FastAPI (start serving)
             yield
             
@@ -63,9 +62,8 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         self._entrypoints_registry = {}
         self._message_model = message_model
         self._user_model = user_model
-        self._ctx_model = ctx_model
         self._auth_manager = auth_manager
-        
+        self._ctx_model = model_context_cls or ModelContext
         self.setup_apis()
         self.app_token = app_ctx.set(self)
         
@@ -78,7 +76,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
     
     def register_model_api(self, model: Type[Model]):
         if issubclass(model, ArtifactModel):
-            self._app.include_router(create_artifact_router(model), prefix="/api/artifact")
+            self._app.include_router(create_artifact_router(model, self._ctx_model), prefix="/api/artifact")
         elif issubclass(model, Model):
             self._app.include_router(create_crud_router(model), prefix="/api/model")
         else:

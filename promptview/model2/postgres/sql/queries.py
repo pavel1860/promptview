@@ -6,7 +6,7 @@
 import re
 from typing import Literal
 from promptview.model2.postgres.sql.joins import Join
-from promptview.model2.postgres.sql.expressions import Eq, Expression, Neq, Gt, Gte, Lt, Lte, Value, param
+from promptview.model2.postgres.sql.expressions import Eq, Expression, Neq, Gt, Gte, Lt, Lte, OrderBy, Value, param
 
 class Table:
     def __init__(self, name, alias=None):
@@ -80,6 +80,7 @@ class SelectQuery:
         self.offset = None
         self.distinct = False
         self.distinct_on = [] 
+        self.distinct_order = []
         self.alias = None
         self.ctes = []  
         self.recursive = False  # <-
@@ -139,6 +140,7 @@ class SelectQuery:
         
     def distinct_on_(self, *cols):
         self.distinct_on = list(cols)
+        self.distinct_order = [OrderBy(col, "DESC") for col in cols]
         return self
 
 

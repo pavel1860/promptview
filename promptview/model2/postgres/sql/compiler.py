@@ -193,8 +193,8 @@ class Compiler:
         if q.having:
             sql += f"\nHAVING {self.compile_expr(q.having)}"
 
-        if q.order_by:
-            sql += "\nORDER BY " + ", ".join(self.compile_expr(c) for c in q.order_by)
+        if q.order_by or q.distinct_order:
+            sql += "\nORDER BY " + ", ".join(self.compile_expr(c) for c in (q.distinct_order + q.order_by))
 
         if q.limit is not None:
             sql += f"\nLIMIT {q.limit}"

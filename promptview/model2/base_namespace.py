@@ -512,6 +512,13 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         self._model_cls = model_class
         for relation_info in self._relations.values():
             relation_info.set_primary_cls(model_class)    
+            
+    def instantiate_model(self, data: dict[str, Any]) -> MODEL:
+        if self._model_cls is None:
+            raise ValueError("Model class not set")
+        model_dump = self.validate_model_fields(data)
+        return self._model_cls(**model_dump)
+    
     
     def set_ctx(self, model: MODEL):
         self._curr_ctx_model.set(model)
@@ -592,6 +599,21 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
             namespace=self,
             fields=[self._fields[field] for field in fields]
         )
+        
+    def validate_model_fields(self, model_dump: dict[str, Any]) -> dict[str, Any]:
+        """Validate the model fields"""
+        from promptview.model2.namespace_manager import NamespaceManager
+        for field in self._fields.values():
+            if field.is_foreign_key:
+                if model_dump[field.name] is None:
+                    relation = NamespaceManager.get_reversed_relation(self.table_name, field.name)
+                    if relation is None:
+                        raise ValueError(f"""Field "{field.name}" on model "{self.model_class.__name__}" is a key field but has no reversed relation""")
+                    curr_rel_model = relation.primary_cls.current()
+                    if curr_rel_model is None and not field.is_optional:
+                        raise ValueError(f"""Field "{field.name}" on model "{self.model_class.__name__}" is a key field but no context was found for class "{relation.primary_cls.__name__}".""")
+                    model_dump[field.name] = getattr(curr_rel_model, relation.primary_key) if curr_rel_model is not None else None
+        return model_dump
     
     def add_field(
         self,

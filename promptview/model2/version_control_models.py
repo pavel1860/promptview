@@ -8,7 +8,8 @@ from promptview.model2.fields import KeyField, ModelField, RelationField
 import datetime as dt
 
 from promptview.model2.postgres.query_set3 import SelectQuerySet
-from promptview.model2.postgres.sql.expressions import RawSQL, RawValue, Value
+from promptview.model2.postgres.sql.expressions import OrderBy, RawSQL, RawValue, Value
+from promptview.model2.postgres.sql.queries import Column
 
 CURR_TURN = contextvars.ContextVar("curr_turn")
 CURR_BRANCH = contextvars.ContextVar("curr_branch")
@@ -137,9 +138,6 @@ class Turn(Model):
         branch_id = get_branch_id(branch, use_default=False)
         turn = await cls(branch_id=branch_id, **kwargs).save()
         return turn
-    
-    
-        
         
         
         
@@ -162,6 +160,7 @@ class Turn(Model):
         obj.branch_id = self.branch_id
         return await obj.save()
 
+    
 
 
 class Branch(Model):
@@ -214,7 +213,9 @@ class Branch(Model):
         turn_record = await turn_ns.fetch(query, self.id, status.value, *[kwargs[k] for k in kwargs.keys()])
         if not turn_record:
             raise VersioningError("Failed to add turn")
-        return Turn(**turn_record[0])
+        # return Turn(**turn_record[0])
+        turn = turn_ns.instantiate_model(turn_record[0])
+        return turn
         
         
         
@@ -392,6 +393,10 @@ class TurnModel(Model):
     #     )
     #     return query
     
+    @classmethod
+    def versioned_cte(cls, cte: "SelectQuerySet[Turn]") -> "SelectQuerySet[Turn]":
+        return cte
+    
     
     @classmethod
     def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, **kwargs) -> "SelectQuerySet[Self]":
@@ -405,7 +410,7 @@ class TurnModel(Model):
         ns = cls.get_namespace()
         query = ns.query(**kwargs)
         query = (
-            query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status))
+            query.with_cte("turn_hierarchy", cls.versioned_cte(create_versioned_cte(branch_id, status)))
             .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
         )
         return query
@@ -481,6 +486,7 @@ class ArtifactModel(TurnModel):
             query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status))
             .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
             .distinct_on("artifact_id")
-            .order_by("-artifact_id", "-version")
+            # .order_by("-artifact_id", "-version")
         )
+        query.query.distinct_order.append(OrderBy(Column("version", query.curr_table), "DESC"))
         return query

@@ -16,7 +16,6 @@ from app.test_agent import chat_prompt, run_agent
 bot = Chatboard(
         message_model=Message, 
         user_model=Manager,
-        ctx_model=TestContext
     )
 
 
