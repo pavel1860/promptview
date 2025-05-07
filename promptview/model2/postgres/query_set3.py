@@ -115,12 +115,9 @@ class SelectQuerySet(Generic[MODEL]):
         self.model_class = model_class
         self.alias_lookup = {}
 
-        self.table = Table(model_class.get_namespace().table_name)
-        self.table.alias = self._set_alias(self.table.name)
-        self.query = SelectQuery().from_(self.table) if query is None else query
-        self.query_stack = [self.query]
-        self.model_stack = [model_class]
-        self.table_stack = [self.table]
+        table = Table(model_class.get_namespace().table_name)
+        table.alias = self._set_alias(table.name)
+        self.query = SelectQuery().from_(table) if query is None else query
         self._params = []
 
     def _set_alias(self, name: str) -> str:
@@ -142,55 +139,26 @@ class SelectQuerySet(Generic[MODEL]):
         return self.model_class.get_namespace()
     
     @property
-    def curr_query(self):
-        return self.query_stack[-1]
-    
-    @curr_query.setter
-    def curr_query(self, query: SelectQuery):
-        self.query_stack.append(query)
-        
-    @property
-    def curr_model(self):
-        return self.model_stack[-1]
-    
-    @curr_model.setter
-    def curr_model(self, model: Type["Model"]):
-        self.model_stack.append(model)
-        
-    @property
-    def query_depth(self):
-        return len(self.query_stack)
-    
-    @property
-    def curr_table(self):
-        return self.table_stack[-1]
+    def from_table(self):
+        return self.query.from_table
     
     @property
     def ctes(self):
         return self.query.ctes
     
-    @curr_table.setter
-    def curr_table(self, table: Table):
-        self.table_stack.append(table)
 
-    # def select(self, *fields: str) -> "SelectQuerySet[MODEL]":
-    #     if len(fields) == 1 and fields[0] == "*":
-    #         self.curr_query.select(*[Column(f.name, self.curr_table) for f in self.curr_model.iter_fields()])
-    #     else:
-    #         self.curr_query.select(*[Column(f, self.curr_table) for f in fields])
-    #     return self
     
     def select(self, *fields: str) -> "SelectQuerySet[MODEL]":
                 
         if len(fields) == 1 and fields[0] == "*":
-            self.curr_query.select(*[Column(f.name, self.curr_table) for f in self.curr_model.iter_fields()])
+            self.query.select(*[Column(f.name, self.from_table) for f in self.model_class.iter_fields()])
         else:
-            self.curr_query.select(*[Column(f, self.curr_table) for f in fields])
+            self.query.select(*[Column(f, self.from_table) for f in fields])
         return self
     
     
     def distinct_on(self, *fields: str) -> "SelectQuerySet[MODEL]":
-        self.query.distinct_on_(*[Column(f, self.curr_table) for f in fields])
+        self.query.distinct_on_(*[Column(f, self.from_table) for f in fields])
         return self
 
 
@@ -198,11 +166,11 @@ class SelectQuerySet(Generic[MODEL]):
         expressions = []
 
         if condition is not None:
-            proxy = QueryProxy(self.model_class, self.curr_table)
+            proxy = QueryProxy(self.model_class, self.from_table)
             self.query.where(condition(proxy))
         if kwargs:
             for field, value in kwargs.items():
-                col = Column(field, self.curr_table)
+                col = Column(field, self.from_table)
                 expressions.append(Eq(col, param(value)))
                 
         if expressions:
@@ -265,9 +233,9 @@ class SelectQuerySet(Generic[MODEL]):
                 .join_cte("my_cte", "id", "parent_id")
         """
         cte_table = Table(cte_name, alias=alias)
-        self.curr_query.join(
+        self.query.join(
             cte_table,
-            Eq(Column(on_left, self.curr_table), Column(on_right, cte_table)),
+            Eq(Column(on_left, self.from_table), Column(on_right, cte_table)),
             join_type
         )
         return self
@@ -293,70 +261,63 @@ class SelectQuerySet(Generic[MODEL]):
     
     def join(self, target: "SelectQuerySet | Type[Model]", join_type: JoinType = "LEFT") -> "SelectQuerySet[MODEL]":
         query_set = self._get_query_set(target)
-        rel = self.curr_model.get_namespace().get_relation_by_type(query_set.model_class)
+        rel = self.namespace.get_relation_by_type(query_set.model_class)
         if rel is None:
             raise ValueError("No relation found")
         if query_set.query.ctes:
             query_set = self._merge_ctes(query_set)
-            # self.query.ctes = self._copy_ctes(query_set)
-            # query_set.query.ctes = []
-            # if query_set.query.recursive:
-            #     self.query.recursive = True
-            #     query_set.query.recursive = False
+
         
         if isinstance(rel, NSManyToManyRelationInfo):
             
             j_ns = rel.junction_namespace
-            # f_ns = rel.foreign_namespace
             j_alias=self._set_alias(j_ns.table_name)
-            # f_alias=self._set_alias(f_ns.table_name)
             junction_table = Table(j_ns.table_name, alias=j_alias)
-            # table_name = Table(f_ns.table_name, alias=f_alias)
-            self.curr_query.join(
+            self.query.join(
                 junction_table, 
                 Eq(
-                    Column(rel.primary_key, self.curr_table), 
+                    Column(rel.primary_key, self.from_table), 
                     Column(rel.junction_keys[0], junction_table)
                 ),
                 join_type
             )            
-            self.curr_query.join(
-                query_set.curr_table, 
+            self.query.join(
+                query_set.from_table, 
                 Eq(
                     Column(rel.junction_keys[1], junction_table), 
-                    Column(rel.foreign_key, query_set.curr_table)
+                    Column(rel.foreign_key, query_set.from_table)
                 ),
                 join_type
             )
         else:
-            self.curr_query.join(
-                query_set.curr_table, 
+            self.query.join(
+                query_set.from_table, 
                 Eq(
-                    Column(rel.primary_key, self.curr_table), 
-                    Column(rel.foreign_key, query_set.curr_table)
+                    Column(rel.primary_key, self.from_table), 
+                    Column(rel.foreign_key, query_set.from_table)
                 ),
                 join_type
             )        
-        nested_query = embed_query_as_subquery(query_set.query, rel, self.curr_table)    
+        nested_query = embed_query_as_subquery(query_set.query, rel, self.from_table)    
         nested_query.alias = rel.name
         self.query.columns.append(nested_query)
         # self.query.columns.append(Column("", nested_query, alias=rel.name))
         if not self.query.group_by:
             pk = self.model_class.get_namespace().primary_key.name
-            p_id = Column(pk, self.table)
+            p_id = Column(pk, self.from_table)
             self.query.group_by = [p_id] 
         return self
       
     def from_subquery(self, query_set: "SelectQuerySet"):
         if query_set.ctes:
             query_set = self._merge_ctes(query_set)
-        self.query.select(Column("*", query_set.curr_table))
+        self.query.select(Column("*", query_set.from_table))
         self.query.from_(query_set.as_subquery())
         # self.query.from_table = query_set.query.from_table
         return self
     
     def as_subquery(self, alias: str | None = None):
-        return Subquery(self.query, alias=alias or str(self.curr_table))
+        return Subquery(self.query, alias=alias or str(self.from_table))
         
     def _add_columns(self, *args):
         if self.query_depth == 1:
@@ -364,9 +325,7 @@ class SelectQuerySet(Generic[MODEL]):
         else:
             args = self.args + args            
 
-    # def order_by(self, *fields: str) -> "SelectQuerySet[MODEL]":
-    #     self.query.order_by(*[Column(f, self.table) for f in fields])
-    #     return self
+
     def order_by(self, *fields: str) -> "SelectQuerySet[MODEL]":
         orderings = []
         for field in fields:
@@ -374,7 +333,7 @@ class SelectQuerySet(Generic[MODEL]):
             if field.startswith("-"):
                 direction = "DESC"
                 field = field[1:]
-            orderings.append(OrderBy(Column(field, self.curr_table), direction))
+            orderings.append(OrderBy(Column(field, self.from_table), direction))
 
         self.query.order_by_(*orderings)
         return self
@@ -421,76 +380,3 @@ class SelectQuerySet(Generic[MODEL]):
         return await PGConnectionManager.fetch(sql, *params)
     
     
-
-    
-    async def execute_versioned_sql(
-        self, 
-        table_name: str,
-        sql: str,  
-        is_event_source: bool = True, 
-        turn_limit: int | None = None, 
-        turn_direction: str = "DESC",
-        branch_id: int | None = None,
-    ) -> List[Any]:
-        filtered_alias = f"filtered_{table_name}"
-        sql = sql.replace(table_name, filtered_alias)       
-        if turn_limit:
-            turn_order_by_clause = f"ORDER BY t.index {turn_direction} LIMIT {turn_limit}"
-        else:
-            turn_order_by_clause = ""
-
-        
-        turn_where_clause = []
-        # if partition_id is not None:
-        #     turn_where_clause.append(f"t.partition_id = {partition_id}")
-        if is_event_source:
-            turn_where_clause.append("m.deleted_at IS NULL")
-        turn_where_clause = " AND ".join(turn_where_clause)
-        if turn_where_clause:
-            turn_where_clause = f"WHERE {turn_where_clause}"
-        
-        event_source_select_clause = " DISTINCT ON (m.artifact_id)" if is_event_source else ""
-        event_source_order_by_clause = "ORDER BY m.artifact_id, m.version DESC" if is_event_source else ""
-
-        versioned_sql = f"""
-            WITH RECURSIVE branch_hierarchy AS (
-                SELECT
-                    id,
-                    name,
-                    forked_from_index,
-                    forked_from_branch_id,
-                    current_index AS start_turn_index
-                FROM branches
-                WHERE id = {branch_id}
-                
-                UNION ALL
-                
-                SELECT
-                    b.id,
-                    b.name,
-                    b.forked_from_index,
-                    b.forked_from_branch_id,
-                    bh.forked_from_index AS start_turn_index
-                FROM branches b
-                JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id
-            ),
-            turn_hierarchy AS (
-                SELECT t.* 
-                FROM branch_hierarchy bh
-                JOIN turns t ON bh.id = t.branch_id
-                WHERE t.index <= bh.start_turn_index AND t.status != 'reverted'
-                {turn_order_by_clause}
-            ),
-            {filtered_alias} AS (
-                SELECT{event_source_select_clause}
-                    m.*
-                FROM turn_hierarchy t               
-                JOIN "{table_name}" m ON t.id = m.turn_id
-                {turn_where_clause}
-                {event_source_order_by_clause}
-            )
-            {sql}
-            """
-        # versioned_sql = textwrap.dedent(versioned_sql)
-        results = await PGConnectionManager.fetch(versioned_sql)
-        return [dict(row) for row in results]
