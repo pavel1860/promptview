@@ -194,7 +194,7 @@ async def test_with_parametrized_data(parametrized_database):
     expected_user_count = len(data["users"])
     
     # Test that we can query all users
-    users_query = SelectQuerySet(User).select("*")
+    users_query = SelectQuerySet(User).select("*").order_by("-created_at")
     users = await users_query.execute()
     assert len(users) == expected_user_count
     

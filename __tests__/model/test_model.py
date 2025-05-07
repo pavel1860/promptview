@@ -120,7 +120,7 @@ class User(AuthModel):
 
 
 @pytest_asyncio.fixture()
-async def seeded_database():
+async def seeded_database(clean_database):
     
     try:
     
@@ -128,27 +128,45 @@ async def seeded_database():
 
         data = {}
         
-        data['user'] = await User(name="John", age=30, user_token=uuid.uuid4()).save()
+        user = await User(name="John", age=30, user_token=uuid.uuid4()).save()
 
-        data['post1'] = await Post(title="Post 1 Title", content="Post 1 Content", owner_id=data['user'].id).save()
-        data['p1_comment1'] = await data['post1'].add(Comment(content="post 1 comment 1", user_id=data['user'].id))
-        data['p1c1_like1'] = await data['p1_comment1'].add(Like(type=LikeType.LIKE, user_id=data['user'].id))
-        data['p1_comment2'] = await data['post1'].add(Comment(content="post 1 comment 2", user_id=data['user'].id))
-        data['p1c2_like1'] = await data['p1_comment2'].add(Like(type=LikeType.LIKE, user_id=data['user'].id))
-        data['p1c2_like2'] = await data['p1_comment2'].add(Like(type=LikeType.DISLIKE, user_id=data['user'].id))
-        data['p1_comment3'] = await data['post1'].add(Comment(content="post 1 comment 3", user_id=data['user'].id))
-        data['p1c3_like1'] = await data['p1_comment3'].add(Like(type=LikeType.LIKE, user_id=data['user'].id))
+        post1 = await Post(title="Post 1 Title", content="Post 1 Content", owner_id=user.id).save()
+        p1_comment1 = await post1.add(Comment(content="post 1 comment 1", user_id=user.id))
+        p1c1_like1 = await p1_comment1.add(Like(type=LikeType.LIKE, user_id=user.id))
+        p1_comment2 = await post1.add(Comment(content="post 1 comment 2", user_id=user.id))
+        p1c2_like1 = await p1_comment2.add(Like(type=LikeType.LIKE, user_id=user.id))
+        p1c2_like2 = await p1_comment2.add(Like(type=LikeType.DISLIKE, user_id=user.id))
+        p1_comment3 = await post1.add(Comment(content="post 1 comment 3", user_id=user.id))
+        p1c3_like1 = await p1_comment3.add(Like(type=LikeType.LIKE, user_id=user.id))
 
-        data['post2'] = await Post(title="Post 2 Title", content="Post 2 Content", owner_id=data['user'].id).save()
-        data['p2_comment1'] = await data['post2'].add(Comment(content="post 2 comment 1", user_id=data['user'].id))
-        data['p2c1_like1'] = await data['p2_comment1'].add(Like(type=LikeType.LIKE, user_id=data['user'].id))
-        data['p2c1_like2'] = await data['p2_comment1'].add(Like(type=LikeType.DISLIKE, user_id=data['user'].id))
-        data['p2c1_like3'] = await data['p2_comment1'].add(Like(type=LikeType.LIKE, user_id=data['user'].id))
-        data['p2c1_like4'] = await data['p2_comment1'].add(Like(type=LikeType.DISLIKE, user_id=data['user'].id))
-        data['p2_comment2'] = await data['post2'].add(Comment(content="post 2 comment 2", user_id=data['user'].id))
-        data['p2c2_like1'] = await data['p2_comment2'].add(Like(type=LikeType.LIKE, user_id=data['user'].id))
+        post2 = await Post(title="Post 2 Title", content="Post 2 Content", owner_id=user.id).save()
+        p2_comment1 = await post2.add(Comment(content="post 2 comment 1", user_id=user.id))
+        p2c1_like1 = await p2_comment1.add(Like(type=LikeType.LIKE, user_id=user.id))
+        p2c1_like2 = await p2_comment1.add(Like(type=LikeType.DISLIKE, user_id=user.id))
+        p2c1_like3 = await p2_comment1.add(Like(type=LikeType.LIKE, user_id=user.id))
+        p2c1_like4 = await p2_comment1.add(Like(type=LikeType.DISLIKE, user_id=user.id))
+        p2_comment2 = await post2.add(Comment(content="post 2 comment 2", user_id=user.id))
+        p2c2_like1 = await p2_comment2.add(Like(type=LikeType.LIKE, user_id=user.id))
 
-        yield data
+        yield {
+            "user": user,
+            "post1": post1,
+            "p1_comment1": p1_comment1,
+            "p1c1_like1": p1c1_like1,
+            "p1_comment2": p1_comment2,
+            "p1c2_like1": p1c2_like1,
+            "p1c2_like2": p1c2_like2,
+            "p1_comment3": p1_comment3,
+            "p1c3_like1": p1c3_like1,
+            "post2": post2,
+            "p2_comment1": p2_comment1,
+            "p2c1_like1": p2c1_like1,
+            "p2c1_like2": p2c1_like2,
+            "p2c1_like3": p2c1_like3,
+            "p2c1_like4": p2c1_like4,
+            "p2_comment2": p2_comment2,
+            "p2c2_like1": p2c2_like1,
+        }
     finally:
         await NamespaceManager.drop_all_namespaces()
 
@@ -161,7 +179,7 @@ async def seeded_database():
 @pytest.mark.asyncio
 async def test_post_query_with_comments_and_likes(seeded_database):
     # Test querying posts with comments
-    posts = await Post.query().limit(10).join(Comment)
+    posts = await Post.query().limit(10).order_by("created_at").join(Comment)
     assert len(posts) == 2
     assert len(posts[0].comments) == 3
     assert posts[0].comments[0].id == seeded_database['p1_comment1'].id
@@ -172,7 +190,7 @@ async def test_post_query_with_comments_and_likes(seeded_database):
     assert posts[1].comments[1].id == seeded_database['p2_comment2'].id
 
     # Test querying posts with comments and likes
-    posts = await Post.query().limit(10).join(Comment, Like)
+    posts = await Post.query().limit(10).order_by("created_at").join(Comment.query().join(Like))
     assert len(posts) == 2
     assert len(posts[0].comments) == 3
     assert len(posts[0].comments[0].likes) == 1
