@@ -80,7 +80,6 @@ class SelectQuery:
         self.offset = None
         self.distinct = False
         self.distinct_on = [] 
-        self.distinct_order = []
         self.alias = None
         self.ctes = []  
         self.recursive = False  # <-
@@ -140,7 +139,6 @@ class SelectQuery:
         
     def distinct_on_(self, *cols):
         self.distinct_on = list(cols)
-        self.distinct_order = [OrderBy(col, "DESC") for col in cols]
         return self
 
 

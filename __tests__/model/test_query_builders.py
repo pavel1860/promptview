@@ -180,7 +180,7 @@ def test_select_with_coalesce_and_json_agg():
     FROM likes AS l
     WHERE (l.post_id = p.id)), '[]'))) FILTER (WHERE (NOT (p.id IS NULL))), '[]') AS posts
     FROM users AS u
-    INNER JOIN posts AS p ON (u.id = p.user_id) INNER JOIN likes AS l ON (p.id = l.post_id)
+    LEFT JOIN posts AS p ON (u.id = p.user_id) LEFT JOIN likes AS l ON (p.id = l.post_id)
     GROUP BY u.id
     """
     expected_params = []
@@ -356,7 +356,7 @@ def test_sub_queries():
         FROM posts AS p
         GROUP BY p.user_id
     ) AS pc
-    INNER JOIN posts AS p ON (p.user_id = pc.user_id)
+    LEFT JOIN posts AS p ON (p.user_id = pc.user_id)
     """
 
 
@@ -404,7 +404,7 @@ def test_cte_support():
     )
     SELECT u.id, u.name
     FROM users AS u
-    INNER JOIN recent_posts AS rp ON (u.id = rp.user_id)
+    LEFT JOIN recent_posts AS rp ON (u.id = rp.user_id)
     """
     expected_params = ["2024-01-01"]
 
@@ -463,7 +463,7 @@ def test_multiple_ctes():
     )
     SELECT u.id, u.name
     FROM users AS u
-    INNER JOIN top_users AS t ON (u.id = t.user_id)
+    LEFT JOIN top_users AS t ON (u.id = t.user_id)
     """
     expected_params = [10]
 

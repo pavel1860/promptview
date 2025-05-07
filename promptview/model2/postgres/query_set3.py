@@ -111,13 +111,13 @@ def embed_query_as_subquery(query, rel, parent_table):
 
  
 class SelectQuerySet(Generic[MODEL]):
-    def __init__(self, model_class: Type[MODEL]):
+    def __init__(self, model_class: Type[MODEL], query: SelectQuery | None = None):
         self.model_class = model_class
         self.alias_lookup = {}
 
         self.table = Table(model_class.get_namespace().table_name)
         self.table.alias = self._set_alias(self.table.name)
-        self.query = SelectQuery().from_(self.table)
+        self.query = SelectQuery().from_(self.table) if query is None else query
         self.query_stack = [self.query]
         self.model_stack = [model_class]
         self.table_stack = [self.table]
@@ -164,6 +164,10 @@ class SelectQuerySet(Generic[MODEL]):
     @property
     def curr_table(self):
         return self.table_stack[-1]
+    
+    @property
+    def ctes(self):
+        return self.query.ctes
     
     @curr_table.setter
     def curr_table(self, table: Table):
@@ -279,6 +283,13 @@ class SelectQuerySet(Generic[MODEL]):
                 # cte.query = cte_lookup[cte.name].query
         return [cte for cte in cte_lookup.values()]
     
+    def _merge_ctes(self, query_set: "SelectQuerySet"):
+        self.query.ctes = self._copy_ctes(query_set)
+        query_set.query.ctes = []
+        if query_set.query.recursive:
+            self.query.recursive = True
+            query_set.query.recursive = False
+        return query_set
     
     def join(self, target: "SelectQuerySet | Type[Model]", join_type: JoinType = "LEFT") -> "SelectQuerySet[MODEL]":
         query_set = self._get_query_set(target)
@@ -286,12 +297,12 @@ class SelectQuerySet(Generic[MODEL]):
         if rel is None:
             raise ValueError("No relation found")
         if query_set.query.ctes:
-            # self.query.ctes = query_set.query.ctes + self.query.ctes
-            self.query.ctes = self._copy_ctes(query_set)
-            query_set.query.ctes = []
-            if query_set.query.recursive:
-                self.query.recursive = True
-                query_set.query.recursive = False
+            query_set = self._merge_ctes(query_set)
+            # self.query.ctes = self._copy_ctes(query_set)
+            # query_set.query.ctes = []
+            # if query_set.query.recursive:
+            #     self.query.recursive = True
+            #     query_set.query.recursive = False
         
         if isinstance(rel, NSManyToManyRelationInfo):
             
@@ -336,102 +347,16 @@ class SelectQuerySet(Generic[MODEL]):
             self.query.group_by = [p_id] 
         return self
       
-    # def join(self, target: "SelectQuerySet | Type[Model]") -> "SelectQuerySet[MODEL]":
-    #     query_set = self._get_query_set(target)
-    #     rel = self.curr_model.get_namespace().get_relation_by_type(query_set.model_class)
-    #     if rel is None:
-    #         raise ValueError("No relation found")
-        
-    #     if query_set.query.ctes:
-    #         self.query.ctes = query_set.query.ctes + self.query.ctes
-    #         query_set.query.ctes = []
-        
-    #     self.curr_query.join(
-    #         query_set.curr_table, 
-    #         Eq(
-    #             Column(rel.primary_key, self.curr_table), 
-    #             Column(rel.foreign_key, query_set.curr_table)
-    #         )
-    #     )
-    #     nested_query = NestedQuery(query_set, rel.name, Column(rel.primary_key, self.curr_table), self, self.curr_table, rel)        
-    #     nested_query.update_depth()
-    #     self.query.columns.append(nested_query)
-    #     # self.query.columns.append(Column(rel.name, subquery, alias=rel.name))
-    #     if not self.query.group_by:
-    #         pk = self.model_class.get_namespace().primary_key.name
-    #         p_id = Column(pk, self.table)
-    #         self.query.group_by = [p_id] 
-    #     return self
-        
-        
-
-    def join_old(self, related_model: "Type[Model]") -> "SelectQuerySet[MODEL]":
-        rel = self.curr_model.get_namespace().get_relation_by_type(related_model)
-        if rel is None:
-            raise ValueError("No relation found")
-        
-        ns = related_model.get_namespace()
-        related_table = Table(ns.table_name)
-        related_table.alias = self._set_alias(related_table.name)
-
-        join_condition = Eq(
-            Column(rel.primary_key, self.curr_table),
-            Column(rel.foreign_key, related_table)
-        )
-
-        self.query.join(related_table, join_condition)
-        if self.query_depth == 1:
-            self._join_first_table(related_model, related_table, rel)
-        else:
-            self._join_nested_table(related_model, related_table, rel)
-        
-        
-        if not self.query.group_by:
-            pk = self.model_class.get_namespace().primary_key.name
-            p_id = Column(pk, self.table)
-            self.query.group_by = [p_id] 
-
+    def from_subquery(self, query_set: "SelectQuerySet"):
+        if query_set.ctes:
+            query_set = self._merge_ctes(query_set)
+        self.query.select(Column("*", query_set.curr_table))
+        self.query.from_(query_set.as_subquery())
+        # self.query.from_table = query_set.query.from_table
         return self
     
-    def _join_first_table(self, related_model: "Type[Model]", related_table: Table, rel: NSRelationInfo):
-        
-        # Add JSON aggregation
-        json_obj = json_build_object(**{
-            f.name: Column(f.name, related_table) for f in related_model.iter_fields()
-        })
-
-        m_id = Column(rel.primary_key, related_table)
-        nested_agg = Function(
-            "json_agg", json_obj,
-            distinct=True,
-            filter_where=Not(IsNull(m_id))  # add real filter if needed
-        )
-
-        nested = Coalesce(nested_agg, Value("[]"), alias=rel.name)
-        self.query.columns.append(nested)
-        
-        self.curr_query = json_obj
-        self.curr_model = related_model
-        self.curr_table = related_table
-            
-    def _join_nested_table(self, related_model: "Type[Model]", related_table: Table, rel: NSRelationInfo):                
-        json_obj = json_build_object(**{
-            f.name: Column(f.name, related_table) for f in related_model.iter_fields()
-        })
-        p_id = Column(rel.primary_key, self.curr_table)
-        r_id = Column(rel.primary_key, related_table)
-
-        subq = SelectQuery()
-        subq.columns = [Function("json_agg", json_obj)]
-        subq.from_table = related_table
-        subq.where_clause = Eq(r_id, p_id)
-        likes_coalesced = Coalesce(subq, Value("[]", inline=True))
-        
-        # self.curr_query.columns.append(likes_coalesced)
-        self._add_columns(Value(rel.name), likes_coalesced)
-        self.curr_query = json_obj
-        self.curr_model = related_model
-        self.curr_table = related_table
+    def as_subquery(self, alias: str | None = None):
+        return Subquery(self.query, alias=alias or str(self.curr_table))
         
     def _add_columns(self, *args):
         if self.query_depth == 1:

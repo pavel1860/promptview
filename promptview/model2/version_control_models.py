@@ -9,7 +9,7 @@ import datetime as dt
 
 from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2.postgres.sql.expressions import OrderBy, RawSQL, RawValue, Value
-from promptview.model2.postgres.sql.queries import Column
+from promptview.model2.postgres.sql.queries import Column, SelectQuery, Subquery
 
 CURR_TURN = contextvars.ContextVar("curr_turn")
 CURR_BRANCH = contextvars.ContextVar("curr_branch")
@@ -471,22 +471,57 @@ class ArtifactModel(TurnModel):
 
 
 
+    # @classmethod
+    # def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, **kwargs) -> "SelectQuerySet[Self]":
+    #     """
+    #     Create a query for this model
+        
+    #     Args:
+    #         branch: Optional branch ID to query from
+    #     """   
+    #     branch_id = get_branch_id(branch)
+    #     ns = cls.get_namespace()
+    #     query = ns.query(**kwargs)
+    #     query = (
+    #         query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status))
+    #         .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
+    #         .distinct_on("artifact_id")
+    #         # .order_by("-artifact_id", "-version")
+    #     )
+    #     query.query.distinct_order.append(OrderBy(Column("version", query.curr_table), "DESC"))
+    #     query.query = (
+    #         SelectQuery()
+    #         .select(Column("*", query.curr_table))
+    #         .from_(
+    #             Subquery(query.query, query.curr_table.alias)
+    #         )
+    #     )
+    #     return query
+    
     @classmethod
     def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, **kwargs) -> "SelectQuerySet[Self]":
         """
         Create a query for this model
-        
+    
         Args:
             branch: Optional branch ID to query from
         """   
         branch_id = get_branch_id(branch)
         ns = cls.get_namespace()
-        query = ns.query(**kwargs)
-        query = (
-            query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status))
+        es_query = ns.query(**kwargs)
+        es_query = (
+            es_query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status))
             .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
             .distinct_on("artifact_id")
-            # .order_by("-artifact_id", "-version")
+            .order_by("-artifact_id", "-version")
         )
-        query.query.distinct_order.append(OrderBy(Column("version", query.curr_table), "DESC"))
+        
+        query = SelectQuerySet(cls).from_subquery(es_query)
+        # query.query.distinct_order.append(OrderBy(Column("version", query.curr_table), "DESC"))
+        # query = SelectQuerySet(cls, (
+        #             SelectQuery()
+        #             .select(Column("*", query.curr_table))
+        #             .from_(query.as_subquery())
+        #         )
+        #     )
         return query
