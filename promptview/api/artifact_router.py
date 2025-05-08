@@ -7,14 +7,14 @@ from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
 from promptview.model.query import parse_query_params
 from promptview.model2 import ArtifactModel
-from promptview.model2.model_context import ModelContext
+from promptview.model2.model_context import ModelCtx
 from promptview.model2.query_filters import QueryFilter, QueryListType
 from promptview.api.utils import build_model_context_parser, get_head, query_filters, unpack_int_env_header, Head
 
 
-def create_artifact_router(model: Type[ArtifactModel], model_context_cls: Type[ModelContext] | None = None):
+def create_artifact_router(model: Type[ArtifactModel], model_context_cls: Type[ModelCtx] | None = None):
     
-    model_context_parser = build_model_context_parser(model_context_cls or ModelContext)
+    model_context_parser = build_model_context_parser(model_context_cls or ModelCtx)
     
     router = APIRouter(prefix=f"/{model.__name__}", tags=[model.__name__.lower()])
     
@@ -23,18 +23,19 @@ def create_artifact_router(model: Type[ArtifactModel], model_context_cls: Type[M
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=10, ge=1, le=100),
         filters: QueryListType | None = Depends(query_filters),         
+        auth_user: AuthModel = Depends(get_auth_user),
         ctx_params: dict = Depends(model_context_parser)
     ):
         """List all artifacts with pagination"""
-        
-        query = model.query(**ctx_params)
-                
-        model_query = query.limit(limit).offset(offset).order_by("created_at", "desc")
-        if filters:
-            model_query = model_query.set_filter(filters)
-        # model_query._filters = filters
-        instances = await model_query
-        return [instance.model_dump() for instance in instances]       
+        with auth_user:
+            query = model.query(**ctx_params)
+                    
+            model_query = query.limit(limit).offset(offset).order_by("-created_at")
+            if filters:
+                model_query = model_query.set_filter(filters)
+            # model_query._filters = filters
+            instances = await model_query
+            return [instance.model_dump() for instance in instances]       
     
     @router.get("/{artifact_id}")
     async def get_artifact(artifact_id: UUID):

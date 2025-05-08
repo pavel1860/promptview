@@ -7,7 +7,7 @@ import json
 
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
-from promptview.model2.model_context import ModelContext
+from promptview.model2.model_context import ModelCtx
 from promptview.model2.versioning import ArtifactLog, Partition
 from pydantic import BaseModel
 from promptview.model2.query_filters import QueryFilter, parse_query_params
@@ -79,18 +79,18 @@ async def get_head(request: Request, auth_user: AuthModel = Depends(get_auth_use
     
     
 
-MODEL_CONTEXT = TypeVar("MODEL_CONTEXT", bound=ModelContext)
+MODEL_CONTEXT = TypeVar("MODEL_CONTEXT", bound=BaseModel)
 
 
 def build_model_context_parser(model_context_cls: Type[MODEL_CONTEXT]):
-    def extract_model_context(request: Request) -> dict:
+    def extract_model_context(request: Request) -> MODEL_CONTEXT:
         raw = {}
         for key in request.headers.keys():
             if key.endswith("_id"):
                 val = request.headers.get(key)
                 if val and val != "null":
                     raw[key] = int(val) if val.isdigit() else val
-        return model_context_cls(**raw).model_dump()
+        return model_context_cls(**raw)
     return extract_model_context
 
 

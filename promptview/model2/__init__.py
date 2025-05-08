@@ -5,9 +5,9 @@ from .postgres.namespace import PostgresNamespace
 from .namespace_manager import NamespaceManager
 from .version_control_models import Branch, Turn, TurnStatus, TurnModel, VersioningError, ArtifactModel
 from .block_model import BlockModel
-from .context import Context
+# from .context import Context
 from .vectors import Vector, SparseVector, transformer
-from .model_context import ModelContext
+from .model_context import ModelCtx, Context
 
 __all__ = [
     "Model", 
@@ -27,5 +27,5 @@ __all__ = [
     "Vector",
     "SparseVector",
     "transformer",
-    "ModelContext",
+    "ModelCtx",
 ]

@@ -4,18 +4,19 @@ from contextvars import ContextVar
 from functools import wraps
 import json
 from typing import Annotated, Any, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar
-from fastapi import Depends, FastAPI, Form, HTTPException, Header
+from fastapi import Depends, FastAPI, Form, HTTPException, Header, Request
 from pydantic import BaseModel
 
 
 from promptview.api.tracing_router import router as tracing_router
-from promptview.api.model_router import create_crud_router
+# from promptview.api.model_router2 import create_crud_router
+from promptview.api.model_router import create_model_router
 from promptview.api.artifact_router import create_artifact_router
 from promptview.api.utils import Head, get_head
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthManager, AuthModel
 from promptview.model2 import ArtifactModel, Model, NamespaceManager, Context
-from promptview.model2.model_context import ModelContext
+from promptview.model2.model_context import CtxRequest, ModelCtx
 from promptview.testing.test_manager import TestManager
 from promptview.api.auth_router import create_auth_router
 from promptview.api.artifact_log_api import router as artifact_log_router
@@ -25,11 +26,12 @@ from promptview.api.user_router import connect_user_model_routers
 
 MSG_MODEL = TypeVar('MSG_MODEL', bound=Model)
 USER_MODEL = TypeVar('USER_MODEL', bound=AuthModel)
-CTX_MODEL = TypeVar('CTX_MODEL', bound=ModelContext)
+CTX_MODEL = TypeVar('CTX_MODEL', bound=Context)
+
 
 P = ParamSpec('P')
 
-EnpointType = Callable[Concatenate[CTX_MODEL, MSG_MODEL, P], Awaitable[List[MSG_MODEL]]]
+EnpointType = Callable[Concatenate[CTX_MODEL, P], Awaitable[List[MSG_MODEL]]]
 
 app_ctx = ContextVar("app_ctx")
 
@@ -44,7 +46,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         message_model: Type[MSG_MODEL], 
         user_model: Type[USER_MODEL], 
         auth_manager: Type[AuthManager[USER_MODEL]],
-        model_context_cls: Type[CTX_MODEL] | None = None,
+        ctx_model: Type[CTX_MODEL],
         app: FastAPI | None = None
     ):
         
@@ -63,7 +65,7 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         self._message_model = message_model
         self._user_model = user_model
         self._auth_manager = auth_manager
-        self._ctx_model = model_context_cls or ModelContext
+        self._ctx_model = ctx_model
         self.setup_apis()
         self.app_token = app_ctx.set(self)
         
@@ -74,16 +76,11 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
     def get_app(self):
         return self._app
     
-    def register_model_api(self, model: Type[Model]):
-        if issubclass(model, ArtifactModel):
-            self._app.include_router(create_artifact_router(model, self._ctx_model), prefix="/api/artifact")
-        elif issubclass(model, Model):
-            self._app.include_router(create_crud_router(model), prefix="/api/model")
-        else:
-            raise ValueError(f"Model {model.__name__} is not a valid model")
+    def register_model_api(self, model: Type[Model], context_cls: Type[CTX_MODEL]):
+        self._app.include_router(create_model_router(model, context_cls), prefix="/api/model")        
     
     def setup_apis(self):
-        self._app.include_router(create_crud_router(self._message_model), prefix="/api/model")
+        # self._app.include_router(create_crud_router(self._message_model), prefix="/api/model")
         self._app.include_router(artifact_log_router, prefix="/api")
         self._app.include_router(create_auth_router(self._user_model), prefix="/api")
         self._app.include_router(tracing_router, prefix="/api")
@@ -91,45 +88,37 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         connect_testing_routers(self._app)
 
     
-    def entrypoint(self, path: str, method: Literal['GET', 'POST', 'PUT', 'DELETE'] = 'POST', auto_commit: bool = True):
+    def entrypoint(self, path: str, method: Literal['GET', 'POST', 'PUT', 'DELETE'] = 'POST', ctx: Type[CTX_MODEL]| None = None, commit: bool = True):
+        
+        async def model_context_parser(request: Request, ctx: Context = Depends(ctx.from_request if ctx else self._ctx_model.from_request)):
+            ctx._request = CtxRequest(request=request)
+            return ctx
         def decorator(func: EnpointType):
             self._entrypoints_registry[path] = func
             async def input_endpoint(
-                message_json:  Annotated[str, Form(...)],
-                tool_calls_json: Annotated[str, Form(...)],
-                state_json: Annotated[str, Form(...)],
-                # head_id: Annotated[int, Header(alias="head_id")],
-                user: Any = Depends(get_auth_user),
-                head: Head = Depends(get_head),
-                branch_id: Annotated[int | None, Header(alias="branch_id")] = None,
-            ):
-                print(user)
-                message = self._message_model.model_validate_json(message_json)
-                message.tool_calls = json.loads(tool_calls_json) if tool_calls_json else []
-                state = json.loads(state_json) if state_json else {}
-                message.state = state
-                # async with self._ctx_model(head_id=head_id, branch_id=branch_id) as ctx:                
-                if head.partition is None:
-                    raise HTTPException(status_code=401, detail="No Partition specified for regular user")
-                
-                async with self._ctx_model(
-                    user,
-                    head.partition, 
-                    "commit",
-                    state=state,
-                    branch=branch_id
-                ).start_tracer(
-                        name=func.__name__, 
-                        run_type="chain", 
-                        inputs={
-                            "message": message.model_dump_json(),
-                            "state": state.model_dump_json() if isinstance(state, BaseModel) else state,
-                            "branch_id": branch_id,
-                        }
-                    ) as ctx:
-                    responses = await func(ctx=ctx, message=message)
-                    print(ctx.state)
-                return [message, *responses]
+                ctx: CTX_MODEL = Depends(model_context_parser),
+            ):                
+                async with ctx:
+                    responses = await func(ctx=ctx)
+                return responses
+                # async with self._ctx_model(
+                #     user,
+                #     ctx.partition, 
+                #     "commit",
+                #     state=state,
+                #     branch=branch_id
+                # ).start_tracer(
+                #         name=func.__name__, 
+                #         run_type="chain", 
+                #         inputs={
+                #             "message": message.model_dump_json(),
+                #             "state": state.model_dump_json() if isinstance(state, BaseModel) else state,
+                #             "branch_id": branch_id,
+                #         }
+                #     ) as ctx:
+                #     responses = await func(ctx=ctx, message=message)
+                #     print(ctx.state)
+                # return [message, *responses]
             
             async def test_endpoint(
                 body: dict,

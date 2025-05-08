@@ -4,7 +4,7 @@ from fastapi.datastructures import QueryParams
 from pydantic import BaseModel
 
 # from app.util.dependencies import get_partitions
-from promptview.api.model_router import create_crud_router
+from promptview.api.model_router2 import create_crud_router
 from promptview.auth.dependencies import get_auth_user, get_user_manager, get_user_token
 from promptview.model.resource_manager import connection_manager
 # from app.util.auth import varify_token

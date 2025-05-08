@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from promptview.api.auth_router import router as auth_router
-from promptview.api.model_router import create_crud_router
+from promptview.api.model_router2 import create_crud_router
 from promptview.api.head_model_router import create_head_crud_router
 from promptview.api.artifact_log_api import router as artifact_log_router
 from promptview.api.testing_router import connect_testing_routers

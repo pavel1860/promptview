@@ -367,7 +367,6 @@ class Model(BaseModel, metaclass=ModelMeta):
         ns = self.get_namespace()
         return list(ns._relations.keys())
     
-    
     def __enter__(self):
         """Enter the context"""
         ns = self.get_namespace()

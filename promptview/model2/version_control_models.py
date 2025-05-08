@@ -3,6 +3,8 @@ import contextvars
 from typing import TYPE_CHECKING, List, Self, Type, TypeVar, overload
 import uuid
 
+from pydantic import BaseModel
+
 from promptview.model2.model import Model
 from promptview.model2.fields import KeyField, ModelField, RelationField
 import datetime as dt
@@ -27,16 +29,20 @@ class VersioningError(Exception):
     pass
 
 
-class TurnContext:
-    def __init__(self, branch: "Branch", init_params: dict | None = None):
-        self.branch = branch
-        init_params = init_params or {}
-        if "message" in init_params:
-            raise VersioningError("message is reserved for internal use")
-        if "status" in init_params:
-            raise VersioningError("status is reserved for internal use")
-        self.init_params = init_params or {}
-        self.turn = None
+class TurnContext(BaseModel):
+    branch: "Branch"
+    init_params: dict | None = None
+    turn: "Turn | None" = None
+    
+    # def __init__(self, branch: "Branch", init_params: dict | None = None):
+    #     self.branch = branch
+    #     init_params = init_params or {}
+    #     if "message" in init_params:
+    #         raise VersioningError("message is reserved for internal use")
+    #     if "status" in init_params:
+    #         raise VersioningError("status is reserved for internal use")
+    #     self.init_params = init_params or {}
+    #     self.turn = None
         
     async def __aenter__(self):
         self.turn = await self.branch.add_turn(**self.init_params)
@@ -131,7 +137,7 @@ class Turn(Model):
         branch = Branch.current()
         if branch is None:
             raise VersioningError("Branch is required")
-        return TurnContext(branch, init_params=kwargs)
+        return TurnContext(branch=branch, init_params=kwargs)
     
     @classmethod
     async def create(cls, branch: "Branch | int | None" = None, **kwargs):

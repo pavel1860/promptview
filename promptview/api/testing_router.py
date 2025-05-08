@@ -2,7 +2,7 @@ from typing import Any, Callable, Dict
 
 from fastapi import HTTPException
 from promptview import testing
-from promptview.api.model_router import create_crud_router
+from promptview.api.model_router2 import create_crud_router
 
 
 
