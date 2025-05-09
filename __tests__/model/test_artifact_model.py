@@ -5,7 +5,7 @@
 
 
 import datetime as dt
-from typing import List
+from typing import List, Literal
 
 
 import pytest
@@ -38,6 +38,12 @@ class User(Model):
 
 
 
+
+class Message(ArtifactModel):
+    content: str = ModelField(default="")
+    name: str | None = ModelField(default=None)    
+    role: Literal["user", "assistant", "system", "tool"] = ModelField(default="user")
+    
 
 
 
@@ -123,3 +129,62 @@ async def test_artifact_model_order_by(clean_database):
     assert posts[2].content == "content 1 updated 3"
     assert posts[1].content == "content 2 updated 1"
     assert posts[0].content == "content 3"
+    
+    
+    
+    
+@pytest.mark.asyncio
+async def test_artifact_ordering(clean_database):
+    user = await User(name="test", age=10, address="test").save()
+    branch = await Branch.query().where(id=1).last()
+    with user:    
+        with branch:    
+            async with Turn.start() as turn1:
+                b1_t1_message1 = await turn1.add(Message(content="Hello"))
+                b1_t1_message2 = await turn1.add(Message(content="Hello, world!", role="assistant"))
+            
+            async with Turn.start() as turn2:
+                b1_t2_message1 = await turn2.add(Message(content="Who are you?"))
+                b1_t2_message2 = await turn2.add(Message(content="I'm a helpful assistant.", role="assistant"))
+            
+            async with Turn.start() as turn3:
+                b1_t3_message1 = await turn3.add(Message(content="What is the capital of France?"))
+                b1_t3_message2 = await turn3.add(Message(content="Paris is the capital of France.", role="assistant"))
+
+        branch2 = await branch.fork(turn=turn2)
+        with branch2:            
+                async with Turn.start() as turn21:
+                    b2_t1_message1 = await turn21.add(Message(content="What is the capital of Italy?"))
+                    b2_t1_message2 = await turn21.add(Message(content="Rome is the capital of Italy.", role="assistant"))  
+        
+        with branch:       
+            msgs = await Message.query(turns=2).order_by("created_at")
+            assert len(msgs) == 4
+            msgs = await Message.query(turns=1).order_by("created_at")
+            assert len(msgs) == 2
+            msgs = await Message.query(turns=3).order_by("created_at")
+            assert len(msgs) == 6
+            assert msgs[0].id == b1_t1_message1.id
+            assert msgs[1].id == b1_t1_message2.id
+            assert msgs[2].id == b1_t2_message1.id
+            assert msgs[3].id == b1_t2_message2.id
+            assert msgs[4].id == b1_t3_message1.id
+            assert msgs[5].id == b1_t3_message2.id
+            
+            
+        with branch2:
+            msgs = await Message.query(turns=2).order_by("created_at")
+            assert len(msgs) == 4
+            msgs = await Message.query(turns=1).order_by("created_at")
+            assert len(msgs) == 2
+            msgs = await Message.query(turns=3).order_by("created_at")
+            assert len(msgs) == 6
+            assert msgs[0].id == b1_t1_message1.id
+            assert msgs[1].id == b1_t1_message2.id
+            assert msgs[2].id == b1_t2_message1.id
+            assert msgs[3].id == b1_t2_message2.id
+            assert msgs[4].id == b2_t1_message1.id
+            assert msgs[5].id == b2_t1_message2.id
+        
+            
+        

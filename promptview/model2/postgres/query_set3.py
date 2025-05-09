@@ -358,7 +358,10 @@ class SelectQuerySet(Generic[MODEL]):
         self.limit(1)
         return QuerySetSingleAdapter(self)
     
-
+    def tail(self, n: int) -> "SelectQuerySet[MODEL]":
+        self.order_by("-created_at")
+        self.limit(n)
+        return self
 
     def render(self) -> str:
         compiler = Compiler()

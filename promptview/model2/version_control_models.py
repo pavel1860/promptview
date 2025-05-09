@@ -44,7 +44,7 @@ class TurnContext(BaseModel):
     #     self.init_params = init_params or {}
     #     self.turn = None
         
-    async def __aenter__(self):
+    async def __aenter__(self) -> "Turn":
         self.turn = await self.branch.add_turn(**self.init_params)
         self.turn.__enter__()
         return self.turn
@@ -198,7 +198,7 @@ class Branch(Model):
         return branch
     
     
-    async def add_turn(self, message: str | None = None, status: TurnStatus = TurnStatus.STAGED, **kwargs):
+    async def add_turn(self, message: str | None = None, status: TurnStatus = TurnStatus.STAGED, **kwargs) -> Turn:
         query = f"""
         WITH updated_branch AS (
             UPDATE branches
@@ -223,9 +223,6 @@ class Branch(Model):
         turn = turn_ns.instantiate_model(turn_record[0])
         return turn
         
-        
-        
-    
 
     
     
@@ -283,7 +280,7 @@ def get_turn_id(turn: "int | Turn | None" = None) -> int:
 
 
 
-def create_versioned_cte(branch_id: int, status: TurnStatus = TurnStatus.COMMITTED):
+def create_versioned_cte(branch_id: int, status: TurnStatus = TurnStatus.COMMITTED, turns: int | None = None):
     
     sql = f"""
         SELECT
@@ -309,15 +306,17 @@ def create_versioned_cte(branch_id: int, status: TurnStatus = TurnStatus.COMMITT
 
     cte = RawSQL(sql)
 
-
     committed_cte = (
         Turn.query()
         .select("id")
         .where(lambda t: (t.status == status) & (t.index <= RawValue("bh.start_turn_index")))
         .with_cte("branch_hierarchy", cte, recursive=True)
-        .order_by("index")
-    )
+        .order_by("-index")
+        # .limit(turns)
+    )    
     committed_cte.join_cte("branch_hierarchy", "branch_id", "id", "bh")
+    if turns is not None:
+        committed_cte = committed_cte.limit(turns)
     return committed_cte
 
     
@@ -370,34 +369,6 @@ class TurnModel(Model):
     def query(cls: "Type[Self]", branch: "int | Branch | None" = None, **kwargs) -> "SelectQuerySet[Self]":
         ...
         
-        
-        
-    # @overload
-    # @classmethod
-    # def query(cls: "Type[TURN_MODEL]", branch: "int | Branch | None" = None,  **kwargs) -> "SelectQuerySet[TURN_MODEL]":
-    #     ...
-    
-    
-    
-    # @classmethod
-    # def query(cls: "Type[TURN_MODEL]", branch: "int | Branch | None" = None,  **kwargs) -> "SelectQuerySet[TURN_MODEL]":
-    #     """
-    #     Create a query for this model
-        
-    #     Args:
-    #         branch: Optional branch ID to query from
-    #     """        
-    #     branch_id = get_branch_id(branch)
-    #     # turn_id = get_turn_id_or_none(turn)
-    #     # if turn_id is None:
-    #     #     raise VersioningError(f"Turn is required for {cls.__name__} {cls.id}")
-    #     ns = cls.get_namespace()
-    #     query = ns.query(**kwargs)
-    #     query = (
-    #         query.with_cte("turn_hierarchy", create_versioned_cte(branch_id))
-    #         .join_cte("turn_hierarchy", "turn_id", "id", "th")
-    #     )
-    #     return query
     
     @classmethod
     def versioned_cte(cls, cte: "SelectQuerySet[Turn]") -> "SelectQuerySet[Turn]":
@@ -405,7 +376,7 @@ class TurnModel(Model):
     
     
     @classmethod
-    def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, **kwargs) -> "SelectQuerySet[Self]":
+    def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
         """
         Create a query for this model
         
@@ -416,7 +387,7 @@ class TurnModel(Model):
         ns = cls.get_namespace()
         query = ns.query(**kwargs)
         query = (
-            query.with_cte("turn_hierarchy", cls.versioned_cte(create_versioned_cte(branch_id, status)))
+            query.with_cte("turn_hierarchy", cls.versioned_cte(create_versioned_cte(branch_id, status, turns)))
             .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
         )
         return query
@@ -477,7 +448,7 @@ class ArtifactModel(TurnModel):
 
     
     @classmethod
-    def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, **kwargs) -> "SelectQuerySet[Self]":
+    def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
         """
         Create a query for this model
     
@@ -488,11 +459,11 @@ class ArtifactModel(TurnModel):
         ns = cls.get_namespace()
         es_query = ns.query(**kwargs)
         es_query = (
-            es_query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status))
+            es_query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status, turns))
             .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
             .distinct_on("artifact_id")
             .order_by("-artifact_id", "-version")
-        )
-        
+        )        
         query = SelectQuerySet(cls).from_subquery(es_query)
+        # query.join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
         return query
