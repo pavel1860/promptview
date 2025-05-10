@@ -82,6 +82,10 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         if pg_field.is_primary_key:
             if curr_key:= self.find_primary_key() is not None:
                 raise ValueError(f"Primary key field {name} already exists. {curr_key} is already the primary key field.")
+        if pg_field.is_default_temporal:
+            if self.default_temporal_field is not None:
+                raise ValueError(f"Default temporal field {name} already exists. {self.default_temporal_field} is already the default temporal field.")
+            self.default_temporal_field = pg_field
         if pg_field.is_vector:
             self._vector_fields[name] = pg_field                
         self._fields[name] = pg_field
@@ -545,8 +549,10 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         Returns:
             A query set for this namespace
         """
-        
-        return SelectQuerySet(self.model_class).select("*")
+        query = SelectQuerySet(self.model_class).select("*")
+        if self.default_temporal_field:
+            query.order_by(self.default_temporal_field.name)
+        return query
         
             
         

@@ -23,6 +23,7 @@ def ModelField(
     foreign_key: bool = False,
     index: Optional[str] = None,
     default_factory: Callable[[], Any] | None = _Unset,
+    is_default_temporal: bool = False,
     db_type: str | None = None,
     description: str | None = _Unset,
 ) -> Any:
@@ -30,6 +31,7 @@ def ModelField(
     # Create extra metadata for the field
     extra = {}
     extra["is_model_field"] = True
+    extra["is_default_temporal"] = is_default_temporal
     extra["index"] = index    
     if db_type:
         extra["db_type"] = db_type

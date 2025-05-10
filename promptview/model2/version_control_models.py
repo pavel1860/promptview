@@ -61,7 +61,7 @@ class TurnContext(BaseModel):
 
 class Turn(Model):
     id: int = KeyField(primary_key=True)
-    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now, is_default_temporal=True)
     ended_at: dt.datetime | None = ModelField(default=None)
     index: int = ModelField()
     status: TurnStatus = ModelField(default=TurnStatus.STAGED)
@@ -173,7 +173,7 @@ class Branch(Model):
     _namespace_name = "branches"
     id: int = KeyField(primary_key=True)
     name: str | None = ModelField(default=None)
-    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now, is_default_temporal=True)
     updated_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
     forked_from_index: int | None = ModelField(default=None)
     forked_from_branch_id: int | None = ModelField(default=None)
@@ -325,7 +325,7 @@ class TurnModel(Model):
     id: int = KeyField(primary_key=True)    
     branch_id: int = ModelField(foreign_key=True)
     turn_id: int = ModelField(foreign_key=True)    
-    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now, is_default_temporal=True)
     updated_at: dt.datetime | None = ModelField(default=None)
     deleted_at: dt.datetime | None = ModelField(default=None)
     

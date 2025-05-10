@@ -101,6 +101,7 @@ def embed_query_as_subquery(query, rel, parent_table):
         subq.columns = [Function("json_agg", obj)]
         subq.from_table = query.from_table
         subq.joins = [j for j in query.joins if j.table.name not in join_filter]
+        # subq.order_by = query.order_by
         # subq.where_clause = self.query.where_clause
         subq.where_clause = Eq(Column(rel.foreign_key, query.from_table), Column(rel.primary_key, parent_table))
         coalesced = Coalesce(subq, Value("[]", inline=True))
@@ -188,7 +189,8 @@ class SelectQuerySet(Generic[MODEL]):
             query_set = target
         else:
             # query_set = SelectQuerySet(target).select("*")
-            query_set = target.query()
+            # query_set = target.query()
+            query_set = target.get_namespace().query()
         self._gen_query_set_alias(query_set)
         return query_set
         
@@ -267,9 +269,7 @@ class SelectQuerySet(Generic[MODEL]):
         if query_set.query.ctes:
             query_set = self._merge_ctes(query_set)
 
-        
-        if isinstance(rel, NSManyToManyRelationInfo):
-            
+        if isinstance(rel, NSManyToManyRelationInfo):            
             j_ns = rel.junction_namespace
             j_alias=self._set_alias(j_ns.table_name)
             junction_table = Table(j_ns.table_name, alias=j_alias)

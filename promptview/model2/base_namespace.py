@@ -48,6 +48,7 @@ class NSFieldInfo:
     is_list: bool = False    
     list_origin_type: Type[Any] | None = None
     is_temporal: bool = False
+    is_default_temporal: bool = False
     is_enum: bool = False
     is_foreign_key: bool = False
     is_literal: bool = False
@@ -85,6 +86,11 @@ class NSFieldInfo:
             self.is_temporal = True
         else:
             self.is_temporal = False
+            
+        if extra and extra.get("is_default_temporal", False):
+            if not field_type is dt.datetime:
+                raise ValueError("is_default_temporal can only be used with datetime")
+            self.is_default_temporal = True
         
         if extra:
             if not extra.get("is_relation", False):
@@ -445,6 +451,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     _curr_ctx_model: contextvars.ContextVar
     _vector_fields: dict[str, FIELD_INFO]
     _transformers: dict[str, Transformer]   
+    default_temporal_field: FIELD_INFO | None = None
     def __init__(
         self, 
         name: str, 
@@ -470,6 +477,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         self.db_type = db_type
         self._model_cls = None
         self._primary_key = None
+        self.default_temporal_field = None
         self._curr_ctx_model = contextvars.ContextVar(f"curr_ctx_{self._name}")
 
        
@@ -482,6 +490,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     def table_name(self) -> str:
         """Get the table name for this namespace."""
         return self._name
+    
     
     @property
     def model_class(self) -> Type[MODEL]:
