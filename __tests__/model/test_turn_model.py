@@ -15,14 +15,14 @@ from promptview.model2 import Model, ArtifactModel, ModelField, RelationField, A
 import datetime as dt
 from promptview.model2.namespace_manager import NamespaceManager
 from promptview.prompt import Block, ToolCall
-from promptview.model2.version_control_models import Turn, Branch
+from promptview.model2.version_control_models import Turn as BaseTurn, Branch
 from promptview.model2 import TurnModel
 
 from __tests__.utils import clean_database, test_db_pool
 
 
-    
-    
+
+
 
 
 class LikeType(StrEnum):
@@ -105,7 +105,11 @@ class User(Model):
     
 
 
-
+class Turn(BaseTurn):
+    messages: List[Message] = RelationField(foreign_key="turn_id")
+    comments: List[Comment] = RelationField(foreign_key="turn_id")
+    posts: List[Post] = RelationField(foreign_key="turn_id")
+    likes: List[Like] = RelationField(foreign_key="turn_id")
 
 
 
@@ -220,7 +224,7 @@ async def seeded_post_database(clean_database):
 async def test_branching(seeded_message_database):
     data = seeded_message_database
     
-    msgs = await Message.query().limit(20)
+    msgs = await Message.query().limit(20).order_by("created_at")
     assert len(msgs) == 6
     assert msgs[0].id == data['b1_t1_message1'].id
     assert msgs[1].id == data['b1_t1_message2'].id
@@ -230,7 +234,7 @@ async def test_branching(seeded_message_database):
     assert msgs[5].id == data['b1_t3_message2'].id
     branch = await Branch.query().filter(lambda b: b.id == 2).last()
     with branch:
-        msgs = await Message.query().limit(20)
+        msgs = await Message.query().limit(20).order_by("created_at")
         for m in msgs:
             print(m.role + ":", m.content)
 

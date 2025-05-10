@@ -7,8 +7,14 @@ from pydantic_core import PydanticUndefined
 
 from promptview.algebra.vectors.base_vectorizer import BaseVectorizer
 from promptview.algebra.vectors.empty_vectorizer import EmptyVectorizer
+
 if TYPE_CHECKING:
     from promptview.model2.model import Model
+
+
+
+
+
 
 
 def ModelField(
@@ -23,7 +29,8 @@ def ModelField(
     """Define a model field with ORM-specific metadata"""
     # Create extra metadata for the field
     extra = {}
-    extra["index"] = index
+    extra["is_model_field"] = True
+    extra["index"] = index    
     if db_type:
         extra["db_type"] = db_type
     if foreign_key:
@@ -49,6 +56,7 @@ def KeyField(
     """Define a key field with ORM-specific metadata"""
     # Create extra metadata for the field
     extra = {}
+    extra["is_model_field"] = True
     extra["primary_key"] = primary_key
     extra["type"] = type
     extra["is_key"] = True
@@ -68,6 +76,7 @@ def RefField(
     """Define a reference field with ORM-specific metadata"""
     # Create extra metadata for the field
     extra = {}
+    extra["is_model_field"] = True
     extra["key"] = key
     
     return Field(default, json_schema_extra=extra, description=description)
@@ -95,13 +104,15 @@ def RelationField(
         on_update: The action to take when the referenced row is updated
     """
     # Create extra metadata for the field
-    
+    # from promptview.model2.unfetched_relation import EmptyRelation
     if not primary_key and not foreign_key and not junction_keys:
         raise ValueError("primary_key or foreign_key or junction_keys must be provided")
     if not default:
         default = []
+        # default = EmptyRelation()
     
     extra = {}
+    extra["is_model_field"] = True
     extra["is_relation"] = True
     extra["primary_key"] = primary_key
     extra["foreign_key"] = foreign_key
@@ -143,7 +154,7 @@ def VectorField(
     else:
         if not dimension:
             dimension = vectorizer.dimension
-    
+    extra["is_model_field"] = True
     extra["dimension"] = dimension
     extra["is_vector"] = True    
     extra["vectorizer"] = vectorizer

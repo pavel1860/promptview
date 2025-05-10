@@ -3,8 +3,8 @@ from abc import abstractmethod
 import json
 import textwrap
 from typing import Any, Callable, Generic, Iterator, List, Literal, Protocol, Type, TypeVar, Union
-
-from pydantic import BaseModel
+from pydantic_core import core_schema
+from pydantic import BaseModel, GetCoreSchemaHandler
 from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
 from promptview.utils.model_utils import schema_to_ts
 
@@ -543,25 +543,35 @@ class Block:
         return rndr.render(self)
     
     
-    def __repr__(self) -> str:
-                
-        # prompt = f"<{self.__class__.__name__} tags={self.tags} role={self.role} style={self.inline_style.style} depth={self.depth}>\n{self.render()}\n</{self.__class__.__name__}>"
+    def __repr__(self) -> str:                
         content = self.render()
         if len(content) > 30:
             content = content[0:30] + "..."
         prompt = f"""<{self.__class__.__name__} tags={self.tags} role={self.role} style={self.inline_style.style} depth={self.depth} content="{content}">"""
         return prompt      
       
-      
-    # def __repr__(self) -> str:
-    #     content = self.render()
-    #     tags = ", ".join(self.tags)
-    #     tag = f"[{tags}]" if tags else ""
-    #     role = f" role={self.role}" if self.role else ""        
-    #     return f"{self.__class__.__name__}({tags}{role}):\n{content}"
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            cls._validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                cls._serialize
+            )
+        )
+        
+    @staticmethod
+    def _validate(v: Any) -> Any:
+        if isinstance(v, Block):
+            return v
+        else:
+            raise ValueError(f"Invalid block: {v}")
 
-
-
+    @staticmethod
+    def _serialize(v: Any) -> Any:
+        if isinstance(v, Block):
+            return v.model_dump()
+        else:
+            raise ValueError(f"Invalid block: {v}")
 
 
 class BlockContext:

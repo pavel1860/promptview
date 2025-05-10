@@ -19,6 +19,7 @@ from promptview.model2.query_filters import SelectFieldProxy
 
 
 
+from promptview.model2.unfetched_relation import EmptyRelation, UnfetchedRelation
 from promptview.resource_manager import ResourceManager
 from promptview.utils.model_utils import unpack_list_model
 from promptview.utils.string_utils import camel_to_snake
@@ -166,8 +167,9 @@ class ModelMeta(ModelMetaclass, type):
         # Process fields and relations
         relations = {}
         field_extras = {}
+        
         transformers = {}
-        for field_name, field_info in dct.items():
+        for field_name, field_info in dct.items():            
             if callable(field_info) and hasattr(field_info, "_transformer_field_name"):
                 field_name = getattr(field_info, "_transformer_field_name")
                 vectorizer_cls = getattr(field_info, "_vectorizer_cls")
@@ -187,12 +189,13 @@ class ModelMeta(ModelMetaclass, type):
             if not isinstance(field_info, FieldInfo):
                 continue
             
-            
             field_type = dct["__annotations__"].get(field_name)
             if field_type is None:
                 continue
             
             extra = unpack_extra(field_info)
+            if not extra.get("is_model_field", False):
+                continue
             
             # Check if this is a relation field
             
@@ -266,6 +269,8 @@ class ModelMeta(ModelMetaclass, type):
             field_type = field_info.annotation
             # extra = field_extras.get(field_name, {})
             extra = get_extra(field_info)
+            if not extra.get("is_model_field", False):
+                continue
             ns.add_field(field_name, field_type, extra)
         
         
@@ -428,7 +433,7 @@ class Model(BaseModel, metaclass=ModelMeta):
             setattr(self, key, value)
         
         # Update relation instance IDs
-        self._update_relation_instance()
+        # self._update_relation_instance()
         
         return self
     
@@ -464,6 +469,9 @@ class Model(BaseModel, metaclass=ModelMeta):
             key = getattr(self, relation.primary_key)
             setattr(model, relation.foreign_key, key)
             result = await model.save()
+        field = getattr(self, relation.name)
+        if field is not None:
+            field.append(result)
         return result
     
     
@@ -488,7 +496,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         if data is None:
             raise ValueError(f"Model '{cls.__name__}' with ID '{id}' not found")
         instance = cls(**data)
-        instance._update_relation_instance()
+        # instance._update_relation_instance()
         return instance
     
     @classmethod
@@ -515,8 +523,29 @@ class Model(BaseModel, metaclass=ModelMeta):
         return ns.query(**kwargs)
     
     
+    async def fetch(self, *fields: str) -> Self:
+        ns = self.get_namespace()
+        for field in fields:
+            relation = ns.get_relation(field)
+            if relation is None:
+                raise ValueError(f"Relation {field} is not found")
+            where_dict = {relation.foreign_key: self.primary_id}
+            rel_objs = await relation.foreign_cls.query().where(**where_dict).order_by("created_at")
+            setattr(self, field, rel_objs)
+        return self
     
     
+    # def __getattribute__(self, name: str) -> Any:
+    #     """
+    #     Get an attribute of the model.
+    #     if the attribute is not initialized relation and you try to access it, it will raise an error
+    #     """
+    #     inst = super(Model, self).__getattribute__(name)
+    #     if isinstance(inst, EmptyRelation):
+    #         raise ValueError(f'Relation "{name}" on model "{self.__class__.__name__}" is not initialized. you should join the relation or use the fetch method')
+    #     return inst
+            
+            
     # @classmethod
     # def __get_pydantic_core_schema__(cls, source, handler):
     #     def validate_custom(value, info):

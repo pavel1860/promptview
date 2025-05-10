@@ -5,7 +5,7 @@ import datetime as dt
 from typing import List
 from promptview.model2 import Model, ModelField, KeyField, RelationField
 from promptview.model2 import NamespaceManager
-from promptview.model2 import Turn, TurnModel, Branch
+from promptview.model2 import Turn as BaseTurn, TurnModel, Branch
 from __tests__.utils import clean_database, test_db_pool
 from promptview.model2.version_control_models import VersioningError
 
@@ -34,7 +34,9 @@ class User(Model):
 
 
 
-
+class Turn(BaseTurn):
+    posts: List[Post] = RelationField(foreign_key="turn_id")
+    likes: List[Like] = RelationField(foreign_key="turn_id")
 
 
 

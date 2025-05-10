@@ -6,6 +6,7 @@ from promptview.model2.postgres.operations import JoinType, PostgresOperations, 
 
 from promptview.model2.postgres.query_set import PostgresQuerySet
 from promptview.model2.postgres.query_set3 import SelectQuerySet
+from promptview.model2.unfetched_relation import UnfetchedRelation
 from promptview.model2.versioning import ArtifactLog, Branch, Turn
 
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter, SelectFields
@@ -232,6 +233,9 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
     def pack_record(self, record: Dict[str, Any]) -> MODEL:
         """Pack the record for the database"""
         rec = {}
+        for relation in self.iter_relations():
+            rec[relation.name] = UnfetchedRelation(relation)
+        
         for key, value in record.items():
             key = key.strip('"').strip("'")
             if key in ("id", "branch_id", "turn_id"):

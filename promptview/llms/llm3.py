@@ -519,7 +519,7 @@ class LLM():
     
     def __call__(
         self,        
-        *args: Block | BlockList | str,
+        *args: Block | List[Block] | BlockList | str,
         model: str | None = None,
     ) -> LlmContext:
 

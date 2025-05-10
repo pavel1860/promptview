@@ -13,7 +13,7 @@ import pytest_asyncio
 
 from promptview.model2 import Model, ModelField, KeyField, RelationField
 from promptview.model2 import NamespaceManager
-from promptview.model2 import Turn
+from promptview.model2 import Turn as BaseTurn
 from promptview.model2 import ArtifactModel
 from promptview.model2.version_control_models import Branch
 from __tests__.utils import clean_database, test_db_pool
@@ -46,7 +46,10 @@ class Message(ArtifactModel):
     
 
 
-
+class Turn(BaseTurn):
+    messages: List[Message] = RelationField(foreign_key="turn_id")
+    posts: List[Post] = RelationField(foreign_key="turn_id")
+    likes: List[Like] = RelationField(foreign_key="turn_id")
 
 
 
@@ -87,7 +90,7 @@ async def test_artifact_model_basic(clean_database):
             await post1.save()
 
 
-    posts = await Post.query()
+    posts = await Post.query().order_by("-created_at")
     assert len(posts) == 2
     assert posts[1].content == "content 1 updated"
     assert posts[0].content == "content 2"

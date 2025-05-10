@@ -147,24 +147,24 @@ class Turn(Model):
         
         
         
-    @overload  
-    async def add(self, obj: TURN_MODEL, **kwargs) -> TURN_MODEL:
-        ...
+    # @overload  
+    # async def add(self, obj: TURN_MODEL, **kwargs) -> TURN_MODEL:
+    #     ...
     
-    @overload
-    async def add(self, obj: "Model", **kwargs) -> "Model":
-        ...
+    # @overload
+    # async def add(self, obj: "Model", **kwargs) -> "Model":
+    #     ...
         
-    async def add(self, obj: "Model", **kwargs) -> "Model":
-        from promptview.prompt import Block
-        from promptview.model2.block_model import BlockModel
-        if not isinstance(obj, TurnModel):
-            raise VersioningError("Can only add ArtifactModel instances")
-        if isinstance(obj, Block):
-            obj = BlockModel.from_block(obj)
-        obj.turn_id = self.id
-        obj.branch_id = self.branch_id
-        return await obj.save()
+    # async def add(self, obj: "Model", **kwargs) -> "Model":
+    #     from promptview.prompt import Block
+    #     from promptview.model2.block_model import BlockModel
+    #     if not isinstance(obj, TurnModel):
+    #         raise VersioningError("Can only add ArtifactModel instances")
+    #     if isinstance(obj, Block):
+    #         obj = BlockModel.from_block(obj)
+    #     obj.turn_id = self.id
+    #     obj.branch_id = self.branch_id
+    #     return await obj.save()
 
     
 

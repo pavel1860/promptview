@@ -1,3 +1,4 @@
+import asyncio
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace
 from typing import TYPE_CHECKING, Iterator, Type, TypeVar, Dict, List, Any, Optional, ForwardRef
 
@@ -115,6 +116,8 @@ class NamespaceManager:
             raise ValueError("NamespaceManager not initialized")
         if not model_name in cls._namespaces:
             raise ValueError(f"Namespace for model {model_name} not found")
+        # if not cls._is_initialized:
+            # asyncio.create_task(cls.create_all_namespaces())
         return cls._namespaces[model_name]
     
     @classmethod
@@ -170,7 +173,13 @@ class NamespaceManager:
             branch = await Branch(name="main").save()
         return branch
     
-        
+    
+    @classmethod
+    def initialize_namespace_metadata(cls):
+        cls.replace_forward_refs()        
+        for namespace in cls.iter_namespaces("postgres"):            
+            for relation in namespace.iter_relations():
+                cls.add_reversed_relation(relation)
     
     @classmethod
     async def create_all_namespaces(cls):
@@ -211,11 +220,12 @@ class NamespaceManager:
                     on_update="CASCADE",
                 )
                 
-        cls.replace_forward_refs()
+        # cls.replace_forward_refs()
                 
-        for namespace in cls.iter_namespaces("postgres"):            
-            for relation in namespace.iter_relations():
-                cls.add_reversed_relation(relation)
+        # for namespace in cls.iter_namespaces("postgres"):            
+        #     for relation in namespace.iter_relations():
+        #         cls.add_reversed_relation(relation)
+        cls.initialize_namespace_metadata()
                                 
         cls._main_branch = await cls.get_or_create_main_branch()
         # turn_fields = ArtifactLog.get_extra_turn_fields()
