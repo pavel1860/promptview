@@ -11,7 +11,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 from promptview.auth.user_manager import AuthModel
-from promptview.model2 import Model, ArtifactModel, ModelField, RelationField, ArtifactModel
+from promptview.model2 import Model, ArtifactModel, ModelField, RelationField, ArtifactModel, Relation
 import datetime as dt
 from promptview.model2.fields import KeyField, RelationField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
@@ -47,7 +47,7 @@ class Comment(Model):
     reliability: float = ModelField(default=0.5)
     user_id: int = ModelField(foreign_key=True)
     post_id: int = ModelField(foreign_key=True)
-    likes: List[Like] = RelationField([], foreign_key="comment_id")    
+    likes: Relation[Like] = RelationField([], foreign_key="comment_id")    
 
 
 
@@ -58,7 +58,7 @@ class Post(Model):
     title: str = ModelField()
     content: str = ModelField()
     owner_id: int = ModelField(foreign_key=True)
-    comments: List[Comment] = RelationField([], foreign_key="post_id")
+    comments: Relation[Comment] = RelationField([], foreign_key="post_id")
 
     
 
@@ -107,9 +107,9 @@ class Message(Model):
 
 class User(AuthModel):
     age: int = ModelField()
-    posts: List[Post] = RelationField([], foreign_key="owner_id")
-    likes: List[Like] = RelationField([], foreign_key="user_id")
-    comments: List[Comment] = RelationField([], foreign_key="user_id")
+    posts: Relation[Post] = RelationField([], foreign_key="owner_id")
+    likes: Relation[Like] = RelationField([], foreign_key="user_id")
+    comments: Relation[Comment] = RelationField([], foreign_key="user_id")
     
     
 

@@ -106,11 +106,12 @@ def RelationField(
         on_update: The action to take when the referenced row is updated
     """
     # Create extra metadata for the field
-    # from promptview.model2.unfetched_relation import EmptyRelation
+    from promptview.model2.relation import Relation
     if not primary_key and not foreign_key and not junction_keys:
         raise ValueError("primary_key or foreign_key or junction_keys must be provided")
     if not default:
-        default = []
+        # default = []
+        default = Relation()
         # default = EmptyRelation()
     
     extra = {}

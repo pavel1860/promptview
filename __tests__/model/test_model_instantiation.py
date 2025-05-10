@@ -5,7 +5,7 @@ import datetime as dt
 from typing import List
 from promptview.model2 import Model, ModelField, KeyField, RelationField
 from promptview.model2 import NamespaceManager
-from promptview.model2 import Turn as BaseTurn, TurnModel, Branch
+from promptview.model2 import Turn as BaseTurn, TurnModel, Branch, Relation
 from __tests__.utils import clean_database, test_db_pool
 from promptview.model2.version_control_models import VersioningError
 
@@ -18,7 +18,7 @@ class Post(TurnModel):
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
     title: str = ModelField()
     content: str = ModelField()
-    likes: List[Like] = RelationField(foreign_key="post_id")
+    likes: Relation[Like] = RelationField(foreign_key="post_id")
     user_id: int = ModelField(foreign_key=True)
 
 
@@ -28,15 +28,15 @@ class User(Model):
     name: str = ModelField()
     age: int = ModelField()
     address: str = ModelField()
-    posts: List[Post] = RelationField(foreign_key="user_id")
-    likes: List[Like] = RelationField(foreign_key="user_id")
+    posts: Relation[Post] = RelationField(foreign_key="user_id")
+    likes: Relation[Like] = RelationField(foreign_key="user_id")
 
 
 
 
 class Turn(BaseTurn):
-    posts: List[Post] = RelationField(foreign_key="turn_id")
-    likes: List[Like] = RelationField(foreign_key="turn_id")
+    posts: Relation[Post] = RelationField(foreign_key="turn_id")
+    likes: Relation[Like] = RelationField(foreign_key="turn_id")
 
 
 

@@ -19,7 +19,7 @@ from promptview.model2.query_filters import SelectFieldProxy
 
 
 
-from promptview.model2.unfetched_relation import EmptyRelation, UnfetchedRelation
+from promptview.model2.relation import Relation
 from promptview.resource_manager import ResourceManager
 from promptview.utils.model_utils import unpack_list_model
 from promptview.utils.string_utils import camel_to_snake
@@ -167,8 +167,7 @@ class ModelMeta(ModelMetaclass, type):
         # Process fields and relations
         relations = {}
         field_extras = {}
-        
-        transformers = {}
+    
         for field_name, field_info in dct.items():            
             if callable(field_info) and hasattr(field_info, "_transformer_field_name"):
                 field_name = getattr(field_info, "_transformer_field_name")
@@ -176,11 +175,6 @@ class ModelMeta(ModelMetaclass, type):
                 # register it on the class
                 ns.register_transformer(field_name, field_info, vectorizer_cls)
                 ResourceManager.register_vectorizer(field_name, vectorizer_cls)
-        
-        
-            
-        
-
         
         
         for field_name, field_info in dct.items():
@@ -204,8 +198,12 @@ class ModelMeta(ModelMetaclass, type):
 
                 field_origin = get_origin(field_type)
                 foreign_cls = None
-                if field_origin is list:
-                    foreign_cls = unpack_list_model(field_type)
+                # if field_origin is list:
+                #     foreign_cls = unpack_list_model(field_type)
+                #     if not issubclass(foreign_cls, Model) and not isinstance(foreign_cls, ForwardRef):
+                #         raise ValueError(f"foreign_cls must be a subclass of Model: {foreign_cls}")
+                if field_origin is Relation:                    
+                    foreign_cls = get_relation_model(field_type)
                     if not issubclass(foreign_cls, Model) and not isinstance(foreign_cls, ForwardRef):
                         raise ValueError(f"foreign_cls must be a subclass of Model: {foreign_cls}")
                 if not foreign_cls:
@@ -383,15 +381,22 @@ class Model(BaseModel, metaclass=ModelMeta):
         ns = self.get_namespace()
         ns.set_ctx(None)
         self._ctx_token = None
-        
+    
+    
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Create a model instance from a dictionary"""
+        obj = cls(**data)
+        obj._update_relation_instance()
+        return obj
     
     
     def _update_relation_instance(self):
         """Update the instance for all relations."""
         # Get the ID from the model instance
         # The ID field should be defined by the user
-        if not hasattr(self, "id"):
-            return
+        # if not hasattr(self, "id"):
+        #     return
         
         for field_name in self._get_relation_fields():
             relation = getattr(self, field_name)
@@ -433,7 +438,7 @@ class Model(BaseModel, metaclass=ModelMeta):
             setattr(self, key, value)
         
         # Update relation instance IDs
-        # self._update_relation_instance()
+        self._update_relation_instance()
         
         return self
     
@@ -1032,6 +1037,17 @@ def get_extra(field_info: FieldInfo) -> dict[str, Any]:
 #                 print(value)
 #                 raise TypeError("Invalid type for Relation; expected Relation instance")
 #         return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
+
+
+
+
+
+def get_relation_model(cls):
+    """Get the model class from a relation type."""
+    args = get_args(cls)
+    if len(args) != 1:
+        raise ValueError("Relation model must have exactly one argument")
+    return args[0]
 
 
 

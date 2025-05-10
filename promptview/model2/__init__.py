@@ -8,6 +8,7 @@ from .block_model import BlockModel
 # from .context import Context
 from .vectors import Vector, SparseVector, transformer
 from .model_context import ModelCtx, Context
+from .relation import Relation
 
 __all__ = [
     "Model", 
@@ -28,4 +29,5 @@ __all__ = [
     "SparseVector",
     "transformer",
     "ModelCtx",
+    "Relation",
 ]

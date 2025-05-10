@@ -9,7 +9,7 @@ import pytest_asyncio
 
 import datetime as dt
 from typing import List
-from promptview.model2 import Model, ModelField, KeyField, RelationField
+from promptview.model2 import Model, ModelField, KeyField, RelationField, Relation
 from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2 import NamespaceManager
 from promptview.utils.db_connections import PGConnectionManager
@@ -25,7 +25,7 @@ class Post(Model):
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
     title: str = ModelField()
     content: str = ModelField()
-    likes: List[Like] = RelationField(foreign_key="post_id")
+    likes: Relation[Like] = RelationField(foreign_key="post_id")
     user_id: int = ModelField(foreign_key=True)
 
 
@@ -35,7 +35,7 @@ class User(Model):
     name: str = ModelField()
     age: int = ModelField()
     address: str = ModelField()
-    posts: List[Post] = RelationField(foreign_key="user_id")
+    posts: Relation[Post] = RelationField(foreign_key="user_id")
 
 # @pytest_asyncio.fixture(scope="function", autouse=True)
 # async def verify_clean_database():

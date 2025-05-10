@@ -6,7 +6,7 @@ from promptview.model2.postgres.operations import JoinType, PostgresOperations, 
 
 from promptview.model2.postgres.query_set import PostgresQuerySet
 from promptview.model2.postgres.query_set3 import SelectQuerySet
-from promptview.model2.unfetched_relation import UnfetchedRelation
+from promptview.model2.relation import Relation
 from promptview.model2.versioning import ArtifactLog, Branch, Turn
 
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter, SelectFields
@@ -238,7 +238,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         """Pack the record for the database"""
         rec = {}
         for relation in self.iter_relations():
-            rec[relation.name] = UnfetchedRelation(relation)
+            rec[relation.name] = Relation(relation=relation)
         
         for key, value in record.items():
             key = key.strip('"').strip("'")
@@ -254,7 +254,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                     relation_info = self.get_relation(key)
                     if not relation_info:
                         raise ValueError(f"Unknown key: {key}")
-                    rec[key] = relation_info.deserialize(value)
+                    rec[key] = Relation(relation_info.deserialize(value), relation=relation_info)
                 else:
                     raise ValueError(f"Unknown key: {key}")
         return rec

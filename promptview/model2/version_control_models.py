@@ -12,6 +12,7 @@ import datetime as dt
 from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2.postgres.sql.expressions import OrderBy, RawSQL, RawValue, Value
 from promptview.model2.postgres.sql.queries import Column, SelectQuery, Subquery
+from promptview.model2.relation import Relation
 
 CURR_TURN = contextvars.ContextVar("curr_turn")
 CURR_BRANCH = contextvars.ContextVar("curr_branch")
@@ -178,8 +179,8 @@ class Branch(Model):
     forked_from_index: int | None = ModelField(default=None)
     forked_from_branch_id: int | None = ModelField(default=None)
     current_index: int = ModelField(default=0)
-    turns: List[Turn] = RelationField(foreign_key="branch_id")
-    children: List["Branch"] = RelationField(foreign_key="forked_from_branch_id")
+    turns: Relation[Turn] = RelationField(foreign_key="branch_id")
+    children: Relation["Branch"] = RelationField(foreign_key="forked_from_branch_id")
     
     
     async def fork(self, index: int | None = None, name: str | None = None, turn: Turn | None = None):

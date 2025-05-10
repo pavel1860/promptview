@@ -11,7 +11,7 @@ from typing import List, Literal
 import pytest
 import pytest_asyncio
 
-from promptview.model2 import Model, ModelField, KeyField, RelationField
+from promptview.model2 import Model, ModelField, KeyField, RelationField, Relation
 from promptview.model2 import NamespaceManager
 from promptview.model2 import Turn as BaseTurn
 from promptview.model2 import ArtifactModel
@@ -24,7 +24,7 @@ class Like(ArtifactModel):
 class Post(ArtifactModel):
     title: str = ModelField()
     content: str = ModelField()
-    likes: List[Like] = RelationField(foreign_key="post_id")
+    likes: Relation[Like] = RelationField(foreign_key="post_id")
     user_id: int = ModelField(foreign_key=True)
 
 
@@ -34,7 +34,7 @@ class User(Model):
     name: str = ModelField()
     age: int = ModelField()
     address: str = ModelField()
-    posts: List[Post] = RelationField(foreign_key="user_id")
+    posts: Relation[Post] = RelationField(foreign_key="user_id")
 
 
 
@@ -47,9 +47,9 @@ class Message(ArtifactModel):
 
 
 class Turn(BaseTurn):
-    messages: List[Message] = RelationField(foreign_key="turn_id")
-    posts: List[Post] = RelationField(foreign_key="turn_id")
-    likes: List[Like] = RelationField(foreign_key="turn_id")
+    messages: Relation[Message] = RelationField(foreign_key="turn_id")
+    posts: Relation[Post] = RelationField(foreign_key="turn_id")
+    likes: Relation[Like] = RelationField(foreign_key="turn_id")
 
 
 

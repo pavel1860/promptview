@@ -230,6 +230,8 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
         self.on_delete = on_delete
         self.on_update = on_update
         self.namespace = namespace
+        self._primary_cls = None
+        
     @property
     def primary_cls(self) -> Type[MODEL]:
         if self._primary_cls is None:
@@ -257,8 +259,10 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
     
     
     def deserialize(self, value: Any) -> Any:
-        json_value = json.loads(value)
-        return json_value
+        if isinstance(value, str):
+            json_value = json.loads(value)
+            return json_value
+        return value
     
     
     def __repr__(self) -> str:

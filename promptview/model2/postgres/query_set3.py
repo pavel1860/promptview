@@ -112,6 +112,8 @@ def embed_query_as_subquery(query, rel, parent_table):
 
  
 class SelectQuerySet(Generic[MODEL]):
+    
+    
     def __init__(self, model_class: Type[MODEL], query: SelectQuery | None = None):
         self.model_class = model_class
         self.alias_lookup = {}
@@ -375,7 +377,8 @@ class SelectQuerySet(Generic[MODEL]):
         compiler = Compiler()
         sql, params = compiler.compile(self.query)
         results = await self.execute_sql(sql, *params)
-        return [self.model_class(**self.namespace.pack_record(dict(row))) for row in results]
+        return [self.model_class.from_dict(self.namespace.pack_record(dict(row))) for row in results]
+        # return [self.model_class(**self.namespace.pack_record(dict(row))) for row in results]
 
 
 
