@@ -262,12 +262,12 @@ class ModelMeta(ModelMetaclass, type):
         cls_obj = super().__new__(cls, name, bases, dct)
         
         for field_name, field_info in cls_obj.model_fields.items():
-            if field_name in relations:
-                continue
+            # if field_name in relations:
+            #     continue
+            extra = get_extra(field_info)            
             field_type = field_info.annotation
-            # extra = field_extras.get(field_name, {})
-            extra = get_extra(field_info)
-            if not extra.get("is_model_field", False):
+            
+            if not extra.get("is_model_field", False) or extra.get("is_relation", False):
                 continue
             ns.add_field(field_name, field_type, extra)
         
@@ -400,7 +400,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         
         for field_name in self._get_relation_fields():
             relation = getattr(self, field_name)
-            if relation:
+            if relation is not None:
                 relation.set_primary_instance(self)
                 
     def model_dump(self, *args, **kwargs):
@@ -501,7 +501,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         if data is None:
             raise ValueError(f"Model '{cls.__name__}' with ID '{id}' not found")
         instance = cls(**data)
-        # instance._update_relation_instance()
+        instance._update_relation_instance()
         return instance
     
     @classmethod

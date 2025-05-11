@@ -3,7 +3,7 @@ from typing import List, Literal
 from promptview.model2.fields import ModelField
 from promptview.model2.model import Model
 from promptview.model2.version_control_models import TurnModel
-from promptview.prompt.block6 import ToolCall, Block
+from promptview.prompt.block6 import Blockable, ToolCall, Block
 
 
 
@@ -19,14 +19,19 @@ class BlockModel(TurnModel):
     
     
     @classmethod
-    def from_block(cls, block: "Block") -> "BlockModel":
+    def from_block(cls, target: "Block | Blockable") -> "BlockModel":
+        if not isinstance(target, Block):
+            if hasattr(target, "block"):
+                target = target.block()
+            else:
+                raise ValueError("Invalid target")
         return cls(
-            block=block.model_dump(),
-            role=block.role,
-            platform_id=block.id,
-            tool_calls=block.tool_calls,
-            model=block.model,
-            run_id=block.run_id,
+            block=target.model_dump(),
+            role=target.role,
+            platform_id=target.id,
+            tool_calls=target.tool_calls,
+            model=target.model,
+            run_id=target.run_id,
         )
     
         

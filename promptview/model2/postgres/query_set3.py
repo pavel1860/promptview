@@ -264,6 +264,12 @@ class SelectQuerySet(Generic[MODEL]):
         return query_set
     
     def join(self, target: "SelectQuerySet | Type[Model]", join_type: JoinType = "LEFT") -> "SelectQuerySet[MODEL]":
+        """
+        Join a table to the current query.
+        target can be a SelectQuerySet or a Model class.
+        if target is a Model class the currentmodel needs to have a relation with the target model.
+        join_type can be "LEFT", "RIGHT", "INNER", "FULL OUTER"
+        """
         query_set = self._get_query_set(target)
         rel = self.namespace.get_relation_by_type(query_set.model_class)
         if rel is None:

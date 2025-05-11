@@ -190,6 +190,28 @@ class BlockList(list["Block"], Generic[MAP_RET]):
         return BlockList([func(item) for item in self])
     
     
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            cls._validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                cls._serialize
+            )
+        )
+        
+    @staticmethod
+    def _validate(v: Any) -> Any:
+        if isinstance(v, BlockList):
+            return v
+        else:
+            raise ValueError(f"Invalid block list: {v}")
+
+    @staticmethod
+    def _serialize(v: Any) -> Any:
+        if isinstance(v, BlockList):
+            return [item.model_dump() for item in v]
+        else:
+            raise ValueError(f"Invalid block list: {v}")
     
     
         
@@ -424,13 +446,17 @@ class Block:
         
     def __call__(
         self, 
-        content: Any | None = None, 
+        content: Any | list[Any] | None = None, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None, 
         attrs: dict | None = None,
         **kwargs
     ):
-        self.append(content=content, tags=tags, style=style, attrs=attrs, **kwargs)
+        if isinstance(content, list):
+            for item in content:
+                self.append(item, tags=tags, style=style, attrs=attrs, **kwargs)
+        else:
+            self.append(content=content, tags=tags, style=style, attrs=attrs, **kwargs)
         return self.ctx_items[-1]
     
     

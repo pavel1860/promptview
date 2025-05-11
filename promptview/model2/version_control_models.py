@@ -69,6 +69,7 @@ class Turn(Model):
     message: str | None = ModelField(default=None)
     branch_id: int = ModelField(foreign_key=True)
     trace_id: str | None = ModelField(default=None)
+    forked_branches: Relation["Branch"] = RelationField(primary_key="index", foreign_key="forked_from_index")
     _auto_commit: bool = True
     
     # def model_post_init(self, __context): 
@@ -176,8 +177,8 @@ class Branch(Model):
     name: str | None = ModelField(default=None)
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now, is_default_temporal=True)
     updated_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
-    forked_from_index: int | None = ModelField(default=None)
-    forked_from_branch_id: int | None = ModelField(default=None)
+    forked_from_index: int | None = ModelField(default=None, foreign_key=True)
+    forked_from_branch_id: int | None = ModelField(default=None, foreign_key=True)
     current_index: int = ModelField(default=0)
     turns: Relation[Turn] = RelationField(foreign_key="branch_id")
     children: Relation["Branch"] = RelationField(foreign_key="forked_from_branch_id")
