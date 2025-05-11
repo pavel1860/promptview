@@ -141,7 +141,7 @@ class ModelMeta(ModelMetaclass, type):
         namespace_name = get_dct_private_attributes(dct, "_namespace_name", build_namespace(model_name))
         
         
-        # Check if this is a repo model or an artifact model
+        # Check if this is -a repo model or an artifact model
         is_repo = len(bases) >= 1 and bases[0].__name__ == "RepoModel"
         is_artifact = check_if_artifact_model(bases, name)
         is_context = check_if_context_model(bases, name)
@@ -176,14 +176,16 @@ class ModelMeta(ModelMetaclass, type):
                 ns.register_transformer(field_name, field_info, vectorizer_cls)
                 ResourceManager.register_vectorizer(field_name, vectorizer_cls)
         
+        cls_obj = super().__new__(cls, name, bases, dct)
         
-        for field_name, field_info in dct.items():
+        for field_name, field_info in cls_obj.model_fields.items():
             # Skip fields without a type annotation
-            check_reserved_fields(bases, name, field_name)
+            # check_reserved_fields(bases, name, field_name)
             if not isinstance(field_info, FieldInfo):
                 continue
             
-            field_type = dct["__annotations__"].get(field_name)
+            # field_type = dct["__annotations__"].get(field_name)
+            field_type = field_info.annotation
             if field_type is None:
                 continue
             
@@ -195,13 +197,8 @@ class ModelMeta(ModelMetaclass, type):
             
             if extra.get("is_relation", False):
                 # Get the model class from the relation                                
-
                 field_origin = get_origin(field_type)
                 foreign_cls = None
-                # if field_origin is list:
-                #     foreign_cls = unpack_list_model(field_type)
-                #     if not issubclass(foreign_cls, Model) and not isinstance(foreign_cls, ForwardRef):
-                #         raise ValueError(f"foreign_cls must be a subclass of Model: {foreign_cls}")
                 if field_origin is Relation:                    
                     foreign_cls = get_relation_model(field_type)
                     if not issubclass(foreign_cls, Model) and not isinstance(foreign_cls, ForwardRef):
@@ -253,23 +250,25 @@ class ModelMeta(ModelMetaclass, type):
                 ResourceManager.register_vectorizer(field_name, vectorizer)
                 
                 NamespaceManager.register_extension(db_type, "vector")
+            else:
+                ns.add_field(field_name, field_type, extra)
             
             # Add field to namespace
             field_extras[field_name] = extra
             # ns.add_field(field_name, field_type, extra)
         
         # Set namespace name and relations on the class
-        cls_obj = super().__new__(cls, name, bases, dct)
         
-        for field_name, field_info in cls_obj.model_fields.items():
-            # if field_name in relations:
-            #     continue
-            extra = get_extra(field_info)            
-            field_type = field_info.annotation
+        
+        
+            # # if field_name in relations:
+            # #     continue
+            # extra = get_extra(field_info)            
+            # field_type = field_info.annotation
             
-            if not extra.get("is_model_field", False) or extra.get("is_relation", False):
-                continue
-            ns.add_field(field_name, field_type, extra)
+            # if not extra.get("is_model_field", False) or extra.get("is_relation", False):
+            #     continue
+            # ns.add_field(field_name, field_type, extra)
         
         
         ns.set_model_class(cls_obj)

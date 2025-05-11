@@ -69,7 +69,7 @@ class Turn(Model):
     message: str | None = ModelField(default=None)
     branch_id: int = ModelField(foreign_key=True)
     trace_id: str | None = ModelField(default=None)
-    forked_branches: Relation["Branch"] = RelationField(primary_key="index", foreign_key="forked_from_index")
+    forked_branches: Relation["Branch"] = RelationField(foreign_key="forked_from_turn_id")
     _auto_commit: bool = True
     
     # def model_post_init(self, __context): 
@@ -177,22 +177,37 @@ class Branch(Model):
     name: str | None = ModelField(default=None)
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now, is_default_temporal=True)
     updated_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
-    forked_from_index: int | None = ModelField(default=None, foreign_key=True)
+    forked_from_index: int | None = ModelField(default=None)
+    forked_from_turn_id: int | None = ModelField(default=None, foreign_key=True)
     forked_from_branch_id: int | None = ModelField(default=None, foreign_key=True)
     current_index: int = ModelField(default=0)
     turns: Relation[Turn] = RelationField(foreign_key="branch_id")
     children: Relation["Branch"] = RelationField(foreign_key="forked_from_branch_id")
     
     
-    async def fork(self, index: int | None = None, name: str | None = None, turn: Turn | None = None):
-        if turn is not None:
-            index = turn.index
-        elif index is None:
-            raise VersioningError("Index is required")
+    # async def fork(self, index: int | None = None, name: str | None = None, turn: Turn | None = None):
+    #     if turn is not None:
+    #         index = turn.index
+    #     elif index is None:
+    #         raise VersioningError("Index is required")
         
         
+    #     branch = await Branch(
+    #         forked_from_index=index,
+    #         current_index=index + 1,
+    #         forked_from_branch_id=self.id,
+    #         name=name,
+    #     ).save()
+    #     return branch
+    async def fork(self, turn: Turn):
+        if turn is None:
+            raise VersioningError("Turn is required")
+        index = turn.index
+        name = turn.message
+                
         branch = await Branch(
             forked_from_index=index,
+            forked_from_turn_id=turn.id,
             current_index=index + 1,
             forked_from_branch_id=self.id,
             name=name,

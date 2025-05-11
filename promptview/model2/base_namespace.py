@@ -243,19 +243,21 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
         
     @property
     def foreign_table(self) -> str:
-        return self.foreign_cls.get_namespace_name()
+        return self.foreign_namespace.table_name
     
     @property
     def primary_table(self) -> str:
-        return self.primary_cls.get_namespace_name()
+        return self.namespace.table_name
     
     @property
     def primary_namespace(self) -> "Namespace":
-        return self.primary_cls.get_namespace()
+        return self.namespace
     
     @property
     def foreign_namespace(self) -> "Namespace":
-        return self.foreign_cls.get_namespace()
+        from promptview.model2.namespace_manager import NamespaceManager
+        return NamespaceManager.get_namespace_by_model_cls(self.foreign_cls)
+        # return self.foreign_cls.get_namespace()
     
     
     def deserialize(self, value: Any) -> Any:
@@ -264,6 +266,10 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
             return json_value
         return value
     
+    
+    def inst_foreign_model(self, data: dict[str, Any]) -> FOREIGN_MODEL:
+        return self.foreign_namespace.instantiate_model(data)
+        # return self.foreign_cls(**data)
     
     def __repr__(self) -> str:
         return f"NSRelationInfo(name={self.name}, primary_key={self.primary_key}, foreign_key={self.foreign_key}, foreign_cls={self.foreign_cls.__name__}, primary_cls={self.primary_cls.__name__})"
@@ -295,11 +301,12 @@ class NSManyToManyRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL], NS
     
     @property
     def junction_table(self) -> str:
-        return self.junction_cls.get_namespace_name()
+        return self.junction_namespace.table_name
 
     @property  
     def junction_namespace(self) -> "Namespace":
-        return self.junction_cls.get_namespace()
+        from promptview.model2.namespace_manager import NamespaceManager
+        return NamespaceManager.get_namespace_by_model_cls(self.junction_cls)
 
     @property
     def junction_primary_key(self) -> str:
@@ -530,7 +537,8 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         if self._model_cls is None:
             raise ValueError("Model class not set")
         model_dump = self.validate_model_fields(data)
-        return self._model_cls(**model_dump)
+        return self._model_cls.from_dict(model_dump)
+        # return self._model_cls(**model_dump)
     
     
     def set_ctx(self, model: MODEL):
@@ -566,7 +574,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     def get_relation_by_type(self, model: Type[MODEL]) -> NSRelationInfo | None:
         for rel in self._relations.values():
-            if rel.foreign_cls == model:
+            if rel.foreign_cls.__name__ == model.__name__:
                 return rel
         return None
     

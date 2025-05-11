@@ -132,18 +132,18 @@ class NamespaceManager:
         return cls._namespaces[model_name]
     
     @classmethod
-    def get_namespace_by_model_cls(cls, model_cls: Type[MODEL] | str) -> Namespace:
+    def get_namespace_by_model_cls(cls, model_cls: Type[MODEL] | str, throw_error: bool = True) -> Namespace:
         """
         Get a namespace by model class.
         """
-        if isinstance(model_cls, str):
-            for namespace in cls._namespaces.values():
-                if namespace.model_class.__name__ == model_cls:
-                    return namespace
-        else:
-            for namespace in cls._namespaces.values():
-                if namespace.model_class == model_cls:
-                    return namespace
+        if not isinstance(model_cls, str):
+            model_cls = model_cls.__name__        
+        for namespace in cls._namespaces.values():
+            if namespace.model_class.__name__ == model_cls:
+                return namespace        
+        if throw_error:
+            raise ValueError(f"Namespace for model {model_cls} not found")
+        return None
                 
     @classmethod
     def get_turn_namespace(cls) -> Namespace:

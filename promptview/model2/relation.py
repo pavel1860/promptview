@@ -50,7 +50,7 @@ class Relation(Generic[FOREIGN_MODEL], list):
         if self._relation is None:
             raise ValueError("Relation is not set")        
         item = self._relation.foreign_namespace.pack_record(item)
-        return self._relation.foreign_cls.from_dict(item)
+        return self._relation.inst_foreign_model(item)
 
 
     def query(self) -> "SelectQuerySet[FOREIGN_MODEL]":
