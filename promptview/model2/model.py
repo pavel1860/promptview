@@ -97,7 +97,7 @@ def unpack_relation_extra(extra: dict[str, Any], field_origin: Type[Any], is_ver
     junction_keys = extra.get("junction_keys", None)
     junction_model = extra.get("junction_model", None)
     relation_type = "one_to_one"                
-    if field_origin is list and junction_keys is not None:
+    if junction_keys is not None:
         if junction_model is not None:
             relation_type = "many_to_many"
         else:
@@ -441,6 +441,24 @@ class Model(BaseModel, metaclass=ModelMeta):
         
         return self
     
+    
+    @classmethod
+    async def update_query(cls, id: Any, **kwargs) -> "SelectQuerySet[Self]":
+        """Update the model instance"""
+        ns = cls.get_namespace()
+        return await ns.update(id, **kwargs)
+
+    async def update(self, **kwargs) -> Self:
+        """Update the model instance"""
+        ns = self.get_namespace()
+        result = await ns.update(self.primary_id, kwargs)
+        if result is None:
+            raise ValueError(f"Model '{self.__class__.__name__}' with ID '{self.primary_id}' not found")
+        for key, value in result.items():
+            setattr(self, key, value)
+        return self
+    
+    
     async def delete(self, *args, **kwargs):
         """
         Delete the model instance from the database
@@ -458,16 +476,7 @@ class Model(BaseModel, metaclass=ModelMeta):
             raise ValueError(f"Relation model not found for type: {model.__class__.__name__}")
         if isinstance(relation, NSManyToManyRelationInfo):
             result = await model.save()
-            # junction = relation.create_junction(self, result)   
-            j_prim_key = relation.junction_keys[0]         
-            j_fore_key = relation.junction_keys[1]
-            junction = relation.junction_cls(**kwargs)
-            
-            key = getattr(self, relation.primary_key)
-            f_key = getattr(result, relation.foreign_key)
-            
-            setattr(junction, j_prim_key, key)
-            setattr(junction, j_fore_key, f_key)
+            junction = relation.inst_junction_model_from_models(self, result, kwargs)
             junction = await junction.save()            
         else:
             key = getattr(self, relation.primary_key)

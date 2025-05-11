@@ -316,6 +316,17 @@ class NSManyToManyRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL], NS
     def junction_foreign_key(self) -> str:
         return self.junction_keys[1]
     
+    def inst_junction_model(self, data: dict[str, Any]) -> JUNCTION_MODEL:
+        return self.junction_namespace.instantiate_model(data)
+    
+    def inst_junction_model_from_models(self, primary_model: MODEL, forreign_model: FOREIGN_MODEL, data: dict[str, Any]) -> JUNCTION_MODEL:
+        data.update({
+            self.junction_primary_key: getattr(primary_model, self.primary_key),
+            self.junction_foreign_key: getattr(forreign_model, self.foreign_key),
+        })
+        return self.inst_junction_model(data)
+        
+    
     def __repr__(self) -> str:
         return f"NSManyToManyRelationInfo(name={self.name}, primary_key={self.primary_key}, foreign_key={self.foreign_key}, foreign_cls={self.foreign_cls.__name__}, junction_cls={self.junction_cls.__name__}, junction_keys={self.junction_keys})"
 
@@ -770,6 +781,10 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     async def save(self, model: MODEL) -> MODEL:
         """Save data to the namespace"""
+        raise NotImplementedError("Not implemented")
+    
+    async def update(self, id: Any, data: dict[str, Any]) -> MODEL | None:
+        """Update a model in the namespace"""
         raise NotImplementedError("Not implemented")
     
     async def get(self, id: Any) -> MODEL | None:

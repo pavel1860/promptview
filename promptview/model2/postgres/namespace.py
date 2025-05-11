@@ -358,6 +358,8 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         key = None
         
         for field in self._fields.values():
+            if field.name not in model_dump:
+                continue
             value = model_dump.get(field.name)
             if field.validate_value(value):
                 placeholder = field.get_placeholder(len(values) + 1)
@@ -447,7 +449,14 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         return self.pack_record(dict(record))
     
     
-
+    async def update(self, id: Any, data: dict[str, Any]) -> MODEL | None:
+        """Update a model in the namespace"""
+        data.update({
+            self.primary_key.name: id,
+        })
+        sql, values = self.build_update_query(data)
+        record = await PGConnectionManager.fetch_one(sql, *values)
+        return self.pack_record(dict(record)) if record else None
     
     # async def delete(self, data: Dict[str, Any] | None = None, id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
     #     """Delete data from the namespace"""

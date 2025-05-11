@@ -5,8 +5,8 @@ from promptview.api.utils import Head, build_head_parser, get_head
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
 from pydantic import BaseModel
-from promptview.model2.versioning import ArtifactLog, Branch, Partition, Turn, TurnStatus
-
+# from promptview.model2.versioning import ArtifactLog, Branch, Partition, Turn, TurnStatus
+from promptview.model2.version_control_models import Turn, Branch
 
 
 
@@ -51,6 +51,7 @@ class BranchFromTurnRequest(BaseModel):
     
 @router.post("/branches")
 async def branch_from_turn(request: BranchFromTurnRequest, head: Head = Depends(get_head)):
+    raise NotImplementedError
     branch = await ArtifactLog.create_branch(forked_from_turn_id=request.turn_id)
     return branch
 
@@ -61,9 +62,12 @@ async def get_all_turns():
     return turns
 
 
-@router.get("/partitions", response_model=List[Partition])
+@router.get("/partitions", 
+    # response_model=List[Partition]
+    )
 async def get_partitions(user: AuthModel = Depends(get_auth_user)):
-    partitions = await ArtifactLog.list_partitions(user.id)
+    # partitions = await ArtifactLog.list_partitions(user.id)
+    raise NotImplementedError
     return partitions
 
 
@@ -73,7 +77,8 @@ class CreatePartitionPayload(BaseModel):
 
 @router.post("/partitions")
 async def create_partition(payload: CreatePartitionPayload, user: AuthModel = Depends(get_auth_user)):
-    partition = await ArtifactLog.create_partition(payload.name, [user.id] + payload.participants)
+    raise NotImplementedError
+    # partition = await ArtifactLog.create_partition(payload.name, [user.id] + payload.participants)
     return partition
 
 # @router.get("/heads/{head_id}")
@@ -84,15 +89,18 @@ async def create_partition(payload: CreatePartitionPayload, user: AuthModel = De
     
 @router.get("/turns/{branch_id}", response_model=List[Turn])
 async def get_branch_turns(branch_id: int):    
-    turns = await ArtifactLog.get_branch_turns(branch_id)
-    return turns
+    tq = Turn.query().join(Branch).head(20)
+    branch = await Branch.query().where(id=branch_id).join(tq).last()
+    # turns = await ArtifactLog.get_branch_turns(branch_id)
+    return branch.turns
 
 
 
 @router.post("/turns/update/{turn_id}")
 async def update_turn(turn_id: int, request: Request):
     body = await request.json()    
-    turn = await ArtifactLog.update_turn(turn_id, **body)
+    turn = await Turn.query().where(id=turn_id).last()
+    turn = await turn.update(**body)
     return turn
 
 @router.get("/heads")
