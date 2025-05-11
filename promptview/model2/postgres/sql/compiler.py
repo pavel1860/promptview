@@ -134,6 +134,8 @@ class Compiler:
             compiled = f"{expr.name}({args})"
             if expr.filter_where:
                 compiled += f" FILTER (WHERE {self.compile_expr(expr.filter_where)})"
+            if expr.order_by:
+                compiled += f" ORDER BY {', '.join(self.compile_expr(c) for c in expr.order_by)}"
             if expr.alias:
                 compiled += f" AS {expr.alias}"
             return compiled

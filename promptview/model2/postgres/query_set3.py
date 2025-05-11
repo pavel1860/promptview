@@ -97,8 +97,13 @@ def embed_query_as_subquery(query, rel, parent_table):
                 join_filter.add(c.alias)
                 c.alias = None
         obj = json_build_object(**columns)
+        obj.order_by = query.order_by
         subq = SelectQuery()
-        subq.columns = [Function("json_agg", obj)]
+        subq.columns = [Function(
+                "json_agg", 
+                obj, 
+                # order_by=query.order_by
+                )]
         subq.from_table = query.from_table
         subq.joins = [j for j in query.joins if j.table.name not in join_filter]
         # subq.order_by = query.order_by
@@ -114,16 +119,22 @@ def embed_query_as_subquery(query, rel, parent_table):
 class SelectQuerySet(Generic[MODEL]):
     
     
-    def __init__(self, model_class: Type[MODEL], query: SelectQuery | None = None):
+    def __init__(self, model_class: Type[MODEL], query: SelectQuery | None = None, alias: str | None = None):
         self.model_class = model_class
-        self.alias_lookup = {}
-
+        self.alias_lookup = {}        
+        self.table_lookup = {}
         table = Table(model_class.get_namespace().table_name)
-        table.alias = self._set_alias(table.name)
+        table.alias = self._set_alias(table.name, alias)
+        self.table_lookup[str(table)] = table
         self.query = SelectQuery().from_(table) if query is None else query
         self._params = []
 
-    def _set_alias(self, name: str) -> str:
+    def _set_alias(self, name: str, alias: str | None = None) -> str:
+        if alias is not None:
+            if alias in self.alias_lookup:
+                raise ValueError(f"Alias {alias} already exists")
+            self.alias_lookup[alias] = name
+            return alias
         base = name[0].lower()
         alias = base
         for i in range(10):
@@ -131,6 +142,16 @@ class SelectQuerySet(Generic[MODEL]):
                 break
             alias = f"{base}{i}"
         self.alias_lookup[alias] = name
+        return alias
+    
+    
+    def _gen_alias(self, name: str) -> str:
+        base = name[0].lower()
+        alias = base
+        for i in range(10):
+            if alias not in self.table_lookup:
+                break
+            alias = f"{base}{i}"
         return alias
     
     
@@ -193,9 +214,24 @@ class SelectQuerySet(Generic[MODEL]):
             # query_set = SelectQuerySet(target).select("*")
             # query_set = target.query()
             query_set = target.get_namespace().query()
-        self._gen_query_set_alias(query_set)
+        # self._merge_alias_lookup(query_set)
+        self._merge_table_lookup(query_set)
+        self._gen_query_set_alias(query_set)        
         return query_set
-        
+    
+    def _merge_alias_lookup(self, query_set: "SelectQuerySet"):
+        for alias, name in query_set.alias_lookup.items():
+            if alias in self.alias_lookup:
+                raise ValueError(f"Alias {alias} already exists")
+            self.alias_lookup[alias] = name
+    
+    
+    def _merge_table_lookup(self, query_set: "SelectQuerySet"):
+        for table in query_set.table_lookup.values():
+            if str(table) in self.table_lookup:
+                table.alias = self._gen_alias(table.name)
+                # raise ValueError(f"Table {table} already exists")
+            self.table_lookup[str(table)] = table
         
     def _gen_query_set_alias(self, query: "SelectQuerySet"):
         if not query.query.from_table:
@@ -367,7 +403,16 @@ class SelectQuerySet(Generic[MODEL]):
         return QuerySetSingleAdapter(self)
     
     def tail(self, n: int) -> "SelectQuerySet[MODEL]":
-        self.order_by("-created_at")
+        if not self.namespace.default_temporal_field:
+            raise ValueError("No default temporal field found")
+        self.order_by("-" + self.namespace.default_temporal_field.name)
+        self.limit(n)
+        return self
+    
+    def head(self, n: int) -> "SelectQuerySet[MODEL]":
+        if not self.namespace.default_temporal_field:
+            raise ValueError("No default temporal field found")
+        self.order_by(self.namespace.default_temporal_field.name)
         self.limit(n)
         return self
 

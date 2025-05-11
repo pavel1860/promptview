@@ -34,12 +34,13 @@ def param(value):
     return Value(value, inline=False)
 
 class Function(Expression):
-    def __init__(self, name, *args, alias=None, filter_where=None, distinct=False):
+    def __init__(self, name, *args, alias=None, filter_where=None, distinct=False, order_by=None):
         self.name = name
         self.args = args
         self.alias = alias
         self.filter_where = filter_where
         self.distinct = distinct
+        self.order_by = order_by
 
     def __str__(self):
         inner = ", ".join(str(arg) for arg in self.args)
