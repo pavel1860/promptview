@@ -15,7 +15,6 @@ class ExecutionContext:
     
     def __init__(self, span_name: str | None = None):
         self.tracer_run = None
-        self.trace_id = None
         self.parent_ctx = None
         self.span_name = span_name
     
@@ -26,8 +25,12 @@ class ExecutionContext:
             raise ValueError("Tracer not set")
         return self.tracer_run
     
+    @property
+    def trace_id(self):
+        return str(self.tracer.id)
+    
     @classmethod
-    def get_current(cls, raise_error: bool = True):
+    def current(cls, raise_error: bool = True):
         try:            
             ctx = CURR_CONTEXT.get()
         except LookupError:
@@ -35,7 +38,7 @@ class ExecutionContext:
                 raise ValueError("Context not set")
             else:
                 return None        
-        if not issubclass(ctx, ExecutionContext):
+        if not isinstance(ctx, ExecutionContext):
             if raise_error:
                 raise ValueError("Context is not a Context")
             else:
