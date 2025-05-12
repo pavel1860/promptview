@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from functools import wraps
 import json
-from typing import Annotated, Any, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar
+from typing import Annotated, Any, AsyncContextManager, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar
 from fastapi import Depends, FastAPI, Form, HTTPException, Header, Request
 from pydantic import BaseModel
 
@@ -34,6 +34,13 @@ P = ParamSpec('P')
 EnpointType = Callable[Concatenate[CTX_MODEL, P], Awaitable[List[MSG_MODEL]]]
 
 app_ctx = ContextVar("app_ctx")
+
+
+def include_chatboard_routers(app: FastAPI, user_model: Type[USER_MODEL]):
+    app.include_router(artifact_log_router, prefix="/api")
+    app.include_router(create_auth_router(user_model), prefix="/api")
+    app.include_router(tracing_router, prefix="/api")
+
 
 class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
     _app: FastAPI
@@ -76,8 +83,8 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
     def get_app(self):
         return self._app
     
-    def register_model_api(self, model: Type[Model], context_cls: Type[CTX_MODEL]):
-        self._app.include_router(create_model_router(model, context_cls), prefix="/api/model")        
+    def register_model_api(self, model: Type[Model], get_context: AsyncContextManager[CTX_MODEL]):
+        self._app.include_router(create_model_router(model, get_context), prefix="/api/model")        
     
     def setup_apis(self):
         # self._app.include_router(create_crud_router(self._message_model), prefix="/api/model")

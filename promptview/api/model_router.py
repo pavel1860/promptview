@@ -1,5 +1,5 @@
 import json
-from typing import Type, List, Optional, TypeVar
+from typing import AsyncContextManager, Type, List, Optional, TypeVar
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
@@ -12,16 +12,17 @@ from promptview.model2.query_filters import QueryFilter, QueryListType
 from promptview.api.utils import build_model_context_parser, get_head, query_filters, unpack_int_env_header, Head
 from promptview.model2.model import Model
 from promptview.model2 import Context
+from promptview.model2.version_control_models import TurnStatus
 
 MODEL = TypeVar("MODEL", bound=Model)
-CTX_MODEL = TypeVar("CTX_MODEL", bound=Context)
+CTX_MODEL = TypeVar("CTX_MODEL", bound=BaseModel)
 
-def create_model_router(model: Type[MODEL], model_context_cls: Type[CTX_MODEL]):
+def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX_MODEL]):
     
     # model_context_parser = build_model_context_parser(model_context_cls)
-    async def model_context_parser(request: Request, ctx: Context = Depends(model_context_cls.from_request)):
-        ctx._request = CtxRequest(request=request)
-        return ctx
+    # async def model_context_parser(request: Request, ctx: CTX_MODEL = Depends(get_context)):
+    #     ctx._request = CtxRequest(request=request)
+    #     return ctx
     
     router = APIRouter(prefix=f"/{model.__name__}", tags=[model.__name__.lower()])
     
@@ -30,11 +31,11 @@ def create_model_router(model: Type[MODEL], model_context_cls: Type[CTX_MODEL]):
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=10, ge=1, le=100),
         filters: QueryListType | None = Depends(query_filters),         
-        ctx: CTX_MODEL = Depends(model_context_parser)
+        ctx: CTX_MODEL = Depends(get_context)
     ):
         """List all models with pagination"""
         async with ctx:        
-            query = model.query()
+            query = model.query(status=TurnStatus.COMMITTED)
                     
             model_query = query.limit(limit).offset(offset).order_by("-created_at")
             if filters:
@@ -64,7 +65,7 @@ def create_model_router(model: Type[MODEL], model_context_cls: Type[CTX_MODEL]):
     @router.post("/create")
     async def create_model(
         payload: dict = Body(...),
-        ctx: CTX_MODEL = Depends(model_context_parser)
+        ctx: CTX_MODEL = Depends(get_context)
     ):
         """Create a new model"""
         try:
@@ -76,9 +77,12 @@ def create_model_router(model: Type[MODEL], model_context_cls: Type[CTX_MODEL]):
             raise HTTPException(status_code=400, detail=str(e))
     
     @router.put("/update")
-    async def update_model(model: MODEL, ctx: CTX_MODEL = Depends(model_context_parser)):
+    async def update_model(
+        model: MODEL, 
+        ctx: CTX_MODEL = Depends(get_context)
+    ):
         """Update an existing model"""
-        existing = await model.query().filter(lambda x: x.id == model.id).first()
+        existing = await model.query(status=TurnStatus.COMMITTED).filter(lambda x: x.id == model.id).first()
         if not existing:
             raise HTTPException(status_code=404, detail="Model not found")
         
@@ -91,9 +95,9 @@ def create_model_router(model: Type[MODEL], model_context_cls: Type[CTX_MODEL]):
             raise HTTPException(status_code=400, detail=str(e))
     
     @router.delete("/delete")
-    async def delete_model(ctx: CTX_MODEL):
+    async def delete_model(ctx: CTX_MODEL = Depends(get_context)):
         """Delete an model"""
-        existing = await model.query().filter(lambda x: x.id == model_id).first()
+        existing = await model.query(status=TurnStatus.COMMITTED).filter(lambda x: x.id == model_id).first()
         if not existing:
             raise HTTPException(status_code=404, detail="Artifact not found")
         
@@ -107,7 +111,7 @@ def create_model_router(model: Type[MODEL], model_context_cls: Type[CTX_MODEL]):
     async def last_model(
         skip: int = Query(default=0, ge=0),
         limit: int = Query(default=10, ge=1, le=100),
-        ctx: CTX_MODEL = Depends(model_context_parser)
+        ctx: CTX_MODEL = Depends(get_context)
     ):
         """Get the last model with pagination"""
         artifact = await model.query(**ctx).last()
@@ -117,7 +121,7 @@ def create_model_router(model: Type[MODEL], model_context_cls: Type[CTX_MODEL]):
     async def first_model(
         skip: int = Query(default=0, ge=0),
         limit: int = Query(default=10, ge=1, le=100),
-        ctx: CTX_MODEL = Depends(model_context_parser)
+        ctx: CTX_MODEL = Depends(get_context)
     ):
         """Get the first model with pagination"""
         artifact = await model.query(**ctx).first()
