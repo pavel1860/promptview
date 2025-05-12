@@ -6,6 +6,7 @@ from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
 from pydantic import BaseModel
 # from promptview.model2.versioning import ArtifactLog, Branch, Partition, Turn, TurnStatus
+from promptview.model2.namespace_manager import NamespaceManager
 from promptview.model2.version_control_models import Turn, Branch
 
 
@@ -89,9 +90,12 @@ async def create_partition(payload: CreatePartitionPayload, user: AuthModel = De
     
 @router.get("/turns/{branch_id}", response_model=List[Turn])
 async def get_branch_turns(branch_id: int):    
-    tq = Turn.query().join(Branch).head(20)
-    branch = await Branch.query().where(id=branch_id).join(tq).last()
-    # turns = await ArtifactLog.get_branch_turns(branch_id)
+    turn_ns = NamespaceManager.get_namespace("turns")
+    branch_ns = NamespaceManager.get_namespace("branches")
+    # tq = Turn.query().join(Branch).head(20)
+    # branch = await Branch.query().where(id=branch_id).join(tq).last()
+    tq = turn_ns.query().join(branch_ns.model_class).head(20)
+    branch = await branch_ns.query().where(id=branch_id).join(tq).last()
     return branch.turns
 
 

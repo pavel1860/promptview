@@ -20,13 +20,30 @@ def filter_func_args(func, args):
     return {k: v for k, v in args.items() if k in get_func_args(func)}
 
 
+# async def call_function(func, *args, **kwargs):
+#     func_args = get_func_args(func)
+#     if 'kwargs' not in func_args:
+#         kwargs = filter_func_args(func, kwargs)
+#     if inspect.iscoroutinefunction(func):
+#         return await func(*args, **kwargs)
+#     return func(*args, **kwargs)
+
 async def call_function(func, *args, **kwargs):
-    func_args = get_func_args(func)
-    if 'kwargs' not in func_args:
+    sig = inspect.signature(func)
+    func_params = list(sig.parameters.values())
+    
+    # Filter positional args to match the number of non-keyword-only parameters
+    positional_params = [p for p in func_params if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    filtered_args = args[:len(positional_params)]
+    
+    # Filter kwargs if there's no **kwargs parameter
+    if not any(p.kind == p.VAR_KEYWORD for p in func_params):
         kwargs = filter_func_args(func, kwargs)
+    
     if inspect.iscoroutinefunction(func):
-        return await func(*args, **kwargs)
-    return func(*args, **kwargs)
+        return await func(*filtered_args, **kwargs)
+    return func(*filtered_args, **kwargs)
+
 
 
 def filter_args_by_exclude(args: tuple, kwargs: dict, exclude_classes: tuple[type, ...]) -> tuple[tuple, dict]:

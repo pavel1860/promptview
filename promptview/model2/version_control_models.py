@@ -297,7 +297,7 @@ def get_turn_id(turn: "int | Turn | None" = None) -> int:
 
 
 
-def create_versioned_cte(branch_id: int, status: TurnStatus = TurnStatus.COMMITTED, turns: int | None = None):
+def create_versioned_cte(branch_id: int, status: TurnStatus | None = None, turns: int | None = None):
     
     sql = f"""
         SELECT
@@ -326,11 +326,17 @@ def create_versioned_cte(branch_id: int, status: TurnStatus = TurnStatus.COMMITT
     committed_cte = (
         Turn.query()
         .select("id")
-        .where(lambda t: (t.status == status) & (t.index <= RawValue("bh.start_turn_index")))
+        # .where(lambda t: (t.status == status) & (t.index <= RawValue("bh.start_turn_index")))
         .with_cte("branch_hierarchy", cte, recursive=True)
         .order_by("-index")
         # .limit(turns)
-    )    
+    )        
+    
+    if status is not None:
+        committed_cte = committed_cte.where(lambda t: (t.status == status) & (t.index <= RawValue("bh.start_turn_index")))
+    else:
+        committed_cte = committed_cte.where(lambda t: (t.status != TurnStatus.REVERTED) & (t.index <= RawValue("bh.start_turn_index")))
+        
     committed_cte.join_cte("branch_hierarchy", "branch_id", "id", "bh")
     if turns is not None:
         committed_cte = committed_cte.limit(turns)
@@ -465,7 +471,7 @@ class ArtifactModel(TurnModel):
 
     
     @classmethod
-    def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
+    def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus | None = None, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
         """
         Create a query for this model
     
