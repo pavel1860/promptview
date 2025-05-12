@@ -28,7 +28,7 @@ def unpack_int_env_header(request: Request, field: str):
         
 
 async def get_user(user_token: str = Depends(get_user_token), user_manager: AuthManager[AUTH_MODEL] = Depends(get_user_manager)):
-    return await user_manager.get_user_by_session_token(user_token)
+    return await user_manager.get_by_session_token(user_token)
 
 async def get_admin_user(user: AUTH_MODEL = Depends(get_user)):
     if not user.is_admin:

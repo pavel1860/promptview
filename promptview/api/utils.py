@@ -7,7 +7,7 @@ import json
 
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
-from promptview.model2.model_context import ModelCtx
+from promptview.context.model_context import ModelCtx
 from promptview.model2.versioning import ArtifactLog, Partition
 from pydantic import BaseModel
 from promptview.model2.query_filters import QueryFilter, parse_query_params

@@ -49,17 +49,17 @@ async def get_auth_user(
         user_manager: AuthManager = Depends(get_user_manager)
     ):
     if not user_token:
-        chatboard_token = request.cookies.get("chatboard.user-token")
+        chatboard_token = request.cookies.get("chatboard.anonymous-token")
         if not chatboard_token:
             raise HTTPException(
                 status_code=401,
                 detail="No user token found"
             )
-        user =  await user_manager.get_user_by_session_token(chatboard_token, use_sessions=False)
+        user =  await user_manager.get_by_session_token(chatboard_token, use_sessions=False)
         if not user:
-            user = await user_manager.create_user(UserAuthPayload(user_token=chatboard_token, email=chatboard_token))            
+            user = await user_manager.create_user(UserAuthPayload(anonymous_token=chatboard_token, email=chatboard_token))            
     else:
-        user =  await user_manager.get_user_by_session_token(user_token)
+        user =  await user_manager.get_by_session_token(user_token)
     if user is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user

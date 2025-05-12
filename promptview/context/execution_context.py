@@ -14,26 +14,17 @@ class ExecutionContext:
     
     
     def __init__(self, span_name: str | None = None):
-        self._tracer_run = None
-        self._trace_id = None
-        self._parent_ctx = None
-        self._span_name = span_name
+        self.tracer_run = None
+        self.trace_id = None
+        self.parent_ctx = None
+        self.span_name = span_name
     
-    @property
-    def trace_id(self):  
-        if self._tracer_run is not None:      
-            return str(self._tracer_run.id)
-        return self._trace_id
-
-    @trace_id.setter
-    def trace_id(self, value: str):
-        self._trace_id = value
     
     @property
     def tracer(self):
-        if self._tracer_run is None:
+        if self.tracer_run is None:
             raise ValueError("Tracer not set")
-        return self._tracer_run
+        return self.tracer_run
     
     @classmethod
     def get_current(cls, raise_error: bool = True):
@@ -62,16 +53,16 @@ class ExecutionContext:
 
     def build_child(self, span_name: str | None = None):
         child = ExecutionContext(span_name=span_name)
-        child._parent_ctx = self
+        child.parent_ctx = self
         return child
         
     def start_tracer(self, name: str, run_type: RunTypes = "prompt", inputs: dict[str, Any] | None = None):
-        self._tracer_run = Tracer(
+        self.tracer_run = Tracer(
             name=name,
             run_type=run_type,
             inputs=inputs,
             is_traceable=True,
-            tracer_run=self._parent_ctx._tracer_run if self._parent_ctx is not None else None,
+            tracer_run=self.parent_ctx._tracer_run if self.parent_ctx is not None else None,
         )
         return self
     
@@ -84,8 +75,8 @@ class ExecutionContext:
     
     async def __aexit__(self, exc_type, exc_value, traceback):
         self._reset_context()
-        if self._tracer_run is not None:
-            self._tracer_run.__exit__(exc_type, exc_value, traceback)
+        if self.tracer_run is not None:
+            self.tracer_run.__exit__(exc_type, exc_value, traceback)
         if exc_type is not None:
             return False        
         return True

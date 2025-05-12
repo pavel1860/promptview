@@ -7,7 +7,7 @@ from .version_control_models import Branch, Turn, TurnStatus, TurnModel, Version
 from .block_model import BlockModel
 # from .context import Context
 from .vectors import Vector, SparseVector, transformer
-from .model_context import ModelCtx, Context
+from ..context.model_context import ModelCtx, Context
 from .relation import Relation
 
 __all__ = [

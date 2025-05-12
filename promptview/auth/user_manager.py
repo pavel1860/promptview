@@ -1,6 +1,7 @@
 from typing import Generic, List, Optional, Type, final
 from datetime import datetime
 from uuid import UUID, uuid4
+from fastapi import HTTPException, Request
 from typing_extensions import TypeVar
 
 
@@ -47,7 +48,7 @@ from promptview.utils.db_connections import PGConnectionManager
 class AuthModel(Model):
     _is_base: bool = True
     id: int = KeyField(primary_key=True)
-    user_token: UUID = ModelField(None)
+    anonymous_token: UUID = ModelField(None)
     name: str | None = ModelField(None)
     email: str | None = ModelField(None)
     image: str | None = ModelField(None)
@@ -62,7 +63,7 @@ class AuthModel(Model):
 
 class UserAuthPayload(BaseModel):
     name: str | None = None
-    user_token: UUID | None = None
+    anonymous_token: UUID | None = None
     email: str | None = None
     emailVerified: datetime | None = None
     image: str | None = None
@@ -79,6 +80,13 @@ class AuthManager(Generic[AUTH_MODEL]):
     
     _auth_model: Optional[Type[AUTH_MODEL]] = None
     _add_temp_users: bool = False
+    
+    
+    
+    @classmethod
+    def get_user_manager(cls):
+        return cls()
+    
     
     @classmethod
     def get_user_model(cls) -> Type[AUTH_MODEL]:
@@ -160,31 +168,25 @@ CREATE TABLE IF NOT EXISTS sessions (
         user = await self.after_create_user(user)
         return user
     
-    # @classmethod
-    # async def create_head_for_user(self, user_id: int):
-    #     artifact_log = ArtifactLog()
-    #     head = await artifact_log.create_head()
-    #     await PGConnectionManager.execute(
-    #         f"""
-    #         UPDATE users SET head_id = {head["id"]} WHERE id = {user_id}
-    #         """,
-    #     )
-    #     return head
     
     
-    async def get_user(self, id: int):
+    async def get_by_id(self, id: int):
         user_model = self.get_user_model()
         user = await user_model.get(id)
         return user
     
     
-    async def get_user_by_email(self, email: str):
+    
+    async def get_by_email(self, email: str):
         user_model = self.get_user_model()
         user = await user_model.query().filter(lambda x: x.email == email).first()
         return user
     
     
-    async def get_user_by_session_token(self, session_token: str, use_sessions: bool = True):
+    async def on_session_token_user_not_found(self, request: Request, session_token: str):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    async def get_by_session_token(self, request: Request, session_token: str, use_sessions: bool = True):
         if use_sessions:
             res = await PGConnectionManager.fetch_one(
                 f"""
@@ -193,7 +195,7 @@ CREATE TABLE IF NOT EXISTS sessions (
             )
             if res is None:
                 raise UserManagerError("Invalid session token")
-            return await self.get_user(res["userId"])
+            return await self.get_by_id(res["userId"])
         else:
             res = await PGConnectionManager.fetch_one(
                 f"""
@@ -202,25 +204,68 @@ CREATE TABLE IF NOT EXISTS sessions (
             )
             if res is None:
                 return None
-            return await self.get_user(res["id"])
+            return await self.get_by_id(res["id"])
+        
+        
+    async def get_by_anonymous_token(self, request: Request, anonymous_token: UUID):
+        user_model = self.get_user_model()
+        user = await user_model.query().filter(lambda x: x.anonymous_token == anonymous_token).first()
+        return user
+    
+    
+    async def on_missing_anonymous_token(self, request: Request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    async def on_missing_session_token(self, request: Request, anonymous_token: UUID | None = None):
+        if anonymous_token is None:
+            await self.on_missing_anonymous_token(request)
+        else:
+            user = await self.get_by_anonymous_token(request, anonymous_token)
+            return user
+    
+    async def on_anonymous_user_not_found(self, request: Request, anonymous_token: UUID):
+        return await self.create_user(UserAuthPayload(anonymous_token=anonymous_token))
+    
+    
+    async def get_anonymous_user(self, request: Request):
+        anonymous_token = request.cookies.get("chatboard.anonymous-token")
+        if anonymous_token is None:
+            await self.on_missing_anonymous_token(request)
+        else:
+            anonymous_token = UUID(anonymous_token)
+            user = await self.get_by_anonymous_token(request, anonymous_token)
+            if user is None:
+                user = await self.on_anonymous_user_not_found(request, anonymous_token)
+            return user
         
     
+    @classmethod
+    async def get_user_from_request(cls, request: Request):
+        user_manager = cls.get_user_manager()
+        session_token = request.cookies.get("next-auth.session-token")
+        if not session_token:
+            return await user_manager.get_anonymous_user(request)
+        else:
+            user = await user_manager.get_by_session_token(request, session_token)
+            return user
     
-    async def change_head(self, user_id: int, head_id: int):
-        head = await PGConnectionManager.fetch_one(
-            f"""
-            WITH taget_head AS (
-                SELECT * FROM heads WHERE id = {head_id}
-            ), user_head AS (
-                SELECT uh.* FROM heads uh
-                JOIN users u ON u.head_id = uh.id
-                WHERE u.id = {user_id}
-            )
-            UPDATE heads SET head_id = (SELECT id FROM head) WHERE id = {user_id}
-            """
-        )
-        if head is None:
-            raise UserManagerError("Invalid head id")        
+    @classmethod
+    async def get_user_from_request2(cls, request: Request):
+        user_model = cls.get_user_model()
+        user_manager = cls.get_user_manager()
+        session_token = request.cookies.get("next-auth.session-token")
+        if not session_token:
+            anonymous_token = request.cookies.get("chatboard.anonymous-token")
+            if anonymous_token is None:
+                raise HTTPException(status_code=401, detail="Unauthorized")            
+            user = await user_model.query().where(user_token=anonymous_token).first()
+            if user is None:
+                user = await cls.create_new_user(anonymous_token)
+            return user
+        else:
+            user_manager = cls.get_user_manager()
+            user = await user_manager.get_user_by_session_token(session_token)
+            return user
     
     async def update_user(self):
         pass
@@ -229,7 +274,6 @@ CREATE TABLE IF NOT EXISTS sessions (
         pass
     
 
-    
     async def get_users(self):
         user_model = self.get_user_model()
         users = await user_model.query().filter(lambda x: x.is_admin == False)

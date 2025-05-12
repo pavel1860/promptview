@@ -7,7 +7,7 @@ from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
 from promptview.model.query import parse_query_params
 from promptview.model2 import ArtifactModel
-from promptview.model2.model_context import ModelCtx
+from promptview.context.model_context import ModelCtx
 from promptview.model2.query_filters import QueryFilter, QueryListType
 from promptview.api.utils import build_model_context_parser, get_head, query_filters, unpack_int_env_header, Head
 
