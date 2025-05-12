@@ -10,7 +10,7 @@ from promptview.prompt.block6 import Blockable, ToolCall, Block
 
 class BlockModel(TurnModel):
     block: dict = ModelField(default_factory=dict)
-    role: Literal["user", "assistant", "system"] = ModelField(default="user")
+    role: Literal["user", "assistant", "system", "tool"] = ModelField(default="user")
     platform_id: str | None = ModelField(default=None)
     tool_calls: List[ToolCall] = ModelField(default=[])
     model: str | None = ModelField(default=None)

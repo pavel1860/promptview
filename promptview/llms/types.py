@@ -17,8 +17,8 @@ class ErrorMessage(Exception):
         self.should_retry = should_retry
         super().__init__(f"Output parsing error: {error_content}")
         
-    def to_block(self, output_model: Type[BaseModel] | None = None) -> Block:
-        with Block(tags=["error"], role="user") as b:
+    def to_block(self, output_model: Type[BaseModel] | None = None, role: str = "user", tags: List[str] = ["error"]) -> Block:
+        with Block(tags=tags, role=role) as b:
             b.append(self.error_content)
             if output_model:
                 b /= "do not add any other text or apologies"

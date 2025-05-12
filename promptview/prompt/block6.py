@@ -2,7 +2,7 @@ from collections import defaultdict
 from abc import abstractmethod
 import json
 import textwrap
-from typing import Any, Callable, Generic, Iterator, List, Literal, Protocol, Type, TypeVar, Union
+from typing import Any, Callable, Generic, Iterator, List, Literal, Protocol, SupportsIndex, Type, TypeVar, Union, overload
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
 from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
@@ -92,6 +92,9 @@ class BlockList(list["Block"], Generic[MAP_RET]):
     A list of blocks
     """
     
+
+
+    
     def group(self, role: BlockRole | None = None, tags: list[str] | None = None, extra: "Block | None" = None) -> "Block":
         """
         Group the blocks by role and tags
@@ -123,13 +126,27 @@ class BlockList(list["Block"], Generic[MAP_RET]):
             return None
         return self.group(role, tags)
     
+    def slice(self, start: int, end: int) -> "BlockList":
+        """
+        Slice the blocks
+        """
+        return BlockList(self[start:end])
+    
     def find(self, tag: str | list[str], default: Any = None) -> "BlockList":
         """
         Get the blocks by key
         """
         if isinstance(tag, str):
             tag = [tag]
-        return BlockList([item for item in self if all(tag in item.tags for tag in tag)])
+        find_results = []
+        for item in self: 
+            if any(t in item.tags for t in tag):
+                find_results.append(item)
+            else:
+                find_results.extend(item.find(tag, default))
+        return BlockList(find_results)
+        # return BlockList([**item.find(tag) for item])
+        # return BlockList([item for item in self if all(tag in item.tags for tag in tag)])
     
     def find_before(self, tag: str) -> "BlockList":
         """
@@ -277,6 +294,8 @@ class Block:
         self.parent = parent
         self._ctx = ctx
         self.run_id = run_id
+        if role == "tool" and not id:
+            raise ValueError("Tool blocks must have an id")
         self.role = role
         self.name = name
         self.model = model
@@ -314,6 +333,9 @@ class Block:
             "run_id": self.run_id,
             "depth": self.depth,            
         }
+        
+    def copy(self) -> "Block":
+        return Block(**self.model_dump())
     
     @classmethod
     def model_validate(cls, data: dict):
