@@ -298,7 +298,7 @@ class LlmContext(Generic[OUTPUT_MODEL]):
         if model not in self.models:
             raise ValueError(f"Model {model} is not supported by {self.__class__.__name__}")
         self.config: LlmConfig = LlmConfig(model=model)
-        self.blocks: Block = Block()
+        self.blocks: BlockList = BlockList()
         self.tools: List[Type[BaseModel]] = []
         self.output_model: Type[OutputModel] | None = None
         self.is_traceable = True
@@ -307,14 +307,14 @@ class LlmContext(Generic[OUTPUT_MODEL]):
         self.parse_output_fn: Callable[[OUTPUT_MODEL], OUTPUT_MODEL] | None = None
         
         
-    def __call__(self, block: Block) -> Self:
-        self.blocks = block
+    def __call__(self, blocks: BlockList) -> Self:
+        self.blocks = blocks
         return self
     
     def __await__(self):                
         return self.run_controller_block().__await__()
     
-    def set_blocks(self, blocks: Block):
+    def set_blocks(self, blocks: BlockList):
         self.blocks = blocks
         return self
     
@@ -323,11 +323,22 @@ class LlmContext(Generic[OUTPUT_MODEL]):
         return self
 
     @abstractmethod
-    def to_chat(self, blocks: Block | BlockList, tools: List[Type[BaseModel]] | None = []) -> List[dict]:
+    def to_chat(
+        self, 
+        blocks: BlockList, 
+        tools: List[Type[BaseModel]] | None = None, 
+        error_blocks: BlockList | None = None
+    ) -> List[dict]:
         ...
         
     @abstractmethod
-    async def client_complete(self, blocks: Block, tools: List[Type[BaseModel]] | None = None, config: LlmConfig | None = None) -> Block:
+    async def client_complete(
+        self, 
+        blocks: BlockList, 
+        tools: List[Type[BaseModel]] | None = None, 
+        config: LlmConfig | None = None, 
+        error_blocks: List[Block] | None = None
+    ) -> Block:
         ...
     
     def pick(
@@ -408,17 +419,19 @@ class LlmContext(Generic[OUTPUT_MODEL]):
     
     async def controller(
         self, 
-        blocks: Block | BlockList,
+        blocks: BlockList,
         tools: List[Type[BaseModel]],
         config: LlmConfig    
     ) -> tuple[Block, OUTPUT_MODEL | None]:        
         response = None
+        error_blocks = BlockList()
         for attempt in range(config.retries):
             try:
                 response = await self.client_complete(
                     blocks=blocks,
                     tools=tools,
-                    config=config
+                    config=config,
+                    error_blocks=error_blocks
                 )
                 if self.parse_response_fn:
                     response = await call_function(self.parse_response_fn, response)
@@ -436,8 +449,8 @@ class LlmContext(Generic[OUTPUT_MODEL]):
                 if e.should_retry:
                     logger.warning(f"Error Message: {e.error_content}\n attempt {attempt + 1} of {config.retries}, retrying...")
                     if response is not None:
-                        blocks.append(response)
-                    blocks.append(e.to_block(self.output_model), tags=["generation", "error"], role="system")
+                        error_blocks.append(response)
+                    error_blocks.append(e.to_block(self.output_model, role="system", tags=["generation", "error"]))
         raise Exception("Failed to complete")
     
     
@@ -519,21 +532,32 @@ class LLM():
     
     def __call__(
         self,        
-        *args: Block | List[Block] | BlockList | str,
+        # *args: Block | List[Block] | BlockList | str,
+        *args: Block | str,
         model: str | None = None,
     ) -> LlmContext:
 
-        with Block() as ctx_blocks:
-            for block in args:
-                if isinstance(block, str):
-                    ctx_blocks.append(block, role="user", tags=["user_input"])
-                elif isinstance(block, Block):
-                    if not block.role:
-                        raise ValueError("Block role is not set")
-                    ctx_blocks.append(block)
-                elif isinstance(block, BlockList):
-                    for b in block:
-                        ctx_blocks.append(b)
+        # with Block() as ctx_blocks:
+        #     for block in args:
+        #         if isinstance(block, str):
+        #             ctx_blocks.append(block, role="user", tags=["user_input"])
+        #         elif isinstance(block, Block):
+        #             if not block.role:
+        #                 raise ValueError("Block role is not set")
+        #             ctx_blocks.append(block)
+        #         elif isinstance(block, BlockList):
+        #             for b in block:
+        #                 ctx_blocks.append(b)
+        ctx_blocks = BlockList()
+        for block in args:
+            if isinstance(block, str):
+                ctx_blocks.append(block, role="user", tags=["user_input"])
+            elif isinstance(block, Block):
+                ctx_blocks.append(block)
+            else:
+                raise ValueError("Invalid block type")
+                
+        
                         
         llm_ctx = self._get_llm(model)
         return llm_ctx(ctx_blocks)

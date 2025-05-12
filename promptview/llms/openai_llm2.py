@@ -42,7 +42,7 @@ class OpenAiLLM(LlmContext):
     def to_message(self, content: str, role: str, tool_calls: List[ToolCall] | None = None, tool_call_id: str | None = None, name: str | None = None) -> ChatCompletionMessageParam:
         # message: ChatCompletionMessageParam = {
         message = {
-            "role": role,
+            "role": role or "user",
             "content": content,
         }
         if tool_calls:
@@ -63,31 +63,54 @@ class OpenAiLLM(LlmContext):
             message["name"] = name        
         return message
     
-    def to_chat(self, blocks: Block | BlockList, tools: List[Type[BaseModel]] | None = []) -> List[dict]:
+    # def to_chat(self, blocks: Block | BlockList, tools: List[Type[BaseModel]] | None = []) -> List[dict]:
+    #     output_prompt = self.output_model.render(tools) if self.output_model else None
+    #     system_blocks = blocks.find("system").group_to_list(extra=output_prompt)
+    #     pre_blocks, pivot_block, post_blocks = blocks.filter("system").split("user_input")
+    #     user_message = self.to_message(pivot_block.render(), role="user")
+    #     if output_prompt:
+    #         user_message["content"] += self.output_model.user_suffix()
+    #     messages = [
+    #         *system_blocks.map(lambda x: self.to_message(x.render(), role="system")),
+    #         *pre_blocks.map(lambda x: self.to_message(x.render(), role=x.role, tool_calls=x.tool_calls, tool_call_id=x.id)),
+    #         user_message,
+    #         *post_blocks.map(lambda x: self.to_message(x.render(), role=x.role, tool_calls=x.tool_calls, tool_call_id=x.id)),
+    #     ]
+    #     return messages
+    
+    def to_chat(self, blocks: BlockList, tools: List[Type[BaseModel]] | None = None, error_blocks: BlockList | None = None) -> List[dict]:        
         output_prompt = self.output_model.render(tools) if self.output_model else None
-        system_blocks = blocks.find("system").group_to_list(extra=output_prompt)
-        pre_blocks, pivot_block, post_blocks = blocks.filter("system").split("user_input")
-        user_message = self.to_message(pivot_block.render(), role="user")
-        if output_prompt:
-            user_message["content"] += self.output_model.user_suffix()
+        system_blocks = (
+            blocks.find("system").group_to_list(extra=output_prompt)
+            .map(lambda x: self.to_message(x.render(), role=x.role or "system"))
+        )
+        messages = (
+            blocks.slice(1, -1).find(["content", "generation"])
+            .map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
+        )
+        last_block = blocks[-1]
+        last_message = self.to_message(last_block.render(), role=last_block.role or "user", tool_calls=last_block.tool_calls, tool_call_id=last_block.id)
+        
         messages = [
-            *system_blocks.map(lambda x: self.to_message(x.render(), role="system")),
-            *pre_blocks.map(lambda x: self.to_message(x.render(), role=x.role, tool_calls=x.tool_calls, tool_call_id=x.id)),
-            user_message,
-            *post_blocks.map(lambda x: self.to_message(x.render(), role=x.role, tool_calls=x.tool_calls, tool_call_id=x.id)),
+            *system_blocks,
+            *messages,
+            last_message,
         ]
-        # messages = [
-        #     *blocks.find("system").group_to_list(extra=output_prompt).map(lambda x: self.to_message(x.render(), role="system")),
-        #     *blocks.find("history").map(lambda x: self.to_message(x.render(), role=x.role)),
-        #     *blocks.find("user_input").map(lambda x: self.to_message(x.render(), role="user")),
-        #     # *blocks.find("generation").map(lambda x: self.to_message(x.render(), role=x.role))
-        # ]
+        if error_blocks:
+            error_messages = error_blocks.map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
+            messages.extend(error_messages)
         return messages
     
     
-    async def client_complete(self, blocks: Block, tools: List[Type[BaseModel]] | None = None, config: LlmConfig | None = None) -> Block:
+    async def client_complete(
+        self, 
+        blocks: BlockList, 
+        tools: List[Type[BaseModel]] | None = None, 
+        config: LlmConfig | None = None,
+        error_blocks: List[Block] | None = None
+    ) -> Block:
                 
-        messages = self.to_chat(blocks, tools)
+        messages = self.to_chat(blocks, tools, error_blocks)
         llm_tools = None
         tool_choice = None
         if tools and self.output_model is None:
