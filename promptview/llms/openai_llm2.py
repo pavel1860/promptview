@@ -78,6 +78,31 @@ class OpenAiLLM(LlmContext):
     #     ]
     #     return messages
     
+    # def to_chat(self, blocks: BlockList, tools: List[Type[BaseModel]] | None = None, error_blocks: BlockList | None = None) -> List[dict]:        
+    #     output_prompt = self.output_model.render(tools) if self.output_model else None
+    #     system_blocks = (
+    #         blocks.find("system").group_to_list(extra=output_prompt)
+    #         .map(lambda x: self.to_message(x.render(), role=x.role or "system"))
+    #     )
+    #     messages = (
+    #         blocks
+    #         .slice(1, -1)
+    #         .find(["content", "generation"])
+    #         .map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
+    #     )
+    #     last_block = blocks[-1]
+    #     last_message = self.to_message(last_block.render(), role=last_block.role or "user", tool_calls=last_block.tool_calls, tool_call_id=last_block.id)
+        
+    #     messages = [
+    #         *system_blocks,
+    #         *messages,
+    #         last_message,
+    #     ]
+    #     if error_blocks:
+    #         error_messages = error_blocks.map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
+    #         messages.extend(error_messages)
+    #     return messages
+    
     def to_chat(self, blocks: BlockList, tools: List[Type[BaseModel]] | None = None, error_blocks: BlockList | None = None) -> List[dict]:        
         output_prompt = self.output_model.render(tools) if self.output_model else None
         system_blocks = (
@@ -85,16 +110,13 @@ class OpenAiLLM(LlmContext):
             .map(lambda x: self.to_message(x.render(), role=x.role or "system"))
         )
         messages = (
-            blocks.slice(1, -1).find(["content", "generation"])
+            blocks
             .map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
-        )
-        last_block = blocks[-1]
-        last_message = self.to_message(last_block.render(), role=last_block.role or "user", tool_calls=last_block.tool_calls, tool_call_id=last_block.id)
+        )        
         
         messages = [
             *system_blocks,
-            *messages,
-            last_message,
+            *messages,         
         ]
         if error_blocks:
             error_messages = error_blocks.map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
