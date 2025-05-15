@@ -122,8 +122,6 @@ class NSFieldInfo:
             raise ValueError("Field is not an enum")
         
     
-        
-    
     @classmethod
     def parse_enum(cls, field_type: type[Any]) -> tuple[bool, List[Any] | None, bool]:
         if get_origin(field_type) is Literal:            
@@ -270,6 +268,13 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
     def inst_foreign_model(self, data: dict[str, Any]) -> FOREIGN_MODEL:
         return self.foreign_namespace.instantiate_model(data)
         # return self.foreign_cls(**data)
+        
+    def get_foreign_ctx_or_none(self) -> FOREIGN_MODEL | None:
+        return self.foreign_namespace.get_ctx_or_none()
+    
+    def get_primary_ctx_value_or_none(self) -> Any:
+        ctx_obj = self.primary_namespace.get_ctx()
+        return getattr(ctx_obj, self.primary_key)
     
     def __repr__(self) -> str:
         return f"NSRelationInfo(name={self.name}, primary_key={self.primary_key}, foreign_key={self.foreign_key}, foreign_cls={self.foreign_cls.__name__}, primary_cls={self.primary_cls.__name__})"
@@ -603,13 +608,24 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     #             continue
     #         yield field
     
-    def iter_fields(self, keys: bool = True, select: Set[str] | None = None, is_vector: bool = True) -> "Iterator[FIELD_INFO]":
+    def iter_fields(
+        self, 
+        keys: bool = True, 
+        select: Set[str] | None = None, 
+        is_vector: bool = True, 
+        is_optional: bool | None = None,
+        exclude: Set[str] | None = None
+        ) -> "Iterator[FIELD_INFO]":
         for field in self._fields.values():
             if not keys and field.is_key:
                 continue
             if select is not None and field.name not in select:
                 continue
             if not is_vector and field.is_vector:
+                continue
+            if is_optional is not None and field.is_optional != is_optional:
+                continue
+            if exclude is not None and field.name in exclude:
                 continue
             yield field
             
@@ -631,6 +647,17 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
             namespace=self,
             fields=[self._fields[field] for field in fields]
         )
+        
+    def get_foreign_key_ctx_value(self, field: FIELD_INFO) -> Any:
+        """Get the value of the foreign key field from the context"""
+        from promptview.model2.namespace_manager import NamespaceManager
+        if not field.is_foreign_key:
+            raise ValueError(f"""Field "{field.name}" on model "{self.model_class.__name__}" is not a foreign key""")
+        relation = NamespaceManager.get_reversed_relation(self.table_name, field.name)
+        if relation is None:
+            raise ValueError(f"""Field "{field.name}" on model "{self.model_class.__name__}" is a key field but has no reversed relation""")
+        return relation.get_primary_ctx_value_or_none()
+        
         
     def validate_model_fields(self, model_dump: dict[str, Any]) -> dict[str, Any]:
         """Validate the model fields"""

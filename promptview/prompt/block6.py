@@ -587,6 +587,8 @@ class Block:
     def render(self) -> str:
         from promptview.prompt.block_renderer import BlockRenderer
         from promptview.prompt.renderer import RendererMeta
+        if self.items != self.ctx_items:
+            raise ValueError("Wrong block context was passed to render. probably you are using the same ctx name for child and parent blocks")
         rndr = BlockRenderer(style_manager, RendererMeta._renderers)
         return rndr.render(self)
     

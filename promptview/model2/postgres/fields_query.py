@@ -42,6 +42,8 @@ class PgFieldInfo(NSFieldInfo):
             
     def serialize(self, value: Any) -> Any:
         """Serialize the value for the database"""
+        if value is None:
+            return None
         if self.is_key and self.key_type == "uuid" and value is None:
             value = str(uuid.uuid4())
         elif self.is_vector:
@@ -50,9 +52,11 @@ class PgFieldInfo(NSFieldInfo):
             if self.is_list:
                 value = [make_json_serializable(item) if isinstance(item, dict) else item for item in value]
                 value = json.dumps(value)
-            elif self.field_type is BaseModel:
-                value = value.model_dump()
-            elif self.data_type is dict:
+            # elif issubclass(self.data_type, BaseModel):
+                # if type(value) is dict:
+                    # value = 
+                # value = value.model_dump()
+            elif self.data_type is dict or issubclass(self.data_type, BaseModel):
                 value = make_json_serializable(value)
                 return json.dumps(value)
 
@@ -94,16 +98,18 @@ class PgFieldInfo(NSFieldInfo):
             if type(value) is None:
                 raise ValueError("UUID field can not be None")
             return uuid.UUID(str(value))            
+        if value is None:
+            return value
         if self.is_list and type(value) is str:
             return json.loads(value)
         elif self.data_type is dict:
-            return json.loads(value)
-        elif self.data_type is BaseModel:
-            return self.data_type.model_validate_json(value)
+            return json.loads(value)        
         elif self.is_enum and not self.is_literal:
             return self.data_type(value)
         elif self.is_vector:
             return np.fromstring(value.strip("[]"), sep=",")
+        elif issubclass(self.data_type, BaseModel):
+            return self.data_type.model_validate_json(value)
         return value
             
     

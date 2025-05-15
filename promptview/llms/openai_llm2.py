@@ -111,6 +111,7 @@ class OpenAiLLM(LlmContext):
         )
         messages = (
             blocks
+            .filter("system")
             .map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
         )        
         
@@ -144,7 +145,10 @@ class OpenAiLLM(LlmContext):
             run_type="llm",
             name=self.__class__.__name__,
             inputs={"messages": messages},
-            metadata={},
+            metadata={
+                "ls_model_name": config.model,
+                "ls_model_version": "openai",
+            },
         ) as llm_run:
             response = await self.client.chat.completions.create(
                 messages=messages,

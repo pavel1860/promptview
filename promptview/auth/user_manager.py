@@ -57,6 +57,9 @@ class AuthModel(Model):
     created_at: datetime = ModelField(default_factory=datetime.now)
     
     
+    @property
+    def is_anonymous(self) -> bool:
+        return self.anonymous_token is not None and self.email is None
     
     
     
@@ -153,19 +156,19 @@ CREATE TABLE IF NOT EXISTS sessions (
         )
         
     
-    async def after_create_user(self, user: AUTH_MODEL):
+    async def after_create_user(self, user: AUTH_MODEL, request: Request):
         return user
     
-    async def before_create_user(self, data: UserAuthPayload) -> UserAuthPayload:
+    async def before_create_user(self, data: UserAuthPayload, request: Request) -> UserAuthPayload:
         return data
     
     
     @final
-    async def create_user(self, data: UserAuthPayload):
-        data = await self.before_create_user(data)
+    async def create_user(self, data: UserAuthPayload, request: Request):
+        data = await self.before_create_user(data, request)
         user_model = self.get_user_model()
         user = await user_model(**data.model_dump()).save()
-        user = await self.after_create_user(user)
+        user = await self.after_create_user(user, request)
         return user
     
     
@@ -224,23 +227,37 @@ CREATE TABLE IF NOT EXISTS sessions (
             return user
     
     async def on_anonymous_user_not_found(self, request: Request, anonymous_token: UUID):
-        return await self.create_user(UserAuthPayload(anonymous_token=anonymous_token))
+        return await self.create_user(UserAuthPayload(anonymous_token=anonymous_token), request)
     
     
-    async def get_anonymous_user(self, request: Request):
+    async def get_anonymous_user(self, request: Request, create_if_not_found: bool = False):
         anonymous_token = request.cookies.get("chatboard.anonymous-token")
-        if anonymous_token is None:
+        if anonymous_token is None:            
             await self.on_missing_anonymous_token(request)
         else:
             anonymous_token = UUID(anonymous_token)
             user = await self.get_by_anonymous_token(request, anonymous_token)
             if user is None:
+                if not create_if_not_found:
+                    return None
                 user = await self.on_anonymous_user_not_found(request, anonymous_token)
             return user
-        
+    
     
     @classmethod
-    async def get_user_from_request(cls, request: Request):
+    async def get_session_user(cls, request: Request):
+        user_manager = cls.get_user_manager()
+        session_token = request.cookies.get("next-auth.session-token")
+        if not session_token:
+            return None        
+        user = await user_manager.get_by_session_token(request, session_token)
+        if not user:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        return user
+    
+    
+    @classmethod
+    async def get_user_or_create(cls, request: Request):
         user_manager = cls.get_user_manager()
         session_token = request.cookies.get("next-auth.session-token")
         if not session_token:

@@ -450,7 +450,7 @@ class LlmContext(Generic[OUTPUT_MODEL]):
                     logger.warning(f"Error Message: {e.error_content}\n attempt {attempt + 1} of {config.retries}, retrying...")
                     if response is not None:
                         error_blocks.append(response)
-                    error_blocks.append(e.to_block(self.output_model, role="system", tags=["generation", "error"]))
+                    error_blocks.append(e.to_block(self.output_model, role="user", tags=["generation", "error"]))
         raise Exception("Failed to complete")
     
     

@@ -139,6 +139,17 @@ class Turn(Model):
         branch = Branch.current()
         if branch is None:
             raise VersioningError("Branch is required")
+        ns = cls.get_namespace()
+        fields = ns.iter_fields(keys=False, is_optional=False, exclude={"created_at", "index", "status", "branch_id"})
+        for field in fields:
+            if field.is_foreign_key:
+                value = ns.get_foreign_key_ctx_value(field)
+                if not field.validate_value(value):
+                    raise VersioningError(f"Foreign key field {field.name} is required")
+                kwargs[field.name] = value
+            else:
+                raise VersioningError(f"missing required field {field.name} for turn")
+            
         return TurnContext(branch=branch, init_params=kwargs)
     
     @classmethod

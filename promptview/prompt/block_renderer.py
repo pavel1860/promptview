@@ -121,7 +121,7 @@ class BlockRenderer:
     #     return ctx
         
 
-    def render(self, block: BaseBlock, ctx: RendererContext | None = None) -> str:        
+    def render(self, block: BaseBlock, ctx: RendererContext | None = None) -> str:                
         ctx = self.build_ctx(block, ctx)
         items = [self.render(
                 item, 
