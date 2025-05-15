@@ -351,6 +351,10 @@ class SelectQuerySet(Generic[MODEL]):
             p_id = Column(pk, self.from_table)
             self.query.group_by = [p_id] 
         return self
+    
+    
+    # def recursive(self, field: str):
+        
       
     def from_subquery(self, query_set: "SelectQuerySet"):
         if query_set.ctes:

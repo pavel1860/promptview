@@ -7,7 +7,7 @@
 import textwrap
 from promptview.model2.postgres.sql.expressions import BinaryExpression, Coalesce, Expression, RawSQL, RawValue, Value, And, Or, Not, IsNull, In, Between, Like, Function, OrderBy, VectorDistance
 from promptview.model2.postgres.sql.helpers import NestedQuery
-from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery, Column
+from promptview.model2.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UnionQuery, UpdateQuery, Column
 
 
 
@@ -37,6 +37,10 @@ class Compiler:
                 sql += self._compile_ctes(query.ctes, query.recursive) + "\n"
 
             sql += self._compile_select(query)
+        elif isinstance(query, UnionQuery):
+            left_sql, _ = self.compile(query.left)
+            right_sql, _ = self.compile(query.right)
+            sql = f"({left_sql} \n\nUNION ALL\n\n{right_sql})"
         elif isinstance(query, InsertQuery):
             sql = self._compile_insert(query)
         elif isinstance(query, UpdateQuery):

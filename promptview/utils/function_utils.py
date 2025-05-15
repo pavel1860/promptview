@@ -81,18 +81,34 @@ class ContextFuture(Generic[R]):
     """
     def __init__(self, future: Awaitable[R]):
         self.future = future
+        self._output = None
+        self._has_context = False
                 
     def __await__(self):
         return self.future.__await__()
         
     async def __aenter__(self) -> R:
-        return await self.future
+        self._output = await self.future
+        if hasattr(self._output, "__aenter__"):
+            self._has_context = True
+            return await self._output.__aenter__()
+        elif hasattr(self._output, "__enter__"):
+            self._has_context = True
+            return self._output.__enter__()
+        return self._output
     
     async def __aexit__(self, exc_type, exc_value, traceback):
-        pass
+        if self._has_context:
+            if hasattr(self._output, "__aexit__"):
+                return await self._output.__aexit__(exc_type, exc_value, traceback)
+            elif hasattr(self._output, "__exit__"):
+                return self._output.__exit__(exc_type, exc_value, traceback)
+            else:
+                raise ValueError(f"No exit method found for {self._output}")
+        return False
 
 
-def contextcall(func: Callable[P, Awaitable[R]]) -> Callable[P, ContextFuture[R]]:
+def contextcallable(func: Callable[P, Awaitable[R]]) -> Callable[P, ContextFuture[R]]:
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> ContextFuture[R]:
         return ContextFuture(func(*args, **kwargs))

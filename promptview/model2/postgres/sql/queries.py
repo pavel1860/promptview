@@ -180,9 +180,10 @@ class DeleteQuery:
 
 
 
-
-
-
-
-
-
+class UnionQuery:
+    def __init__(self, left: SelectQuery, right: SelectQuery):
+        self.left = left
+        self.right = right
+        
+    
+        

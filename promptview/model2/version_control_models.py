@@ -16,7 +16,7 @@ from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2.postgres.sql.expressions import OrderBy, RawSQL, RawValue, Value
 from promptview.model2.postgres.sql.queries import Column, SelectQuery, Subquery
 from promptview.model2.relation import Relation
-from promptview.utils.function_utils import contextcall
+from promptview.utils.function_utils import contextcallable
 
 CURR_TURN = contextvars.ContextVar("curr_turn")
 CURR_BRANCH = contextvars.ContextVar("curr_branch")
@@ -130,6 +130,25 @@ class Turn(Model):
     #             return None
     #     return turn
     
+    @classmethod
+    def list_cte(cls, branch_id: int | None = None, status: TurnStatus | None = None):
+        branch_cte = Branch.recursive_cte(branch_id)
+        committed_cte = (
+            Turn.query()
+                .select("id")
+                # .where(lambda t: (t.status == status) & (t.index <= RawValue("bh.start_turn_index")))
+                .with_cte("branch_hierarchy", branch_cte, recursive=True)
+                .order_by("-index")
+                # .limit(turns)
+        )
+        if status is not None:
+            committed_cte = committed_cte.where(lambda t: (t.status == status) & (t.index <= RawValue("bh.start_turn_index")))
+        else:
+            committed_cte = committed_cte.where(lambda t: (t.status != TurnStatus.REVERTED) & (t.index <= RawValue("bh.start_turn_index")))      
+        committed_cte.join_cte("branch_hierarchy", "branch_id", "id", "bh")
+        return committed_cte
+    
+    
     async def commit(self):
         self.ended_at = dt.datetime.now()   
         self.status = TurnStatus.COMMITTED
@@ -233,7 +252,7 @@ class Branch(Model):
     #     ).save()
     #     yield branch
     
-    @contextcall
+    @contextcallable
     async def fork(self, turn: Turn, name: str | None = None):
         index = turn.index
                 
@@ -245,22 +264,36 @@ class Branch(Model):
             name=name,
         ).save()
         return branch    
-        
     
-    # async def fork(self, turn: Turn):
-    #     if turn is None:
-    #         raise VersioningError("Turn is required")
-    #     index = turn.index
-    #     name = turn.message
-                
-    #     branch = await Branch(
-    #         forked_from_index=index,
-    #         forked_from_turn_id=turn.id,
-    #         current_index=index + 1,
-    #         forked_from_branch_id=self.id,
-    #         name=name,
-    #     ).save()
-    #     return branch
+    @classmethod    
+    def recursive_cte(cls, branch_id: int | None = None):
+        if branch_id is None:
+            branch_id = cls.current().id
+    
+        sql = f"""
+            SELECT
+                id,
+                name,
+                forked_from_index,
+                forked_from_branch_id,
+                current_index AS start_turn_index
+            FROM branches
+            WHERE id = {branch_id}
+                            
+            UNION ALL
+                            
+            SELECT
+                b.id,
+                b.name,
+                b.forked_from_index,
+                b.forked_from_branch_id,
+                bh.forked_from_index AS start_turn_index
+            FROM branches b
+            JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id              
+            """
+
+        cte = RawSQL(sql)
+        return cte
     
     
     async def add_turn(self, message: str | None = None, status: TurnStatus = TurnStatus.STAGED, **kwargs) -> Turn:
@@ -289,20 +322,6 @@ class Branch(Model):
         return turn
         
 
-    
-    
-
-
-    # @classmethod
-    # def current(cls, throw_error: bool = True):
-    #     try:
-    #         branch = CURR_BRANCH.get()
-    #     except LookupError:
-    #         if throw_error:
-    #             raise
-    #         else:
-    #             return None
-    #     return branch
     
     
     
@@ -446,6 +465,23 @@ class TurnModel(Model):
         return cte
     
     
+    # @classmethod
+    # def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
+    #     """
+    #     Create a query for this model
+        
+    #     Args:
+    #         branch: Optional branch ID to query from
+    #     """   
+    #     branch_id = get_branch_id(branch)
+    #     ns = cls.get_namespace()
+    #     query = ns.query(**kwargs)
+    #     query = (
+    #         query.with_cte("turn_hierarchy", cls.versioned_cte(create_versioned_cte(branch_id, status, turns)))
+    #         .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
+    #     )
+    #     return query
+    
     @classmethod
     def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
         """
@@ -456,9 +492,10 @@ class TurnModel(Model):
         """   
         branch_id = get_branch_id(branch)
         ns = cls.get_namespace()
+        turn_cls = Turn.get_namespace().model_class
         query = ns.query(**kwargs)
         query = (
-            query.with_cte("turn_hierarchy", cls.versioned_cte(create_versioned_cte(branch_id, status, turns)))
+            query.with_cte("turn_hierarchy", turn_cls.list_cte(branch_id, status).limit(turns))
             .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
         )
         return query
@@ -518,23 +555,39 @@ class ArtifactModel(TurnModel):
         return result
 
     
+    # @classmethod
+    # def query2(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus | None = None, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
+    #     """
+    #     Create a query for this model
+    
+    #     Args:
+    #         branch: Optional branch ID to query from
+    #     """   
+    #     branch_id = get_branch_id(branch)
+    #     ns = cls.get_namespace()
+    #     es_query = ns.query(**kwargs)
+    #     es_query = (
+    #         es_query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status, turns))
+    #         .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
+    #         .distinct_on("artifact_id")
+    #         .order_by("-artifact_id", "-version")
+    #     )        
+    #     query = SelectQuerySet(cls).from_subquery(es_query)
+    #     # query.join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
+    #     return query
+    
+    
     @classmethod
     def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus | None = None, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
-        """
-        Create a query for this model
-    
-        Args:
-            branch: Optional branch ID to query from
-        """   
         branch_id = get_branch_id(branch)
         ns = cls.get_namespace()
-        es_query = ns.query(**kwargs)
-        es_query = (
-            es_query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status, turns))
+        turn_cls = Turn.get_namespace().model_class
+        query = ns.query(**kwargs)
+        query = (
+            query.with_cte("turn_hierarchy", turn_cls.list_cte(branch_id, status).limit(turns))
             .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
             .distinct_on("artifact_id")
             .order_by("-artifact_id", "-version")
-        )        
-        query = SelectQuerySet(cls).from_subquery(es_query)
-        # query.join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
+        )
+        query = SelectQuerySet(cls).from_subquery(query)
         return query

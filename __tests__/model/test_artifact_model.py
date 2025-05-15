@@ -6,6 +6,7 @@
 
 import datetime as dt
 from typing import List, Literal
+from uuid import uuid4
 
 
 import pytest
@@ -28,13 +29,7 @@ class Post(ArtifactModel):
     user_id: int = ModelField(foreign_key=True)
 
 
-class User(Model):
-    id: int = KeyField(primary_key=True)
-    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
-    name: str = ModelField()
-    age: int = ModelField()
-    address: str = ModelField()
-    posts: Relation[Post] = RelationField(foreign_key="user_id")
+
 
 
 
@@ -47,12 +42,20 @@ class Message(ArtifactModel):
 
 
 class Turn(BaseTurn):
+    user_id: int = ModelField(foreign_key=True)
     messages: Relation[Message] = RelationField(foreign_key="turn_id")
     posts: Relation[Post] = RelationField(foreign_key="turn_id")
     likes: Relation[Like] = RelationField(foreign_key="turn_id")
 
 
-
+class User(Model):
+    id: int = KeyField(primary_key=True)
+    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    name: str = ModelField()
+    age: int = ModelField()
+    address: str = ModelField()
+    posts: Relation[Post] = RelationField(foreign_key="user_id")
+    turns: Relation[Turn] = RelationField(foreign_key="user_id")
 
 
 @pytest_asyncio.fixture()
@@ -190,4 +193,88 @@ async def test_artifact_ordering(clean_database):
             assert msgs[5].id == b2_t1_message2.id
         
             
+
+
+@pytest.mark.asyncio
+async def test_multi_user_artifact_model(clean_database):
+    user1 = await User(name="John Doe", age=10, address="test" ).save()
+    user2 = await User(name="Smith Black", age=20, address="test" ).save()
+    user3 = await User(name="Red Shield", age=30, address="test" ).save()
+    
+    branch = await Branch.get(1)
+    with user1:    
+        with branch:    
+            async with Turn.start() as turn1:
+                b1_t1_message1 = await turn1.add(Message(content="Hello"))
+                b1_t1_message2 = await turn1.add(Message(content="Hello, John Doe! world!", role="assistant"))
+            
+            async with Turn.start() as turn2:
+                b1_t2_message1 = await turn2.add(Message(content="Who are you?"))
+                b1_t2_message2 = await turn2.add(Message(content="I'm a helpful assistant John Doe.", role="assistant"))
+            
+            async with Turn.start() as turn3:
+                b1_t3_message1 = await turn3.add(Message(content="What is the capital of France?"))
+                b1_t3_message2 = await turn3.add(Message(content="Paris is the capital of France.", role="assistant"))
+
+        async with branch.fork(turn=turn2) as branch2_1:
+            async with Turn.start() as turn21:
+                b2_t1_message1 = await turn21.add(Message(content="What is the capital of Italy?"))
+                b2_t1_message2 = await turn21.add(Message(content="Rome is the capital of Italy.", role="assistant"))
+            
+    with user2:    
+        with branch:    
+            async with Turn.start() as turn1:
+                b1_t1_message1 = await turn1.add(Message(content="Hello"))
+                b1_t1_message2 = await turn1.add(Message(content="Hello, world Smith Black!", role="assistant"))
+            
+            async with Turn.start() as turn2:
+                b1_t2_message1 = await turn2.add(Message(content="Who are you?"))
+                b1_t2_message2 = await turn2.add(Message(content="I'm a helpful assistant Smith Black.", role="assistant"))
+            
+            async with Turn.start() as turn3:
+                b1_t3_message1 = await turn3.add(Message(content="What is the best vagitable?"))
+                b1_t3_message2 = await turn3.add(Message(content="The best vagitable is tomato.", role="assistant"))
+
+        async with branch.fork(turn=turn2) as branch2_2:            
+            async with Turn.start() as turn21:
+                b2_t1_message1 = await turn21.add(Message(content="What is the best fruit?"))
+                b2_t1_message2 = await turn21.add(Message(content="The best fruit is apple.", role="assistant"))
+                
+
+    with user3:    
+        with branch:    
+            async with Turn.start() as turn1:
+                b1_t1_message1 = await turn1.add(Message(content="Hello"))
+                b1_t1_message2 = await turn1.add(Message(content="Hello, world Red Shield!", role="assistant"))
+            
+            async with Turn.start() as turn2:
+                b1_t2_message1 = await turn2.add(Message(content="Who are you?"))
+                b1_t2_message2 = await turn2.add(Message(content="I'm a helpful assistant Red Shield.", role="assistant"))
+            
+            async with Turn.start() as turn3:
+                b1_t3_message1 = await turn3.add(Message(content="What is Quantom physics?"))
+                b1_t3_message2 = await turn3.add(Message(content="Quantom physics is a branch of physics that studies the behavior of matter and energy at the smallest scales.", role="assistant"))
+
+        async with branch.fork(turn=turn2) as branch2_3:
+            async with Turn.start() as turn21:
+                b2_t1_message1 = await turn21.add(Message(content="What is the Theory of Relativity?"))
+                b2_t1_message2 = await turn21.add(Message(content="The Theory of Relativity is a theory of physics that describes the relationship between space and time.", role="assistant"))
+                
+                
+    with user1:    
+        with branch:    
+            messages = await Message.query().order_by("created_at").limit(10)
+            assert len(messages) == 6
+            assert messages[0].content == "Hello"
+            assert messages[1].content == "Hello, John Doe! world!"
+            assert messages[2].content == "Who are you?"
+            assert messages[3].content == "I'm a helpful assistant John Doe."
+            assert messages[4].content == "What is the capital of France?"
+            assert messages[5].content == "Paris is the capital of France."
         
+        
+                
+                
+                
+                
+                
