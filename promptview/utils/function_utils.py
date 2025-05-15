@@ -1,4 +1,7 @@
+from functools import wraps
 import inspect
+from typing import Awaitable, Callable, Generic, ParamSpec
+from typing_extensions import TypeVar
 
 
 def is_async_function(obj):
@@ -62,3 +65,35 @@ def filter_args_by_exclude(args: tuple, kwargs: dict, exclude_classes: tuple[typ
     filtered_kwargs = {k: v for k, v in kwargs.items() if not isinstance(v, exclude_classes)}
     return filtered_args, filtered_kwargs
 
+
+
+
+
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+class ContextFuture(Generic[R]):
+    """
+    A context manager for an awaitable that returns a value
+    can be used in an async with statement or as regular awaitable
+    """
+    def __init__(self, future: Awaitable[R]):
+        self.future = future
+                
+    def __await__(self):
+        return self.future.__await__()
+        
+    async def __aenter__(self) -> R:
+        return await self.future
+    
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        pass
+
+
+def contextcall(func: Callable[P, Awaitable[R]]) -> Callable[P, ContextFuture[R]]:
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> ContextFuture[R]:
+        return ContextFuture(func(*args, **kwargs))
+    return wrapper

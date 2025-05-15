@@ -1,6 +1,9 @@
+from asyncio import Future
+from contextlib import asynccontextmanager
 import enum
 import contextvars
-from typing import TYPE_CHECKING, List, Self, Type, TypeVar, overload
+from functools import wraps
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Generic, List, ParamSpec, Self, Type, TypeVar, overload
 import uuid
 
 from pydantic import BaseModel
@@ -13,6 +16,7 @@ from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2.postgres.sql.expressions import OrderBy, RawSQL, RawValue, Value
 from promptview.model2.postgres.sql.queries import Column, SelectQuery, Subquery
 from promptview.model2.relation import Relation
+from promptview.utils.function_utils import contextcall
 
 CURR_TURN = contextvars.ContextVar("curr_turn")
 CURR_BRANCH = contextvars.ContextVar("curr_branch")
@@ -58,6 +62,10 @@ class TurnContext(BaseModel):
         else:
             await self.turn.commit()
         self.turn.__exit__(exc_type, exc_value, traceback)
+
+
+
+# CTX_RET = TypeVar("CTX_RET")
 
 
 class Turn(Model):
@@ -179,7 +187,7 @@ class Turn(Model):
     #     obj.branch_id = self.branch_id
     #     return await obj.save()
 
-    
+ 
 
 
 class Branch(Model):
@@ -210,11 +218,24 @@ class Branch(Model):
     #         name=name,
     #     ).save()
     #     return branch
-    async def fork(self, turn: Turn):
-        if turn is None:
-            raise VersioningError("Turn is required")
+    
+    # @asynccontextmanager
+    # async def fork(self, turn: Turn) -> AsyncGenerator["Branch", None]:
+    #     index = turn.index
+    #     name = turn.message
+                
+    #     branch = await Branch(
+    #         forked_from_index=index,
+    #         forked_from_turn_id=turn.id,
+    #         current_index=index + 1,
+    #         forked_from_branch_id=self.id,
+    #         name=name,
+    #     ).save()
+    #     yield branch
+    
+    @contextcall
+    async def fork(self, turn: Turn, name: str | None = None):
         index = turn.index
-        name = turn.message
                 
         branch = await Branch(
             forked_from_index=index,
@@ -223,7 +244,23 @@ class Branch(Model):
             forked_from_branch_id=self.id,
             name=name,
         ).save()
-        return branch
+        return branch    
+        
+    
+    # async def fork(self, turn: Turn):
+    #     if turn is None:
+    #         raise VersioningError("Turn is required")
+    #     index = turn.index
+    #     name = turn.message
+                
+    #     branch = await Branch(
+    #         forked_from_index=index,
+    #         forked_from_turn_id=turn.id,
+    #         current_index=index + 1,
+    #         forked_from_branch_id=self.id,
+    #         name=name,
+    #     ).save()
+    #     return branch
     
     
     async def add_turn(self, message: str | None = None, status: TurnStatus = TurnStatus.STAGED, **kwargs) -> Turn:
