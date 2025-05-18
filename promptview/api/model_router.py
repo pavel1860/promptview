@@ -28,8 +28,8 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
     
     @router.get("/list", response_model=List[dict])
     async def list_models(
-        offset: int = Query(default=0, ge=0),
-        limit: int = Query(default=10, ge=1, le=100),
+        offset: int = Query(default=0, ge=0, alias="filter.offset"),
+        limit: int = Query(default=10, ge=1, le=100, alias="filter.limit"),
         filters: QueryListType | None = Depends(query_filters),         
         ctx: CTX_MODEL = Depends(get_context)
     ):
@@ -109,8 +109,8 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
     
     @router.get("/last")
     async def last_model(
-        skip: int = Query(default=0, ge=0),
-        limit: int = Query(default=10, ge=1, le=100),
+        skip: int = Query(default=0, ge=0, alias="filter.skip"),
+        limit: int = Query(default=10, ge=1, le=100, alias="filter.limit"),
         ctx: CTX_MODEL = Depends(get_context)
     ):
         """Get the last model with pagination"""
@@ -119,8 +119,8 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
     
     @router.get("/first")
     async def first_model(
-        skip: int = Query(default=0, ge=0),
-        limit: int = Query(default=10, ge=1, le=100),
+        skip: int = Query(default=0, ge=0, alias="filter.skip"),
+        limit: int = Query(default=10, ge=1, le=100, alias="filter.limit"),
         ctx: CTX_MODEL = Depends(get_context)
     ):
         """Get the first model with pagination"""
