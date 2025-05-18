@@ -48,7 +48,7 @@ class Relation(Generic[FOREIGN_MODEL], list):
     
     def pack_cls(self, item: Any) -> Any:  
         if self._relation is None:
-            raise ValueError("Relation is not set")        
+            raise ValueError("Relation is not set")
         item = self._relation.foreign_namespace.pack_record(item)
         return self._relation.inst_foreign_model(item)
 
@@ -58,54 +58,6 @@ class Relation(Generic[FOREIGN_MODEL], list):
             raise ValueError("Relation is not set")
         where_dict = {self._relation.foreign_key: self.primary_id}
         return self._relation.foreign_cls.query().where(**where_dict).order_by("created_at")
-    
-    # @property
-    # def relation(self) -> "NSRelationInfo":
-    #     if self._relation is None:
-    #         raise ValueError("Relation is not set")
-    #     return self._relation
-    
-    # @relation.setter
-    # def relation(self, relation: "NSRelationInfo"):
-    #     self._relation = relation                
-        
-    # @property
-    # def namespace(self) -> "Namespace":
-    #     return self.relation.namespace
-    
-    
-    # @property
-    # def foreign_cls(self) -> "Type[FOREIGN_MODEL]":
-    #     return self.relation.foreign_cls
-    
-    # @property
-    # def primary_key(self) -> str:
-    #     return self.relation.primary_key
-    
-    # @property
-    # def foreign_key(self) -> str:
-    #     return self.relation.foreign_key
-    
-    # @property
-    # def junction_keys(self) -> list[str]:
-    #     return self.relation.junction_keys
-    
-    # @property
-    # def on_delete(self) -> str:
-    #     return self.relation.on_delete
-    
-    # @property
-    # def on_update(self) -> str:
-    #     return self.relation.on_update
-    
-    # @property
-    # def junction_model(self) -> "Type[Model]":
-    #     return self.relation.junction_model
-    
-    # @property
-    # def junction_cls(self) -> "Type[Model]":
-    #     return self.relation.junction_cls
-    
     
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:

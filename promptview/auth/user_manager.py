@@ -51,6 +51,7 @@ class AuthModel(Model):
     anonymous_token: UUID = ModelField(None)
     name: str | None = ModelField(None)
     email: str | None = ModelField(None)
+    password: str | None = ModelField(None)
     image: str | None = ModelField(None)
     emailVerified: datetime | None = ModelField(None, db_type="TIMESTAMPTZ")
     is_admin: bool = ModelField(default=False)
@@ -70,8 +71,10 @@ class UserAuthPayload(BaseModel):
     email: str | None = None
     emailVerified: datetime | None = None
     image: str | None = None
+    password: str | None = None
     
-    
+class UserAuthUpdatePayload(UserAuthPayload):
+    id: int
     
 class UserManagerError(Exception):
     pass
@@ -144,14 +147,13 @@ CREATE TABLE IF NOT EXISTS sessions (
         
         
  
-        
-    async def drop_tables(self):
+    @classmethod    
+    async def drop_tables(cls):
         await PGConnectionManager.execute(
             """
             DROP TABLE IF EXISTS verification_token;
             DROP TABLE IF EXISTS accounts;
-            DROP TABLE IF EXISTS sessions;
-            DROP TABLE IF EXISTS users;
+            DROP TABLE IF EXISTS sessions;           
         """
         )
         
@@ -171,6 +173,20 @@ CREATE TABLE IF NOT EXISTS sessions (
         user = await self.after_create_user(user, request)
         return user
     
+    @final
+    async def create_user_from_anonymous(self, anonymous_token: UUID, data: UserAuthPayload, request: Request):
+        user = await self.get_by_anonymous_token(request, anonymous_token)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        return await user.update(**data.model_dump(exclude={"id", "anonymous_token"}))
+    
+    @final
+    async def update_user(self, id: int, data: UserAuthPayload, request: Request):
+        user_model = self.get_user_model()
+        user = await user_model.get(id)
+        await user.update(**data.model_dump(exclude={"id"}))
+        return user
+
     
     
     async def get_by_id(self, id: int):
@@ -249,7 +265,10 @@ CREATE TABLE IF NOT EXISTS sessions (
         user_manager = cls.get_user_manager()
         session_token = request.cookies.get("next-auth.session-token")
         if not session_token:
-            return None        
+            return None
+        if user_id := request.headers.get("user_id"):
+            user = await user_manager.get_by_id(int(user_id))
+            return user
         user = await user_manager.get_by_session_token(request, session_token)
         if not user:
             raise HTTPException(status_code=401, detail="Unauthorized")
@@ -284,8 +303,7 @@ CREATE TABLE IF NOT EXISTS sessions (
             user = await user_manager.get_user_by_session_token(session_token)
             return user
     
-    async def update_user(self):
-        pass
+    
     
     async def delete_user(self):
         pass
@@ -295,8 +313,6 @@ CREATE TABLE IF NOT EXISTS sessions (
         user_model = self.get_user_model()
         users = await user_model.query().filter(lambda x: x.is_admin == False)
         return users
-    
-    
     
     
 

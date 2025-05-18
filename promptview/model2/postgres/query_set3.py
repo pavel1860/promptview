@@ -316,23 +316,27 @@ class SelectQuerySet(Generic[MODEL]):
         if isinstance(rel, NSManyToManyRelationInfo):            
             j_ns = rel.junction_namespace
             j_alias=self._set_alias(j_ns.table_name)
+            target_table = query_set.from_table
             junction_table = Table(j_ns.table_name, alias=j_alias)
-            self.query.join(
-                junction_table, 
+            query_set.query.from_table = junction_table
+            query_set.query.join(
+                target_table, 
                 Eq(
-                    Column(rel.primary_key, self.from_table), 
-                    Column(rel.junction_keys[0], junction_table)
-                ),
-                join_type
-            )            
-            self.query.join(
-                query_set.from_table, 
-                Eq(
-                    Column(rel.junction_keys[1], junction_table), 
-                    Column(rel.foreign_key, query_set.from_table)
+                    Column(rel.foreign_key, target_table), 
+                    Column(rel.junction_keys[1], junction_table)
                 ),
                 join_type
             )
+            nested_query = embed_query_as_subquery(query_set.query, rel, self.from_table)    
+            nested_query.values[0].where_clause = Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table))
+            # self.query.join(
+            #     query_set.from_table, 
+            #     Eq(
+            #         Column(rel.junction_keys[1], junction_table), 
+            #         Column(rel.foreign_key, query_set.from_table)
+            #     ),
+            #     join_type
+            # )
         else:
             self.query.join(
                 query_set.from_table, 
@@ -342,7 +346,7 @@ class SelectQuerySet(Generic[MODEL]):
                 ),
                 join_type
             )        
-        nested_query = embed_query_as_subquery(query_set.query, rel, self.from_table)    
+            nested_query = embed_query_as_subquery(query_set.query, rel, self.from_table)    
         nested_query.alias = rel.name
         self.query.columns.append(nested_query)
         # self.query.columns.append(Column("", nested_query, alias=rel.name))

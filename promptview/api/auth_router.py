@@ -16,7 +16,10 @@ USER_MODEL = TypeVar('USER_MODEL', bound=AuthModel)
 
 
 
-def create_auth_router(auth_model: Type[USER_MODEL]):
+def create_auth_router(user_manager_cls: Type[AuthManager[USER_MODEL]]):
+    
+    def get_user_manager():
+        return user_manager_cls()
 
     router = APIRouter(
         prefix="/auth",
@@ -24,29 +27,37 @@ def create_auth_router(auth_model: Type[USER_MODEL]):
         # dependencies=[Depends(get_current_user), ]
     )
 
-    @router.post("/create_user")
-    async def create_user(payload: UserAuthPayload, api_key: str = Depends(verify_api_key)):
-        inst = await auth_model(**payload.model_dump()).save()
+    @router.post("/user/create")
+    async def create_user(
+        payload: UserAuthPayload, 
+        request: Request, 
+        user_manager: AuthManager = Depends(get_user_manager)
+    ):
+        if payload.anonymous_token:
+            inst = await user_manager.create_user_from_anonymous(payload.anonymous_token, payload, request)
+        else:
+            inst = await user_manager.create_user(payload, request)
         return inst
 
 
     class UserIdPayload(BaseModel):
         id: int
 
-    @router.post("/get_user")
-    async def get_user_by_id(payload: UserIdPayload, api_key: str = Depends(verify_api_key)):
-        return await auth_model.get(payload.id)
-
-
-    @router.post("/test")
-    async def test(user: USER_MODEL = Depends(get_auth_user)):
-        print(user)
-        return {"message": "Hello, World!"}
+    @router.get("/user/{id}")
+    async def get_user_by_id(
+        payload: UserIdPayload, 
+        request: Request, 
+        user_manager: AuthManager = Depends(get_user_manager)
+    ):
+        return await user_manager.get_by_id(payload.id)
 
 
 
     @router.get("/users")
-    async def get_users(user: USER_MODEL = Depends(get_auth_admin_user), user_manager: AuthManager = Depends(get_user_manager)):
+    async def get_users(
+        user: USER_MODEL = Depends(get_auth_admin_user), 
+        user_manager: AuthManager = Depends(get_user_manager)
+    ):
         return await user_manager.get_users()
 
 

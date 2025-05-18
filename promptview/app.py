@@ -36,9 +36,9 @@ EnpointType = Callable[Concatenate[CTX_MODEL, P], Awaitable[List[MSG_MODEL]]]
 app_ctx = ContextVar("app_ctx")
 
 
-def include_chatboard_routers(app: FastAPI, user_model: Type[USER_MODEL]):
+def include_chatboard_routers(app: FastAPI, user_manager: Type[AuthManager[USER_MODEL]]):
     app.include_router(artifact_log_router, prefix="/api")
-    app.include_router(create_auth_router(user_model), prefix="/api")
+    app.include_router(create_auth_router(user_manager), prefix="/api")
     app.include_router(tracing_router, prefix="/api")
 
 
