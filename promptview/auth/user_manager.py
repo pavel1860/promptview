@@ -177,6 +177,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     async def create_user_from_anonymous(self, anonymous_token: UUID, data: UserAuthPayload, request: Request):
         user = await self.get_by_anonymous_token(request, anonymous_token)
         if user is None:
+            return None
             raise HTTPException(status_code=401, detail="Unauthorized")
         return await user.update(**data.model_dump(exclude={"id", "anonymous_token"}))
     
@@ -264,10 +265,16 @@ CREATE TABLE IF NOT EXISTS sessions (
     async def get_session_user(cls, request: Request):
         user_manager = cls.get_user_manager()
         session_token = request.cookies.get("next-auth.session-token")
+        ref_user_id = request.headers.get("x-ref-user-id")
         if not session_token:
             return None
         if user_id := request.headers.get("user_id"):
             user = await user_manager.get_by_id(int(user_id))
+            if user is not None:
+                if ref_user_id:
+                    if not user.is_admin:
+                        raise HTTPException(status_code=401, detail="Unauthorized")
+                    user = await user_manager.get_by_id(int(ref_user_id))
             return user
         user = await user_manager.get_by_session_token(request, session_token)
         if not user:

@@ -33,8 +33,12 @@ def create_auth_router(user_manager_cls: Type[AuthManager[USER_MODEL]]):
         request: Request, 
         user_manager: AuthManager = Depends(get_user_manager)
     ):
+        
+        
         if payload.anonymous_token:
             inst = await user_manager.create_user_from_anonymous(payload.anonymous_token, payload, request)
+            if inst is None:
+                inst = await user_manager.create_user(payload, request)    
         else:
             inst = await user_manager.create_user(payload, request)
         return inst
