@@ -4,6 +4,7 @@ import uuid
 from promptview.model2.base_namespace import Distance, NSRelationInfo, Namespace
 from promptview.model2.neo4j.connection import Neo4jConnectionManager
 from promptview.model2.neo4j.field_info import Neo4jFieldInfo
+from promptview.model2.neo4j.query_set import Neo4jQuerySet
 
 
 if TYPE_CHECKING:
@@ -172,7 +173,7 @@ class Neo4jNamespace(Namespace):
         """
         Start a Neo4jQuerySet for this model.
         """
-        pass
+        return Neo4jQuerySet(self.model_class, **kwargs)
 
 
     async def create_namespace(self):
