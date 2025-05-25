@@ -29,16 +29,28 @@ class PgFieldInfo(NSFieldInfo):
         self,
         name: str,
         field_type: type[Any],
-        extra: dict[str, Any] | None = None,
+        is_optional: bool = False,
+        foreign_key: bool = False,
+        is_key: bool = False,
+        is_vector: bool = False,
+        dimension: int | None = None,
+        is_primary_key: bool = False,
     ):
-        super().__init__(name, field_type, extra)
-        is_primary_key = extra and extra.get("primary_key", False)
+        super().__init__(
+            name, 
+            field_type, 
+            is_optional=is_optional,
+            foreign_key=foreign_key,
+            is_key=is_key,
+            is_vector=is_vector,
+            dimension=dimension,
+            )
         if is_primary_key and name == "id" and field_type is int:
             self.sql_type = PgFieldInfo.SERIAL_TYPE  # Use the constant from SQLBuilder
         else:            
             self.sql_type = self.build_sql_type()
-        if extra and "index" in extra:
-            self.index = extra["index"]
+        # if extra and "index" in extra:
+        #     self.index = extra["index"]
             
     def serialize(self, value: Any) -> Any:
         """Serialize the value for the database"""

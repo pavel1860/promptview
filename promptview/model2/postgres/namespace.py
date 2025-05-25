@@ -64,7 +64,13 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         self,
         name: str,
         field_type: type[Any],
-        extra: dict[str, Any] | None = None,
+        is_optional: bool = False,
+        foreign_key: bool = False,
+        is_key: bool = False,
+        is_vector: bool = False,
+        dimension: int | None = None,
+        is_primary_key: bool = False,
+        is_default_temporal: bool = False,
     ):
         """
         Add a field to the namespace.
@@ -77,17 +83,23 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         pg_field = PgFieldInfo(
             name=name,
             field_type=field_type,
-            extra=extra,
+            is_optional=is_optional,
+            foreign_key=foreign_key,
+            is_key=is_key,
+            is_vector=is_vector,
+            dimension=dimension,
+            is_primary_key=is_primary_key,
         )
-        if pg_field.is_primary_key:
-            if curr_key:= self.find_primary_key() is not None:
+        if is_primary_key:
+            if self._primary_key is not None:
                 raise ValueError(f"Primary key field {name} already exists. {curr_key} is already the primary key field.")
-        if pg_field.is_default_temporal:
+            self._primary_key = pg_field
+        if is_default_temporal:
             if self.default_temporal_field is not None:
                 raise ValueError(f"Default temporal field {name} already exists. {self.default_temporal_field} is already the default temporal field.")
             self.default_temporal_field = pg_field
-        if pg_field.is_vector:
-            self._vector_fields[name] = pg_field                
+        if pg_field.is_vector:   
+            self.vector_fields.add_vector_field(name, pg_field)
         self._fields[name] = pg_field
         return pg_field    
     
