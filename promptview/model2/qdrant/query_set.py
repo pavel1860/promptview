@@ -2,10 +2,13 @@
 
 
 
-from typing import Generic, Type, TypeVar, Callable, List, Any
+from typing import TYPE_CHECKING, Generic, Type, TypeVar, Callable, List, Any
 from promptview.model2.base_namespace import QuerySet
-from promptview.model2.model import Model
+
 from promptview.model2.qdrant.connection import QdrantConnectionManager
+
+if TYPE_CHECKING:
+    from promptview.model2.model import Model
 
 MODEL = TypeVar("MODEL", bound="Model")
 

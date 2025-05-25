@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Iterator, Type, TypeVar, Dict, List, Any, Opti
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.namespace import PostgresNamespace
 from promptview.model2.postgres.operations import PostgresOperations
+from promptview.model2.qdrant.namespace import QdrantNamespace
 from promptview.model2.versioning import ArtifactLog
 
 
@@ -63,7 +64,11 @@ class NamespaceManager:
         if not cls._namespaces:
             cls.initialize()
         if db_type == "qdrant":
-            raise NotImplementedError("Qdrant is not implemented")
+            # raise NotImplementedError("Qdrant is not implemented")
+            namespace = QdrantNamespace(
+                name=model_name,
+                namespace_manager=cls,
+            )
         elif db_type == "postgres":
             namespace = PostgresNamespace(
                 name=model_name, 
@@ -200,25 +205,27 @@ class NamespaceManager:
         # for namespace in cls._namespaces.values():
         for namespace in cls.iter_namespaces("postgres"):
             await namespace.create_namespace()
-            if namespace.is_versioned:
-                await SQLBuilder.create_foreign_key(
-                    table_name=namespace.table_name,
-                    column_name="turn_id",
-                    column_type="INTEGER",
-                    referenced_table="turns",
-                    referenced_column="id",
-                    on_delete="CASCADE",
-                    on_update="CASCADE",
-                )
-                await SQLBuilder.create_foreign_key(
-                    table_name=namespace.table_name,
-                    column_name="branch_id",
-                    column_type="INTEGER",
-                    referenced_table="branches",
-                    referenced_column="id",
-                    on_delete="CASCADE",
-                    on_update="CASCADE",
-                )
+            # if namespace.is_versioned:
+            #     await SQLBuilder.create_foreign_key(
+            #         table_name=namespace.table_name,
+            #         column_name="turn_id",
+            #         column_type="INTEGER",
+            #         referenced_table="turns",
+            #         referenced_column="id",
+            #         on_delete="CASCADE",
+            #         on_update="CASCADE",
+            #     )
+            #     await SQLBuilder.create_foreign_key(
+            #         table_name=namespace.table_name,
+            #         column_name="branch_id",
+            #         column_type="INTEGER",
+            #         referenced_table="branches",
+            #         referenced_column="id",
+            #         on_delete="CASCADE",
+            #         on_update="CASCADE",
+            #     )
+        for namespace in cls.iter_namespaces("qdrant"):
+            await namespace.create_namespace()
                 
         # cls.replace_forward_refs()
                 
@@ -399,6 +406,8 @@ class NamespaceManager:
         Drop all namespaces.
         """
         await SQLBuilder.drop_all_tables()
+        for namespace in cls.iter_namespaces("qdrant"):
+            await namespace.drop_namespace()
     
     
     @classmethod

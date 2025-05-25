@@ -147,20 +147,22 @@ def VectorField(
     *,
     dimension: int | None = None,
     vectorizer: Type[BaseVectorizer] | None = None,
+    distance: Literal["cosine", "euclid"] = "cosine",
     description: str | None = _Unset,
 ) -> Any:
     extra = {}
     
-    if vectorizer is None:
-        vectorizer = EmptyVectorizer
-        dimension = 300
-    else:
-        if not dimension:
-            dimension = vectorizer.dimension
+    # if vectorizer is None:
+    #     vectorizer = EmptyVectorizer
+    #     dimension = 300
+    # else:
+    #     if not dimension:
+    #         dimension = vectorizer.dimension
     extra["is_model_field"] = True
     extra["dimension"] = dimension
     extra["is_vector"] = True    
     extra["vectorizer"] = vectorizer
+    extra["distance"] = distance 
     return Field(default, json_schema_extra=extra, description=description)
 
 

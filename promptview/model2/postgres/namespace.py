@@ -233,15 +233,15 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                 if relation_info.primary_key == "artifact_id":
                     # can't enforce foreign key constraint on artifact_id because it's not a single record
                     continue
-                await SQLBuilder.create_foreign_key(
-                    table_name=self.table_name,
-                    column_name=relation_info.primary_key,
-                    column_type=self.get_field(relation_info.primary_key).sql_type,
-                    referenced_table=relation_info.primary_table,
-                    referenced_column=relation_info.primary_key,
-                    on_delete=relation_info.on_delete,
-                    on_update=relation_info.on_update,
-                )
+                # await SQLBuilder.create_foreign_key(
+                #     table_name=self.table_name,
+                #     column_name=relation_info.primary_key,
+                #     column_type=self.get_field(relation_info.primary_key).sql_type,
+                #     referenced_table=relation_info.primary_table,
+                #     referenced_column=relation_info.primary_key,
+                #     on_delete=relation_info.on_delete,
+                #     on_update=relation_info.on_update,
+                # )
         
         return res
     
@@ -423,6 +423,30 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
     #         record = await PostgresOperations.update(self, id, data, turn_id, branch_id )
     #     return self.pack_record(record)
     
+    async def insert(self, data: dict[str, Any]) -> dict[str, Any]:        
+        dump = self.validate_model_fields(data)
+        # if self.need_to_transform:
+            # vector_payload = await self.transform_model(model)
+            # dump.update(vector_payload)
+            
+        if dump.get(self.primary_key.name, None) is None:
+            # dump = model.model_dump()
+            if self.is_artifact:
+                dump["artifact_id"] = uuid.uuid4()                            
+            sql, values = self.build_insert_query(dump)
+        else:
+            # dump = model.model_dump()
+            if self.is_artifact:
+                dump["version"] = dump.get("version", 0) + 1
+                dump["updated_at"] = dt.datetime.now()
+                sql, values = self.build_insert_query(dump)
+            else:
+                sql, values = self.build_update_query(dump)
+            
+        record = await PGConnectionManager.fetch_one(sql, *values)
+        if record is None:
+            raise ValueError("Failed to save model")
+        return self.pack_record(dict(record))
 
     async def save(self, model: MODEL) -> MODEL:
         """

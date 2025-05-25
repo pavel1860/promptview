@@ -1,5 +1,5 @@
 import contextvars
-from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, Iterator, List, Optional, Self, Set, Tuple, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, Iterator, List, Literal, Optional, Self, Set, Tuple, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
 import uuid
 from pydantic import BaseModel, Field, PrivateAttr
 from pydantic.config import JsonDict
@@ -13,7 +13,7 @@ import datetime as dt
 from promptview.model2.context import Context
 from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.base_namespace import DatabaseType, NSFieldInfo, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet, QuerySetSingleAdapter
+from promptview.model2.base_namespace import DatabaseType, Distance, NSFieldInfo, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet, QuerySetSingleAdapter
 from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2.query_filters import SelectFieldProxy
 
@@ -113,10 +113,12 @@ def unpack_relation_extra(extra: dict[str, Any], field_origin: Type[Any], is_ver
     return primary_key, foreign_key, junction_keys, relation_type, junction_model, on_delete, on_update
 
 
-def unpack_vector_extra(extra: dict[str, Any]) -> "tuple[int, Type[BaseVectorizer] | None]":
+def unpack_vector_extra(extra: dict[str, Any]) -> "tuple[int, Type[BaseVectorizer] | None, Distance]":
     dimension = extra.get("dimension", 1536)
     vectorizer = extra.get("vectorizer", None)
-    return dimension, vectorizer
+    distance = Distance(extra.get("distance", "cosine"))
+    
+    return dimension, vectorizer, distance
 
 class ModelMeta(ModelMetaclass, type):
     """Metaclass for Model
@@ -174,7 +176,7 @@ class ModelMeta(ModelMetaclass, type):
                 vectorizer_cls = getattr(field_info, "_vectorizer_cls")
                 # register it on the class
                 ns.register_transformer(field_name, field_info, vectorizer_cls)
-                ResourceManager.register_vectorizer(field_name, vectorizer_cls)
+                # ResourceManager.register_vectorizer(field_name, vectorizer_cls)
         
         cls_obj = super().__new__(cls, name, bases, dct)
         
@@ -240,18 +242,41 @@ class ModelMeta(ModelMetaclass, type):
                 # Skip adding this field to the namespace
                 continue
             elif extra.get("is_vector", False):
-                dimension, vectorizer = unpack_vector_extra(extra)
-                if vectorizer is None:
-                    raise ValueError(f"vectorizer is required for vector field: {field_type} on Model {name}")
-                if dimension is None:
-                    raise ValueError(f"dimension is required for vector field: {field_type} on Model {name}")
-                if not ns.get_transformer(field_name):
-                    raise ValueError(f"transformer is required for vector field: {field_type} on Model {name}")
-                ResourceManager.register_vectorizer(field_name, vectorizer)
-                
+                dimension, vectorizer, distance = unpack_vector_extra(extra)
+                # if vectorizer is None:
+                    # raise ValueError(f"vectorizer is required for vector field: {field_type} on Model {name}")
+                # if dimension is None:
+                    # raise ValueError(f"dimension is required for vector field: {field_type} on Model {name}")
+                # if not ns.get_transformer(field_name):
+                    # raise ValueError(f"transformer is required for vector field: {field_type} on Model {name}")
+                # ResourceManager.register_vectorizer(field_name, vectorizer)
+                transformer = ns.vector_fields.get_transformer(field_name)
+                dimension = transformer.vectorizer_cls.dimension
+                ns.add_field(
+                    field_name, 
+                    field_type, 
+                    dimension=dimension, 
+                    distance=distance,
+                    is_optional=False,
+                    foreign_key=False,
+                    is_key=False,
+                    is_vector=True,
+                    is_primary_key=False,
+                    is_default_temporal=False,
+                )
                 NamespaceManager.register_extension(db_type, "vector")
             else:
-                ns.add_field(field_name, field_type, extra)
+                # ns.add_field(field_name, field_type, **extra)
+                ns.add_field(
+                    field_name, 
+                    field_type, 
+                    is_optional=extra.get("is_optional", False),
+                    foreign_key=extra.get("foreign_key", False),
+                    is_key=extra.get("is_key", False),
+                    is_vector=False,
+                    is_primary_key=extra.get("primary_key", False),
+                    is_default_temporal=extra.get("is_default_temporal", False),
+                )
             
             # Add field to namespace
             field_extras[field_name] = extra
@@ -318,8 +343,9 @@ class Model(BaseModel, metaclass=ModelMeta):
     """
     # Namespace reference - will be set by the metaclass
     _is_base: bool = True
+    _db_type: Literal["postgres", "qdrant"] = "postgres"
     _namespace_name: str = PrivateAttr(default=None)
-    _db_type: DatabaseType = PrivateAttr(default="postgres")
+    # _db_type: DatabaseType = PrivateAttr(default="postgres")
     _is_versioned: bool = PrivateAttr(default=False)
     _relations: Dict[str, Dict[str, Any]] = PrivateAttr(default_factory=dict) 
     _ctx_token: contextvars.Token | None = PrivateAttr(default=None)    
@@ -428,10 +454,15 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def save(self, *args, **kwargs) -> Self:
         """
         Save the model instance to the database
-        """        
+        """
                 
         ns = self.get_namespace()        
-        result = await ns.save(self)
+        # result = await ns.save(self)
+        dump = self.model_dump()
+        if ns.need_to_transform:
+            vectors = await ns.vector_fields.transform(self)
+            dump.update(vectors)
+        result = await ns.insert(dump)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             setattr(self, key, value)

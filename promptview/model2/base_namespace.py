@@ -550,6 +550,9 @@ class VectorFields(Generic[FIELD_INFO]):
     def get(self, field_name: str) -> FIELD_INFO:
         return self.fields[field_name]
     
+    def get_transformer(self, field_name: str) -> Transformer:
+        return self.transformers[field_name]
+    
     def __iter__(self) -> Iterator[FIELD_INFO]:
         return iter(self.fields.values())
     

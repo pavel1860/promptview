@@ -1,14 +1,17 @@
-from typing import Any, Optional, Type, List
+from typing import TYPE_CHECKING, Any, Optional, Type, List
 from typing_extensions import TypeVar
 from promptview.model2.base_namespace import Distance, Namespace, NSFieldInfo, QuerySet, QuerySetSingleAdapter
-from promptview.model2.namespace_manager import NamespaceManager
+
 from promptview.model2.qdrant.field_info import QdrantFieldInfo
 from promptview.model2.qdrant.query_set import QdrantQuerySet  # Placeholder for later
 from promptview.model2.qdrant.connection import QdrantConnectionManager  # Placeholder for later
-from promptview.model2.model import Model
+
 from qdrant_client.models import PointStruct
 from qdrant_client.http import models
 import uuid
+if TYPE_CHECKING:
+    from promptview.model2.namespace_manager import NamespaceManager
+    from promptview.model2.model import Model
 
 MODEL = TypeVar("MODEL", bound="Model")
 
@@ -102,9 +105,9 @@ class QdrantNamespace(Namespace[MODEL, QdrantFieldInfo]):
 
         dump = namespace.validate_model_fields(data)
 
-        vectors = {}
-        if namespace.need_to_transform:
-            vectors = await namespace.vector_fields.transform(data)
+        dump, vectors = self.vector_fields.split_vector_data(dump)
+        # if namespace.need_to_transform:
+        #     vectors = await namespace.vector_fields.transform(data)
             # dump.update(vector_payload)
 
         # point_id = dump.get(namespace.primary_key.name)
@@ -151,6 +154,7 @@ class QdrantNamespace(Namespace[MODEL, QdrantFieldInfo]):
             return None
 
         return self.pack_model(result[0])
+    
     
     def pack_model(self, record: models.Record) -> dict[str, Any]:
         dump = {}
@@ -209,7 +213,7 @@ class QdrantNamespace(Namespace[MODEL, QdrantFieldInfo]):
 
     async def drop_namespace(self):
         """Drop Qdrant collection"""
-        return await self.client.delete_collection(self.name)
+        return await self.client.delete_collection(collection_name=self.name)
     
     
     async def recreate_namespace(self):
