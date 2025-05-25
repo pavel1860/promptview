@@ -48,7 +48,14 @@ def get_dct_private_attributes(dct: dict[str, Any], key: str, default: Any=None)
 
 
 def build_namespace(model_cls_name: str, db_type: DatabaseType = "postgres"):
-    return f"{camel_to_snake(model_cls_name)}s" if db_type == "postgres" else model_cls_name
+    if db_type == "postgres":
+        return f"{camel_to_snake(model_cls_name)}s"
+    elif db_type == "neo4j":
+        return model_cls_name
+    elif db_type == "qdrant":
+        return model_cls_name
+    else:
+        raise ValueError(f"Invalid database type: {db_type}")
 
 
 ARTIFACT_RESERVED_FIELDS = ["id", "artifact_id", "version", "branch_id", "turn_id", "created_at", "updated_at", "deleted_at"]
@@ -140,7 +147,7 @@ class ModelMeta(ModelMetaclass, type):
         # Get model name and namespace
         model_name = name
         db_type = get_dct_private_attributes(dct, "_db_type", "postgres")
-        namespace_name = get_dct_private_attributes(dct, "_namespace_name", build_namespace(model_name))
+        namespace_name = get_dct_private_attributes(dct, "_namespace_name", build_namespace(model_name, db_type))
         
         
         # Check if this is -a repo model or an artifact model
@@ -343,7 +350,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     """
     # Namespace reference - will be set by the metaclass
     _is_base: bool = True
-    _db_type: Literal["postgres", "qdrant"] = "postgres"
+    _db_type: Literal["postgres", "qdrant", "neo4j"] = "postgres"
     _namespace_name: str = PrivateAttr(default=None)
     # _db_type: DatabaseType = PrivateAttr(default="postgres")
     _is_versioned: bool = PrivateAttr(default=False)

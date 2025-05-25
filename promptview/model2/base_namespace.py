@@ -15,7 +15,7 @@ import datetime as dt
 from promptview.utils.model_utils import is_list_type, unpack_list_model
 from promptview.utils.string_utils import camel_to_snake
 
-DatabaseType = Literal["qdrant", "postgres"]
+DatabaseType = Literal["qdrant", "postgres", "neo4j"]
 
 if TYPE_CHECKING:
     from promptview.model2.namespace_manager import NamespaceManager
