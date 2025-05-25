@@ -93,6 +93,7 @@ def RelationField(
     on_delete: str = "CASCADE",
     on_update: str = "CASCADE",
     description: str | None = _Unset,
+    name: str | None = None,
     # **kwargs
 ) -> Any:
     """
@@ -107,8 +108,8 @@ def RelationField(
     """
     # Create extra metadata for the field
     from promptview.model2.relation import Relation
-    if not primary_key and not foreign_key and not junction_keys:
-        raise ValueError("primary_key or foreign_key or junction_keys must be provided")
+    # if not primary_key and not foreign_key and not junction_keys:
+        # raise ValueError("primary_key or foreign_key or junction_keys must be provided")
     if not default:
         # default = []
         default = Relation()
@@ -123,6 +124,7 @@ def RelationField(
     extra["on_delete"] = on_delete
     extra["on_update"] = on_update
     extra["junction_model"] = junction_model
+    extra["name"] = name
     
     if junction_keys:
         if not primary_key or not foreign_key:

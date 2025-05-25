@@ -139,6 +139,8 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         primary_key: str,
         foreign_key: str,
         foreign_cls: "Type[Model]",
+        junction_cls: Type["Model"] | None = None,
+        junction_keys: list[str] | None = None,
         on_delete: str = "CASCADE",
         on_update: str = "CASCADE",
     ) -> NSRelationInfo:
@@ -161,6 +163,8 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             primary_key=primary_key,
             foreign_key=foreign_key,
             foreign_cls=foreign_cls,
+            junction_cls=junction_cls,
+            junction_keys=junction_keys,
             on_delete=on_delete,
             on_update=on_update,
         )

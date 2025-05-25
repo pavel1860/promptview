@@ -1,7 +1,7 @@
 # neo4j_namespace.py
 from typing import TYPE_CHECKING, Any
 import uuid
-from promptview.model2.base_namespace import Distance, Namespace
+from promptview.model2.base_namespace import Distance, NSRelationInfo, Namespace
 from promptview.model2.neo4j.connection import Neo4jConnectionManager
 from promptview.model2.neo4j.field_info import Neo4jFieldInfo
 
@@ -57,12 +57,33 @@ class Neo4jNamespace(Namespace):
         return field
         
 
-    def add_relation(self, name, primary_key, foreign_key, foreign_cls, on_delete="CASCADE", on_update="CASCADE"):
+    def add_relation(
+        self, 
+        name, 
+        primary_key, 
+        foreign_key, 
+        foreign_cls, 
+        junction_cls=None,
+        junction_keys=None,
+        on_delete="CASCADE", 
+        on_update="CASCADE"):
         """
         Register a relationship type in Neo4j.
         """
         # Store in self._relations, build NSRelationInfo
-        pass
+        relation_info = NSRelationInfo(
+            namespace=self,
+            name=name,
+            primary_key=primary_key,
+            foreign_key=foreign_key,
+            foreign_cls=foreign_cls,
+            junction_cls=junction_cls,
+            junction_keys=junction_keys,
+            on_delete=on_delete,
+            on_update=on_update,
+        )
+        self._relations[name] = relation_info
+        return relation_info
 
     def add_many_relation(self, name, primary_key, foreign_key, foreign_cls, junction_cls, junction_keys, on_delete="CASCADE", on_update="CASCADE"):
         """

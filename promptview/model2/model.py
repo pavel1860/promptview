@@ -110,12 +110,12 @@ def unpack_relation_extra(extra: dict[str, Any], field_origin: Type[Any], is_ver
         else:
             relation_type = "one_to_many"
     
-    if not foreign_key:
-        raise ValueError("foreign_key is required for one_to_many relation")
+    # if not foreign_key:
+    #     raise ValueError("foreign_key is required for one_to_many relation")
     
-    print(primary_key, foreign_key, on_delete, on_update)
-    if not foreign_key:
-        raise ValueError("foreign_key is required for one_to_many relation")
+    # print(primary_key, foreign_key, on_delete, on_update)
+    # if not foreign_key:
+    #     raise ValueError("foreign_key is required for one_to_many relation")
     
     return primary_key, foreign_key, junction_keys, relation_type, junction_model, on_delete, on_update
 
@@ -214,36 +214,46 @@ class ModelMeta(ModelMetaclass, type):
                         raise ValueError(f"foreign_cls must be a subclass of Model: {foreign_cls}")
                 if not foreign_cls:
                     raise ValueError(f"foreign_cls is required for relation: {field_type} on Model {name}")
-                    
-                primary_key, foreign_key, junction_keys, relation_type, junction_cls, on_delete, on_update = unpack_relation_extra(extra, field_origin, ns.is_versioned, ns.is_artifact)
+                               
+                relation_field = ns.add_relation(
+                    name=extra.get("name") or field_name,
+                    primary_key=extra.get("primary_key") or "id",
+                    foreign_key=extra.get("foreign_key") or "id",
+                    foreign_cls=foreign_cls,
+                    junction_keys=extra.get("junction_keys", None),
+                    junction_cls=extra.get("junction_model", None),                    
+                    on_delete=extra.get("on_delete") or "CASCADE",
+                    on_update=extra.get("on_update") or "CASCADE",
+                )    
+                # primary_key, foreign_key, junction_keys, relation_type, junction_cls, on_delete, on_update = unpack_relation_extra(extra, field_origin, ns.is_versioned, ns.is_artifact)
                                 
-                if relation_type == "one_to_one" or relation_type == "one_to_many":                    
-                    # foreign_cls = get_one_to_many_relation_model(field_type)                    
-                    relation_field = ns.add_relation(
-                        name=field_name,
-                        primary_key=primary_key,
-                        foreign_key=foreign_key,
-                        foreign_cls=foreign_cls,
-                        on_delete=on_delete,
-                        on_update=on_update,
-                    )
+                # if relation_type == "one_to_one" or relation_type == "one_to_many":                    
+                #     # foreign_cls = get_one_to_many_relation_model(field_type)                    
+                #     relation_field = ns.add_relation(
+                #         name=field_name,
+                #         primary_key=primary_key,
+                #         foreign_key=foreign_key,
+                #         foreign_cls=foreign_cls,
+                #         on_delete=on_delete,
+                #         on_update=on_update,
+                #     )
 
-                else:  # many to many relation
-                    if junction_cls is None:
-                        raise ValueError(f"junction_cls is required for many to many relation: {field_type} on Model {name}")
-                    if not junction_keys:
-                        raise ValueError(f"junction_keys is required for many to many relation: {field_type} on Model {name}")
+                # else:  # many to many relation
+                #     if junction_cls is None:
+                #         raise ValueError(f"junction_cls is required for many to many relation: {field_type} on Model {name}")
+                #     if not junction_keys:
+                #         raise ValueError(f"junction_keys is required for many to many relation: {field_type} on Model {name}")
                     
-                    relation_field = ns.add_many_relation(
-                        name=field_name,
-                        primary_key=primary_key,
-                        foreign_key=foreign_key,
-                        foreign_cls=foreign_cls,
-                        junction_cls=junction_cls,
-                        junction_keys=junction_keys,
-                        on_delete=on_delete,
-                        on_update=on_update,
-                    )                
+                #     relation_field = ns.add_many_relation(
+                #         name=field_name,
+                #         primary_key=primary_key,
+                #         foreign_key=foreign_key,
+                #         foreign_cls=foreign_cls,
+                #         junction_cls=junction_cls,
+                #         junction_keys=junction_keys,
+                #         on_delete=on_delete,
+                #         on_update=on_update,
+                #     )                
                 
                 relations[field_name] = relation_field
                 # Skip adding this field to the namespace
@@ -515,7 +525,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         if isinstance(relation, NSManyToManyRelationInfo):
             result = await model.save()
             junction = relation.inst_junction_model_from_models(self, result, kwargs)
-            junction = await junction.save()            
+            junction = await junction.save()
         else:
             key = getattr(self, relation.primary_key)
             setattr(model, relation.foreign_key, key)

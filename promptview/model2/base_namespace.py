@@ -257,7 +257,10 @@ class NSFieldInfo:
 
 MODEL = TypeVar("MODEL", bound="Model")
 FOREIGN_MODEL = TypeVar("FOREIGN_MODEL", bound="Model")
-class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
+JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
+
+
+class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL]):
     name: str
     foreign_cls: Type[FOREIGN_MODEL]
     primary_key: str
@@ -274,6 +277,8 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
         primary_key: str,
         foreign_key: str,
         foreign_cls: Type[FOREIGN_MODEL],
+        junction_keys: list[str] | None = None,
+        junction_cls: Type[JUNCTION_MODEL] | None = None,        
         on_delete: str = "CASCADE", 
         on_update: str = "CASCADE",        
     ):
@@ -281,6 +286,8 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
         self.primary_key = primary_key
         self.foreign_key = foreign_key
         self.foreign_cls = foreign_cls
+        self.junction_keys = junction_keys
+        self.junction_cls = junction_cls
         self.on_delete = on_delete
         self.on_update = on_update
         self.namespace = namespace
@@ -314,6 +321,35 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
         # return self.foreign_cls.get_namespace()
     
     
+    @property
+    def junction_table(self) -> str:
+        return self.junction_namespace.table_name
+
+    @property  
+    def junction_namespace(self) -> "Namespace":
+        from promptview.model2.namespace_manager import NamespaceManager
+        return NamespaceManager.get_namespace_by_model_cls(self.junction_cls)
+
+    @property
+    def junction_primary_key(self) -> str:
+        return self.junction_keys[0]
+    
+    @property
+    def junction_foreign_key(self) -> str:
+        return self.junction_keys[1]
+    
+    def inst_junction_model(self, data: dict[str, Any]) -> JUNCTION_MODEL:
+        return self.junction_namespace.instantiate_model(data)
+    
+    def inst_junction_model_from_models(self, primary_model: MODEL, forreign_model: FOREIGN_MODEL, data: dict[str, Any]) -> JUNCTION_MODEL:
+        data.update({
+            self.junction_primary_key: getattr(primary_model, self.primary_key),
+            self.junction_foreign_key: getattr(forreign_model, self.foreign_key),
+        })
+        return self.inst_junction_model(data)
+    
+    
+    
     def deserialize(self, value: Any) -> Any:
         if isinstance(value, str):
             json_value = json.loads(value)
@@ -338,7 +374,7 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
     
 JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
 
-class NSManyToManyRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL], NSRelationInfo[MODEL, FOREIGN_MODEL]):
+class NSManyToManyRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL], NSRelationInfo[MODEL, FOREIGN_MODEL, JUNCTION_MODEL]):
     """Many to many relation"""
     junction_cls: Type[JUNCTION_MODEL]
     junction_keys: list[str]
@@ -851,7 +887,9 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         name: str,
         primary_key: str,
         foreign_key: str,
-        foreign_cls: Type["Model"],        
+        foreign_cls: Type["Model"], 
+        junction_cls: Type["Model"] | None = None,
+        junction_keys: list[str] | None = None,       
         on_delete: str = "CASCADE",
         on_update: str = "CASCADE",
     ):
