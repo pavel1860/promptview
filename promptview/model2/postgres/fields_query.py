@@ -109,7 +109,12 @@ class PgFieldInfo(NSFieldInfo):
         elif self.is_vector:
             return np.fromstring(value.strip("[]"), sep=",")
         elif issubclass(self.data_type, BaseModel):
-            return self.data_type.model_validate_json(value)
+            if type(value) is str:
+                return self.data_type.model_validate_json(value)
+            else:
+                if self.is_list:
+                    return [self.data_type.model_validate(item) for item in value]
+                return self.data_type.model_validate(value)
         return value
             
     

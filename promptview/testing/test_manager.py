@@ -1,11 +1,12 @@
 import enum
 from typing import List
-from promptview.model.head_model import HeadModel
+# from promptview.model.head_model import HeadModel
 # from promptview.model.model import Model, Relation
 # from promptview.model.fields import ModelField, ModelRelation
-from promptview.model import Model, Relation, ModelField, RelationField
+from promptview.model2 import Model, Relation, ModelField, RelationField
 from pydantic import BaseModel, PrivateAttr
 
+from promptview.model2.fields import KeyField
 from promptview.testing.evaluator import evaluate_prompt
 
 
@@ -22,23 +23,21 @@ class TurnResult(BaseModel):
     score: float = ModelField(default=-1)
 
 
-class TestRunStatus(enum.Enum):
+class TestRunStatus(enum.StrEnum):
     STARTED = "started"
     SUCCESS = "success"
     FAILURE = "failure"
 
 
 
-class TestRun(Model, HeadModel):
+class TestRun(Model):
+    id: int = KeyField(primary_key=True)
     message: str = ModelField(default="")
     results: list[TurnResult] = ModelField(default=[])
     final_score: float = ModelField(default=-1)
     status: TestRunStatus = ModelField(default=TestRunStatus.STARTED)
-    test_case_id: int = ModelField(default=None)
-        
-    class Config:
-        database_type="postgres"
-        is_detached_head=True
+    test_case_id: int = ModelField(default=None, foreign_key=True)
+    branch_id: int = ModelField()
         
     def add_turn(self, output: str):
         self.results.append(TurnResult(output=output))
@@ -73,16 +72,15 @@ class TestInputs(BaseModel):
     turns: List[TestTurn] = ModelField(default=[])
 
 
-class TestCase(Model, HeadModel):
+class TestCase(Model):
+    id: int = KeyField(primary_key=True)
     title: str = ModelField(default="")
     description: str = ModelField(default="")
-    input_turns: List[TestTurn] = ModelField(default=[])
-        
-    test_runs: Relation[TestRun] = RelationField(key="test_case_id")
+    input_turns: List[TestTurn] = ModelField(default=[])        
+    branch_id: int = ModelField(default=1)
+    turn_id: int = ModelField(default=1)
+    test_runs: Relation[TestRun] = RelationField(foreign_key="test_case_id")
     
-    class Config:
-        database_type="postgres"
-        is_detached_head=True
 
 
 
@@ -116,7 +114,7 @@ class TestManager:
     def head_id(self):
         if not self._test_run:
             raise ValueError("Test run not initialized")
-        return self._test_run.head.id
+        return self._test_run.id
         
     @property
     def status(self):
@@ -146,7 +144,7 @@ class TestManager:
         self._test_case = await TestCase.get(self._test_case_id)
         if not self._test_case:
             raise Exception("Test case not found")
-        self._test_run = await self._test_case.test_runs.add(TestRun())
+        self._test_run = await self._test_case.add(TestRun())
         await self._test_run.head.branch_from(head=self._test_case.head)
         self._test_run
     

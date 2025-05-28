@@ -434,7 +434,17 @@ class Model(BaseModel, metaclass=ModelMeta):
         result = await ns.save(self)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
-            setattr(self, key, value)
+            field = ns.get_field(key, False)
+            if field is None:
+                rel = ns.get_relation(key)
+                if rel is None:
+                    raise ValueError(f"Field {key} not found in namespace {ns.table_name}")
+                setattr(self, key, value)
+            else:
+                dv = field.deserialize(value)
+                setattr(self, key, dv)
+            # setattr(self, key, value)
+        
         
         # Update relation instance IDs
         self._update_relation_instance()
