@@ -309,7 +309,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                     placeholders.append(placeholder)
                     values.append(processed_value)
                 else:
-                    raise ValueError(f"Field {field.name} is not valid")
+                    raise ValueError(f'Field "{field.name}" of type {field.field_type} is not valid for insert: {value} in "{self.table_name}"')
         
         
         sql = (

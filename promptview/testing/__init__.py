@@ -1,13 +1,13 @@
-from .test_manager import TestCase, TestRun, TestTurn, TestInputs
-from .evaluator import Evaluator
+from .test_models import TestCase, TestRun, InputTurn, TurnEval
+from .evaluator import eval_prompt
 
 
 
 
 __all__ = [
     "TestCase",
-    "TestTurn",
-    "TestInputs",
     "TestRun", 
-    "Evaluator"
+    "InputTurn",
+    "TurnEval",
+    "eval_prompt"
 ]

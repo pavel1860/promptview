@@ -140,7 +140,7 @@ class BlockList(list["Block"], Generic[MAP_RET]):
             tag = [tag]
         find_results = []
         for item in self: 
-            if any(t in item.tags for t in tag):
+            if any(t in item.tags or t == item.role for t in tag):
                 find_results.append(item)
             else:
                 find_results.extend(item.find(tag, default))
@@ -172,7 +172,7 @@ class BlockList(list["Block"], Generic[MAP_RET]):
         """
         if isinstance(tag, str):
             tag = [tag]
-        return BlockList([item for item in self if not any(tag in item.tags for tag in tag)])
+        return BlockList([item for item in self if not any(tag in item.tags + [item.role] for tag in tag)])
     
     def split(self, pivot_tag: str) -> tuple["BlockList", "Block", "BlockList"]:
         """
@@ -372,7 +372,7 @@ class Block:
         sel_items = BlockList()
         for item in self.items:
             for k in tag:
-                if k in item.tags:
+                if k in item.tags or k == item.role:
                     sel_items.append(item)
                     break
             else:
@@ -387,7 +387,7 @@ class Block:
         """
         if isinstance(tag, str):
             tag = [tag]
-        return BlockList([item for item in self if not any(tag in item.tags for tag in tag)])
+        return BlockList([item for item in self if not any(tag in item.tags + [item.role] for tag in tag)])
     
     def _iter(self, max_depth: int, depth: int = 1) -> Iterator["Block"]:
         if depth > max_depth:
@@ -406,7 +406,7 @@ class Block:
         pivot_block = None
         current = pre_blocks
         for item in self.iter(1):
-            if pivot_tag in item.tags:
+            if pivot_tag in item.tags or pivot_tag == item.role:
                 pivot_block = item
                 current = post_blocks
                 continue
@@ -519,6 +519,8 @@ class Block:
         """
         Append a new item to the block
         """
+        if isinstance(content, list):
+            raise ValueError("Cannot use list as single line content")
         self.append(content)
         return self    
     
@@ -526,6 +528,8 @@ class Block:
         """
         Append a new item to the block
         """
+        if isinstance(content, list):
+            raise ValueError("Cannot use list as single line content")
         self.append(content)
         return self
     
