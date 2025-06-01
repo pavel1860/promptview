@@ -13,10 +13,6 @@ from promptview.model2.version_control_models import TurnModel
 from promptview.model2 import Model, ModelField
 
 
-class InputTurn(BaseModel):
-    input: str = ModelField(default="")
-    expected: List[str] = ModelField(default=[])
-    evaluators: List[str] = ModelField(default=[])
 
 
 
@@ -42,7 +38,14 @@ class TestRun(Model):
     score: float | None = ModelField(default=None, description="the score of the test run")
     status: Literal["running", "success", "failure"] = ModelField(default="running", description="the status of the test run")
     evaluations: Relation[TurnEval] = RelationField(foreign_key="test_run_id")
-    
+
+
+
+class InputTurn(BaseModel):
+    input: str = ModelField(default="")
+    expected: List[str] = ModelField(default=[])
+    evaluators: List[str] = ModelField(default=[])
+   
 
 class TestCase(Model):
     id: int = KeyField(primary_key=True)

@@ -223,35 +223,6 @@ class Branch(Model):
     children: Relation["Branch"] = RelationField(foreign_key="forked_from_branch_id")
     
     
-    # async def fork(self, index: int | None = None, name: str | None = None, turn: Turn | None = None):
-    #     if turn is not None:
-    #         index = turn.index
-    #     elif index is None:
-    #         raise VersioningError("Index is required")
-        
-        
-    #     branch = await Branch(
-    #         forked_from_index=index,
-    #         current_index=index + 1,
-    #         forked_from_branch_id=self.id,
-    #         name=name,
-    #     ).save()
-    #     return branch
-    
-    # @asynccontextmanager
-    # async def fork(self, turn: Turn) -> AsyncGenerator["Branch", None]:
-    #     index = turn.index
-    #     name = turn.message
-                
-    #     branch = await Branch(
-    #         forked_from_index=index,
-    #         forked_from_turn_id=turn.id,
-    #         current_index=index + 1,
-    #         forked_from_branch_id=self.id,
-    #         name=name,
-    #     ).save()
-    #     yield branch
-    
     @contextcallable
     async def fork(self, turn: Turn, name: str | None = None):
         index = turn.index
@@ -463,24 +434,7 @@ class TurnModel(Model):
     @classmethod
     def versioned_cte(cls, cte: "SelectQuerySet[Turn]") -> "SelectQuerySet[Turn]":
         return cte
-    
-    
-    # @classmethod
-    # def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
-    #     """
-    #     Create a query for this model
-        
-    #     Args:
-    #         branch: Optional branch ID to query from
-    #     """   
-    #     branch_id = get_branch_id(branch)
-    #     ns = cls.get_namespace()
-    #     query = ns.query(**kwargs)
-    #     query = (
-    #         query.with_cte("turn_hierarchy", cls.versioned_cte(create_versioned_cte(branch_id, status, turns)))
-    #         .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
-    #     )
-    #     return query
+ 
     
     @classmethod
     def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
@@ -512,24 +466,6 @@ class ArtifactModel(TurnModel):
     version: int = ModelField(default=1)
     
     
-    # async def save(self, turn: int | Turn | None = None, branch: int | Branch | None = None):
-    #     """
-    #     Save the artifact model instance to the database
-        
-    #     Args:
-    #         branch: Optional branch ID to save to
-    #         turn: Optional turn ID to save to
-    #     """        
-    #     ns = self.get_namespace()
-    #     result = await ns.save(self)
-    #     # Update instance with returned data (e.g., ID)
-    #     for key, value in result.items():
-    #         setattr(self, key, value)
-        
-    #     # Update relation instance IDs
-    #     self._update_relation_instance()
-        
-    #     return self
     
     @classmethod
     async def get_artifact(cls: Type[Self], artifact_id: uuid.UUID, version: int | None = None) -> Self:
@@ -555,26 +491,6 @@ class ArtifactModel(TurnModel):
         return result
 
     
-    # @classmethod
-    # def query2(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus | None = None, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
-    #     """
-    #     Create a query for this model
-    
-    #     Args:
-    #         branch: Optional branch ID to query from
-    #     """   
-    #     branch_id = get_branch_id(branch)
-    #     ns = cls.get_namespace()
-    #     es_query = ns.query(**kwargs)
-    #     es_query = (
-    #         es_query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status, turns))
-    #         .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
-    #         .distinct_on("artifact_id")
-    #         .order_by("-artifact_id", "-version")
-    #     )        
-    #     query = SelectQuerySet(cls).from_subquery(es_query)
-    #     # query.join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
-    #     return query
     
     
     @classmethod

@@ -17,7 +17,7 @@ from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthManager, AuthModel
 from promptview.model2 import ArtifactModel, Model, NamespaceManager, Context
 from promptview.context.model_context import CtxRequest, ModelCtx
-from promptview.testing.test_manager import TestManager
+# from promptview.testing.test_manager import TestManager
 from promptview.api.auth_router import create_auth_router
 from promptview.api.artifact_log_api import router as artifact_log_router
 from promptview.api.testing_router import connect_testing_routers

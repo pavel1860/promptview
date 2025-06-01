@@ -6,8 +6,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
-from promptview.model.query import parse_query_params
 from promptview.context.model_context import CtxRequest, ModelCtx
+from promptview.model2.postgres.query_url_params import parse_query_params
 from promptview.model2.query_filters import QueryFilter, QueryListType
 from promptview.api.utils import build_model_context_parser, get_head, query_filters, unpack_int_env_header, Head
 from promptview.model2.model import Model
@@ -34,22 +34,26 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
         ctx: CTX_MODEL = Depends(get_context)
     ):
         """List all models with pagination"""
-        async with ctx:        
+        async with ctx:  
+            
+            # if model.__name__ == "Turn":
+            #     print("Turn")
             query = model.query(status=TurnStatus.COMMITTED)
                     
             model_query = query.limit(limit).offset(offset).order_by("-created_at")
             if filters:
-                model_query = model_query.set_filter(filters)
+                condition = parse_query_params(model, filters, model_query.from_table)
+                model_query.query.where(condition)
             # model_query._filters = filters
             instances = await model_query
             return [instance.model_dump() for instance in instances]       
     
-    @router.get("/{artifact_id}")
-    async def get_artifact(ctx: CTX_MODEL):
+    @router.get("/record/{record_id}")
+    async def get_artifact(record_id: int):
         """Get a specific artifact by ID"""
-        artifact = await model.get_artifact(ctx.artifact_id)
+        artifact = await model.get(record_id)
         if not artifact:
-            raise HTTPException(status_code=404, detail="Artifact not found")
+            raise HTTPException(status_code=404, detail="Model not found")
         return artifact
     
     

@@ -8,9 +8,10 @@ import json
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
 from promptview.context.model_context import ModelCtx
+from promptview.model2.postgres.query_url_params import parse_query_params
 from promptview.model2.versioning import ArtifactLog, Partition
 from pydantic import BaseModel
-from promptview.model2.query_filters import QueryFilter, parse_query_params
+# from promptview.model2.query_filters import QueryFilter, parse_query_params
 
 
 
@@ -29,11 +30,18 @@ def unpack_int_env_header(request: Request, field: str, default: int | None = No
     return int(value)
 
 
-def query_filters(request: Request) -> QueryFilter | None:
+def query_filters(request: Request):
+    # filters = request.query_params.get("filter.filter")
     filters = request.query_params.get("filter")
     if filters:
-        return parse_query_params(json.loads(filters))
+        return json.loads(filters)
     return None
+
+# def query_filters(request: Request) -> QueryFilter | None:
+#     filters = request.query_params.get("filter.filter")
+#     if filters:
+#         return parse_query_params(json.loads(filters))
+#     return None
 
 
 def build_head_parser(model: Type[BaseModel]):

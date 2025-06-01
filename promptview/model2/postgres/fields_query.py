@@ -103,7 +103,10 @@ class PgFieldInfo(NSFieldInfo):
         if self.is_list and type(value) is str:
             return json.loads(value)
         elif self.data_type is dict:
-            return json.loads(value)        
+            if type(value) is str:
+                return json.loads(value)
+            else:
+                return value
         elif self.is_enum and not self.is_literal:
             return self.data_type(value)
         elif self.is_vector:
