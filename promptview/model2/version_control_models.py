@@ -160,12 +160,42 @@ class Turn(Model):
         self.status = TurnStatus.REVERTED
         await self.save()
         
+    async def __aenter__(self):
+        ns = self.get_namespace()
+        self._ctx_token = ns.set_ctx(self)
+        return self
+        
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        if exc_type is not None:
+            await self.revert()
+        else:
+            await self.commit()
+        
     # instantiation methods
+    # @classmethod
+    # def start(cls, branch: "Branch | int | None" = None, **kwargs) -> TurnContext:
+    #     branch = Branch.current()
+    #     if branch is None:
+    #         raise VersioningError("Branch is required")
+    #     ns = cls.get_namespace()
+    #     fields = ns.iter_fields(keys=False, is_optional=False, exclude={"created_at", "index", "status", "branch_id"})
+    #     for field in fields:
+    #         if field.is_foreign_key:
+    #             value = ns.get_foreign_key_ctx_value(field)
+    #             if not field.validate_value(value):
+    #                 raise VersioningError(f"Foreign key field {field.name} is required")
+    #             kwargs[field.name] = value
+    #         else:
+    #             raise VersioningError(f"missing required field {field.name} for turn")
+            
+    #     return TurnContext(branch=branch, init_params=kwargs)
+    
     @classmethod
-    def start(cls, branch: "Branch | int | None" = None, **kwargs) -> TurnContext:
+    @contextcallable
+    async def start(cls, branch: "Branch | int | None" = None, **kwargs) -> "Turn":
         branch = Branch.current()
         if branch is None:
-            raise VersioningError("Branch is required")
+            raise VersioningError("Branch is required")        
         ns = cls.get_namespace()
         fields = ns.iter_fields(keys=False, is_optional=False, exclude={"created_at", "index", "status", "branch_id"})
         for field in fields:
@@ -176,8 +206,8 @@ class Turn(Model):
                 kwargs[field.name] = value
             else:
                 raise VersioningError(f"missing required field {field.name} for turn")
-            
-        return TurnContext(branch=branch, init_params=kwargs)
+        turn = await branch.add_turn(**kwargs)
+        return turn
     
     @classmethod
     async def create(cls, branch: "Branch | int | None" = None, **kwargs):

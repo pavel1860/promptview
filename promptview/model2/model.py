@@ -403,15 +403,16 @@ class Model(BaseModel, metaclass=ModelMeta):
                 relation.set_primary_instance(self)
                 
     def model_dump(self, *args, **kwargs):
-        relation_fields = self._get_relation_fields()
+        # relation_fields = self._get_relation_fields()
         exclude = kwargs.get("exclude", set())
         if not isinstance(exclude, set):
             exclude = set()
-        exclude.update(relation_fields)
+        # exclude.update(relation_fields)
         if len(exclude) > 0:
             kwargs["exclude"] = exclude
         res = super().model_dump(*args, **kwargs)
         return res
+    
                 
     def _payload_dump(self):
         relation_fields = self._get_relation_fields()
