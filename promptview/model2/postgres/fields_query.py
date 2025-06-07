@@ -11,7 +11,7 @@ from promptview.model2.vectors import Vector
 from promptview.utils.model_utils import get_list_type, is_list_type, make_json_serializable
 from promptview.model2.base_namespace import NSFieldInfo
 if TYPE_CHECKING:
-    from promptview.model2.base_namespace import Model
+    from promptview.model2.base_namespace import Model, Namespace
     
     
 PgIndexType = Literal["btree", "hash", "gin", "gist", "spgist", "brin"]   
@@ -30,8 +30,9 @@ class PgFieldInfo(NSFieldInfo):
         name: str,
         field_type: type[Any],
         extra: dict[str, Any] | None = None,
+        namespace: "Namespace | None" = None,
     ):
-        super().__init__(name, field_type, extra)
+        super().__init__(name, field_type, extra, namespace)
         is_primary_key = extra and extra.get("primary_key", False)
         if is_primary_key and name == "id" and field_type is int:
             self.sql_type = PgFieldInfo.SERIAL_TYPE  # Use the constant from SQLBuilder

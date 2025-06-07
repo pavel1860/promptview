@@ -25,6 +25,7 @@ class TurnEval(Model):
     score: float | None = ModelField(default=None, description="the score of the test run")
     evaluator: str = ModelField(default="", description="the evaluator that was used to evaluate the turn")
     reasoning: str = ModelField(default="", description="step by step reasoning about the response, differences between expected and actual output and is it confirms with the requirements")
+    parameters: dict = ModelField(default={}, description="parameters for the evaluator")
 
 
     
@@ -38,6 +39,17 @@ class TestRun(Model):
     score: float | None = ModelField(default=None, description="the score of the test run")
     status: Literal["running", "success", "failure"] = ModelField(default="running", description="the status of the test run")
     evaluations: Relation[TurnEval] = RelationField(foreign_key="test_run_id")
+    
+    
+    async def __aenter__(self):
+        return self
+    
+    async def __aexit__(self, exc_type, exc_value, traceback):        
+        if exc_type is not None:
+            self.status = "failure"
+        else:
+            self.status = "success"
+        await self.save()
 
 
 
@@ -56,5 +68,5 @@ class TestCase(Model):
     input_turns: list[InputTurn] = ModelField(default=[])
     branch_id: int = ModelField(default=1, description="the branch this test case belongs to")
     turn_id: int = ModelField(default=1, description="the turn this test case will start from")
-    
+    user_id: int = ModelField(default=1, description="the user this test case belongs to")
     test_runs: Relation[TestRun] = RelationField(foreign_key="test_case_id")
