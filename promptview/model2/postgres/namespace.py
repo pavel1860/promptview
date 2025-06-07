@@ -206,7 +206,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         }]
 
     
-    async def create_namespace(self):
+    def create_namespace(self):
         """
         Create the namespace in the database.
         
@@ -214,7 +214,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             The result of the create operation
         """
         # Create the table
-        res = await SQLBuilder.create_table(self)
+        res = SQLBuilder.create_table(self)
         
         # Create foreign key constraints for relations
         if self._relations:
@@ -222,7 +222,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                 if relation_info.primary_key == "artifact_id":
                     # can't enforce foreign key constraint on artifact_id because it's not a single record
                     continue
-                await SQLBuilder.create_foreign_key(
+                SQLBuilder.create_foreign_key(
                     table_name=self.table_name,
                     column_name=relation_info.primary_key,
                     column_type=self.get_field(relation_info.primary_key).sql_type,

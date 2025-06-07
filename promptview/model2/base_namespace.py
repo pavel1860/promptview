@@ -796,7 +796,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         branch = await Context.get_current_branch(branch)        
         return partition, branch
     
-    async def create_namespace(self):
+    def create_namespace(self):
         """Create the namespace in the database"""
         raise NotImplementedError("Not implemented")
     
