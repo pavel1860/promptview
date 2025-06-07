@@ -9,6 +9,7 @@ from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
 from promptview.context.model_context import ModelCtx
 from promptview.model2.postgres.query_url_params import parse_query_params
+from promptview.model2.query_filters import QueryListType
 from promptview.model2.versioning import ArtifactLog, Partition
 from pydantic import BaseModel
 # from promptview.model2.query_filters import QueryFilter, parse_query_params
@@ -43,6 +44,19 @@ def query_filters(request: Request):
 #         return parse_query_params(json.loads(filters))
 #     return None
 
+class ListModelQuery(BaseModel):
+    offset: int = Query(default=0, ge=0, alias="filter.offset")
+    limit: int = Query(default=10, ge=1, le=100, alias="filter.limit")
+    filters: QueryListType | None = Depends(query_filters)
+
+
+def get_list_query(
+        offset: int = Query(default=0, ge=0, alias="filter.offset"),
+        limit: int = Query(default=10, ge=1, le=100, alias="filter.limit"),
+        filters: QueryListType | None = Depends(query_filters)
+    ):
+        return ListModelQuery(offset=offset, limit=limit, filters=filters)
+        
 
 def build_head_parser(model: Type[BaseModel]):
     async def get_head(request: Request, auth_user: AuthModel = Depends(get_auth_user)) -> Head | None:

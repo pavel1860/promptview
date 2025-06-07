@@ -51,12 +51,14 @@ class TestRun(Model):
             self.status = "success"
         await self.save()
 
-
+class EvaluatorConfig(BaseModel):
+    name: str = ModelField(default="")
+    parameters: dict = ModelField(default={})
 
 class InputTurn(BaseModel):
     input: str = ModelField(default="")
     expected: List[str] = ModelField(default=[])
-    evaluators: List[str] = ModelField(default=[])
+    evaluators: List[EvaluatorConfig] = ModelField(default=[])
    
 
 class TestCase(Model):

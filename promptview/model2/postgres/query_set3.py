@@ -108,7 +108,11 @@ def embed_query_as_subquery(query, rel, parent_table):
         subq.joins = [j for j in query.joins if j.table.name not in join_filter]
         # subq.order_by = query.order_by
         # subq.where_clause = self.query.where_clause
-        subq.where_clause = Eq(Column(rel.foreign_key, query.from_table), Column(rel.primary_key, parent_table))
+        join_where_clause = Eq(Column(rel.foreign_key, query.from_table), Column(rel.primary_key, parent_table))
+        if query.where_clause:
+            subq.where_clause = query.where_clause & join_where_clause
+        else:
+            subq.where_clause = join_where_clause
         coalesced = Coalesce(subq, Value("[]", inline=True))
         return coalesced
     except Exception as e:

@@ -5,6 +5,15 @@ from typing import TYPE_CHECKING, List, Literal, Type, TypedDict, Union
 from promptview.prompt.block4 import BaseBlock
 
 
+
+class RendererError(Exception):
+    def __init__(self, block: BaseBlock, renderer: Type[Renderer], error: Exception):
+        self.block = block
+        self.renderer = renderer
+        self.error = error
+        super().__init__(f"Error rendering block content: {block.content}. with renderer {renderer.__name__}: {error}")
+
+
 class RenderersClassDict(TypedDict):
     content: Type[ContentRenderer] | None
     items: Type[ItemsRenderer] | None

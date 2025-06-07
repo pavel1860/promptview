@@ -434,6 +434,26 @@ class Block:
         return len(self.items)
     
     
+    
+    def _validate_content_primitive(self, content: Any):
+        if content is None:
+            return True
+        if not isinstance(content, str):
+            raise ValueError(f"Invalid content: {content}")
+        return True
+        
+    def _validate_content_list(self, content: list[Any] | tuple[Any, ...]):
+        for item in content:
+            self._validate_content(item)
+        return True
+        
+    def _validate_content(self, content: Any):
+        if isinstance(content, list) or isinstance(content, tuple):
+            self._validate_content_list(content)
+        else:
+            self._validate_content_primitive(content)
+        return True
+    
     def _build_instance(
         self, 
         content: Any, 
@@ -446,6 +466,7 @@ class Block:
         if isinstance(content, Block):
             inst = content
         else:
+            self._validate_content(content)
             inst = Block(
                     content=content, 
                     tags=tags, 
