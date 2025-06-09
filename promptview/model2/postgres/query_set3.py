@@ -85,7 +85,7 @@ def wrap_query_in_json_agg(query: SelectQuery, alias: str, pk_col: Column) -> Co
 #     return outer_query
 
 
-def embed_query_as_subquery(query, rel, parent_table):
+def join_as_subquery(query, rel, parent_table):
     try:
         columns = {}
         join_filter = set()
@@ -106,13 +106,9 @@ def embed_query_as_subquery(query, rel, parent_table):
                 )]
         subq.from_table = query.from_table
         subq.joins = [j for j in query.joins if j.table.name not in join_filter]
-        # subq.order_by = query.order_by
-        # subq.where_clause = self.query.where_clause
-        join_where_clause = Eq(Column(rel.foreign_key, query.from_table), Column(rel.primary_key, parent_table))
-        if query.where_clause:
-            subq.where_clause = query.where_clause & join_where_clause
-        else:
-            subq.where_clause = join_where_clause
+        
+        subq.where &= Eq(Column(rel.foreign_key, query.from_table), Column(rel.primary_key, parent_table))
+        
         coalesced = Coalesce(subq, Value("[]", inline=True))
         return coalesced
     except Exception as e:
@@ -331,8 +327,8 @@ class SelectQuerySet(Generic[MODEL]):
                 ),
                 join_type
             )
-            nested_query = embed_query_as_subquery(query_set.query, rel, self.from_table)    
-            nested_query.values[0].where_clause = Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table))
+            nested_query = join_as_subquery(query_set.query, rel, self.from_table)    
+            nested_query.values[0].where &= Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table))
             # self.query.join(
             #     query_set.from_table, 
             #     Eq(
@@ -350,7 +346,7 @@ class SelectQuerySet(Generic[MODEL]):
                 ),
                 join_type
             )        
-            nested_query = embed_query_as_subquery(query_set.query, rel, self.from_table)    
+            nested_query = join_as_subquery(query_set.query, rel, self.from_table)    
         nested_query.alias = rel.name
         self.query.columns.append(nested_query)
         # self.query.columns.append(Column("", nested_query, alias=rel.name))
@@ -362,6 +358,40 @@ class SelectQuerySet(Generic[MODEL]):
     
     
     # def recursive(self, field: str):
+    def include(self, target: "SelectQuerySet | Type[Model]", alias: str | None = None) -> "SelectQuerySet[MODEL]":
+        """
+        Include a query set as a column in the current query set.
+        The query set will be embedded as a subquery and the result will be nested in the current query set.
+        The query set will be embedded as a subquery and the result will be nested in the current query set.
+        """
+        query_set = self._get_query_set(target)
+        rel = self.namespace.get_relation_by_type(query_set.model_class)
+        if rel is None:
+            raise ValueError("No relation found")
+        if query_set.query.ctes:
+            query_set = self._merge_ctes(query_set)
+        if isinstance(rel, NSManyToManyRelationInfo):            
+            raise NotImplementedError("Many to many relations are not supported yet")
+            # j_ns = rel.junction_namespace
+            # j_alias=self._set_alias(j_ns.table_name)
+            # target_table = query_set.from_table
+            # junction_table = Table(j_ns.table_name, alias=j_alias)
+            # query_set.query.from_table = junction_table
+            # query_set.query.join(
+            #     target_table, 
+            #     Eq(
+            #         Column(rel.foreign_key, target_table), 
+            #         Column(rel.junction_keys[1], junction_table)
+            #     ),
+            #     join_type
+            # )
+            # nested_query = join_as_subquery(query_set.query, rel, self.from_table)    
+            # nested_query.values[0].where &= Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table))
+        else:
+            nested_query = query_set.query.as_subquery(self.from_table, rel.primary_key, rel.foreign_key)    
+        nested_query.alias = rel.name
+        self.query.columns.append(nested_query)
+        return self
         
       
     def from_subquery(self, query_set: "SelectQuerySet"):

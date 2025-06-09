@@ -83,8 +83,7 @@ class NestedQuery:
         subq = SelectQuery()
         subq.columns = [Function("json_agg", obj)]
         subq.from_table = self.query.from_table
-        # subq.where_clause = self.query.where_clause
-        subq.where_clause = Eq(Column(self.rel.foreign_key, self.query.from_table), Column(self.rel.primary_key, self.parent_table))
+        subq.where &= Eq(Column(self.rel.foreign_key, self.query.from_table), Column(self.rel.primary_key, self.parent_table))
         coalesced = Coalesce(subq, Value("[]", inline=True))
         return coalesced
         

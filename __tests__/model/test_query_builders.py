@@ -19,7 +19,7 @@ def test_simple_select():
     query = SelectQuery()
     query.columns = [u_id, u_name]
     query.from_table = users
-    query.where_clause = Eq(u_id, Value(42, inline=False))
+    query.where &= Eq(u_id, Value(42, inline=False))
 
     expected_sql = """
     SELECT u.id, u.name
@@ -43,7 +43,7 @@ def test_simple_select_with_where_and_join():
         posts,
         Eq(Column("id", users), Column("user_id", posts))
     )
-    query.where_clause = Gt(Column("age", users), Value(21, inline=False))
+    query.where &= Gt(Column("age", users), Value(21, inline=False))
 
     compiler = Compiler()
     sql, params = compiler.compile(query)
@@ -63,7 +63,7 @@ def test_select_with_multiple_conditions_and():
     query = SelectQuery()
     query.from_table = users
     query.columns = [Column("id", users)]
-    query.where_clause = (
+    query.where(
         Gt(Column("age", users), Value(21, inline=False)) &
         Eq(Column("is_active", users), Value(True, inline=False))
     )
@@ -80,6 +80,29 @@ def test_select_with_multiple_conditions_and():
     assert_sql(query, expected_sql, [21, True])
 
 
+def test_select_with_condition_aggregation():
+    users = Table("users", alias="u")
+
+    query = SelectQuery()
+    query.from_table = users
+    query.columns = [Column("id", users)]
+    query.where &= Gt(Column("age", users), Value(21, inline=False))         
+    query.where &= Eq(Column("is_active", users), Value(True, inline=False))
+    query.where |= Eq(Column("name", users), Value("John", inline=False))
+    
+
+    compiler = Compiler()
+    sql, params = compiler.compile(query)
+
+    expected_sql = (
+        "SELECT u.id\n"
+        "FROM users AS u\n"
+        "WHERE (((u.age > $1) AND (u.is_active = $2)) OR (u.name = $3))"
+    )
+
+    assert_sql(query, expected_sql, [21, True, "John"])
+
+
 
 def test_select_with_or_and_not():
     users = Table("users", alias="u")
@@ -89,7 +112,7 @@ def test_select_with_or_and_not():
     query = SelectQuery()
     query.from_table = users
     query.columns = [Column("id", users)]
-    query.where_clause = Not(
+    query.where &= Not(
         Or(
             Eq(Column("role", users), Value("admin", inline=False)),
             Eq(Column("role", users), Value("moderator", inline=False)),
@@ -143,7 +166,7 @@ def test_select_with_coalesce_and_json_agg():
     likes_subq = SelectQuery()
     likes_subq.columns = [Function("json_agg", likes_obj)]
     likes_subq.from_table = likes
-    likes_subq.where_clause = Eq(l_post_id, p_id)
+    likes_subq.where &= Eq(l_post_id, p_id)
 
     likes_coalesced = Coalesce(likes_subq, Value("[]", inline=True))
 
@@ -219,7 +242,7 @@ def test_where_clause():
     query = SelectQuery()
     query.columns = [u_id, u_name, u_age, u_address, u_created]
     query.from_table = users
-    query.where_clause = where_expr
+    query.where &= where_expr
 
     # Compile
     compiler = Compiler()
@@ -280,7 +303,7 @@ def test_update_query():
             (u_email, Value("alice@newmail.com", inline=False))
         ]
     )
-    q.where_clause = Eq(u_id, Value(1, inline=False))
+    q.where &= Eq(u_id, Value(1, inline=False))
     q.returning = [u_id]
 
     compiler = Compiler()
@@ -303,7 +326,7 @@ def test_delete_query():
     u_name = Column("name", users)
 
     q = DeleteQuery(users)
-    q.where_clause = Eq(u_name, Value("Bob", inline=False))
+    q.where &= Eq(u_name, Value("Bob", inline=False))
     q.returning = [u_id]
 
     compiler = Compiler()
@@ -382,7 +405,7 @@ def test_cte_support():
     recent_posts = SelectQuery()
     recent_posts.columns = [p_user_id]
     recent_posts.from_table = posts
-    recent_posts.where_clause = Gt(p_created, Value("2024-01-01", inline=False))
+    recent_posts.where &= Gt(p_created, Value("2024-01-01", inline=False))
 
     # Outer query: users + recent posts
     cte_alias = "recent_posts"
@@ -441,7 +464,7 @@ def test_multiple_ctes():
     top_users = SelectQuery()
     top_users.columns = [uc_user_id]
     top_users.from_table = user_counts_cte
-    top_users.where_clause = Gt(uc_post_count, Value(10, inline=False))
+    top_users.where &= Gt(uc_post_count, Value(10, inline=False))
 
     # Final query
     query = SelectQuery()

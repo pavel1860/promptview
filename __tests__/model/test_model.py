@@ -128,7 +128,7 @@ async def seeded_database(clean_database):
 
         data = {}
         
-        user = await User(name="John", age=30, user_token=uuid.uuid4()).save()
+        user = await User(name="John", age=30, anonymous_token=uuid.uuid4()).save()
 
         post1 = await Post(title="Post 1 Title", content="Post 1 Content", owner_id=user.id).save()
         p1_comment1 = await post1.add(Comment(content="post 1 comment 1", user_id=user.id))
