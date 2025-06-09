@@ -276,6 +276,8 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
     
     def get_primary_ctx_value_or_none(self) -> Any:
         ctx_obj = self.primary_namespace.get_ctx()
+        if ctx_obj is None:
+            return None
         return getattr(ctx_obj, self.primary_key)
     
     def __repr__(self) -> str:
