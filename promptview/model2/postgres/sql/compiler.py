@@ -190,8 +190,8 @@ class Compiler:
         if q.joins:
             sql += f"\n{self.compile_joins(q.joins)}"
 
-        if q.where_clause:
-            sql += f"\nWHERE {self.compile_expr(q.where_clause)}"
+        if q.where.condition:
+            sql += f"\nWHERE {self.compile_expr(q.where.condition)}"
 
         if q.group_by:
             sql += "\nGROUP BY " + ", ".join(self.compile_expr(c) for c in q.group_by)
@@ -249,8 +249,8 @@ class Compiler:
         sql = f"UPDATE {table}\nSET {set_clause}"
 
         # WHERE clause
-        if q.where_clause:
-            sql += f"\nWHERE {self.compile_expr(q.where_clause)}"
+        if q.where.condition:
+            sql += f"\nWHERE {self.compile_expr(q.where.condition)}"
 
         # RETURNING clause
         if q.returning:
@@ -265,8 +265,8 @@ class Compiler:
         sql = f"DELETE FROM {table}"
 
         # WHERE clause
-        if q.where_clause:
-            sql += f"\nWHERE {self.compile_expr(q.where_clause)}"
+        if q.where:
+            sql += f"\nWHERE {self.compile_expr(q.where.condition)}"
 
         # RETURNING clause
         if q.returning:
