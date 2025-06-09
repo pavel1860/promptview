@@ -4,7 +4,7 @@ from promptview.llms.llm3 import OutputModel
 from promptview.model2.fields import KeyField
 from promptview.prompt import prompt, Block, Depends
 from promptview.llms import LLM
-from promptview.testing.test_models import EvaluatorConfig    
+from promptview.testing.test_models import Evaluation, EvaluatorConfig    
 if TYPE_CHECKING:
     from promptview.testing.test_models import TestCase
 
@@ -63,7 +63,14 @@ async def prompt_score_evaluator(
                         usr /= exp
                 
     res = await llm(sys, usr).complete(EvalResult)
-    return res
+    
+    evaluation = Evaluation(
+        evaluator=config.name,
+        reasoning=res.reasoning,
+        score=res.score,
+        run_id=res.block().run_id,
+    )
+    return evaluation
     
     
 
@@ -81,7 +88,7 @@ async def evaluate(
         response: Block, 
         expected: Block,
         config: EvaluatorConfig, 
-    ):
+    ) -> Evaluation:
     evaluator = evaluator_store[config.name]
     evaluation = await evaluator(
                     test_case=test_case,
