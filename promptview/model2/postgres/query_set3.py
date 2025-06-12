@@ -328,7 +328,8 @@ class SelectQuerySet(Generic[MODEL]):
                 join_type
             )
             nested_query = join_as_subquery(query_set.query, rel, self.from_table)    
-            nested_query.values[0].where &= Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table))
+            nested_query.values[0].where(Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table)))
+            # nested_query.values[0].where &= Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table))
             # self.query.join(
             #     query_set.from_table, 
             #     Eq(

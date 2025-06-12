@@ -454,10 +454,10 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     @classmethod
-    async def update_query(cls, id: Any, **kwargs) -> "SelectQuerySet[Self]":
+    async def update_query(cls, id: Any, data: dict[str, Any]) -> "SelectQuerySet[Self]":
         """Update the model instance"""
         ns = cls.get_namespace()
-        return await ns.update(id, **kwargs)
+        return await ns.update(id, data)
 
     async def update(self, **kwargs) -> Self:
         """Update the model instance"""

@@ -80,23 +80,20 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
     
-    @router.put("/update")
+    @router.put("/update/{model_id}")
     async def update_model(
-        model: MODEL, 
+        model_id: int,
+        request: Request,
         ctx: CTX_MODEL = Depends(get_context)
     ):
         """Update an existing model"""
-        existing = await model.query(status=TurnStatus.COMMITTED).filter(lambda x: x.id == model.id).first()
-        if not existing:
+        payload = await request.json()
+        # existing = await model.query(status=TurnStatus.COMMITTED).filter(lambda x: x.id == model.id).first()
+        # existing = await model.get(model_id)
+        updated = await model.update_query(model_id, payload)
+        if not updated:
             raise HTTPException(status_code=404, detail="Model not found")
-        
-        try:
-            for field, value in model.dict(exclude_unset=True).items():
-                setattr(existing, field, value)
-            updated = await existing.save()
-            return updated
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        return updated
     
     @router.delete("/delete")
     async def delete_model(ctx: CTX_MODEL = Depends(get_context)):

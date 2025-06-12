@@ -1,6 +1,7 @@
 
 from typing import Type, TypeVar
-from fastapi import APIRouter, Depends, HTTPException, Request
+from uuid import UUID
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from promptview.auth.dependencies import get_auth_admin_user, get_auth_user, get_user_manager, verify_api_key
@@ -31,16 +32,19 @@ def create_auth_router(user_manager_cls: Type[AuthManager[USER_MODEL]]):
     async def create_user(
         payload: UserAuthPayload, 
         request: Request, 
-        user_manager: AuthManager = Depends(get_user_manager)
+        user_manager: AuthManager = Depends(get_user_manager),
+        anonymous_token: str | None = Cookie(None, alias="chatboard.anonymous-token"),
     ):
         
-        
-        if payload.anonymous_token:
-            inst = await user_manager.create_user_from_anonymous(payload.anonymous_token, payload, request)
+        anonymous_token = anonymous_token
+        if anonymous_token:
+            inst = await user_manager.create_user_from_anonymous(UUID(anonymous_token), payload, request)
             if inst is None:
                 inst = await user_manager.create_user(payload, request)    
-        else:
-            inst = await user_manager.create_user(payload, request)
+        elif payload.user_id:
+            inst = await user_manager.get_user_model().query().where(user_id=payload.user_id).last()
+            if inst is None:                
+                inst = await user_manager.create_user(payload, request)
         return inst
 
 
