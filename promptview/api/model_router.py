@@ -30,7 +30,7 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
     async def list_models(
         offset: int = Query(default=0, ge=0, alias="filter.offset"),
         limit: int = Query(default=10, ge=1, le=100, alias="filter.limit"),
-        filters: QueryListType | None = Depends(query_filters),         
+        filters: QueryListType | None = Depends(query_filters),
         ctx: CTX_MODEL = Depends(get_context)
     ):
         """List all models with pagination"""
