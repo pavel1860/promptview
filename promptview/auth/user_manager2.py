@@ -78,6 +78,9 @@ class AuthManager(Generic[UserT]):
 
     async def promote_guest(self, guest: UserT, auth_user_id: str, data: Dict[str, Any]) -> UserT:
         await self.before_promote_guest(guest, data)
+        user = await self.fetch_by_auth_user_id(auth_user_id)
+        if user:
+            raise HTTPException(400, detail="User already exists")
         guest = await guest.update(
             **data, 
             is_guest=False, 

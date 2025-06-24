@@ -2,7 +2,7 @@ import datetime as dt
 from typing import Any, List, Type
 
 from promptview.model2.postgres.sql.queries import Column, Table
-from promptview.model2.postgres.sql.expressions import Eq, Gte, Lte, Gt, Lt, And, param
+from promptview.model2.postgres.sql.expressions import Eq, Gte, Lte, Gt, Lt, And, Neq, param
 # (adjust imports as needed for your project)
 
 # def parse_query_params(model_class, conditions: list[list[Any]]):
@@ -118,6 +118,8 @@ def parse_query_params(model_class, conditions: list[list[Any]], table: Table | 
             exprs.append(Gt(column, value))
         elif operator == "<":
             exprs.append(Lt(column, value))
+        elif operator == "!=":
+            exprs.append(Neq(column, value))
         else:
             raise ValueError(f"Unsupported operator: {operator}")
 

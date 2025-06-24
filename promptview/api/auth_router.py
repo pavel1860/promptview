@@ -41,6 +41,9 @@ def create_auth_router(user_manager: AuthManager[AUTH_MODEL]):
         auth_user_id = data.get("auth_user_id")
         if not auth_user_id:
             raise HTTPException(400, detail="auth_user_id required")
+        existing_user = await user_manager.fetch_by_auth_user_id(auth_user_id)
+        if existing_user:
+            raise HTTPException(400, detail="User already exists")
         user = await user_manager.register_user(auth_user_id, data.get("data", {}))
         return user
 
@@ -64,11 +67,20 @@ def create_auth_router(user_manager: AuthManager[AUTH_MODEL]):
         return user
 
     @router.get("/me", response_model=user_manager.user_model)
-    async def get_me(user: user_manager.user_model = Depends(user_manager.get_user())):
+    async def get_me(user: user_manager.user_model = Depends(user_manager.get_user_from_request)):
         """
         Fetch the current user (guest or registered) using cookie or header.
         """
         return user
+    # @router.get("/me", response_model=user_manager.user_model)
+    # async def get_me(request: Request):
+    #     """
+    #     Fetch the current user (guest or registered) using cookie or header.
+    #     """
+    #     body = await request.json()
+    #     print(body)
+    #     user = await user_manager.fetch_by_auth_user_id(body.get("auth_user_id"))
+    #     return user
 
 
     return router

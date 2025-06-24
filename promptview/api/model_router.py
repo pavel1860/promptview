@@ -34,19 +34,19 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
         ctx: CTX_MODEL = Depends(get_context)
     ):
         """List all models with pagination"""
-        async with ctx:  
+        # async with ctx:  
             
             # if model.__name__ == "Turn":
             #     print("Turn")
-            query = model.query(status=TurnStatus.COMMITTED)
-                    
-            model_query = query.limit(limit).offset(offset).order_by("-created_at")
-            if filters:
-                condition = parse_query_params(model, filters, model_query.from_table)
-                model_query.query.where(condition)
-            # model_query._filters = filters
-            instances = await model_query
-            return [instance.model_dump() for instance in instances]       
+        query = model.query(status=TurnStatus.COMMITTED)
+                
+        model_query = query.limit(limit).offset(offset).order_by("-created_at")
+        if filters:
+            condition = parse_query_params(model, filters, model_query.from_table)
+            model_query.query.where(condition)
+        # model_query._filters = filters
+        instances = await model_query
+        return [instance.model_dump() for instance in instances]       
     
     @router.get("/record/{record_id}")
     async def get_artifact(record_id: int):
@@ -73,10 +73,9 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
     ):
         """Create a new model"""
         try:
-            async with ctx:
-                model_payload = model(**payload)
-                created_model = await model_payload.save()
-                return created_model
+            model_payload = model(**payload)
+            created_model = await model_payload.save()
+            return created_model
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
     
