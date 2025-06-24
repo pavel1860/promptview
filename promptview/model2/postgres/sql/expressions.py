@@ -138,7 +138,51 @@ class Like(Expression):
 
 
 
-
+class WhereClause:
+    def __init__(self, condition: Expression | None = None):
+        self.condition = condition or None
+        
+        
+    def __call__(self, condition: Expression):
+        # if self.condition is None:
+        self.condition = condition
+        # else:
+        #     self.condition = And(self.condition, condition)
+        # return self
+    def __bool__(self):
+        return self.condition is not None
+    
+    def and_(self, condition: Expression):
+        if self.condition is None:
+            self.condition = condition
+        else:
+            self.condition = And(self.condition, condition)
+        return self
+    def or_(self, condition: Expression):
+        if self.condition is None:
+            self.condition = condition
+        else:
+            self.condition = Or(self.condition, condition)
+        return self
+    
+    def invert(self):
+        if self.condition is None:
+            return Not(self)
+        else:
+            self.condition = Not(self.condition)
+        return self
+        
+    def __and__(self, other: Expression):
+        return self.and_(other)
+        
+    def __or__(self, other: Expression):
+        return self.or_(other)
+        
+    def __invert__(self):
+        return self.invert()
+        
+    def __str__(self):
+        return str(self.condition) if self.condition else ""
 
 
 class RawSQL:

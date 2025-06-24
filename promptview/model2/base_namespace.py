@@ -63,6 +63,7 @@ class NSFieldInfo:
         name: str,
         field_type: type[Any],
         extra: dict[str, Any] | None = None,
+        namespace: "Namespace | None" = None,
     ):
         self.name = name        
         self.extra = extra
@@ -77,10 +78,11 @@ class NSFieldInfo:
             self.is_enum, self.enum_values, self.is_literal = NSFieldInfo.parse_enum(self.origin_type)            
         
         if self.is_enum:
+            ns_name = namespace.name + "_" if namespace else ""
             if self.is_literal:
-                self.enum_name = camel_to_snake(name) + "_literal"
+                self.enum_name = ns_name + camel_to_snake(name) + "_literal"
             else:
-                self.enum_name = camel_to_snake(self.data_type.__name__) + "_enum"
+                self.enum_name = ns_name + camel_to_snake(self.data_type.__name__) + "_enum"
 
         if self.origin_type is dt.datetime:
             self.is_temporal = True
@@ -274,6 +276,8 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
     
     def get_primary_ctx_value_or_none(self) -> Any:
         ctx_obj = self.primary_namespace.get_ctx()
+        if ctx_obj is None:
+            return None
         return getattr(ctx_obj, self.primary_key)
     
     def __repr__(self) -> str:

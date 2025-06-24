@@ -134,7 +134,13 @@ def RelationField(
     #     extra["type"] = "many_to_one"
     
     # Create the field with the extra metadata and make it optional
-    return Field(default, json_schema_extra=extra, description=description)
+    return Field(
+        default, 
+        json_schema_extra=extra, 
+        description=description, 
+        # exclude=True,
+        # exclude_none=True
+    )
     # return Field(json_schema_extra=extra, **kwargs)
     # return Field(json_schema_extra=extra, default_factory=lambda: None, **kwargs)
 

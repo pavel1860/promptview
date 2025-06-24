@@ -160,12 +160,42 @@ class Turn(Model):
         self.status = TurnStatus.REVERTED
         await self.save()
         
+    async def __aenter__(self):
+        ns = self.get_namespace()
+        self._ctx_token = ns.set_ctx(self)
+        return self
+        
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        if exc_type is not None:
+            await self.revert()
+        else:
+            await self.commit()
+        
     # instantiation methods
+    # @classmethod
+    # def start(cls, branch: "Branch | int | None" = None, **kwargs) -> TurnContext:
+    #     branch = Branch.current()
+    #     if branch is None:
+    #         raise VersioningError("Branch is required")
+    #     ns = cls.get_namespace()
+    #     fields = ns.iter_fields(keys=False, is_optional=False, exclude={"created_at", "index", "status", "branch_id"})
+    #     for field in fields:
+    #         if field.is_foreign_key:
+    #             value = ns.get_foreign_key_ctx_value(field)
+    #             if not field.validate_value(value):
+    #                 raise VersioningError(f"Foreign key field {field.name} is required")
+    #             kwargs[field.name] = value
+    #         else:
+    #             raise VersioningError(f"missing required field {field.name} for turn")
+            
+    #     return TurnContext(branch=branch, init_params=kwargs)
+    
     @classmethod
-    def start(cls, branch: "Branch | int | None" = None, **kwargs) -> TurnContext:
+    @contextcallable
+    async def start(cls, branch: "Branch | int | None" = None, **kwargs) -> "Turn":
         branch = Branch.current()
         if branch is None:
-            raise VersioningError("Branch is required")
+            raise VersioningError("Branch is required")        
         ns = cls.get_namespace()
         fields = ns.iter_fields(keys=False, is_optional=False, exclude={"created_at", "index", "status", "branch_id"})
         for field in fields:
@@ -176,8 +206,8 @@ class Turn(Model):
                 kwargs[field.name] = value
             else:
                 raise VersioningError(f"missing required field {field.name} for turn")
-            
-        return TurnContext(branch=branch, init_params=kwargs)
+        turn = await branch.add_turn(**kwargs)
+        return turn
     
     @classmethod
     async def create(cls, branch: "Branch | int | None" = None, **kwargs):
@@ -222,35 +252,6 @@ class Branch(Model):
     turns: Relation[Turn] = RelationField(foreign_key="branch_id")
     children: Relation["Branch"] = RelationField(foreign_key="forked_from_branch_id")
     
-    
-    # async def fork(self, index: int | None = None, name: str | None = None, turn: Turn | None = None):
-    #     if turn is not None:
-    #         index = turn.index
-    #     elif index is None:
-    #         raise VersioningError("Index is required")
-        
-        
-    #     branch = await Branch(
-    #         forked_from_index=index,
-    #         current_index=index + 1,
-    #         forked_from_branch_id=self.id,
-    #         name=name,
-    #     ).save()
-    #     return branch
-    
-    # @asynccontextmanager
-    # async def fork(self, turn: Turn) -> AsyncGenerator["Branch", None]:
-    #     index = turn.index
-    #     name = turn.message
-                
-    #     branch = await Branch(
-    #         forked_from_index=index,
-    #         forked_from_turn_id=turn.id,
-    #         current_index=index + 1,
-    #         forked_from_branch_id=self.id,
-    #         name=name,
-    #     ).save()
-    #     yield branch
     
     @contextcallable
     async def fork(self, turn: Turn, name: str | None = None):
@@ -463,24 +464,7 @@ class TurnModel(Model):
     @classmethod
     def versioned_cte(cls, cte: "SelectQuerySet[Turn]") -> "SelectQuerySet[Turn]":
         return cte
-    
-    
-    # @classmethod
-    # def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
-    #     """
-    #     Create a query for this model
-        
-    #     Args:
-    #         branch: Optional branch ID to query from
-    #     """   
-    #     branch_id = get_branch_id(branch)
-    #     ns = cls.get_namespace()
-    #     query = ns.query(**kwargs)
-    #     query = (
-    #         query.with_cte("turn_hierarchy", cls.versioned_cte(create_versioned_cte(branch_id, status, turns)))
-    #         .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
-    #     )
-    #     return query
+ 
     
     @classmethod
     def query(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus = TurnStatus.COMMITTED, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
@@ -512,24 +496,6 @@ class ArtifactModel(TurnModel):
     version: int = ModelField(default=1)
     
     
-    # async def save(self, turn: int | Turn | None = None, branch: int | Branch | None = None):
-    #     """
-    #     Save the artifact model instance to the database
-        
-    #     Args:
-    #         branch: Optional branch ID to save to
-    #         turn: Optional turn ID to save to
-    #     """        
-    #     ns = self.get_namespace()
-    #     result = await ns.save(self)
-    #     # Update instance with returned data (e.g., ID)
-    #     for key, value in result.items():
-    #         setattr(self, key, value)
-        
-    #     # Update relation instance IDs
-    #     self._update_relation_instance()
-        
-    #     return self
     
     @classmethod
     async def get_artifact(cls: Type[Self], artifact_id: uuid.UUID, version: int | None = None) -> Self:
@@ -555,26 +521,6 @@ class ArtifactModel(TurnModel):
         return result
 
     
-    # @classmethod
-    # def query2(cls: "Type[Self]", branch: "int | Branch | None" = None, status: TurnStatus | None = None, turns: int | None = None, **kwargs) -> "SelectQuerySet[Self]":
-    #     """
-    #     Create a query for this model
-    
-    #     Args:
-    #         branch: Optional branch ID to query from
-    #     """   
-    #     branch_id = get_branch_id(branch)
-    #     ns = cls.get_namespace()
-    #     es_query = ns.query(**kwargs)
-    #     es_query = (
-    #         es_query.with_cte("turn_hierarchy", create_versioned_cte(branch_id, status, turns))
-    #         .join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
-    #         .distinct_on("artifact_id")
-    #         .order_by("-artifact_id", "-version")
-    #     )        
-    #     query = SelectQuerySet(cls).from_subquery(es_query)
-    #     # query.join_cte("turn_hierarchy", "turn_id", "id", "th", "INNER")
-    #     return query
     
     
     @classmethod

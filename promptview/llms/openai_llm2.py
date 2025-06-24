@@ -103,12 +103,34 @@ class OpenAiLLM(LlmContext):
     #         messages.extend(error_messages)
     #     return messages
     
+    # def to_chat(self, blocks: BlockList, tools: List[Type[BaseModel]] | None = None, error_blocks: BlockList | None = None) -> List[dict]:        
+    #     output_prompt = self.output_model.render(tools) if self.output_model else None
+    #     system_blocks = (
+    #         blocks.find("system").group_to_list(extra=output_prompt)
+    #         .map(lambda x: self.to_message(x.render(), role=x.role or "system"))
+    #     )
+    #     messages = (
+    #         blocks
+    #         .filter("system")
+    #         .map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
+    #     )        
+        
+    #     messages = [
+    #         *system_blocks,
+    #         *messages,         
+    #     ]
+    #     if error_blocks:
+    #         error_messages = error_blocks.map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
+    #         messages.extend(error_messages)
+    #     return messages
+    
+    
     def to_chat(self, blocks: BlockList, tools: List[Type[BaseModel]] | None = None, error_blocks: BlockList | None = None) -> List[dict]:        
-        output_prompt = self.output_model.render(tools) if self.output_model else None
-        system_blocks = (
-            blocks.find("system").group_to_list(extra=output_prompt)
-            .map(lambda x: self.to_message(x.render(), role=x.role or "system"))
-        )
+        
+        system_block = blocks.find("system").group()
+        if self.output_model is not None:
+            system_block.append(self.output_model.render(tools))
+        system_message = self.to_message(system_block.render(), role="system")
         messages = (
             blocks
             .filter("system")
@@ -116,7 +138,7 @@ class OpenAiLLM(LlmContext):
         )        
         
         messages = [
-            *system_blocks,
+            system_message,
             *messages,         
         ]
         if error_blocks:
@@ -178,7 +200,8 @@ class OpenAiLLM(LlmContext):
             tool_calls=tool_calls,
             # id=response.id,
             model=response.model,
-            tags=["generation"]
+            tags=["generation"],
+            run_id=str(llm_run.id),
         )
         return response_block
     

@@ -121,7 +121,7 @@ def get_field_type(field_info) -> str:
 
 
 class OutputModel(BaseModel):    
-    tool_calls: List[ToolCall] = Field(default=[])
+    tool_calls: List[ToolCall] = Field(default=[], json_schema_extra={"render": False})
     _block: Block = PrivateAttr()
     
     
@@ -140,12 +140,21 @@ class OutputModel(BaseModel):
     
     def output_fields(self) -> List[tuple[str, FieldInfo]]:
         return [(field, field_info) for field, field_info in self.model_fields.items() if field != "tool_calls"]
+    
+    @classmethod
+    def iter_fields(cls):
+        for field, field_info in cls.model_fields.items():
+            extra = field_info.json_schema_extra
+            if extra and extra.get("render") == False:
+                continue
+            yield field, field_info
+            
 
     @classmethod
     def render(cls, tools: List[Type[BaseModel]] = [], config: LlmConfig | None = None) -> Block:
         with Block("Output format", tags=["output_format"]) as blk:
             blk += "you **MUST** use the following format for your output:"
-            for field, field_info in cls.model_fields.items():
+            for field, field_info in cls.iter_fields():
                 render_func = getattr(cls, f"render_{field}", None)                
                 if render_func:
                     blk /= render_func()

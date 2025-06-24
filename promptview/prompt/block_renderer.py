@@ -5,6 +5,40 @@ from typing import TYPE_CHECKING, List, Literal, Type, TypedDict, Union
 from promptview.prompt.block4 import BaseBlock
 
 
+
+def get_block_data(block, prefix: str = "", error: Exception | None = None):
+    block_str = '  ' * block.depth + prefix + "|"
+    if block.role:
+        block_str += f" {block.role}"
+    if block.tags:
+        block_str += f" [{', '.join([t for t in block.tags])}]"
+    if block.content:
+        block_str += f"{block.content}"
+    if error:
+        block_str += f" err: {error}"
+    return block_str
+        
+def print_block_tree(block, error: Exception | None = None):
+    curr = block.parent
+    block_stack = [get_block_data(block, "===>", error)]
+    while curr is not None:    
+        block_stack.append(get_block_data(curr))
+        curr = curr.parent
+        
+    block_str = "\n".join(reversed(block_stack))
+    return block_str
+
+
+
+
+class RendererError(Exception):
+    def __init__(self, block: BaseBlock, renderer: Type[Renderer], error: Exception):
+        self.block = block
+        self.renderer = renderer
+        self.error = error
+        super().__init__(f"Error rendering block content: {block.content}. with renderer {renderer.__name__}: {error}")
+
+
 class RenderersClassDict(TypedDict):
     content: Type[ContentRenderer] | None
     items: Type[ItemsRenderer] | None
@@ -28,10 +62,18 @@ class RendererContext:
             self._items_renderer = renderer() # type: ignore
     
     def render_content(self, block: BaseBlock, items_content: List[str]) -> str:
-        return self._content_renderer(block, items_content, self._depth)
+        try:
+            return self._content_renderer(block, items_content, self._depth)
+        except Exception as e:
+            print(print_block_tree(block, e))
+            raise e
 
     def render_items(self, block: BaseBlock, inner_content: List[str]) -> List[str]:
-        return self._items_renderer(block, inner_content, self._depth)
+        try:
+            return self._items_renderer(block, inner_content, self._depth)
+        except Exception as e:
+            print(print_block_tree(block, e))
+            raise e
     
     
     def copy(self, replace: RenderersClassDict | None = None, inc_depth: bool = True) -> "RendererContext":

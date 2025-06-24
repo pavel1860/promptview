@@ -219,6 +219,13 @@ class NamespaceManager:
                     on_delete="CASCADE",
                     on_update="CASCADE",
                 )
+            for field in namespace.iter_fields():
+                if field.index:
+                    await SQLBuilder.create_index_for_column(
+                        namespace=namespace,
+                        column_name=field.name,
+                        index_name=f"{namespace.table_name}_{field.name}_idx",
+                    )
                 
         # cls.replace_forward_refs()
                 
