@@ -20,7 +20,8 @@ from promptview.model2.version_control_models import Branch
 from __tests__.utils import clean_database, test_db_pool
 
 class Like(ArtifactModel):
-    post_id: int = ModelField(foreign_key=True)    
+    post_id: int = ModelField(foreign_key=True)
+    sentiment: Literal["like", "dislike"] = ModelField(default="like")
 
 class Post(ArtifactModel):
     title: str = ModelField()

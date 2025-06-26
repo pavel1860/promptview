@@ -89,6 +89,38 @@ class SelectQuery:
         self.recursive = False  # <-
     
     
+    def copy_query(self, exclude: set[str] = set()):
+        new_query = SelectQuery()
+        if "columns" not in exclude:
+            new_query.columns = self.columns
+        if "from_table" not in exclude:
+            new_query.from_table = self.from_table
+        if "joins" not in exclude:
+            new_query.joins = self.joins
+        if "where" not in exclude:
+            new_query.where = self.where
+        if "group_by" not in exclude:
+            new_query.group_by = self.group_by
+        if "having" not in exclude:
+            new_query.having = self.having
+        if "order_by" not in exclude:
+            new_query.order_by = self.order_by
+        if "limit" not in exclude:
+            new_query.limit = self.limit
+        if "offset" not in exclude:
+            new_query.offset = self.offset
+        if "distinct" not in exclude:
+            new_query.distinct = self.distinct
+        if "distinct_on" not in exclude:
+            new_query.distinct_on = self.distinct_on
+        if "alias" not in exclude:
+            new_query.alias = self.alias
+        if "ctes" not in exclude:
+            new_query.ctes = self.ctes
+        if "recursive" not in exclude:
+            new_query.recursive = self.recursive
+        return new_query
+    
     def join(self, table, condition, join_type='LEFT', alias=None):
         self.joins.append(Join(table, condition, join_type, alias))
         return self
@@ -161,7 +193,7 @@ class SelectQuery:
                     c.alias = None
             obj = json_build_object(**columns)
             obj.order_by = self.order_by
-            subq = SelectQuery()
+            subq = self.copy_query(exclude={"group_by", "order_by"})
             subq.columns = [Function(
                     "json_agg", 
                     obj, 
