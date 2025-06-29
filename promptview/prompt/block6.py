@@ -257,6 +257,7 @@ class Block:
         "id",
         "db_id",
         "attrs",
+        "_children_block",
     ]
     # tags: list[str]
     # items: list["Block"]
@@ -306,6 +307,7 @@ class Block:
         self.id = id
         self.db_id = db_id
         self.attrs = attrs
+        self._children_block = None
     # def __call__(
     #     self, 
     #     content: Any | None = None, 
@@ -359,14 +361,24 @@ class Block:
     def __enter__(self):
         if self._ctx is None:
             self._ctx = ContextStack()
-        self._ctx.push(self)
+        if self._children_block is not None:
+            self._ctx.push(self._children_block)
+        else:
+            self._ctx.push(self)
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
         if self._ctx is None:
-            raise ValueError("No context stack")
+            raise ValueError("No context stack")        
         if len(self._ctx) > 1:
             self._ctx.pop()
+        
+        
+    def children(self):
+        if not self.ctx_items:
+            raise ValueError("No context stack. you should set parent block first")
+        self._children_block = self.ctx_items[-1]
+        return self
         
     def find(self, tag: str | list[str], default: Any = None) -> "BlockList":
         if isinstance(tag, str):
@@ -611,10 +623,13 @@ class Block:
         return self.inline_style.get(property_name, default)
     
     
+
+    
+    
     def render(self) -> str:
         from promptview.prompt.block_renderer import BlockRenderer
         from promptview.prompt.renderer import RendererMeta
-        if self.items != self.ctx_items:
+        if self.items != self.ctx_items and not self._children_block:
             raise ValueError("Wrong block context was passed to render. probably you are using the same ctx name for child and parent blocks")
         rndr = BlockRenderer(style_manager, RendererMeta._renderers)
         return rndr.render(self)
