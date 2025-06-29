@@ -6,7 +6,7 @@ from inspect import signature
 import inspect
 import json
 import textwrap
-from typing import Any, Callable, Concatenate, Generic, Iterator, List, Literal, ParamSpec, Protocol, SupportsIndex, Type, TypeVar, Union, overload
+from typing import Any, Callable, Concatenate, ContextManager, Generator, Generic, Iterator, List, Literal, ParamSpec, Protocol, SupportsIndex, Type, TypeVar, Union, overload
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
 from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
@@ -765,32 +765,93 @@ class FunctionBlock(Generic[P, R]):
 
 
 
+# def block(
+#     content: str | None = None,
+#     *,
+#     tags: list[str] | None = None,
+#     style: "InlineStyle | None" = None,
+#     attrs: dict | None = None,
+#     depth: int = 0,
+#     dedent: bool = True,
+#     role: "BlockRole | None" = None,
+#     name: str | None = None,
+#     model: str | None = None,
+#     tool_calls: list["ToolCall"] | None = None,
+#     usage: "LlmUsage | None" = None,
+# ) -> Callable[[Callable[Concatenate[Block, P], R]], Callable[P, R]]:
+#     def decorator(func: Callable[Concatenate[Block, P], R]) -> Callable[P, R]:
+#         if inspect.isgeneratorfunction(func):
+#             @wraps(func)
+#             @contextmanager
+#             def generator_wrapper(*args: P.args, **kwargs: P.kwargs) -> Generator[Block, None, None]:
+#             # def generator_wrapper(*args: P.args, **kwargs: P.kwargs) -> ContextManager[Block]:
+#                 blk = Block(
+#                     content=content,
+#                     tags=tags,
+#                     style=style,
+#                     attrs=attrs,
+#                     depth=depth,
+#                     dedent=dedent,
+#                     role=role,
+#                     name=name,
+#                     model=model,
+#                     tool_calls=tool_calls,
+#                     usage=usage,
+#                 )
+#                 with blk:
+#                     gen = func(blk, *args, **kwargs)
+#                     yield next(gen)
+#             return generator_wrapper  # type: ignore
+#         else:
+#             @wraps(func)
+#             def normal_wrapper(*args: P.args, **kwargs: P.kwargs) -> Block:
+#                 blk = Block(
+#                     content=content,
+#                     tags=tags,
+#                     style=style,
+#                     attrs=attrs,
+#                     depth=depth,
+#                     dedent=dedent,
+#                     role=role,
+#                     name=name,
+#                     model=model,
+#                     tool_calls=tool_calls,
+#                     usage=usage,
+#                 )
+#                 res = func(blk, *args, **kwargs)
+#                 return res if res is not None else blk  # type: ignore
+#             return normal_wrapper
+#     return decorator
+
+
+
+
+from typing import Callable, TypeVar, ParamSpec, Concatenate, Generator, ContextManager, Union
+from contextlib import contextmanager
+from functools import wraps
+import inspect
+
+P = ParamSpec("P")
+
 def block(
     content: str | None = None,
     *,
-    tags: list[str] | None = None, 
-    style: "InlineStyle | None" = None, 
+    tags: list[str] | None = None,
+    style: "InlineStyle | None" = None,
     attrs: dict | None = None,
-    depth: int = 0, 
-    dedent: bool = True, 
+    depth: int = 0,
+    dedent: bool = True,
     role: "BlockRole | None" = None,
     name: str | None = None,
     model: str | None = None,
     tool_calls: list["ToolCall"] | None = None,
     usage: "LlmUsage | None" = None,
-) -> Callable[[Callable[Concatenate[Block, P], Any]], Callable[P, Block]]:
-    
-    def decorator(func: Callable[Concatenate[Block, P], Any]) -> Callable[P, Block]:
-        sig = signature(func)
-        param_list = list(sig.parameters.values())
-        if not param_list or param_list[0].annotation.__name__ != "Block":
-            raise TypeError(f"First parameter of {func.__name__} must be of type Block")
-
-        
+    ) -> Callable[[Callable[Concatenate[Block, P], Any]], Callable[P, Union[Block, ContextManager[Block]]]]:
+    def decorator(func: Callable[Concatenate[Block, P], Any]) -> Callable[P, Union[Block, ContextManager[Block]]]:
         if inspect.isgeneratorfunction(func):
             @wraps(func)
             @contextmanager
-            def wrapper(*args, **kwargs) -> Block:
+            def generator_wrapper(*args: P.args, **kwargs: P.kwargs) -> Generator[Block, None, None]:
                 blk = Block(
                     content=content,
                     tags=tags,
@@ -803,15 +864,14 @@ def block(
                     model=model,
                     tool_calls=tool_calls,
                     usage=usage,
-                )
+                )  # Build your Block
                 with blk:
-                    if inspect.isgeneratorfunction(func):
-                        gen = func(blk, *args, **kwargs)
-                        sub_blk = next(gen)                    
-                        yield sub_blk
+                    gen = func(blk, *args, **kwargs)
+                    yield next(gen)
+            return generator_wrapper
         else:
             @wraps(func)
-            def wrapper(*args, **kwargs) -> Block:
+            def normal_wrapper(*args: P.args, **kwargs: P.kwargs) -> Block:
                 blk = Block(
                     content=content,
                     tags=tags,
@@ -825,62 +885,13 @@ def block(
                     tool_calls=tool_calls,
                     usage=usage,
                 )
-                res = func(blk, *args, **kwargs)
-                if res is not None:
-                    return res
-                else:
-                    return blk
-                # return FunctionBlock(func, blk)
-            
-            
-        # @wraps(func)
-        # @contextmanager
-        # def wrapper(*args, **kwargs) -> Block:
-        #     blk = Block(
-        #         content=content,
-        #         tags=tags,
-        #         style=style,
-        #         attrs=attrs,
-        #         depth=depth,
-        #         dedent=dedent,
-        #         role=role,
-        #         name=name,
-        #         model=model,
-        #         tool_calls=tool_calls,
-        #         usage=usage,
-        #     )
-        #     with blk:
-        #         if inspect.isgeneratorfunction(func):
-        #             gen = func(blk, *args, **kwargs)
-        #             sub_blk = next(gen)                    
-        #             with sub_blk as b:
-        #                 yield b
-                                                      
-        #         else:
-        #             func(blk, *args, **kwargs)
-        #             yield blk
-                    
-                    
-                    
-        # @wraps(func)
-        # def wrapper(*args, **kwargs) -> Block:
-        #     blk = Block(
-        #         content=content,
-        #         tags=tags,
-        #         style=style,
-        #         attrs=attrs,
-        #         depth=depth,
-        #         dedent=dedent,
-        #         role=role,
-        #         name=name,
-        #         model=model,
-        #         tool_calls=tool_calls,
-        #         usage=usage,
-        #     )
-        #     func(blk, *args, **kwargs)
-        #     return blk
-            
-        
-        return wrapper
-
+                result = func(blk, *args, **kwargs)
+                return result if isinstance(result, Block) else blk
+            return normal_wrapper
     return decorator
+
+
+
+
+
+
