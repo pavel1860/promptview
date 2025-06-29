@@ -1,4 +1,4 @@
-from .block6 import Block, BlockList, Blockable, BlockRole, ToolCall, LlmUsage
+from .block6 import Block, BlockList, Blockable, BlockRole, ToolCall, LlmUsage, block
 from .base_prompt3 import prompt, Prompt
 from .agent import Agent, agent
 from .renderer import ContentRenderer, ItemsRenderer
@@ -13,6 +13,7 @@ from .depends import Depends
 
 __all__ = [
     "Block",
+    "block",
     "BlockList",
     "Blockable",
     "prompt",

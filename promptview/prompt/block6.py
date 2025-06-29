@@ -1,8 +1,10 @@
 from collections import defaultdict
 from abc import abstractmethod
+from functools import wraps
+from inspect import signature
 import json
 import textwrap
-from typing import Any, Callable, Generic, Iterator, List, Literal, Protocol, SupportsIndex, Type, TypeVar, Union, overload
+from typing import Any, Callable, Concatenate, Generic, Iterator, List, Literal, ParamSpec, Protocol, SupportsIndex, Type, TypeVar, Union, overload
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
 from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
@@ -715,3 +717,51 @@ class BlockContext:
 class Blockable(Protocol):
     def block(self) -> Block:
         ...
+
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+def block(
+    content: str | None = None,
+    *,
+    tags: list[str] | None = None, 
+    style: "InlineStyle | None" = None, 
+    attrs: dict | None = None,
+    depth: int = 0, 
+    dedent: bool = True, 
+    role: "BlockRole | None" = None,
+    name: str | None = None,
+    model: str | None = None,
+    tool_calls: list["ToolCall"] | None = None,
+    usage: "LlmUsage | None" = None,
+) -> Callable[[Callable[Concatenate[Block, P], Any]], Callable[P, Block]]:
+    
+    def decorator(func: Callable[Concatenate[Block, P], Any]) -> Callable[P, Block]:
+        sig = signature(func)
+        param_list = list(sig.parameters.values())
+        if not param_list or param_list[0].annotation.__name__ != "Block":
+            raise TypeError(f"First parameter of {func.__name__} must be of type Block")
+
+        @wraps(func)
+        def wrapper(*args, **kwargs) -> Block:
+            blk = Block(
+                content=content,
+                tags=tags,
+                style=style,
+                attrs=attrs,
+                depth=depth,
+                dedent=dedent,
+                role=role,
+                name=name,
+                model=model,
+                tool_calls=tool_calls,
+                usage=usage,
+            )
+            func(blk, *args, **kwargs)
+            return blk
+        
+        return wrapper
+
+    return decorator
