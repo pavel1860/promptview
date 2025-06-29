@@ -1,7 +1,9 @@
 from collections import defaultdict
 from abc import abstractmethod
+from contextlib import contextmanager
 from functools import wraps
 from inspect import signature
+import inspect
 import json
 import textwrap
 from typing import Any, Callable, Concatenate, Generic, Iterator, List, Literal, ParamSpec, Protocol, SupportsIndex, Type, TypeVar, Union, overload
@@ -361,10 +363,10 @@ class Block:
     def __enter__(self):
         if self._ctx is None:
             self._ctx = ContextStack()
-        if self._children_block is not None:
-            self._ctx.push(self._children_block)
-        else:
-            self._ctx.push(self)
+        # if self._children_block is not None:
+        #     self._ctx.push(self._children_block)
+        # else:
+        self._ctx.push(self)
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
@@ -760,6 +762,7 @@ def block(
             raise TypeError(f"First parameter of {func.__name__} must be of type Block")
 
         @wraps(func)
+        @contextmanager
         def wrapper(*args, **kwargs) -> Block:
             blk = Block(
                 content=content,
@@ -774,8 +777,31 @@ def block(
                 tool_calls=tool_calls,
                 usage=usage,
             )
-            func(blk, *args, **kwargs)
-            return blk
+            with blk:
+                if inspect.isgeneratorfunction(func):
+                    gen = func(blk, *args, **kwargs)
+                    yield next(gen)
+                else:
+                    func(blk, *args, **kwargs)
+                    yield blk
+        # @wraps(func)
+        # def wrapper(*args, **kwargs) -> Block:
+        #     blk = Block(
+        #         content=content,
+        #         tags=tags,
+        #         style=style,
+        #         attrs=attrs,
+        #         depth=depth,
+        #         dedent=dedent,
+        #         role=role,
+        #         name=name,
+        #         model=model,
+        #         tool_calls=tool_calls,
+        #         usage=usage,
+        #     )
+        #     func(blk, *args, **kwargs)
+        #     return blk
+            
         
         return wrapper
 
