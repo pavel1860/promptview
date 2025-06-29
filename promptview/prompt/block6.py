@@ -740,6 +740,31 @@ class Blockable(Protocol):
 P = ParamSpec("P")
 R = TypeVar("R")
 
+
+class FunctionBlock(Generic[P, R]):
+        
+    def __init__(self, func, blk: Block):
+        self.func = func
+        self.blk = blk
+        wraps(func)(self)
+    
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Block:
+        print("[Calling]")
+        return self.func(*args, **kwargs)
+
+    def __enter__(self):
+        print("[Entering context]")
+        # return self.func  # or `self` if you want to preserve decorator logic
+        self.blk.__enter__()
+        return self.blk
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        print("[Exiting context]")
+        self.blk.__exit__(exc_type, exc_val, exc_tb)
+
+
+
+
 def block(
     content: str | None = None,
     *,
@@ -761,29 +786,82 @@ def block(
         if not param_list or param_list[0].annotation.__name__ != "Block":
             raise TypeError(f"First parameter of {func.__name__} must be of type Block")
 
-        @wraps(func)
-        @contextmanager
-        def wrapper(*args, **kwargs) -> Block:
-            blk = Block(
-                content=content,
-                tags=tags,
-                style=style,
-                attrs=attrs,
-                depth=depth,
-                dedent=dedent,
-                role=role,
-                name=name,
-                model=model,
-                tool_calls=tool_calls,
-                usage=usage,
-            )
-            with blk:
-                if inspect.isgeneratorfunction(func):
-                    gen = func(blk, *args, **kwargs)
-                    yield next(gen)
+        
+        if inspect.isgeneratorfunction(func):
+            @wraps(func)
+            @contextmanager
+            def wrapper(*args, **kwargs) -> Block:
+                blk = Block(
+                    content=content,
+                    tags=tags,
+                    style=style,
+                    attrs=attrs,
+                    depth=depth,
+                    dedent=dedent,
+                    role=role,
+                    name=name,
+                    model=model,
+                    tool_calls=tool_calls,
+                    usage=usage,
+                )
+                with blk:
+                    if inspect.isgeneratorfunction(func):
+                        gen = func(blk, *args, **kwargs)
+                        sub_blk = next(gen)                    
+                        yield sub_blk
+        else:
+            @wraps(func)
+            def wrapper(*args, **kwargs) -> Block:
+                blk = Block(
+                    content=content,
+                    tags=tags,
+                    style=style,
+                    attrs=attrs,
+                    depth=depth,
+                    dedent=dedent,
+                    role=role,
+                    name=name,
+                    model=model,
+                    tool_calls=tool_calls,
+                    usage=usage,
+                )
+                res = func(blk, *args, **kwargs)
+                if res is not None:
+                    return res
                 else:
-                    func(blk, *args, **kwargs)
-                    yield blk
+                    return blk
+                # return FunctionBlock(func, blk)
+            
+            
+        # @wraps(func)
+        # @contextmanager
+        # def wrapper(*args, **kwargs) -> Block:
+        #     blk = Block(
+        #         content=content,
+        #         tags=tags,
+        #         style=style,
+        #         attrs=attrs,
+        #         depth=depth,
+        #         dedent=dedent,
+        #         role=role,
+        #         name=name,
+        #         model=model,
+        #         tool_calls=tool_calls,
+        #         usage=usage,
+        #     )
+        #     with blk:
+        #         if inspect.isgeneratorfunction(func):
+        #             gen = func(blk, *args, **kwargs)
+        #             sub_blk = next(gen)                    
+        #             with sub_blk as b:
+        #                 yield b
+                                                      
+        #         else:
+        #             func(blk, *args, **kwargs)
+        #             yield blk
+                    
+                    
+                    
         # @wraps(func)
         # def wrapper(*args, **kwargs) -> Block:
         #     blk = Block(
