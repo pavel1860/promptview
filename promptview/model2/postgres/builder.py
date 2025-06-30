@@ -101,7 +101,7 @@ class SQLBuilder:
                 sql += " NOT NULL"
             
             # Add primary key if specified
-            if field.extra and field.extra.get("primary_key"):
+            if field.is_primary_key:
                 sql += " PRIMARY KEY"
             
             # Add index if specified

@@ -2,9 +2,11 @@ import asyncio
 from promptview.model2.base_namespace import DatabaseType, NSManyToManyRelationInfo, NSRelationInfo, Namespace
 from typing import TYPE_CHECKING, Iterator, Type, TypeVar, Dict, List, Any, Optional, ForwardRef
 
+from promptview.model2.neo4j.namespace import Neo4jNamespace
 from promptview.model2.postgres.builder import SQLBuilder
 from promptview.model2.postgres.namespace import PostgresNamespace
 from promptview.model2.postgres.operations import PostgresOperations
+from promptview.model2.qdrant.namespace import QdrantNamespace
 from promptview.model2.versioning import ArtifactLog
 
 
@@ -63,7 +65,11 @@ class NamespaceManager:
         if not cls._namespaces:
             cls.initialize()
         if db_type == "qdrant":
-            raise NotImplementedError("Qdrant is not implemented")
+            # raise NotImplementedError("Qdrant is not implemented")
+            namespace = QdrantNamespace(
+                name=model_name,
+                namespace_manager=cls,
+            )
         elif db_type == "postgres":
             namespace = PostgresNamespace(
                 name=model_name, 
@@ -73,6 +79,11 @@ class NamespaceManager:
                 is_artifact=is_artifact,
                 repo_namespace=repo_namespace,                 
                 namespace_manager=cls
+            )
+        elif db_type == "neo4j":
+            namespace = Neo4jNamespace(
+                name=model_name,
+                namespace_manager=cls,
             )
         else:
            raise ValueError(f"Invalid database type: {db_type}")
@@ -406,6 +417,10 @@ class NamespaceManager:
         Drop all namespaces.
         """
         await SQLBuilder.drop_all_tables()
+        for namespace in cls.iter_namespaces("qdrant"):
+            await namespace.drop_namespace()
+        for namespace in cls.iter_namespaces("neo4j"):
+            await namespace.drop_namespace()
     
     
     @classmethod

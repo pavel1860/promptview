@@ -64,7 +64,13 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         self,
         name: str,
         field_type: type[Any],
-        extra: dict[str, Any] | None = None,
+        is_optional: bool = False,
+        foreign_key: bool = False,
+        is_key: bool = False,
+        is_vector: bool = False,
+        dimension: int | None = None,
+        is_primary_key: bool = False,
+        is_default_temporal: bool = False,
     ):
         """
         Add a field to the namespace.
@@ -77,18 +83,24 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         pg_field = PgFieldInfo(
             name=name,
             field_type=field_type,
-            extra=extra,
+            is_optional=is_optional,
+            foreign_key=foreign_key,
+            is_key=is_key,
+            is_vector=is_vector,
+            dimension=dimension,
+            is_primary_key=is_primary_key,
             namespace=self,
         )
-        if pg_field.is_primary_key:
-            if curr_key:= self.find_primary_key() is not None:
+        if is_primary_key:
+            if self._primary_key is not None:
                 raise ValueError(f"Primary key field {name} already exists. {curr_key} is already the primary key field.")
-        if pg_field.is_default_temporal:
+            self._primary_key = pg_field
+        if is_default_temporal:
             if self.default_temporal_field is not None:
                 raise ValueError(f"Default temporal field {name} already exists. {self.default_temporal_field} is already the default temporal field.")
             self.default_temporal_field = pg_field
-        if pg_field.is_vector:
-            self._vector_fields[name] = pg_field                
+        if pg_field.is_vector:   
+            self.vector_fields.add_vector_field(name, pg_field)
         self._fields[name] = pg_field
         return pg_field    
     
@@ -128,6 +140,8 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         primary_key: str,
         foreign_key: str,
         foreign_cls: "Type[Model]",
+        junction_cls: Type["Model"] | None = None,
+        junction_keys: list[str] | None = None,
         on_delete: str = "CASCADE",
         on_update: str = "CASCADE",
     ) -> NSRelationInfo:
@@ -150,6 +164,8 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             primary_key=primary_key,
             foreign_key=foreign_key,
             foreign_cls=foreign_cls,
+            junction_cls=junction_cls,
+            junction_keys=junction_keys,
             on_delete=on_delete,
             on_update=on_update,
         )
@@ -222,15 +238,15 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                 if relation_info.primary_key == "artifact_id":
                     # can't enforce foreign key constraint on artifact_id because it's not a single record
                     continue
-                await SQLBuilder.create_foreign_key(
-                    table_name=self.table_name,
-                    column_name=relation_info.primary_key,
-                    column_type=self.get_field(relation_info.primary_key).sql_type,
-                    referenced_table=relation_info.primary_table,
-                    referenced_column=relation_info.primary_key,
-                    on_delete=relation_info.on_delete,
-                    on_update=relation_info.on_update,
-                )
+                # await SQLBuilder.create_foreign_key(
+                #     table_name=self.table_name,
+                #     column_name=relation_info.primary_key,
+                #     column_type=self.get_field(relation_info.primary_key).sql_type,
+                #     referenced_table=relation_info.primary_table,
+                #     referenced_column=relation_info.primary_key,
+                #     on_delete=relation_info.on_delete,
+                #     on_update=relation_info.on_update,
+                # )
         
         return res
     
@@ -412,6 +428,30 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
     #         record = await PostgresOperations.update(self, id, data, turn_id, branch_id )
     #     return self.pack_record(record)
     
+    async def insert(self, data: dict[str, Any]) -> dict[str, Any]:        
+        dump = self.validate_model_fields(data)
+        # if self.need_to_transform:
+            # vector_payload = await self.transform_model(model)
+            # dump.update(vector_payload)
+            
+        if dump.get(self.primary_key.name, None) is None:
+            # dump = model.model_dump()
+            if self.is_artifact:
+                dump["artifact_id"] = uuid.uuid4()                            
+            sql, values = self.build_insert_query(dump)
+        else:
+            # dump = model.model_dump()
+            if self.is_artifact:
+                dump["version"] = dump.get("version", 0) + 1
+                dump["updated_at"] = dt.datetime.now()
+                sql, values = self.build_insert_query(dump)
+            else:
+                sql, values = self.build_update_query(dump)
+            
+        record = await PGConnectionManager.fetch_one(sql, *values)
+        if record is None:
+            raise ValueError("Failed to save model")
+        return self.pack_record(dict(record))
 
     async def save(self, model: MODEL) -> MODEL:
         """
