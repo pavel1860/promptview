@@ -16,10 +16,7 @@ class ResourceManager:
     # _field_vectorizers: dict[str, BaseVectorizer] = {}
     
     @classmethod
-    def register_vectorizer(cls, name: str, vectorizer_cls: Type[BaseVectorizer]):
-        # cls._vectorizers_objs[name] = vectorizer_cls
-        # if vectorizer_cls in cls._vectorizers:       
-        
+    def register_vectorizer(cls, vectorizer_cls: Type[BaseVectorizer]):        
         vectorizer = cls._instantiated_vectorizers.get(vectorizer_cls.__name__)
         if vectorizer is None:
             vectorizer = vectorizer_cls()

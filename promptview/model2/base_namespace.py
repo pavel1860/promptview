@@ -12,6 +12,7 @@ import datetime as dt
 
 
 
+from promptview.algebra.vectors.batch_vectorizer import BatchVectorizer
 from promptview.utils.model_utils import is_list_type, unpack_list_model
 from promptview.utils.string_utils import camel_to_snake
 
@@ -555,14 +556,16 @@ FIELD_INFO = TypeVar("FIELD_INFO", bound=NSFieldInfo)
 #         docs = [self.transform_fn(model) for model in models]
 #         return await self.vectorizer.embed_documents(docs)
 class Transformer:
-    def __init__(self, field_name: str, transform_fn: Callable[[dict[str, Any]], Any], vectorizer_cls: "Type[BaseVectorizer]"):
+    def __init__(self, field_name: str, transform_fn: Callable[[dict[str, Any]], Any], vectorizer_cls: "Type[BaseVectorizer] | None" = None):
         self.field_name = field_name
         self.transform_fn = transform_fn
         self.vectorizer_cls = vectorizer_cls
     
     @property
-    def vectorizer(self) -> "BaseVectorizer":
+    def vectorizer(self) -> "BaseVectorizer | None":
         from promptview.resource_manager import ResourceManager
+        if self.vectorizer_cls is None:
+            return None
         return ResourceManager.get_vectorizer_by_cls(self.vectorizer_cls)
         
     async def __call__(self, data_list: list[dict[str, Any]]) -> list[Any]:        
@@ -683,6 +686,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         self.repo_namespace = repo_namespace
         self.namespace_manager = namespace_manager
         self.vector_fields = VectorFields()
+        self.batch_vectorizer = BatchVectorizer()
         self._transformers = {}
         self.db_type = db_type
         self._model_cls = None
@@ -721,8 +725,8 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         if self._primary_key is None:
             raise ValueError("Primary key not found")
         primary_key = data.get(self._primary_key.name)
-        if primary_key is None:
-            return None
+        # if primary_key is None:
+            # return None
         if remove_key:
             del data[self._primary_key.name]
         return primary_key
@@ -936,14 +940,25 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     @property
     def need_to_transform(self) -> bool:
-        return bool(self.vector_fields.transformers)
+        return bool(len(self.vector_fields) > 0)
     
-    def register_transformer(self, field_name: str, transformer: Callable[[MODEL], Any], vectorizer_cls: "Type[BaseVectorizer]"):
+    def register_transformer(self, field_name: str, transformer: Callable[[MODEL], Any], vectorizer_cls: "Type[BaseVectorizer] | None" = None):
         from promptview.resource_manager import ResourceManager
-        ResourceManager.register_vectorizer(field_name, vectorizer_cls)
+        if vectorizer_cls is not None:
+            ResourceManager.register_vectorizer(vectorizer_cls)
         self.vector_fields.add_transformer(field_name, Transformer(field_name, transformer, vectorizer_cls))
         # self._transformers[field_name] = Transformer(field_name, transformer, vectorizer)
         
+        
+    # def register_vectorizer(self, field_name: str, vectorizer_cls: "Type[BaseVectorizer]"):
+    #     from promptview.resource_manager import ResourceManager
+    #     ResourceManager.register_vectorizer(vectorizer_cls)
+    #     self.vector_fields.add_vector_field(field_name, vectorizer_cls())
+    def register_vector_field(self, field_name: str, vectorizer_cls: "Type[BaseVectorizer]"):
+        from promptview.resource_manager import ResourceManager
+        vectorizer = ResourceManager.register_vectorizer(vectorizer_cls)
+        self.batch_vectorizer.add_vectorizer(field_name, vectorizer)
+        return vectorizer
         
     def get_transformers(self) -> dict[str, Transformer]:
         return self._transformers

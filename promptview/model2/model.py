@@ -121,7 +121,7 @@ def unpack_relation_extra(extra: dict[str, Any], field_origin: Type[Any], is_ver
 
 
 def unpack_vector_extra(extra: dict[str, Any]) -> "tuple[int, Type[BaseVectorizer] | None, Distance]":
-    dimension = extra.get("dimension", 1536)
+    dimension = extra.get("dimension", None)
     vectorizer = extra.get("vectorizer", None)
     distance = Distance(extra.get("distance", "cosine"))
     
@@ -259,16 +259,19 @@ class ModelMeta(ModelMetaclass, type):
                 # Skip adding this field to the namespace
                 continue
             elif extra.get("is_vector", False):
+                # vector field, need to add it to the vectorizers
                 dimension, vectorizer, distance = unpack_vector_extra(extra)
-                # if vectorizer is None:
-                    # raise ValueError(f"vectorizer is required for vector field: {field_type} on Model {name}")
+                if vectorizer is None:
+                    raise ValueError(f"vectorizer is required for vector field: {field_type} on Model {name}")
                 # if dimension is None:
                     # raise ValueError(f"dimension is required for vector field: {field_type} on Model {name}")
                 # if not ns.get_transformer(field_name):
                     # raise ValueError(f"transformer is required for vector field: {field_type} on Model {name}")
                 # ResourceManager.register_vectorizer(field_name, vectorizer)
-                transformer = ns.vector_fields.get_transformer(field_name)
-                dimension = transformer.vectorizer_cls.dimension
+                
+                # transformer = ns.vector_fields.get_transformer(field_name)
+                vectorizer = ns.register_vector_field(field_name, vectorizer)
+                dimension = dimension or vectorizer.dimension
                 ns.add_field(
                     field_name, 
                     field_type, 
@@ -468,16 +471,21 @@ class Model(BaseModel, metaclass=ModelMeta):
         ns = cls.get_namespace()
         return ns.iter_fields(keys, select)
     
+    def transform(self) -> str:
+        return self.model_dump_json()
+    
     async def save(self, *args, **kwargs) -> Self:
         """
         Save the model instance to the database
         """
                 
-        ns = self.get_namespace()        
+        ns = self.get_namespace()
         # result = await ns.save(self)
         dump = self.model_dump()
         if ns.need_to_transform:
-            vectors = await ns.vector_fields.transform(self)
+            text_content = self.transform()
+            vectors = await ns.batch_vectorizer.embed_query(text_content)
+            # vectors = await ns.vector_fields.transform(self)
             dump.update(vectors)
         result = await ns.insert(dump)
         # Update instance with returned data (e.g., ID)

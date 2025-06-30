@@ -1,6 +1,7 @@
 from typing import Any, List
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.http.models import Filter, FieldCondition, MatchValue, SearchParams
+from qdrant_client.http.models import Filter, FieldCondition, MatchValue, SearchParams, NamedVector
+from qdrant_client.http.models import ScoredPoint
 import os
 
 class QdrantConnectionManager:
@@ -44,3 +45,37 @@ class QdrantConnectionManager:
         )
 
         return [point.payload for point in hits[0]]
+
+    
+    @classmethod
+    async def execute_query(
+        cls,
+        collection_name: str,
+        query: dict[str, Any],        
+        limit: int | None = None,
+        threshold: float | None = None,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+    ) -> List[ScoredPoint]:
+        client = cls.get_client()
+        
+        
+        vector_name = list(query.keys())[0]
+        
+        
+        recs = await client.search(
+            collection_name=collection_name,
+            query_vector=NamedVector(
+                name=vector_name,
+                vector=query[vector_name]
+            ),
+            # query_filter=filter_,
+            # limit=limit or 10,            
+            # with_payload=with_payload,
+            # with_vectors=with_vectors,
+            # score_threshold=threshold,
+        )
+        return recs
+        
+   
+        

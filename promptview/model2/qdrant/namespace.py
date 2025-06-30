@@ -98,6 +98,7 @@ class QdrantNamespace(Namespace[MODEL, QdrantFieldInfo]):
         return field
 
 
+
     async def insert(self, data: dict[str, Any]) -> dict[str, Any]:
         namespace = self
         client = QdrantConnectionManager.get_client()

@@ -59,7 +59,7 @@ class SparseVector(csr_matrix): pass
 
 
 
-def transformer(field_name: str, vectorizer_cls: "Type[BaseVectorizer]"):
+def transformer(field_name: str | None = None, vectorizer_cls: "Type[BaseVectorizer] | None" = None):
     def decorator(func: Callable):
         func.is_transformer = True
         func._transformer_field_name = field_name
