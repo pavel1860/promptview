@@ -6,8 +6,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
-from promptview.model.query import parse_query_params
 from promptview.context.model_context import CtxRequest, ModelCtx
+from promptview.model2.postgres.query_url_params import parse_query_params
 from promptview.model2.query_filters import QueryFilter, QueryListType
 from promptview.api.utils import build_model_context_parser, get_head, query_filters, unpack_int_env_header, Head
 from promptview.model2.model import Model
@@ -30,26 +30,30 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
     async def list_models(
         offset: int = Query(default=0, ge=0, alias="filter.offset"),
         limit: int = Query(default=10, ge=1, le=100, alias="filter.limit"),
-        filters: QueryListType | None = Depends(query_filters),         
+        filters: QueryListType | None = Depends(query_filters),
         ctx: CTX_MODEL = Depends(get_context)
     ):
         """List all models with pagination"""
-        async with ctx:        
-            query = model.query(status=TurnStatus.COMMITTED)
-                    
-            model_query = query.limit(limit).offset(offset).order_by("-created_at")
-            if filters:
-                model_query = model_query.set_filter(filters)
-            # model_query._filters = filters
-            instances = await model_query
-            return [instance.model_dump() for instance in instances]       
+        # async with ctx:  
+            
+            # if model.__name__ == "Turn":
+            #     print("Turn")
+        query = model.query(status=TurnStatus.COMMITTED)
+                
+        model_query = query.limit(limit).offset(offset).order_by("-created_at")
+        if filters:
+            condition = parse_query_params(model, filters, model_query.from_table)
+            model_query.query.where(condition)
+        # model_query._filters = filters
+        instances = await model_query
+        return [instance.model_dump() for instance in instances]       
     
-    @router.get("/{artifact_id}")
-    async def get_artifact(ctx: CTX_MODEL):
+    @router.get("/record/{record_id}")
+    async def get_artifact(record_id: int):
         """Get a specific artifact by ID"""
-        artifact = await model.get_artifact(ctx.artifact_id)
+        artifact = await model.get(record_id)
         if not artifact:
-            raise HTTPException(status_code=404, detail="Artifact not found")
+            raise HTTPException(status_code=404, detail="Model not found")
         return artifact
     
     
@@ -69,30 +73,26 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
     ):
         """Create a new model"""
         try:
-            async with ctx:
-                model_payload = model(**payload)
-                created_model = await model_payload.save()
-                return created_model
+            model_payload = model(**payload)
+            created_model = await model_payload.save()
+            return created_model
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
     
-    @router.put("/update")
+    @router.put("/update/{model_id}")
     async def update_model(
-        model: MODEL, 
+        model_id: int,
+        request: Request,
         ctx: CTX_MODEL = Depends(get_context)
     ):
         """Update an existing model"""
-        existing = await model.query(status=TurnStatus.COMMITTED).filter(lambda x: x.id == model.id).first()
-        if not existing:
+        payload = await request.json()
+        # existing = await model.query(status=TurnStatus.COMMITTED).filter(lambda x: x.id == model.id).first()
+        # existing = await model.get(model_id)
+        updated = await model.update_query(model_id, payload)
+        if not updated:
             raise HTTPException(status_code=404, detail="Model not found")
-        
-        try:
-            for field, value in model.dict(exclude_unset=True).items():
-                setattr(existing, field, value)
-            updated = await existing.save()
-            return updated
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        return updated
     
     @router.delete("/delete")
     async def delete_model(ctx: CTX_MODEL = Depends(get_context)):

@@ -105,8 +105,8 @@ class SQLBuilder:
                 sql += " PRIMARY KEY"
             
             # Add index if specified
-            elif field.index:
-                sql += f" {field.index}"
+            # elif field.index:
+            #     sql += f" {field.index}"
                 
             sql += ",\n"
         
@@ -207,6 +207,7 @@ class SQLBuilder:
         
     @classmethod
     async def drop_all_tables(cls, exclude: list[str] | None = None) -> None:
+        
         if exclude is None:
             exclude = []
         tables = await cls.get_tables()
@@ -214,6 +215,7 @@ class SQLBuilder:
         if not tables:
             return
         await cls.drop_many_tables(tables)
+        await cls.drop_enum_types()
         # for table in tables:
         #     if table not in exclude:
         #         await cls.drop_table(table)

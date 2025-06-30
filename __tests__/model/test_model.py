@@ -128,24 +128,24 @@ async def seeded_database(clean_database):
 
         data = {}
         
-        user = await User(name="John", age=30, user_token=uuid.uuid4()).save()
+        user = await User(name="John", age=30, anonymous_token=uuid.uuid4()).save()
 
         post1 = await Post(title="Post 1 Title", content="Post 1 Content", owner_id=user.id).save()
-        p1_comment1 = await post1.add(Comment(content="post 1 comment 1", user_id=user.id))
+        p1_comment1 = await post1.add(Comment(content="post 1 comment 1", user_id=user.id, reliability=0.6))
         p1c1_like1 = await p1_comment1.add(Like(type=LikeType.LIKE, user_id=user.id))
-        p1_comment2 = await post1.add(Comment(content="post 1 comment 2", user_id=user.id))
+        p1_comment2 = await post1.add(Comment(content="post 1 comment 2", user_id=user.id, reliability=0.7))
         p1c2_like1 = await p1_comment2.add(Like(type=LikeType.LIKE, user_id=user.id))
         p1c2_like2 = await p1_comment2.add(Like(type=LikeType.DISLIKE, user_id=user.id))
-        p1_comment3 = await post1.add(Comment(content="post 1 comment 3", user_id=user.id))
+        p1_comment3 = await post1.add(Comment(content="post 1 comment 3", user_id=user.id, reliability=0.8))
         p1c3_like1 = await p1_comment3.add(Like(type=LikeType.LIKE, user_id=user.id))
 
         post2 = await Post(title="Post 2 Title", content="Post 2 Content", owner_id=user.id).save()
-        p2_comment1 = await post2.add(Comment(content="post 2 comment 1", user_id=user.id))
+        p2_comment1 = await post2.add(Comment(content="post 2 comment 1", user_id=user.id, reliability=0.3))
         p2c1_like1 = await p2_comment1.add(Like(type=LikeType.LIKE, user_id=user.id))
         p2c1_like2 = await p2_comment1.add(Like(type=LikeType.DISLIKE, user_id=user.id))
         p2c1_like3 = await p2_comment1.add(Like(type=LikeType.LIKE, user_id=user.id))
         p2c1_like4 = await p2_comment1.add(Like(type=LikeType.DISLIKE, user_id=user.id))
-        p2_comment2 = await post2.add(Comment(content="post 2 comment 2", user_id=user.id))
+        p2_comment2 = await post2.add(Comment(content="post 2 comment 2", user_id=user.id, reliability=0.4))
         p2c2_like1 = await p2_comment2.add(Like(type=LikeType.LIKE, user_id=user.id))
 
         yield {
@@ -199,3 +199,35 @@ async def test_post_query_with_comments_and_likes(seeded_database):
     assert len(posts[1].comments) == 2
     assert len(posts[1].comments[0].likes) == 4
     assert len(posts[1].comments[1].likes) == 1
+
+
+
+
+@pytest.mark.asyncio
+async def test_artifact_model_basic(seeded_database):
+    
+    comments = await Comment.query().limit(10).include(Like.query().where(type=LikeType.LIKE))
+    likes = [l.type for c in comments for l in c.likes] 
+    assert len(likes) == 6
+    assert likes == [LikeType.LIKE] * 6
+    comments = await Comment.query().limit(10).include(Like.query().where(type=LikeType.DISLIKE))
+    likes = [l.type for c in comments for l in c.likes] 
+    assert len(likes) == 3
+    assert likes == [LikeType.DISLIKE] * 3
+    
+    
+    posts = await Post.query().limit(10).include(Comment.query().where(lambda c: c.reliability > 0.5))
+    reliabilities = [c.reliability for p in posts for c in p.comments]
+    assert len(reliabilities) == 3
+    assert reliabilities == [0.6, 0.7, 0.8]
+    
+    posts = await Post.query().limit(10).include(Comment.query().where(lambda c: c.reliability < 0.5))
+    reliabilities = [c.reliability for p in posts for c in p.comments]
+    assert len(reliabilities) == 2
+    assert reliabilities == [0.3, 0.4]
+    
+    
+    
+
+
+

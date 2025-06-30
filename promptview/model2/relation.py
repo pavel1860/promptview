@@ -32,10 +32,10 @@ class Relation(Generic[FOREIGN_MODEL], list):
         super().__init__(items)
         
         
-    def __repr__(self) -> str:
-        if not self._is_initialized:
-            return f"Relation({self._relation.primary_cls.__name__} -> {self._relation.foreign_cls.__name__})"
-        return "Relation[\n" + ",\n".join("  " +repr(item) for item in self) + "\n]"
+    # def __repr__(self) -> str:
+    #     if not self._is_initialized:
+    #         return f"Relation({self._relation.primary_cls.__name__} -> {self._relation.foreign_cls.__name__})"
+    #     return "Relation[\n" + ",\n".join("  " +repr(item) for item in self) + "\n]"
     
     @property
     def primary_id(self) -> Any:

@@ -89,6 +89,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             is_vector=is_vector,
             dimension=dimension,
             is_primary_key=is_primary_key,
+            namespace=self,
         )
         if is_primary_key:
             if self._primary_key is not None:
@@ -325,7 +326,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                     placeholders.append(placeholder)
                     values.append(processed_value)
                 else:
-                    raise ValueError(f"Field {field.name} is not valid")
+                    raise ValueError(f'Field "{field.name}" of type {field.field_type} is not valid for insert: {value} in "{self.table_name}"')
         
         
         sql = (

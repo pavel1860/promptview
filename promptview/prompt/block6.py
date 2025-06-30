@@ -1,8 +1,12 @@
 from collections import defaultdict
 from abc import abstractmethod
+from contextlib import contextmanager
+from functools import wraps
+from inspect import signature
+import inspect
 import json
 import textwrap
-from typing import Any, Callable, Generic, Iterator, List, Literal, Protocol, SupportsIndex, Type, TypeVar, Union, overload
+from typing import Any, Callable, Concatenate, ContextManager, Generator, Generic, Iterator, List, Literal, ParamSpec, Protocol, SupportsIndex, Type, TypeVar, Union, overload
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
 from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
@@ -140,7 +144,7 @@ class BlockList(list["Block"], Generic[MAP_RET]):
             tag = [tag]
         find_results = []
         for item in self: 
-            if any(t in item.tags for t in tag):
+            if any(t in item.tags or t == item.role for t in tag):
                 find_results.append(item)
             else:
                 find_results.extend(item.find(tag, default))
@@ -172,7 +176,7 @@ class BlockList(list["Block"], Generic[MAP_RET]):
         """
         if isinstance(tag, str):
             tag = [tag]
-        return BlockList([item for item in self if not any(tag in item.tags for tag in tag)])
+        return BlockList([item for item in self if not any(tag in item.tags + [item.role] for tag in tag)])
     
     def split(self, pivot_tag: str) -> tuple["BlockList", "Block", "BlockList"]:
         """
@@ -255,6 +259,7 @@ class Block:
         "id",
         "db_id",
         "attrs",
+        "_children_block",
     ]
     # tags: list[str]
     # items: list["Block"]
@@ -304,6 +309,7 @@ class Block:
         self.id = id
         self.db_id = db_id
         self.attrs = attrs
+        self._children_block = None
     # def __call__(
     #     self, 
     #     content: Any | None = None, 
@@ -357,14 +363,24 @@ class Block:
     def __enter__(self):
         if self._ctx is None:
             self._ctx = ContextStack()
+        # if self._children_block is not None:
+        #     self._ctx.push(self._children_block)
+        # else:
         self._ctx.push(self)
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
         if self._ctx is None:
-            raise ValueError("No context stack")
+            raise ValueError("No context stack")        
         if len(self._ctx) > 1:
             self._ctx.pop()
+        
+        
+    def children(self):
+        if not self.ctx_items:
+            raise ValueError("No context stack. you should set parent block first")
+        self._children_block = self.ctx_items[-1]
+        return self
         
     def find(self, tag: str | list[str], default: Any = None) -> "BlockList":
         if isinstance(tag, str):
@@ -372,7 +388,7 @@ class Block:
         sel_items = BlockList()
         for item in self.items:
             for k in tag:
-                if k in item.tags:
+                if k in item.tags or k == item.role:
                     sel_items.append(item)
                     break
             else:
@@ -387,7 +403,7 @@ class Block:
         """
         if isinstance(tag, str):
             tag = [tag]
-        return BlockList([item for item in self if not any(tag in item.tags for tag in tag)])
+        return BlockList([item for item in self if not any(tag in item.tags + [item.role] for tag in tag)])
     
     def _iter(self, max_depth: int, depth: int = 1) -> Iterator["Block"]:
         if depth > max_depth:
@@ -406,7 +422,7 @@ class Block:
         pivot_block = None
         current = pre_blocks
         for item in self.iter(1):
-            if pivot_tag in item.tags:
+            if pivot_tag in item.tags or pivot_tag == item.role:
                 pivot_block = item
                 current = post_blocks
                 continue
@@ -434,6 +450,26 @@ class Block:
         return len(self.items)
     
     
+    
+    def _validate_content_primitive(self, content: Any):
+        if content is None:
+            return True
+        if not isinstance(content, str):
+            raise ValueError(f"Invalid content: {content}")
+        return True
+        
+    def _validate_content_list(self, content: list[Any] | tuple[Any, ...]):
+        for item in content:
+            self._validate_content(item)
+        return True
+        
+    def _validate_content(self, content: Any):
+        if isinstance(content, list) or isinstance(content, tuple):
+            self._validate_content_list(content)
+        else:
+            self._validate_content_primitive(content)
+        return True
+    
     def _build_instance(
         self, 
         content: Any, 
@@ -446,6 +482,7 @@ class Block:
         if isinstance(content, Block):
             inst = content
         else:
+            self._validate_content(content)
             inst = Block(
                     content=content, 
                     tags=tags, 
@@ -519,6 +556,8 @@ class Block:
         """
         Append a new item to the block
         """
+        if isinstance(content, list):
+            raise ValueError("Cannot use list as single line content")
         self.append(content)
         return self    
     
@@ -526,6 +565,8 @@ class Block:
         """
         Append a new item to the block
         """
+        if isinstance(content, list):
+            raise ValueError("Cannot use list as single line content")
         self.append(content)
         return self
     
@@ -584,10 +625,13 @@ class Block:
         return self.inline_style.get(property_name, default)
     
     
+
+    
+    
     def render(self) -> str:
         from promptview.prompt.block_renderer import BlockRenderer
         from promptview.prompt.renderer import RendererMeta
-        if self.items != self.ctx_items:
+        if self.items != self.ctx_items and not self._children_block:
             raise ValueError("Wrong block context was passed to render. probably you are using the same ctx name for child and parent blocks")
         rndr = BlockRenderer(style_manager, RendererMeta._renderers)
         return rndr.render(self)
@@ -690,3 +734,164 @@ class BlockContext:
 class Blockable(Protocol):
     def block(self) -> Block:
         ...
+
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+class FunctionBlock(Generic[P, R]):
+        
+    def __init__(self, func, blk: Block):
+        self.func = func
+        self.blk = blk
+        wraps(func)(self)
+    
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Block:
+        print("[Calling]")
+        return self.func(*args, **kwargs)
+
+    def __enter__(self):
+        print("[Entering context]")
+        # return self.func  # or `self` if you want to preserve decorator logic
+        self.blk.__enter__()
+        return self.blk
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        print("[Exiting context]")
+        self.blk.__exit__(exc_type, exc_val, exc_tb)
+
+
+
+
+# def block(
+#     content: str | None = None,
+#     *,
+#     tags: list[str] | None = None,
+#     style: "InlineStyle | None" = None,
+#     attrs: dict | None = None,
+#     depth: int = 0,
+#     dedent: bool = True,
+#     role: "BlockRole | None" = None,
+#     name: str | None = None,
+#     model: str | None = None,
+#     tool_calls: list["ToolCall"] | None = None,
+#     usage: "LlmUsage | None" = None,
+# ) -> Callable[[Callable[Concatenate[Block, P], R]], Callable[P, R]]:
+#     def decorator(func: Callable[Concatenate[Block, P], R]) -> Callable[P, R]:
+#         if inspect.isgeneratorfunction(func):
+#             @wraps(func)
+#             @contextmanager
+#             def generator_wrapper(*args: P.args, **kwargs: P.kwargs) -> Generator[Block, None, None]:
+#             # def generator_wrapper(*args: P.args, **kwargs: P.kwargs) -> ContextManager[Block]:
+#                 blk = Block(
+#                     content=content,
+#                     tags=tags,
+#                     style=style,
+#                     attrs=attrs,
+#                     depth=depth,
+#                     dedent=dedent,
+#                     role=role,
+#                     name=name,
+#                     model=model,
+#                     tool_calls=tool_calls,
+#                     usage=usage,
+#                 )
+#                 with blk:
+#                     gen = func(blk, *args, **kwargs)
+#                     yield next(gen)
+#             return generator_wrapper  # type: ignore
+#         else:
+#             @wraps(func)
+#             def normal_wrapper(*args: P.args, **kwargs: P.kwargs) -> Block:
+#                 blk = Block(
+#                     content=content,
+#                     tags=tags,
+#                     style=style,
+#                     attrs=attrs,
+#                     depth=depth,
+#                     dedent=dedent,
+#                     role=role,
+#                     name=name,
+#                     model=model,
+#                     tool_calls=tool_calls,
+#                     usage=usage,
+#                 )
+#                 res = func(blk, *args, **kwargs)
+#                 return res if res is not None else blk  # type: ignore
+#             return normal_wrapper
+#     return decorator
+
+
+
+
+from typing import Callable, TypeVar, ParamSpec, Concatenate, Generator, ContextManager, Union
+from contextlib import contextmanager
+from functools import wraps
+import inspect
+
+P = ParamSpec("P")
+
+def block(
+    content: str | None = None,
+    *,
+    tags: list[str] | None = None,
+    style: "InlineStyle | None" = None,
+    attrs: dict | None = None,
+    depth: int = 0,
+    dedent: bool = True,
+    role: "BlockRole | None" = None,
+    name: str | None = None,
+    model: str | None = None,
+    tool_calls: list["ToolCall"] | None = None,
+    usage: "LlmUsage | None" = None,
+    ) -> Callable[[Callable[Concatenate[Block, P], Any]], Callable[P, Union[Block, ContextManager[Block]]]]:
+    def decorator(func: Callable[Concatenate[Block, P], Any]) -> Callable[P, Union[Block, ContextManager[Block]]]:
+        if inspect.isgeneratorfunction(func):
+            @wraps(func)
+            @contextmanager
+            def generator_wrapper(*args: P.args, **kwargs: P.kwargs) -> Generator[Block, None, None]:
+                blk = Block(
+                    content=content,
+                    tags=tags,
+                    style=style,
+                    attrs=attrs,
+                    depth=depth,
+                    dedent=dedent,
+                    role=role,
+                    name=name,
+                    model=model,
+                    tool_calls=tool_calls,
+                    usage=usage,
+                )  # Build your Block
+                with blk:
+                    gen = func(blk, *args, **kwargs)
+                    yield next(gen)
+            return generator_wrapper
+        else:
+            @wraps(func)
+            def normal_wrapper(*args: P.args, **kwargs: P.kwargs) -> Block:
+                blk = Block(
+                    content=content,
+                    tags=tags,
+                    style=style,
+                    attrs=attrs,
+                    depth=depth,
+                    dedent=dedent,
+                    role=role,
+                    name=name,
+                    model=model,
+                    tool_calls=tool_calls,
+                    usage=usage,
+                )
+                result = func(blk, *args, **kwargs)
+                return result if isinstance(result, Block) else blk
+            return normal_wrapper
+    return decorator
+
+
+
+
+
+

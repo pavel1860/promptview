@@ -5,8 +5,9 @@
 
 import re
 from typing import Literal
+
 from promptview.model2.postgres.sql.joins import Join
-from promptview.model2.postgres.sql.expressions import Eq, Expression, Neq, Gt, Gte, Lt, Lte, OrderBy, Value, param
+from promptview.model2.postgres.sql.expressions import Function, Coalesce, Eq, Expression, Neq, Gt, Gte, Lt, Lte, OrderBy, Value, WhereClause, json_build_object, param
 
 class Table:
     def __init__(self, name, alias=None):
@@ -67,12 +68,15 @@ class Column:
 
 JoinType = Literal["LEFT", "RIGHT", "INNER"]
 
+
+
+
 class SelectQuery:
     def __init__(self):
         self.columns = []
         self.from_table = None
         self.joins = []
-        self.where_clause = None
+        self.where = WhereClause()
         self.group_by = []
         self.having = None
         self.order_by = []
@@ -84,6 +88,38 @@ class SelectQuery:
         self.ctes = []  
         self.recursive = False  # <-
     
+    
+    def copy_query(self, exclude: set[str] = set()):
+        new_query = SelectQuery()
+        if "columns" not in exclude:
+            new_query.columns = self.columns
+        if "from_table" not in exclude:
+            new_query.from_table = self.from_table
+        if "joins" not in exclude:
+            new_query.joins = self.joins
+        if "where" not in exclude:
+            new_query.where = self.where
+        if "group_by" not in exclude:
+            new_query.group_by = self.group_by
+        if "having" not in exclude:
+            new_query.having = self.having
+        if "order_by" not in exclude:
+            new_query.order_by = self.order_by
+        if "limit" not in exclude:
+            new_query.limit = self.limit
+        if "offset" not in exclude:
+            new_query.offset = self.offset
+        if "distinct" not in exclude:
+            new_query.distinct = self.distinct
+        if "distinct_on" not in exclude:
+            new_query.distinct_on = self.distinct_on
+        if "alias" not in exclude:
+            new_query.alias = self.alias
+        if "ctes" not in exclude:
+            new_query.ctes = self.ctes
+        if "recursive" not in exclude:
+            new_query.recursive = self.recursive
+        return new_query
     
     def join(self, table, condition, join_type='LEFT', alias=None):
         self.joins.append(Join(table, condition, join_type, alias))
@@ -107,9 +143,6 @@ class SelectQuery:
         self.from_table = table
         return self
 
-    def where(self, condition):
-        self.where_clause = condition
-        return self
 
     def group_by_(self, *cols):
         self.group_by = list(cols)
@@ -141,6 +174,42 @@ class SelectQuery:
         self.distinct_on = list(cols)
         return self
 
+    def as_subquery(self, parent_table, primary_key, foreign_key, use_joins=False):
+        """
+        Returns a the query as a subquery.
+        parent_table - the parent table
+        primary_key - the primary key of the parent table
+        foreign_key - the foreign key that joins this query to the parent table
+        """
+        try:
+            columns = {}
+            join_filter = set()
+            for c in self.columns:
+                if isinstance(c, Column):
+                    columns[c.name] = c
+                elif isinstance(c, Expression):
+                    columns[c.alias] = c
+                    join_filter.add(c.alias)
+                    c.alias = None
+            obj = json_build_object(**columns)
+            obj.order_by = self.order_by
+            subq = self.copy_query(exclude={"group_by", "order_by"})
+            subq.columns = [Function(
+                    "json_agg", 
+                    obj, 
+                    # order_by=query.order_by
+                    )]
+            subq.from_table = self.from_table
+            if use_joins:
+                subq.joins = [j for j in self.joins if j.table.name not in join_filter]
+            
+            subq.where &= Eq(Column(foreign_key, self.from_table), Column(primary_key, parent_table))
+            
+            coalesced = Coalesce(subq, Value("[]", inline=True))
+            return coalesced
+        except Exception as e:
+            print(e)
+            raise
 
 class Subquery:
     def __init__(self, query: SelectQuery, alias: str):
@@ -162,7 +231,7 @@ class UpdateQuery:
     def __init__(self, table):
         self.table = table
         self.set_clauses = []
-        self.where_clause = None
+        self.where = WhereClause()
         self.returning = []
         
     def set(self, values: list[tuple[Column, Value]]):
@@ -173,7 +242,7 @@ class UpdateQuery:
 class DeleteQuery:
     def __init__(self, table):
         self.table = table
-        self.where_clause = None
+        self.where = WhereClause()
         self.returning = []
 
 

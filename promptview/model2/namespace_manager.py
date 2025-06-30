@@ -211,27 +211,32 @@ class NamespaceManager:
         # for namespace in cls._namespaces.values():
         for namespace in cls.iter_namespaces("postgres"):
             await namespace.create_namespace()
-            # if namespace.is_versioned:
-            #     await SQLBuilder.create_foreign_key(
-            #         table_name=namespace.table_name,
-            #         column_name="turn_id",
-            #         column_type="INTEGER",
-            #         referenced_table="turns",
-            #         referenced_column="id",
-            #         on_delete="CASCADE",
-            #         on_update="CASCADE",
-            #     )
-            #     await SQLBuilder.create_foreign_key(
-            #         table_name=namespace.table_name,
-            #         column_name="branch_id",
-            #         column_type="INTEGER",
-            #         referenced_table="branches",
-            #         referenced_column="id",
-            #         on_delete="CASCADE",
-            #         on_update="CASCADE",
-            #     )
-        for namespace in cls.iter_namespaces("qdrant"):
-            await namespace.create_namespace()
+            if namespace.is_versioned:
+                await SQLBuilder.create_foreign_key(
+                    table_name=namespace.table_name,
+                    column_name="turn_id",
+                    column_type="INTEGER",
+                    referenced_table="turns",
+                    referenced_column="id",
+                    on_delete="CASCADE",
+                    on_update="CASCADE",
+                )
+                await SQLBuilder.create_foreign_key(
+                    table_name=namespace.table_name,
+                    column_name="branch_id",
+                    column_type="INTEGER",
+                    referenced_table="branches",
+                    referenced_column="id",
+                    on_delete="CASCADE",
+                    on_update="CASCADE",
+                )
+            for field in namespace.iter_fields():
+                if field.index:
+                    await SQLBuilder.create_index_for_column(
+                        namespace=namespace,
+                        column_name=field.name,
+                        index_name=f"{namespace.table_name}_{field.name}_idx",
+                    )
                 
         # cls.replace_forward_refs()
                 

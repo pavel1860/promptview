@@ -449,15 +449,16 @@ class Model(BaseModel, metaclass=ModelMeta):
                 relation.set_primary_instance(self)
                 
     def model_dump(self, *args, **kwargs):
-        relation_fields = self._get_relation_fields()
+        # relation_fields = self._get_relation_fields()
         exclude = kwargs.get("exclude", set())
         if not isinstance(exclude, set):
             exclude = set()
-        exclude.update(relation_fields)
+        # exclude.update(relation_fields)
         if len(exclude) > 0:
             kwargs["exclude"] = exclude
         res = super().model_dump(*args, **kwargs)
         return res
+    
                 
     def _payload_dump(self):
         relation_fields = self._get_relation_fields()
@@ -490,7 +491,17 @@ class Model(BaseModel, metaclass=ModelMeta):
         result = await ns.insert(dump)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
-            setattr(self, key, value)
+            field = ns.get_field(key, False)
+            if field is None:
+                rel = ns.get_relation(key)
+                if rel is None:
+                    raise ValueError(f"Field {key} not found in namespace {ns.table_name}")
+                setattr(self, key, value)
+            else:
+                dv = field.deserialize(value)
+                setattr(self, key, dv)
+            # setattr(self, key, value)
+        
         
         # Update relation instance IDs
         self._update_relation_instance()
@@ -499,10 +510,10 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     @classmethod
-    async def update_query(cls, id: Any, **kwargs) -> "SelectQuerySet[Self]":
+    async def update_query(cls, id: Any, data: dict[str, Any]) -> "SelectQuerySet[Self]":
         """Update the model instance"""
         ns = cls.get_namespace()
-        return await ns.update(id, **kwargs)
+        return await ns.update(id, data)
 
     async def update(self, **kwargs) -> Self:
         """Update the model instance"""
