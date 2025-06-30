@@ -214,7 +214,7 @@ class ModelMeta(ModelMetaclass, type):
                         raise ValueError(f"foreign_cls must be a subclass of Model: {foreign_cls}")
                 if not foreign_cls:
                     raise ValueError(f"foreign_cls is required for relation: {field_type} on Model {name}")
-                               
+                             
                 relation_field = ns.add_relation(
                     name=extra.get("name") or field_name,
                     primary_key=extra.get("primary_key") or "id",

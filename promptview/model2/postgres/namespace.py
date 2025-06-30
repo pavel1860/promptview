@@ -157,18 +157,31 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             on_update: The action to take when the referenced row is updated
         """
         # Store the relation information
-        
-        relation_info = NSRelationInfo(
-            namespace=self,
-            name=name,
-            primary_key=primary_key,
-            foreign_key=foreign_key,
-            foreign_cls=foreign_cls,
-            junction_cls=junction_cls,
-            junction_keys=junction_keys,
-            on_delete=on_delete,
-            on_update=on_update,
-        )
+        if not junction_keys:
+            relation_info = NSRelationInfo(
+                namespace=self,
+                name=name,
+                primary_key=primary_key,
+                foreign_key=foreign_key,
+                foreign_cls=foreign_cls,
+                junction_cls=junction_cls,
+                junction_keys=junction_keys,
+                on_delete=on_delete,
+                on_update=on_update,
+            )
+        else:
+            relation_info = NSManyToManyRelationInfo(
+                namespace=self,
+                name=name,
+                primary_key=primary_key,
+                foreign_key=foreign_key,
+                foreign_cls=foreign_cls,
+                junction_cls=junction_cls,
+                junction_keys=junction_keys,
+                on_delete=on_delete,
+                on_update=on_update,
+            )
+            
         self._relations[name] = relation_info
         return relation_info
     
