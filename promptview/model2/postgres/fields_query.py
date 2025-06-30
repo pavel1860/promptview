@@ -46,6 +46,7 @@ class PgFieldInfo(NSFieldInfo):
             is_vector=is_vector,
             dimension=dimension,
             namespace=namespace,
+            is_primary_key=is_primary_key,
             )
         if is_primary_key and name == "id" and field_type is int:
             self.sql_type = PgFieldInfo.SERIAL_TYPE  # Use the constant from SQLBuilder

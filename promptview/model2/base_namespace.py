@@ -80,6 +80,7 @@ class NSFieldInfo:
         dimension: int | None = None,
         distance: Distance | None = None,
         namespace: "Namespace | None" = None,
+        is_primary_key: bool = False,
     ):
         self.is_optional = is_optional
         self.name = name        
@@ -105,7 +106,9 @@ class NSFieldInfo:
             self.is_temporal = False
             
         self.is_key = is_key
-        
+        self.is_primary_key = is_primary_key
+        if is_key:
+            self.key_type = "uuid" if self.field_type is uuid.UUID else "int"
         if is_vector:
             if not dimension:
                 raise ValueError("Dimension is required for vector field")
