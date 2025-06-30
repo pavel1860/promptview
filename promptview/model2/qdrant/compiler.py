@@ -6,7 +6,7 @@ class QdrantCompiler:
     """
     Compiles filter expressions from QdrantQuerySet into Qdrant Filter objects.
     """
-    def compile_expr(self, expr: Expression):
+    def compile_expr(self, expr: Expression) -> Filter:
         # Logical expressions
         if isinstance(expr, And):
             must = [self.compile_expr(cond) for cond in list(expr.conditions)]
@@ -21,18 +21,22 @@ class QdrantCompiler:
         elif isinstance(expr, Eq):
             field = expr.left.name if hasattr(expr.left, 'name') else expr.left
             value = expr.right.value if hasattr(expr.right, 'value') else expr.right
-            return FieldCondition(key=field, match=MatchValue(value=value))
+            cond = FieldCondition(key=field, match=MatchValue(value=value))
+            return Filter(must=[cond])
         elif isinstance(expr, In):
             field = expr.value.name if hasattr(expr.value, 'name') else expr.value
             options = [v.value if hasattr(v, 'value') else v for v in expr.options]
-            return FieldCondition(key=field, match=MatchAny(any=options))
+            cond = FieldCondition(key=field, match=MatchAny(any=options))
+            return Filter(must=[cond])
         elif isinstance(expr, Between):
             field = expr.value.name if hasattr(expr.value, 'name') else expr.value
             lower = expr.lower.value if hasattr(expr.lower, 'value') else expr.lower
             upper = expr.upper.value if hasattr(expr.upper, 'value') else expr.upper
-            return FieldCondition(key=field, range=Range(gte=lower, lte=upper))
+            cond = FieldCondition(key=field, range=Range(gte=lower, lte=upper))
+            return Filter(must=[cond])
         elif isinstance(expr, IsNull):
             field = expr.value.name if hasattr(expr.value, 'name') else expr.value
-            return IsNullCondition(is_null=field)
+            cond = IsNullCondition(is_null=field)
+            return Filter(must=[cond])
         else:
             raise ValueError(f"Unsupported expression type: {type(expr)}") 

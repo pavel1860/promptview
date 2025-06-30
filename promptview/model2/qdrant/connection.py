@@ -1,7 +1,7 @@
 from typing import Any, List
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http.models import Filter, FieldCondition, MatchValue, SearchParams, NamedVector
-from qdrant_client.http.models import ScoredPoint
+from qdrant_client.http.models import ScoredPoint, Record
 import os
 
 class QdrantConnectionManager:
@@ -60,28 +60,43 @@ class QdrantConnectionManager:
     ) -> List[ScoredPoint]:
         client = cls.get_client()
         
-        query_vector = None
-        if query:
-            vector_name = list(query.keys())[0]
-            query_vector = NamedVector(
-                name=vector_name,
-                vector=query[vector_name],
-            )
         
-        
+        vector_name = list(query.keys())[0]
+        query_vector = NamedVector(
+            name=vector_name,
+            vector=query[vector_name],
+        )
         
         
         recs = await client.search(
             collection_name=collection_name,
             query_vector=query_vector,
             query_filter=filters,
-            # query_filter=filter_,
             # limit=limit or 10,            
             # with_payload=with_payload,
             # with_vectors=with_vectors,
             # score_threshold=threshold,
         )
+        
+            
         return recs
         
    
-        
+    @classmethod
+    async def scroll(
+        cls,
+        collection_name: str,
+        filters: Filter | None = None,
+        limit: int | None = None,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+    ) -> List[Record]:
+        client = cls.get_client()
+        recs, _ = await client.scroll(
+            collection_name=collection_name,
+            scroll_filter=filters,
+            limit=limit or 10,
+            with_payload=with_payload,
+            with_vectors=with_vectors,
+        )
+        return recs

@@ -4,7 +4,7 @@
 
 from typing import TYPE_CHECKING, Generic, Type, TypeVar, Callable, List, Any
 from promptview.model2.base_namespace import QuerySet
-from qdrant_client.http.models import ScoredPoint
+from qdrant_client.http.models import ScoredPoint, Record
 from promptview.model2.postgres.query_set3 import QueryProxy
 from promptview.model2.postgres.sql.expressions import Eq, param
 from promptview.model2.postgres.sql.queries import Column, Table
@@ -72,19 +72,41 @@ class QdrantQuerySet(QuerySet[MODEL], Generic[MODEL]):
         if self._filters:
             compiler = QdrantCompiler()
             filters = compiler.compile_expr(self._filters)
-        
-        results = await QdrantConnectionManager.execute_query(
-            collection_name=collection_name,
-            query=vectors,
-            limit=self._limit,
-            filters=filters
-        )
+            
+            
         primary_key = ns.primary_key.name
-        def unpack_point(point: ScoredPoint) -> dict[str, Any]:
-            meta = point.payload or {}
-            return meta | {
-                "score": point.score,
-                "vector": point.vector,
-            } | {primary_key: point.id}
         
-        return [ns.instantiate_model(unpack_point(hit)) for hit in results]
+        if vectors is not None:
+            def unpack_point(point: ScoredPoint) -> dict[str, Any]:
+                meta = point.payload or {}
+                return meta | {
+                    "score": point.score,
+                    "vector": point.vector,
+                } | {primary_key: point.id}
+            results = await QdrantConnectionManager.execute_query(
+                collection_name=collection_name,
+                query=vectors,
+                limit=self._limit,
+                filters=filters
+            )
+            return [ns.instantiate_model(unpack_point(hit)) for hit in results]
+        else:
+            
+            def unpack_record(record: Record) -> dict[str, Any]:
+                meta = record.payload or {}
+                return meta | {
+                    "vector": record.vector,
+                } | {primary_key: record.id}
+            results = await QdrantConnectionManager.scroll(
+                collection_name=collection_name,
+                filters=filters,
+                limit=self._limit,
+            )
+            return [ns.instantiate_model(unpack_record(hit)) for hit in results]
+        
+        
+        
+            
+
+        
+        
