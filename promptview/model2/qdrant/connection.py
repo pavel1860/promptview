@@ -53,22 +53,28 @@ class QdrantConnectionManager:
         collection_name: str,
         query: dict[str, Any],        
         limit: int | None = None,
+        filters: Filter | None = None,
         threshold: float | None = None,
         with_payload: bool = True,
         with_vectors: bool = False,
     ) -> List[ScoredPoint]:
         client = cls.get_client()
         
+        query_vector = None
+        if query:
+            vector_name = list(query.keys())[0]
+            query_vector = NamedVector(
+                name=vector_name,
+                vector=query[vector_name],
+            )
         
-        vector_name = list(query.keys())[0]
+        
         
         
         recs = await client.search(
             collection_name=collection_name,
-            query_vector=NamedVector(
-                name=vector_name,
-                vector=query[vector_name]
-            ),
+            query_vector=query_vector,
+            query_filter=filters,
             # query_filter=filter_,
             # limit=limit or 10,            
             # with_payload=with_payload,

@@ -5,12 +5,21 @@
 from typing import TYPE_CHECKING, Generic, Type, TypeVar, Callable, List, Any
 from promptview.model2.base_namespace import QuerySet
 from qdrant_client.http.models import ScoredPoint
+from promptview.model2.postgres.query_set3 import QueryProxy
+from promptview.model2.postgres.sql.expressions import Eq, param
+from promptview.model2.postgres.sql.queries import Column, Table
+from promptview.model2.qdrant.compiler import QdrantCompiler
 from promptview.model2.qdrant.connection import QdrantConnectionManager
+from functools import reduce
+from operator import and_
 
 if TYPE_CHECKING:
     from promptview.model2.model import Model
 
 MODEL = TypeVar("MODEL", bound="Model")
+
+
+
 
 class QdrantQuerySet(QuerySet[MODEL], Generic[MODEL]):
     def __init__(self, model_class: Type[MODEL]):
@@ -18,9 +27,23 @@ class QdrantQuerySet(QuerySet[MODEL], Generic[MODEL]):
         self._filters: dict[str, Any] = {}
         self._limit: int | None = None
         self._query: str | None = None
+        self.namespace = model_class.get_namespace()
 
-    def filter(self, filter_fn: Callable[[MODEL], bool] = None, **kwargs) -> "QdrantQuerySet[MODEL]":
-        self._filters.update(kwargs)
+    def filter(self, condition: Callable[[MODEL], Any] | None = None, **kwargs) -> "QdrantQuerySet[MODEL]":
+        expressions = []
+
+        if condition is not None:
+            proxy = QueryProxy(self.model_class, Table(self.namespace.name))
+            self._filters = condition(proxy)
+        if kwargs:
+            for field, value in kwargs.items():
+                col = Column(field, Table(self.namespace.name))
+                expressions.append(Eq(col, param(value)))
+                
+        if expressions:
+            expr = reduce(and_, expressions) if len(expressions) > 1 else expressions[0]
+            self._filters = expr
+
         return self
 
     def limit(self, limit: int) -> "QdrantQuerySet[MODEL]":
@@ -35,6 +58,7 @@ class QdrantQuerySet(QuerySet[MODEL], Generic[MODEL]):
     async def execute(self) -> List[MODEL]:
         ns = self.model_class.get_namespace()
         collection_name = ns.name
+        vectors = None
         if self._query:
             vectors = await ns.batch_vectorizer.embed_query(self._query)
             
@@ -44,10 +68,16 @@ class QdrantQuerySet(QuerySet[MODEL], Generic[MODEL]):
         #     filters=self._filters,
         #     limit=self._limit
         # )
+        filters = None
+        if self._filters:
+            compiler = QdrantCompiler()
+            filters = compiler.compile_expr(self._filters)
+        
         results = await QdrantConnectionManager.execute_query(
             collection_name=collection_name,
             query=vectors,
-            limit=self._limit
+            limit=self._limit,
+            filters=filters
         )
         primary_key = ns.primary_key.name
         def unpack_point(point: ScoredPoint) -> dict[str, Any]:
