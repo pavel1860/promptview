@@ -88,8 +88,8 @@ async def create_partition(payload: CreatePartitionPayload, user: AuthModel = De
 
     
     
-@router.get("/turns/{branch_id}", response_model=List[Turn])
-async def get_branch_turns(branch_id: int):    
+@router.get("/turns/{branch_id}/partition/{partition_id}", response_model=List[Turn])
+async def get_branch_turns(branch_id: int, partition_id: int):    
     turn_ns = NamespaceManager.get_namespace("turns")
     branch_ns = NamespaceManager.get_namespace("branches")
     # tq = turn_ns.query().include(branch_ns.model_class).head(20)
@@ -99,6 +99,7 @@ async def get_branch_turns(branch_id: int):
         .where(id=branch_id)
         .include(
             turn_ns.query()
+            .where(partition_id=partition_id)
             .include(branch_ns.model_class)
             .head(20)
         )
