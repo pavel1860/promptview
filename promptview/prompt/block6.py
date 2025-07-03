@@ -224,6 +224,11 @@ class BlockList(list["Block"], Generic[MAP_RET]):
     def _validate(v: Any) -> Any:
         if isinstance(v, BlockList):
             return v
+        elif isinstance(v, list):
+            for item in v:
+                if not isinstance(item, Block):
+                    raise ValueError(f"Invalid block list: {v}")
+            return BlockList(v)
         else:
             raise ValueError(f"Invalid block list: {v}")
 
