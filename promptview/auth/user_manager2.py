@@ -29,7 +29,15 @@ class AuthModel(Model):
     
     
     
-    
+class UserNotFound(Exception):
+    pass
+
+class UserAlreadyExists(Exception):
+    pass
+
+
+class UserNotAuthorized(Exception):
+    pass
     
 
 
@@ -67,6 +75,8 @@ class AuthManager(Generic[UserT]):
 
     async def register_user(self, auth_user_id: str, data: Dict[str, Any]) -> UserT:
         await self.before_register_user(data)
+        if await self.fetch_by_auth_user_id(auth_user_id):
+            raise UserAlreadyExists(f"User {auth_user_id} already exists")
         user = await self.user_model(
             is_guest=False,            
             auth_user_id=auth_user_id,
@@ -111,10 +121,13 @@ class AuthManager(Generic[UserT]):
         user = None
         if auth_user_id:
             user = await self.fetch_by_auth_user_id(auth_user_id)
+            if not user:
+                raise UserNotFound(f"User {auth_user_id} not found")
         elif guest_token:
             user = await self.fetch_by_guest_token(guest_token)
-        if not user:
-            raise HTTPException(401, detail="User not found")
+            if not user:
+                raise UserNotFound(f"Guest User {guest_token} not found")
+        
         return user
 
     def get_user(self):

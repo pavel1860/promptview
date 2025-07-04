@@ -183,7 +183,8 @@ class SelectQuerySet(Generic[MODEL]):
 
         if condition is not None:
             proxy = QueryProxy(self.model_class, self.from_table)
-            self.query.where(condition(proxy))
+            # self.query.where(condition(proxy))
+            self.query.where &= condition(proxy)
         if kwargs:
             for field, value in kwargs.items():
                 col = Column(field, self.from_table)
@@ -191,7 +192,8 @@ class SelectQuerySet(Generic[MODEL]):
                 
         if expressions:
             expr = reduce(and_, expressions) if len(expressions) > 1 else expressions[0]
-            self.query.where(expr)
+            # self.query.where(expr)
+            self.query.where &= expr
 
         return self
     

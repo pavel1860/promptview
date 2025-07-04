@@ -1,11 +1,11 @@
 
 from typing import Any, Dict, Type, TypeVar
 from uuid import UUID
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from promptview.auth.dependencies import get_auth_admin_user, get_auth_user, get_user_manager, verify_api_key
-from promptview.auth.user_manager2 import AuthManager, AuthModel
+from promptview.auth.user_manager2 import AuthManager, AuthModel, UserNotFound
 import os
 
 from promptview.model2.model import Model
@@ -67,11 +67,28 @@ def create_auth_router(user_manager: AuthManager[AUTH_MODEL]):
         return user
 
     @router.get("/me", response_model=user_manager.user_model)
-    async def get_me(user: user_manager.user_model = Depends(user_manager.get_user_from_request)):
+    # async def get_me(user: user_manager.user_model = Depends(user_manager.get_user_from_request)):
+    async def get_me(request: Request):
         """
         Fetch the current user (guest or registered) using cookie or header.
         """
+        try:
+            user = await user_manager.get_user_from_request(request)
+        except UserNotFound:
+            raise HTTPException(401, detail="Unauthorized")
         return user
+    
+    @router.get("/verify_guest_token")
+    async def verify_guest_token(token: str = Query(..., description="The guest token to verify")):
+        """
+        Verify a guest token.
+        """
+        user = await user_manager.fetch_by_guest_token(token)
+        if not user:
+            return {"valid": False}
+        return {"valid": True}
+    
+    
     # @router.get("/me", response_model=user_manager.user_model)
     # async def get_me(request: Request):
     #     """
