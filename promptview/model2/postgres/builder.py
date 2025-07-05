@@ -103,22 +103,9 @@ class SQLBuilder:
             # Add primary key if specified
             if field.is_primary_key:
                 sql += " PRIMARY KEY"
-            
-            # Add index if specified
-            # elif field.index:
-            #     sql += f" {field.index}"
                 
             sql += ",\n"
         
-        # Add versioning fields only if the namespace is versioned
-        # if hasattr(namespace, "is_versioned") and namespace.is_versioned:
-        #     sql += '"branch_id" INTEGER NOT NULL REFERENCES "branches" (id),\n'
-        #     sql += '"turn_id" INTEGER NOT NULL REFERENCES "turns" (id),\n'
-            
-        # if hasattr(namespace, "is_repo") and namespace.is_repo:
-            # sql += '"main_branch_id" INTEGER NOT NULL REFERENCES "branches" (id),\n'
-            
-        # Remove trailing comma
         sql = sql[:-2]
         sql += "\n);"
         
