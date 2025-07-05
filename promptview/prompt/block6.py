@@ -247,7 +247,7 @@ class Block:
     """
     
     __slots__ = [
-        "content", 
+        "_content", 
         "tags", 
         "items", 
         "inline_style", 
@@ -276,7 +276,7 @@ class Block:
     
     def __init__(
         self, 
-        content: Any | None = None, 
+        *content: str, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None, 
         attrs: dict | None = None,
@@ -294,9 +294,12 @@ class Block:
         id: str | None = None,
         db_id: str | None = None,
     ):
-        if dedent and isinstance(content, str):
-            content = textwrap.dedent(content).strip()
-        self.content = content
+        # if dedent and content:
+        #     if isinstance(content, str):
+        #         content = textwrap.dedent(content).strip()
+        #     elif isinstance(content, tuple):
+        #         content = tuple(textwrap.dedent(item).strip() for item in content if isinstance(item, str) and item[0] == "\n")
+        self._content: tuple[str, ...] = content if isinstance(content, tuple) else (content,)
         self.tags = tags or []
         self.items = items or []
         self.depth = depth or 0
@@ -326,6 +329,11 @@ class Block:
     #     items: list["BaseBlock"] | None = None
     # ):
     #     pass
+    
+    @property
+    def content(self):
+        return " ".join(str(item) for item in self._content if item is not None)
+    
     def model_dump(self):
         return {
             "_type": self.__class__.__name__,
@@ -457,7 +465,7 @@ class Block:
     
     
     def _validate_content_primitive(self, content: Any):
-        if content is None:
+        if not content:
             return True
         if not isinstance(content, str):
             raise ValueError(f"Invalid content: {content}")
@@ -477,7 +485,7 @@ class Block:
     
     def _build_instance(
         self, 
-        content: Any, 
+        *content: Any, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None,
         attrs: dict | None = None,
@@ -489,7 +497,7 @@ class Block:
         else:
             self._validate_content(content)
             inst = Block(
-                    content=content, 
+                    *content, 
                     tags=tags, 
                     style=style, 
                     parent=self._ctx[-1] if self._ctx else self,
@@ -510,31 +518,34 @@ class Block:
         
     def __call__(
         self, 
-        content: Any | list[Any] | None = None, 
+        *content: Any, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None, 
         attrs: dict | None = None,
         **kwargs
     ):
-        if isinstance(content, list):
-            for item in content:
+        for item in content:
+            if isinstance(item, list):
+                for it in item:
+                    self.append(it, tags=tags, style=style, attrs=attrs, **kwargs)
+            else:
                 self.append(item, tags=tags, style=style, attrs=attrs, **kwargs)
-        else:
-            self.append(content=content, tags=tags, style=style, attrs=attrs, **kwargs)
         return self.ctx_items[-1]
     
     
     def append(
         self, 
-        content: Any, 
+        *content: Any, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None,
         attrs: dict | None = None,
         items: list["Block"] | None = None,
         role: BlockRole | None = None,
     ):
+        
+        
         inst = self._build_instance(
-            content=content, 
+            *content, 
             tags=tags, 
             style=style, 
             items=items,
@@ -548,6 +559,12 @@ class Block:
         #     self.items.append(inst)
         return self
     
+    def extend(self, *content: Any):
+        if self.ctx_items:
+            self.ctx_items[-1]._content += content
+        else:
+            self.append(*content)
+    
     
     def merge(self, other: "Block"):
         """
@@ -557,13 +574,14 @@ class Block:
         return self
     
     
-    def __itruediv__(self, content: ContentType):
+    def __itruediv__(self, content: ContentType | tuple[ContentType, ...]):
         """
         Append a new item to the block
         """
         if isinstance(content, list):
             raise ValueError("Cannot use list as single line content")
-        self.append(content)
+        c = content if isinstance(content, tuple) else (content,)
+        self.append(*c)
         return self    
     
     def __truediv__(self, content: ContentType):
@@ -583,7 +601,8 @@ class Block:
         if isinstance(other, Block):
             self.merge(other)
         else:
-            self.append(other)
+            o = other if isinstance(other, tuple) else (other,)
+            self.extend(*o)
         return self
         
     # def append(self, item: "Block | Any"):
@@ -683,8 +702,8 @@ class BlockContext:
         self.ctx = ContextStack()
         self.ctx.push(root)
         
-    def __call__(self, content: Any, tags: list[str] | None = None, style: InlineStyle | None = None, attrs: dict | None = None, **kwargs):       
-        self._append(content, tags, style, attrs)
+    def __call__(self, *content: Any, tags: list[str] | None = None, style: InlineStyle | None = None, attrs: dict | None = None, **kwargs):       
+        self._append(*content, tags, style, attrs)
         return self
     
     @property
@@ -706,14 +725,14 @@ class BlockContext:
     
     def _append(
         self, 
-        content: Any, 
+        *content: Any, 
         tags: list[str] | None = None, 
         style: InlineStyle | None = None,
         attrs: dict | None = None,
         items: list["Block"] | None = None
     ):
         inst = Block(
-            content=content, 
+            *content, 
             tags=tags, 
             style=style, 
             parent=self.ctx[-1],
@@ -725,8 +744,8 @@ class BlockContext:
         return inst
     
     
-    def __itruediv__(self, content: Any):
-        self._append(content)
+    def __itruediv__(self, *content: Any):
+        self._append(*content)
         return self
     
     
@@ -839,8 +858,7 @@ import inspect
 P = ParamSpec("P")
 
 def block(
-    content: str | None = None,
-    *,
+    *content: str,
     tags: list[str] | None = None,
     style: "InlineStyle | None" = None,
     attrs: dict | None = None,
@@ -858,7 +876,7 @@ def block(
             @contextmanager
             def generator_wrapper(*args: P.args, **kwargs: P.kwargs) -> Generator[Block, None, None]:
                 blk = Block(
-                    content=content,
+                    *content,
                     tags=tags,
                     style=style,
                     attrs=attrs,
@@ -878,7 +896,7 @@ def block(
             @wraps(func)
             def normal_wrapper(*args: P.args, **kwargs: P.kwargs) -> Block:
                 blk = Block(
-                    content=content,
+                    *content,
                     tags=tags,
                     style=style,
                     attrs=attrs,

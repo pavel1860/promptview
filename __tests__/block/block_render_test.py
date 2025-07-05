@@ -11,6 +11,42 @@ def assert_render(block, target):
 
 
 
+def test_col_row_render():
+    with Block("say") as blk:
+        blk /= "Hello"
+        blk /= "World"
+
+    assert_render(blk, (
+        "# say\n"
+        "Hello\n"
+        "World"
+    ))
+        
+    with Block("say") as blk:
+        blk += "Hello"
+        blk += "World"
+
+    assert_render(blk, (
+        "# say\n"
+        "Hello World"
+    ))
+    # row append should be in the same line
+    with Block("say") as blk:
+        blk += "Hello", "World"
+
+    assert_render(blk, (
+        "# say\n"
+        "Hello World"
+    ))
+    
+    with Block("say") as blk:
+        blk /= "Hello", "World"
+
+    assert_render(blk, (
+        "# say\n"
+        "Hello World"
+    ))
+
 
 def test_basic_render():
     
@@ -157,6 +193,8 @@ def test_get_block():
     assert len(multi_rules) == 2
     assert multi_rules[0].content == "Task"
     assert multi_rules[1].content == "this is main rule 222"
+
+
 
 
 
