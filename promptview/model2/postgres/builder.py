@@ -52,7 +52,7 @@ class SQLBuilder:
     #     return sql
     
     @classmethod
-    def create_table(cls, name: str, *fields: PgFieldInfo):
+    def create_table(cls, name: str, *fields: "PgFieldInfo"):
         """Create a table for a namespace"""
         from promptview.model2.postgres.sql_blocks import create_table_block
         sql = str(create_table_block(name, *fields))
