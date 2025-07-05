@@ -99,40 +99,40 @@ def generate_migration_code(
         "def upgrade():"
     ]
 
-    # 1. Create enums
-    for ns in namespaces:
-        for field in ns.iter_fields():
-            if getattr(field, "is_enum", False):
-                enum_name = getattr(field, "enum_name")
-                enum_values = getattr(field, "get_enum_values_safe", lambda: [])()
-                if enum_name and enum_values:
-                    lines.append(f"    op.execute(\"\"\"CREATE TYPE {enum_name} AS ENUM ({', '.join([repr(v) for v in enum_values])});\"\"\")")
-
-    # 2. Create tables
+    # 1. Create tables (no raw SQL for enums)
     for ns in namespaces:
         table_name = getattr(ns, "table_name", ns.name)
         lines.append(f"    op.create_table('{table_name}',")
         for field in ns.iter_fields():
-            # Compose SQLAlchemy column definition
             sql_type = getattr(field, 'sql_type', 'String')
-            col_def = f"        sa.Column('{field.name}', sa.{sql_type}"
-            if getattr(field, "is_primary_key", False):
-                col_def += ", primary_key=True"
-            if getattr(field, "is_optional", False):
-                col_def += ", nullable=True"
-            else:
-                col_def += ", nullable=False"
-            if getattr(field, "default", None) is not None:
-                col_def += f", server_default=sa.text('{field.default}')"
+            # Handle enum columns
             if getattr(field, "is_enum", False):
                 enum_name = getattr(field, "enum_name", None)
-                if enum_name:
-                    col_def = col_def.replace(f"sa.{sql_type}", f"sa.Enum(name='{enum_name}')")
-            col_def += "),"
+                enum_values = getattr(field, "get_enum_values_safe", lambda: [])()
+                if enum_name and enum_values:
+                    col_def = f"        sa.Column('{field.name}', sa.Enum({', '.join([repr(v) for v in enum_values])}, name='{enum_name}'),"
+                else:
+                    col_def = f"        sa.Column('{field.name}', sa.{sql_type},"
+            # Handle integer PKs with autoincrement
+            elif field.name == 'id' and getattr(field, 'is_primary_key', False) and sql_type.upper() in ('SERIAL', 'INTEGER', 'INT'):
+                col_def = f"        sa.Column('id', sa.Integer, primary_key=True, nullable=False, autoincrement=True),"
+                lines.append(col_def)
+                continue
+            else:
+                col_def = f"        sa.Column('{field.name}', sa.{sql_type},"
+            if getattr(field, "is_primary_key", False) and field.name != 'id':
+                col_def += " primary_key=True,"
+            if getattr(field, "is_optional", False):
+                col_def += " nullable=True,"
+            else:
+                col_def += " nullable=False,"
+            if getattr(field, "default", None) is not None:
+                col_def += f" server_default=sa.text('{field.default}'),"
+            col_def = col_def.rstrip(',') + "),"
             lines.append(col_def)
         lines.append("    )")
 
-    # 3. Create indexes
+    # 2. Create indexes
     for ns in namespaces:
         for field in ns.iter_fields():
             if getattr(field, "index", False):
@@ -143,7 +143,7 @@ def generate_migration_code(
             unique = getattr(idx, "unique", False)
             lines.append(f"    op.create_index('{idx.name}', '{ns.table_name}', {idx_cols}, unique={unique})")
 
-    # 4. Create foreign keys
+    # 3. Create foreign keys
     for ns in namespaces:
         if hasattr(ns, "iter_relations"):
             for rel in ns.iter_relations():
@@ -154,7 +154,7 @@ def generate_migration_code(
                     f"ondelete='{rel.on_delete}', onupdate='{rel.on_update}')"
                 )
 
-    # 5. Qdrant support (if backend == 'qdrant' or 'both')
+    # 4. Qdrant support (if backend == 'qdrant' or 'both')
     if backend in ("qdrant", "both"):
         lines.append("    # Qdrant collection creation would go here")
 
