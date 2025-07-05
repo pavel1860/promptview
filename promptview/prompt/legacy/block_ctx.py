@@ -1,10 +1,10 @@
 from typing import Any, Type
-from promptview.prompt.block4 import BaseBlock
-from promptview.prompt.block_renderer import BlockRenderer
+from promptview.prompt.legacy.block4 import BaseBlock
+from promptview.block.block_renderer import BlockRenderer
 from promptview.prompt.llm_block import BlockRole, LLMBlock, ToolCall
-from promptview.prompt.renderer import RendererMeta
-from promptview.prompt.style import InlineStyle
-from promptview.prompt.style import style_manager
+from promptview.block.renderer import RendererMeta
+from promptview.block.style import InlineStyle
+from promptview.block.style import style_manager
 
 
 

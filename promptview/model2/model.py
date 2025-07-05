@@ -27,7 +27,7 @@ from promptview.utils.string_utils import camel_to_snake
 
 if TYPE_CHECKING:
     from promptview.model2.version_control_models import Branch, Turn
-    from promptview.prompt.block6 import Block
+    from promptview.block.block import Block
     from promptview.llms.llm3 import OutputModel
     from promptview.algebra.vectors.base_vectorizer import BaseVectorizer
 

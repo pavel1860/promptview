@@ -5,7 +5,7 @@ from pydantic import Field, BaseModel
 from promptview.llms.llm3 import LLM, BaseLlmClient
 from promptview.llms.messages import ActionCall, LlmUsage
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.block import BaseBlock, ResponseBlock, ActionBlock
+from promptview.prompt.legacy.block import BaseBlock, ResponseBlock, ActionBlock
 import os
 
 class TextBlock(TypedDict):

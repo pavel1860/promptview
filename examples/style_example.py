@@ -1,5 +1,5 @@
-from promptview.prompt.str_block import block
-from promptview.prompt.style import style_manager
+from promptview.prompt.legacy.str_block import block
+from promptview.block.style import style_manager
 
 def main():
     # Define some global styles

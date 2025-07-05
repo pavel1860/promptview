@@ -8,7 +8,7 @@ from promptview.llms.clients.openai_client import OpenAiLlmClient
 from promptview.llms.llm2 import LLM
 from promptview.llms.messages import AIMessage, ActionMessage, BaseMessage, HumanMessage, SystemMessage
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import ViewBlock
+from promptview.prompt.legacy.mvc import ViewBlock
 from promptview.templates.action_template import system_action_view
 
 

@@ -6,8 +6,8 @@ from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Self,
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 from pydantic.fields import FieldInfo
 from promptview.llms.types import ErrorMessage
-from promptview.prompt import Block, BlockRole, ToolCall, LlmUsage
-from promptview.prompt.block6 import BlockList
+from promptview.block import Block, BlockRole, ToolCall, LlmUsage
+from promptview.block.block import BlockList
 from promptview.tracer import Tracer
 from promptview.parsers import XmlOutputParser
 from promptview.utils import logger

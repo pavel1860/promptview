@@ -5,7 +5,7 @@ from typing import (Any, Awaitable, Callable, List, Literal, Optional, Tuple,
 from promptview.llms import OpenAiLLM
 from promptview.llms.llm import LLM
 from promptview.llms.messages import AIMessage
-from promptview.prompt.chat_prompt import ChatPrompt
+from promptview.prompt.legacy.chat_prompt import ChatPrompt
 from pydantic import BaseModel, Field
 
 # T = TypeVar('T')
@@ -56,6 +56,6 @@ from pydantic import BaseModel, Field
     
 #     return decorator
 
-from promptview.prompt.chat_prompt import ChatPrompt
+from promptview.prompt.legacy.chat_prompt import ChatPrompt
 
 prompt = ChatPrompt.decorator_factory()

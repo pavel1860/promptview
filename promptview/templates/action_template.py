@@ -1,7 +1,7 @@
 from enum import Enum
 import inspect
 from pydantic import BaseModel
-from promptview.prompt.mvc import view
+from promptview.prompt.legacy.mvc import view
 from typing import Optional, Union, get_type_hints, get_origin, get_args, Type, Literal
 import datetime as dt
 from promptview.utils.model_utils import describe_enum, get_complex_fields, stringify_field_info

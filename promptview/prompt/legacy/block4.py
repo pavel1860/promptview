@@ -2,7 +2,7 @@ from collections import defaultdict
 from abc import abstractmethod
 import textwrap
 from typing import Any, List, Type
-from promptview.prompt.style import InlineStyle, BlockStyle, style_manager
+from promptview.block.style import InlineStyle, BlockStyle, style_manager
 
 
     
@@ -97,8 +97,8 @@ class BaseBlock:
     
     
     def render(self) -> str:
-        from promptview.prompt.block_renderer import BlockRenderer
-        from promptview.prompt.renderer import RendererMeta
+        from promptview.block.block_renderer import BlockRenderer
+        from promptview.block.renderer import RendererMeta
         rndr = BlockRenderer(style_manager, RendererMeta._renderers)
         return rndr.render(self)
     

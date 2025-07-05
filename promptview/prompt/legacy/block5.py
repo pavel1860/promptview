@@ -1,7 +1,7 @@
 from collections import defaultdict
 from abc import abstractmethod
 from typing import Any, List, Type, Dict, Optional
-from promptview.prompt.style import InlineStyle, style_manager
+from promptview.block.style import InlineStyle, style_manager
 
 
 

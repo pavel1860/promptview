@@ -3,8 +3,8 @@ from promptview.model.fields import ModelField
 from promptview.model.model import Model
 import datetime as dt
 
-from promptview.prompt.block2 import StrBlock
-from promptview.prompt.context import Context
+from promptview.prompt.legacy.block2 import StrBlock
+from promptview.prompt.legacy.context import Context
 from promptview.testing import TestCase, TestRun, Evaluator
 
 
