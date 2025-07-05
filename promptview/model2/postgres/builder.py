@@ -8,6 +8,7 @@ from promptview.utils.model_utils import get_list_type, is_list_type
 import datetime as dt
 from pydantic import BaseModel
 
+
 if TYPE_CHECKING:
     from promptview.model2.postgres.namespace import PostgresNamespace, PgFieldInfo
 
@@ -30,10 +31,10 @@ class SQLBuilder:
             raise e
 
     @classmethod
-    async def fetch(cls, sql: str):
+    def fetch(cls, sql: str):
         """Fetch results from a SQL query"""
         try:
-            res = await PGConnectionManager.fetch(sql)
+            res = SyncPGConnectionManager.fetch(sql)
             return res
         except Exception as e:
             print(sql)
@@ -83,10 +84,20 @@ class SQLBuilder:
     #     CREATE INDEX IF NOT EXISTS idx_turns_partition_id ON turns (partition_id);
     #     """)
 
-    
-
     @classmethod
     def create_table(cls, namespace: "PostgresNamespace") -> str:
+        """Create a table for a namespace"""
+        from promptview.model2.postgres.sql_blocks import create_table_block
+        sql = str(create_table_block(namespace))
+        cls.execute(sql)
+        if hasattr(namespace, "is_versioned") and namespace.is_versioned:
+            cls.create_index_for_column(namespace, "branch_id")
+            cls.create_index_for_column(namespace, "turn_id")
+            cls.create_index_for_column(namespace, "created_at", order="DESC")
+        return sql
+
+    @classmethod
+    def create_table2(cls, namespace: "PostgresNamespace") -> str:
         """Create a table for a namespace"""
         if not namespace.table_name:
             raise ValueError("Table name is not set")

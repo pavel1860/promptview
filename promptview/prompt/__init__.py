@@ -1,7 +1,7 @@
 from .base_prompt import prompt, Prompt
 from .agent import Agent, agent
 from ..block.renderer import ContentRenderer, ItemsRenderer
-from .output_format import OutputModel
+# from .output_format import OutputModel
 from .depends import Depends
 
 
@@ -14,6 +14,6 @@ __all__ = [
     "agent",
     "ContentRenderer",
     "ItemsRenderer",
-    "OutputModel",
+    # "OutputModel",
     "Depends",
 ]

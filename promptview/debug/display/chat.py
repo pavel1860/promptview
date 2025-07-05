@@ -3,7 +3,7 @@ import threading
 from typing import Callable, Coroutine, Literal, Union, Any
 from promptview.prompt.agent import Agent
 from promptview.prompt.util.block_visualization import block_to_html
-from promptview.prompt.legacy.block import TitleBlock
+from promptview.prompt.legacy.block1 import TitleBlock
 from promptview.prompt.legacy.context import Context
 from abc import abstractmethod
 

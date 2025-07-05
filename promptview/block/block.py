@@ -462,6 +462,8 @@ class Block:
     def __len__(self) -> int:
         return len(self.items)
     
+    def __str__(self) -> str:
+        return self.render()
     
     
     def _validate_content_primitive(self, content: Any):
