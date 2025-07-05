@@ -82,11 +82,11 @@ class NSFieldInfo:
         namespace: "Namespace | None" = None,
         is_primary_key: bool = False,
     ):
-        self.is_optional = is_optional
         self.name = name        
         self.is_foreign_key = foreign_key
         self.field_type = field_type
-        self.origin_type, self.is_optional = NSFieldInfo.parse_optional(field_type)
+        self.origin_type, type_is_optional = NSFieldInfo.parse_optional(field_type)
+        self.is_optional = is_optional or type_is_optional
         self.list_origin_type, self.is_list = NSFieldInfo.parse_list(self.origin_type)
         if self.is_list and self.list_origin_type is not None:
             self.is_enum, self.enum_values, self.is_literal = NSFieldInfo.parse_enum(self.list_origin_type)

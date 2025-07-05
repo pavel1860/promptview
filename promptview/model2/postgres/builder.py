@@ -1,5 +1,3 @@
-
-
 from enum import Enum
 import inspect
 from typing import TYPE_CHECKING, Any, Literal
@@ -40,61 +38,28 @@ class SQLBuilder:
             print(sql)
             raise e
         
-    # @classmethod
-    # async def initialize_versioning(cls):
-    #     """Initialize versioning tables"""
-    #     await PGConnectionManager.initialize()
-    #     # Create required tables
-    #     await PGConnectionManager.execute("""
-    #     CREATE TABLE IF NOT EXISTS branches (
-    #         id SERIAL PRIMARY KEY,
-    #         name TEXT,
-    #         created_at TIMESTAMP DEFAULT NOW(),
-    #         updated_at TIMESTAMP DEFAULT NOW(),
-    #         forked_from_turn_index INTEGER,
-    #         forked_from_branch_id INTEGER,
-    #         current_index INTEGER DEFAULT 0,
-    #         FOREIGN KEY (forked_from_branch_id) REFERENCES branches(id)
-    #     );
 
-    #     CREATE TABLE IF NOT EXISTS turns (
-    #         id SERIAL PRIMARY KEY,
-    #         created_at TIMESTAMP DEFAULT NOW(),
-    #         ended_at TIMESTAMP,
-    #         index INTEGER NOT NULL,
-    #         status TEXT NOT NULL,
-    #         message TEXT,
-    #         metadata JSONB DEFAULT '{}',            
-    #         branch_id INTEGER NOT NULL,
-    #         FOREIGN KEY (branch_id) REFERENCES branches(id)
-    #     );
-                
-    #     CREATE INDEX IF NOT EXISTS idx_turns_branch_id ON turns (branch_id);
-    #     CREATE INDEX IF NOT EXISTS idx_turns_index ON turns (index DESC);
-    #     """)
-        
-    #     # partition_id INTEGER NOT NULL REFERENCES "{partition_table}" ({key}) ON DELETE CASCADE,
-        
-    #     # await cls.create_branch(name="main")
     # @classmethod
-    # async def add_partition_id_to_turns(cls, partition_table: str, key: str):
-    #     """Add a partition_id column to the table"""
-    #     await PGConnectionManager.execute(f"""
-    #     ALTER TABLE turns ADD COLUMN IF NOT EXISTS partition_id INTEGER NOT NULL REFERENCES "{partition_table}" ({key}) ON DELETE CASCADE;
-    #     CREATE INDEX IF NOT EXISTS idx_turns_partition_id ON turns (partition_id);
-    #     """)
-
+    # def create_table(cls, namespace: "PostgresNamespace") -> str:
+    #     """Create a table for a namespace"""
+    #     from promptview.model2.postgres.sql_blocks import create_table_block
+    #     sql = str(create_table_block(namespace))
+    #     cls.execute(sql)
+    #     if hasattr(namespace, "is_versioned") and namespace.is_versioned:
+    #         cls.create_index_for_column(namespace, "branch_id")
+    #         cls.create_index_for_column(namespace, "turn_id")
+    #         cls.create_index_for_column(namespace, "created_at", order="DESC")
+    #     return sql
+    
     @classmethod
-    def create_table(cls, namespace: "PostgresNamespace") -> str:
+    def create_table(cls, name: str, *fields: PgFieldInfo):
         """Create a table for a namespace"""
         from promptview.model2.postgres.sql_blocks import create_table_block
-        sql = str(create_table_block(namespace))
-        cls.execute(sql)
-        if hasattr(namespace, "is_versioned") and namespace.is_versioned:
-            cls.create_index_for_column(namespace, "branch_id")
-            cls.create_index_for_column(namespace, "turn_id")
-            cls.create_index_for_column(namespace, "created_at", order="DESC")
+        sql = str(create_table_block(name, *fields))
+        cls.execute(sql)        
         return sql
+
+
 
     @classmethod
     def create_table2(cls, namespace: "PostgresNamespace") -> str:
@@ -125,9 +90,9 @@ class SQLBuilder:
         
         # Create indices for versioning fields if the namespace is versioned
         if hasattr(namespace, "is_versioned") and namespace.is_versioned:
-            cls.create_index_for_column(namespace, "branch_id")
-            cls.create_index_for_column(namespace, "turn_id")
-            cls.create_index_for_column(namespace, "created_at", order="DESC")
+            cls.create_index(f"{namespace.table_name}_branch_id_idx", namespace.table_name, ["branch_id"])
+            cls.create_index(f"{namespace.table_name}_turn_id_idx", namespace.table_name, ["turn_id"])
+            cls.create_index(f"{namespace.table_name}_created_at_idx", namespace.table_name, ["created_at"])
         
         return sql
     
@@ -147,13 +112,17 @@ class SQLBuilder:
         cls.execute(sql)
     
     @classmethod
-    def create_index_for_column(cls, namespace: "PostgresNamespace", column_name: str, index_name: str | None = None, order: Literal["ASC", "DESC", ""] | None = None) -> None:
-        """Create an index for a column"""
-        if index_name is None:
-            index_name = f"{namespace.table_name}_{column_name}_idx"
-        if not order:
-            order = ""
-        sql = f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{namespace.table_name}" ("{column_name}" {order});'
+    def create_index(
+        cls,
+        index_name: str,
+        table_name: str,
+        columns: list[str],
+        unique: bool = False
+    ) -> None:
+        """Create an index for a table and columns, optionally unique."""
+        unique_sql = "UNIQUE " if unique else ""
+        columns_sql = ", ".join(f'"{col}"' for col in columns)
+        sql = f'CREATE {unique_sql}INDEX IF NOT EXISTS "{index_name}" ON "{table_name}" ({columns_sql});'
         cls.execute(sql)
         
         
@@ -168,6 +137,20 @@ class SQLBuilder:
         """
         res = cls.fetch(sql)
         return [row["typname"] for row in res]
+    
+    @classmethod
+    def create_enum(cls, enum_name: str, enum_values: list[str]):
+        enum_clouse = ", ".join([f"'{v}'" for v in enum_values])
+        query = f"""
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = '{enum_name}') THEN
+                    CREATE TYPE {enum_name} AS ENUM ({enum_clouse});
+                END IF;
+            END $$;
+            """
+        cls.execute(query)
+    
 
     @classmethod
     def create_enum_types(cls, namespace: "PostgresNamespace") -> None:
@@ -176,15 +159,10 @@ class SQLBuilder:
             if field.is_enum:
                 print("Building enum", field.enum_name, "with values", field.get_enum_values_safe())
                 enum_values = ", ".join([f"'{v}'" for v in field.get_enum_values_safe()])
-                query = f"""
-                    DO $$ 
-                    BEGIN
-                        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = '{field.enum_name}') THEN
-                            CREATE TYPE {field.enum_name} AS ENUM ({enum_values});
-                        END IF;
-                    END $$;
-                    """
-                cls.execute(query)
+                if not field.enum_name:
+                    raise ValueError("Enum name is not set")
+                cls.create_enum(field.enum_name, field.get_enum_values_safe())
+                
                 
     @classmethod
     def drop_enum_types(cls) -> None:
@@ -193,8 +171,11 @@ class SQLBuilder:
             cls.execute(f"DROP TYPE IF EXISTS {enum_name};")
 
     @classmethod
-    def drop_table(cls, namespace: "PostgresNamespace") -> str:
-        sql = f"DROP TABLE IF EXISTS {namespace.table_name}"
+    def drop_table(cls, namespace: "PostgresNamespace | str") -> str:
+        if isinstance(namespace, str):
+            sql = f"DROP TABLE IF EXISTS {namespace}"
+        else:
+            sql = f"DROP TABLE IF EXISTS {namespace.table_name}"
         return cls.execute(sql)
     
     
