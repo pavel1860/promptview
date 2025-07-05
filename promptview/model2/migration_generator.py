@@ -153,10 +153,16 @@ def generate_migration_code(
     for ns in namespaces:
         if hasattr(ns, "iter_relations"):
             for rel in ns.iter_relations():
+                # lines.append(
+                #     f"    op.create_foreign_key("
+                #     f"'{rel.name}_fk', '{ns.table_name}', '{rel.foreign_cls.__name__.lower()}s', "
+                #     f"['{rel.primary_key}'], ['{rel.foreign_key}'], "
+                #     f"ondelete='{rel.on_delete}', onupdate='{rel.on_update}')"
+                # )
                 lines.append(
                     f"    op.create_foreign_key("
-                    f"'{rel.name}_fk', '{ns.table_name}', '{rel.foreign_cls.__name__.lower()}s', "
-                    f"['{rel.primary_key}'], ['{rel.foreign_key}'], "
+                    f"'{rel.name}_fk', '{rel.foreign_namespace.table_name}', '{ns.table_name}', "
+                    f"['{rel.foreign_key}'], ['{rel.primary_key}'], "
                     f"ondelete='{rel.on_delete}', onupdate='{rel.on_update}')"
                 )
 

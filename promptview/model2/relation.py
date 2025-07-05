@@ -47,6 +47,12 @@ class Relation(Generic[FOREIGN_MODEL], list):
             raise ValueError("Primary instance is not set")
         return self._primary_instance.id
     
+    @property
+    def foreign_table_name(self) -> str:
+        if self._relation is None:
+            raise ValueError("Relation is not set")
+        return self._relation.foreign_namespace.table_name
+    
     def set_primary_instance(self, primary_instance: "Model"):
         self._primary_instance = primary_instance
     
