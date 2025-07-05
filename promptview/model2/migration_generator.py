@@ -90,6 +90,7 @@ def generate_migration_code(
     lines = [
         "from alembic import op",
         "import sqlalchemy as sa",
+        "import sqlalchemy.dialects.postgresql as pg",
         "",
         f'revision = "{revision}"',
         f'down_revision = {repr(down_revision)}',
@@ -105,6 +106,11 @@ def generate_migration_code(
         lines.append(f"    op.create_table('{table_name}',")
         for field in ns.iter_fields():
             sql_type = getattr(field, 'sql_type', 'String')
+            # Handle dialect-specific types
+            if sql_type.upper() == "JSONB":
+                col_type = "pg.JSONB"
+            else:
+                col_type = f"sa.{sql_type}"
             # Handle enum columns
             if getattr(field, "is_enum", False):
                 enum_name = getattr(field, "enum_name", None)
@@ -112,14 +118,14 @@ def generate_migration_code(
                 if enum_name and enum_values:
                     col_def = f"        sa.Column('{field.name}', sa.Enum({', '.join([repr(v) for v in enum_values])}, name='{enum_name}'),"
                 else:
-                    col_def = f"        sa.Column('{field.name}', sa.{sql_type},"
+                    col_def = f"        sa.Column('{field.name}', {col_type},"
             # Handle integer PKs with autoincrement
             elif field.name == 'id' and getattr(field, 'is_primary_key', False) and sql_type.upper() in ('SERIAL', 'INTEGER', 'INT'):
                 col_def = f"        sa.Column('id', sa.Integer, primary_key=True, nullable=False, autoincrement=True),"
                 lines.append(col_def)
                 continue
             else:
-                col_def = f"        sa.Column('{field.name}', sa.{sql_type},"
+                col_def = f"        sa.Column('{field.name}', {col_type},"
             if getattr(field, "is_primary_key", False) and field.name != 'id':
                 col_def += " primary_key=True,"
             if getattr(field, "is_optional", False):
