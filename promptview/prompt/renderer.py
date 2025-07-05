@@ -56,6 +56,14 @@ class ItemsRenderer(Renderer):
     
 
 
+class IndentRenderer(ContentRenderer):
+    tags = ["block"]
+    
+    def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
+        if not block.content:
+            return "\n".join(inner_content)
+        return block.content + "\n" + textwrap.indent("".join(inner_content), "  ")
+
 class MarkdownTitleRenderer(ContentRenderer):
     tags = ["md"]
     

@@ -294,11 +294,11 @@ class Block:
         id: str | None = None,
         db_id: str | None = None,
     ):
-        # if dedent and content:
-        #     if isinstance(content, str):
-        #         content = textwrap.dedent(content).strip()
-        #     elif isinstance(content, tuple):
-        #         content = tuple(textwrap.dedent(item).strip() for item in content if isinstance(item, str) and item[0] == "\n")
+        if dedent and content:
+            if isinstance(content, str):
+                content = textwrap.dedent(content).strip()
+            elif isinstance(content, tuple):
+                content = tuple(textwrap.dedent(item).strip() if isinstance(item, str) and item[0] == "\n" else item for item in content)
         self._content: tuple[str, ...] = content if isinstance(content, tuple) else (content,)
         self.tags = tags or []
         self.items = items or []
@@ -524,12 +524,15 @@ class Block:
         attrs: dict | None = None,
         **kwargs
     ):
-        for item in content:
-            if isinstance(item, list):
-                for it in item:
-                    self.append(it, tags=tags, style=style, attrs=attrs, **kwargs)
-            else:
-                self.append(item, tags=tags, style=style, attrs=attrs, **kwargs)
+        if not content:
+            self.append(None, tags=tags, style=style, attrs=attrs, **kwargs)
+        else:
+            for item in content:
+                if isinstance(item, list):
+                    for it in item:
+                        self.append(it, tags=tags, style=style, attrs=attrs, **kwargs)
+                else:
+                    self.append(item, tags=tags, style=style, attrs=attrs, **kwargs)
         return self.ctx_items[-1]
     
     
@@ -659,6 +662,9 @@ class Block:
             raise ValueError("Wrong block context was passed to render. probably you are using the same ctx name for child and parent blocks")
         rndr = BlockRenderer(style_manager, RendererMeta._renderers)
         return rndr.render(self)
+    
+    def print(self):
+        print(self.render())
     
     
     def __repr__(self) -> str:                

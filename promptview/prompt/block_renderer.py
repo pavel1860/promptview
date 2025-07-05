@@ -1,5 +1,5 @@
 
-from promptview.prompt.renderer import ItemsRenderer, MarkdownListRenderer, MarkdownParagraphRenderer, MarkdownTitleRenderer, ContentRenderer, Renderer
+from promptview.prompt.renderer import ItemsRenderer, MarkdownListRenderer, MarkdownParagraphRenderer, MarkdownTitleRenderer, ContentRenderer, Renderer, IndentRenderer
 from promptview.prompt.style import InlineStyle, BlockStyle, StyleManager, UndefinedTagError
 from typing import TYPE_CHECKING, List, Literal, Type, TypedDict, Union
 from promptview.prompt.block4 import BaseBlock
@@ -116,7 +116,8 @@ class BlockRenderer:
         #     block.is_wrapper,
         # )
         ctx = RendererContext(
-            MarkdownTitleRenderer(),
+            # MarkdownTitleRenderer(),
+            IndentRenderer(),
             MarkdownParagraphRenderer(),
             block.is_wrapper,
         )
