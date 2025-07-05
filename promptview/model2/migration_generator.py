@@ -161,6 +161,30 @@ def generate_migration_code(
     # Downgrade
     lines.append("")
     lines.append("def downgrade():")
-    lines.append("    # TODO: Implement downgrade logic (drop FKs, indexes, tables, enums in reverse order)")
+
+    # Drop indexes (reverse order)
+    for ns in reversed(namespaces):
+        for field in ns.iter_fields():
+            if getattr(field, "index", False):
+                idx_name = f"ix_{ns.table_name}_{field.name}"
+                lines.append(f"    op.drop_index('{idx_name}', table_name='{ns.table_name}')")
+        for idx in getattr(ns, "indexes", []):
+            lines.append(f"    op.drop_index('{idx.name}', table_name='{ns.table_name}')")
+
+    # Drop tables (reverse order)
+    for ns in reversed(namespaces):
+        table_name = getattr(ns, "table_name", ns.name)
+        lines.append(f"    op.drop_table('{table_name}')")
+
+    # Drop enums (reverse order, deduplicated)
+    enum_names = []
+    for ns in namespaces:
+        for field in ns.iter_fields():
+            if getattr(field, "is_enum", False):
+                enum_name = getattr(field, "enum_name")
+                if enum_name and enum_name not in enum_names:
+                    enum_names.append(enum_name)
+    for enum_name in reversed(enum_names):
+        lines.append(f"    op.execute('DROP TYPE IF EXISTS {enum_name};')")
 
     return '\n'.join(lines) 
