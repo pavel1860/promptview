@@ -101,12 +101,12 @@ class SQLBuilder:
                 sql += " NOT NULL"
             
             # Add primary key if specified
-            if field.extra and field.extra.get("primary_key"):
+            if field.is_primary_key:
                 sql += " PRIMARY KEY"
             
             # Add index if specified
-            elif field.index:
-                sql += f" {field.index}"
+            # elif field.index:
+            #     sql += f" {field.index}"
                 
             sql += ",\n"
         
@@ -214,6 +214,7 @@ class SQLBuilder:
         if not tables:
             return
         cls.drop_many_tables(tables)
+        cls.drop_enum_types()
         # for table in tables:
         #     if table not in exclude:
         #         await cls.drop_table(table)

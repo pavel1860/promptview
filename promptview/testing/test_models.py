@@ -14,6 +14,12 @@ from promptview.model2 import Model, ModelField
 
 
 
+class Evaluation(BaseModel):
+    evaluator: str = ModelField(default="", description="the evaluator that was used to evaluate the turn")
+    reasoning: str = ModelField(default="", description="step by step reasoning about the response, differences between expected and actual output and is it confirms with the requirements")
+    score: float | None = ModelField(default=None, description="the score of the test run")
+    run_id: str = ModelField(default="", description="the id of the test run")
+
 
 
 class TurnEval(Model):
@@ -23,9 +29,8 @@ class TurnEval(Model):
     turn_id: int = ModelField(default=None, foreign_key=True)
     test_run_id: int = ModelField(default=None, foreign_key=True)
     score: float | None = ModelField(default=None, description="the score of the test run")
-    evaluator: str = ModelField(default="", description="the evaluator that was used to evaluate the turn")
-    reasoning: str = ModelField(default="", description="step by step reasoning about the response, differences between expected and actual output and is it confirms with the requirements")
-    parameters: dict = ModelField(default={}, description="parameters for the evaluator")
+    evaluations: List[Evaluation] = ModelField(default=[], description="the evaluator that was used to evaluate the turn")
+    trace_id: str = ModelField(default="", description="the id of the test run")
 
 
     
@@ -38,7 +43,7 @@ class TestRun(Model):
     branch_id: int = ModelField(default=1, description="the branch this test run belongs to")
     score: float | None = ModelField(default=None, description="the score of the test run")
     status: Literal["running", "success", "failure"] = ModelField(default="running", description="the status of the test run")
-    evaluations: Relation[TurnEval] = RelationField(foreign_key="test_run_id")
+    turn_evals: Relation[TurnEval] = RelationField(foreign_key="test_run_id")
     
     
     async def __aenter__(self):
@@ -51,12 +56,14 @@ class TestRun(Model):
             self.status = "success"
         await self.save()
 
-
+class EvaluatorConfig(BaseModel):
+    name: str = ModelField(default="")
+    parameters: dict = ModelField(default={})
 
 class InputTurn(BaseModel):
     input: str = ModelField(default="")
     expected: List[str] = ModelField(default=[])
-    evaluators: List[str] = ModelField(default=[])
+    evaluators: List[EvaluatorConfig] = ModelField(default=[])
    
 
 class TestCase(Model):

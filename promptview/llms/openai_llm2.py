@@ -200,7 +200,8 @@ class OpenAiLLM(LlmContext):
             tool_calls=tool_calls,
             # id=response.id,
             model=response.model,
-            tags=["generation"]
+            tags=["generation"],
+            run_id=str(llm_run.id),
         )
         return response_block
     

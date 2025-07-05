@@ -1,10 +1,12 @@
-from typing import Any, List, Literal
+from typing import TYPE_CHECKING, Any, List, Literal
 from pydantic import BaseModel, Field
 from promptview.llms.llm3 import OutputModel
 from promptview.model2.fields import KeyField
 from promptview.prompt import prompt, Block, Depends
-from promptview.llms import LLM    
-    
+from promptview.llms import LLM
+from promptview.testing.test_models import Evaluation, EvaluatorConfig    
+if TYPE_CHECKING:
+    from promptview.testing.test_models import TestCase
 
 
 class EvalResult(OutputModel):
@@ -15,11 +17,12 @@ class EvalResult(OutputModel):
 
 
 @prompt()
-async def eval_prompt(
+async def prompt_score_evaluator(
     test_case: Any, 
     message: Block, 
     response: Block, 
     expected: Block,
+    config: EvaluatorConfig,
     llm: LLM = Depends(LLM)
     ):
     
@@ -60,7 +63,38 @@ async def eval_prompt(
                         usr /= exp
                 
     res = await llm(sys, usr).complete(EvalResult)
-    return res
+    
+    evaluation = Evaluation(
+        evaluator=config.name,
+        reasoning=res.reasoning,
+        score=res.score,
+        run_id=res.block().run_id,
+    )
+    return evaluation
     
     
 
+
+evaluator_store = {
+        "prompt_score": prompt_score_evaluator
+    }
+
+
+
+
+async def evaluate(        
+        test_case: "TestCase", 
+        message: Block, 
+        response: Block, 
+        expected: Block,
+        config: EvaluatorConfig, 
+    ) -> Evaluation:
+    evaluator = evaluator_store[config.name]
+    evaluation = await evaluator(
+                    test_case=test_case,
+                    message=message,
+                    response=response,
+                    expected=expected,
+                    config=config
+                )
+    return evaluation

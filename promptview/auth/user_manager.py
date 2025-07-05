@@ -48,7 +48,7 @@ from promptview.utils.db_connections import PGConnectionManager
 class AuthModel(Model):
     _is_base: bool = True
     id: int = KeyField(primary_key=True)
-    anonymous_token: UUID = ModelField(None)
+    anonymous_token: UUID | None = ModelField(None)
     name: str | None = ModelField(None)
     email: str | None = ModelField(None)
     password: str | None = ModelField(None)
@@ -72,6 +72,8 @@ class UserAuthPayload(BaseModel):
     emailVerified: datetime | None = None
     image: str | None = None
     password: str | None = None
+    is_admin: bool = False
+    user_id: str | None = None
     
 class UserAuthUpdatePayload(UserAuthPayload):
     id: int

@@ -1,5 +1,5 @@
 import contextvars
-from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, Iterator, List, Optional, Self, Set, Tuple, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, Iterator, List, Literal, Optional, Self, Set, Tuple, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
 import uuid
 from pydantic import BaseModel, Field, PrivateAttr
 from pydantic.config import JsonDict
@@ -13,7 +13,7 @@ import datetime as dt
 from promptview.model2.context import Context
 from promptview.model2.fields import KeyField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.base_namespace import DatabaseType, NSFieldInfo, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet, QuerySetSingleAdapter
+from promptview.model2.base_namespace import DatabaseType, Distance, NSFieldInfo, NSManyToManyRelationInfo, NSRelationInfo, Namespace, QuerySet, QuerySetSingleAdapter
 from promptview.model2.postgres.query_set3 import SelectQuerySet
 from promptview.model2.query_filters import SelectFieldProxy
 
@@ -48,7 +48,14 @@ def get_dct_private_attributes(dct: dict[str, Any], key: str, default: Any=None)
 
 
 def build_namespace(model_cls_name: str, db_type: DatabaseType = "postgres"):
-    return f"{camel_to_snake(model_cls_name)}s" if db_type == "postgres" else model_cls_name
+    if db_type == "postgres":
+        return f"{camel_to_snake(model_cls_name)}s"
+    elif db_type == "neo4j":
+        return model_cls_name
+    elif db_type == "qdrant":
+        return model_cls_name
+    else:
+        raise ValueError(f"Invalid database type: {db_type}")
 
 
 ARTIFACT_RESERVED_FIELDS = ["id", "artifact_id", "version", "branch_id", "turn_id", "created_at", "updated_at", "deleted_at"]
@@ -103,20 +110,22 @@ def unpack_relation_extra(extra: dict[str, Any], field_origin: Type[Any], is_ver
         else:
             relation_type = "one_to_many"
     
-    if not foreign_key:
-        raise ValueError("foreign_key is required for one_to_many relation")
+    # if not foreign_key:
+    #     raise ValueError("foreign_key is required for one_to_many relation")
     
-    print(primary_key, foreign_key, on_delete, on_update)
-    if not foreign_key:
-        raise ValueError("foreign_key is required for one_to_many relation")
+    # print(primary_key, foreign_key, on_delete, on_update)
+    # if not foreign_key:
+    #     raise ValueError("foreign_key is required for one_to_many relation")
     
     return primary_key, foreign_key, junction_keys, relation_type, junction_model, on_delete, on_update
 
 
-def unpack_vector_extra(extra: dict[str, Any]) -> "tuple[int, Type[BaseVectorizer] | None]":
-    dimension = extra.get("dimension", 1536)
+def unpack_vector_extra(extra: dict[str, Any]) -> "tuple[int, Type[BaseVectorizer] | None, Distance]":
+    dimension = extra.get("dimension", None)
     vectorizer = extra.get("vectorizer", None)
-    return dimension, vectorizer
+    distance = Distance(extra.get("distance", "cosine"))
+    
+    return dimension, vectorizer, distance
 
 class ModelMeta(ModelMetaclass, type):
     """Metaclass for Model
@@ -138,7 +147,7 @@ class ModelMeta(ModelMetaclass, type):
         # Get model name and namespace
         model_name = name
         db_type = get_dct_private_attributes(dct, "_db_type", "postgres")
-        namespace_name = get_dct_private_attributes(dct, "_namespace_name", build_namespace(model_name))
+        namespace_name = get_dct_private_attributes(dct, "_namespace_name", build_namespace(model_name, db_type))
         
         
         # Check if this is -a repo model or an artifact model
@@ -174,7 +183,7 @@ class ModelMeta(ModelMetaclass, type):
                 vectorizer_cls = getattr(field_info, "_vectorizer_cls")
                 # register it on the class
                 ns.register_transformer(field_name, field_info, vectorizer_cls)
-                ResourceManager.register_vectorizer(field_name, vectorizer_cls)
+                # ResourceManager.register_vectorizer(field_name, vectorizer_cls)
         
         cls_obj = super().__new__(cls, name, bases, dct)
         
@@ -205,53 +214,89 @@ class ModelMeta(ModelMetaclass, type):
                         raise ValueError(f"foreign_cls must be a subclass of Model: {foreign_cls}")
                 if not foreign_cls:
                     raise ValueError(f"foreign_cls is required for relation: {field_type} on Model {name}")
-                    
-                primary_key, foreign_key, junction_keys, relation_type, junction_cls, on_delete, on_update = unpack_relation_extra(extra, field_origin, ns.is_versioned, ns.is_artifact)
+                             
+                relation_field = ns.add_relation(
+                    name=extra.get("name") or field_name,
+                    primary_key=extra.get("primary_key") or "id",
+                    foreign_key=extra.get("foreign_key") or "id",
+                    foreign_cls=foreign_cls,
+                    junction_keys=extra.get("junction_keys", None),
+                    junction_cls=extra.get("junction_model", None),                    
+                    on_delete=extra.get("on_delete") or "CASCADE",
+                    on_update=extra.get("on_update") or "CASCADE",
+                )    
+                # primary_key, foreign_key, junction_keys, relation_type, junction_cls, on_delete, on_update = unpack_relation_extra(extra, field_origin, ns.is_versioned, ns.is_artifact)
                                 
-                if relation_type == "one_to_one" or relation_type == "one_to_many":                    
-                    # foreign_cls = get_one_to_many_relation_model(field_type)                    
-                    relation_field = ns.add_relation(
-                        name=field_name,
-                        primary_key=primary_key,
-                        foreign_key=foreign_key,
-                        foreign_cls=foreign_cls,
-                        on_delete=on_delete,
-                        on_update=on_update,
-                    )
+                # if relation_type == "one_to_one" or relation_type == "one_to_many":                    
+                #     # foreign_cls = get_one_to_many_relation_model(field_type)                    
+                #     relation_field = ns.add_relation(
+                #         name=field_name,
+                #         primary_key=primary_key,
+                #         foreign_key=foreign_key,
+                #         foreign_cls=foreign_cls,
+                #         on_delete=on_delete,
+                #         on_update=on_update,
+                #     )
 
-                else:  # many to many relation
-                    if junction_cls is None:
-                        raise ValueError(f"junction_cls is required for many to many relation: {field_type} on Model {name}")
-                    if not junction_keys:
-                        raise ValueError(f"junction_keys is required for many to many relation: {field_type} on Model {name}")
+                # else:  # many to many relation
+                #     if junction_cls is None:
+                #         raise ValueError(f"junction_cls is required for many to many relation: {field_type} on Model {name}")
+                #     if not junction_keys:
+                #         raise ValueError(f"junction_keys is required for many to many relation: {field_type} on Model {name}")
                     
-                    relation_field = ns.add_many_relation(
-                        name=field_name,
-                        primary_key=primary_key,
-                        foreign_key=foreign_key,
-                        foreign_cls=foreign_cls,
-                        junction_cls=junction_cls,
-                        junction_keys=junction_keys,
-                        on_delete=on_delete,
-                        on_update=on_update,
-                    )                
+                #     relation_field = ns.add_many_relation(
+                #         name=field_name,
+                #         primary_key=primary_key,
+                #         foreign_key=foreign_key,
+                #         foreign_cls=foreign_cls,
+                #         junction_cls=junction_cls,
+                #         junction_keys=junction_keys,
+                #         on_delete=on_delete,
+                #         on_update=on_update,
+                #     )                
                 
                 relations[field_name] = relation_field
                 # Skip adding this field to the namespace
                 continue
             elif extra.get("is_vector", False):
-                dimension, vectorizer = unpack_vector_extra(extra)
+                # vector field, need to add it to the vectorizers
+                dimension, vectorizer, distance = unpack_vector_extra(extra)
                 if vectorizer is None:
                     raise ValueError(f"vectorizer is required for vector field: {field_type} on Model {name}")
-                if dimension is None:
-                    raise ValueError(f"dimension is required for vector field: {field_type} on Model {name}")
-                if not ns.get_transformer(field_name):
-                    raise ValueError(f"transformer is required for vector field: {field_type} on Model {name}")
-                ResourceManager.register_vectorizer(field_name, vectorizer)
+                # if dimension is None:
+                    # raise ValueError(f"dimension is required for vector field: {field_type} on Model {name}")
+                # if not ns.get_transformer(field_name):
+                    # raise ValueError(f"transformer is required for vector field: {field_type} on Model {name}")
+                # ResourceManager.register_vectorizer(field_name, vectorizer)
                 
+                # transformer = ns.vector_fields.get_transformer(field_name)
+                vectorizer = ns.register_vector_field(field_name, vectorizer)
+                dimension = dimension or vectorizer.dimension
+                ns.add_field(
+                    field_name, 
+                    field_type, 
+                    dimension=dimension, 
+                    distance=distance,
+                    is_optional=False,
+                    foreign_key=False,
+                    is_key=False,
+                    is_vector=True,
+                    is_primary_key=False,
+                    is_default_temporal=False,
+                )
                 NamespaceManager.register_extension(db_type, "vector")
             else:
-                ns.add_field(field_name, field_type, extra)
+                # ns.add_field(field_name, field_type, **extra)
+                ns.add_field(
+                    field_name, 
+                    field_type, 
+                    is_optional=extra.get("is_optional", False),
+                    foreign_key=extra.get("foreign_key", False),
+                    is_key=extra.get("is_key", False),
+                    is_vector=False,
+                    is_primary_key=extra.get("primary_key", False),
+                    is_default_temporal=extra.get("is_default_temporal", False),
+                )
             
             # Add field to namespace
             field_extras[field_name] = extra
@@ -318,8 +363,9 @@ class Model(BaseModel, metaclass=ModelMeta):
     """
     # Namespace reference - will be set by the metaclass
     _is_base: bool = True
+    _db_type: Literal["postgres", "qdrant", "neo4j"] = "postgres"
     _namespace_name: str = PrivateAttr(default=None)
-    _db_type: DatabaseType = PrivateAttr(default="postgres")
+    # _db_type: DatabaseType = PrivateAttr(default="postgres")
     _is_versioned: bool = PrivateAttr(default=False)
     _relations: Dict[str, Dict[str, Any]] = PrivateAttr(default_factory=dict) 
     _ctx_token: contextvars.Token | None = PrivateAttr(default=None)    
@@ -426,13 +472,23 @@ class Model(BaseModel, metaclass=ModelMeta):
         ns = cls.get_namespace()
         return ns.iter_fields(keys, select)
     
+    def transform(self) -> str:
+        return self.model_dump_json()
+    
     async def save(self, *args, **kwargs) -> Self:
         """
         Save the model instance to the database
-        """        
+        """
                 
-        ns = self.get_namespace()        
-        result = await ns.save(self)
+        ns = self.get_namespace()
+        # result = await ns.save(self)
+        dump = self.model_dump()
+        if ns.need_to_transform:
+            text_content = self.transform()
+            vectors = await ns.batch_vectorizer.embed_query(text_content)
+            # vectors = await ns.vector_fields.transform(self)
+            dump.update(vectors)
+        result = await ns.insert(dump)
         # Update instance with returned data (e.g., ID)
         for key, value in result.items():
             field = ns.get_field(key, False)
@@ -454,10 +510,10 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     @classmethod
-    async def update_query(cls, id: Any, **kwargs) -> "SelectQuerySet[Self]":
+    async def update_query(cls, id: Any, data: dict[str, Any]) -> "SelectQuerySet[Self]":
         """Update the model instance"""
         ns = cls.get_namespace()
-        return await ns.update(id, **kwargs)
+        return await ns.update(id, data)
 
     async def update(self, **kwargs) -> Self:
         """Update the model instance"""
@@ -488,7 +544,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         if isinstance(relation, NSManyToManyRelationInfo):
             result = await model.save()
             junction = relation.inst_junction_model_from_models(self, result, kwargs)
-            junction = await junction.save()            
+            junction = await junction.save()
         else:
             key = getattr(self, relation.primary_key)
             setattr(model, relation.foreign_key, key)
@@ -558,96 +614,7 @@ class Model(BaseModel, metaclass=ModelMeta):
             setattr(self, field, rel_objs)
         return self
     
-    
-    # def __getattribute__(self, name: str) -> Any:
-    #     """
-    #     Get an attribute of the model.
-    #     if the attribute is not initialized relation and you try to access it, it will raise an error
-    #     """
-    #     inst = super(Model, self).__getattribute__(name)
-    #     if isinstance(inst, EmptyRelation):
-    #         raise ValueError(f'Relation "{name}" on model "{self.__class__.__name__}" is not initialized. you should join the relation or use the fetch method')
-    #     return inst
-            
-            
-    # @classmethod
-    # def __get_pydantic_core_schema__(cls, source, handler):
-    #     def validate_custom(value, info):
-    #         if isinstance(value, cls):
-    #             # if cls.validate_models(value):
-    #             if True:
-    #                 return value
-    #             else:
-    #                 raise TypeError("Relation must be a Model")
-    #         else:
-    #             raise TypeError("Invalid type for Relation; expected Relation instance")
-    #     return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
 
-    
-    # @classmethod
-    # def query(cls: Type[MODEL], branch: "int | Branch | None" = None, turn: "int | Turn | None" = None, **kwargs) -> "SelectQuerySet[MODEL]":
-    #     """
-    #     Create a query for this model
-        
-    #     Args:
-    #         branch: Optional branch ID to query from
-    #     """
-    #     from promptview.model2.version_control_models import get_branch_id, get_turn_id_or_none
-    #     branch_id = get_branch_id(branch)
-    #     ns = cls.get_namespace()
-    #     return ns.query(branch_id=branch_id, **kwargs)
-    
-    
-    # def join(self, model: Type[MODEL], partition: Partition | None = None, branch: Branch | int = 1) -> "QuerySet[MODEL]":
-                    
-    #     ns = self.get_namespace()
-    #     rel_field = ns.get_relation_by_type(model)
-    #     if not rel_field:
-    #         raise ValueError(f"relation is not existing for type: {model.__name__}")
-    #     relation = getattr(self, rel_field.name)
-    #     if not relation:
-    #         raise ValueError("relation is not existing")
-    #     query = relation.build_query(partition)
-    #     return query
-    
-    # def join(self, model: Type[MODEL], partition: Partition | None = None, branch: Branch | int = 1) -> "QuerySet[MODEL]":
-    #     partition_id = None
-    #     if partition:
-    #         partition_id = partition.id
-    #     ns = self.get_namespace()
-    #     rel_field = ns.get_relation_by_type(model)
-    #     if not rel_field:
-    #         raise ValueError(f"relation is not existing for type: {model.__name__}")
-    #     if issubclass(rel_field.__class__, NSRelationInfo):
-    #         if ns.is_context:
-    #             return ns.query(partition_id=partition_id)
-    #         else:
-    #             return rel_field.foreign_namespace.query(partition_id=partition_id, filters={rel_field.foreign_key: self.primary_id})
-    #     else:
-    #         return rel_field.foreign_namespace.query(
-    #             partition_id=partition,
-    #             # joins=[{
-    #             #     "primary_table": self.relation_field.junction_table,
-    #             #     "primary_key": self.relation_field.junction_foreign_key,
-    #             #     "foreign_table": self.relation_field.foreign_table,
-    #             #     "foreign_key": self.relation_field.foreign_key,
-    #             # }],
-    #             select=[rel_field.foreign_namespace.select_fields()],
-    #             joins=[{
-    #                 "primary_table": rel_field.foreign_table,
-    #                 "primary_key": rel_field.foreign_key,
-    #                 "foreign_table": rel_field.junction_table,
-    #                 "foreign_key": rel_field.junction_foreign_key,
-    #             }],
-    #             filters={self.relation_field.junction_primary_key: self.primary_id},            
-    #         )
-        
-            
-        # relation = getattr(self, rel_field.name)
-        # if not relation:
-        #     raise ValueError("relation is not existing")
-        # query = relation.build_query(partition)
-        # return query
         
 
 
@@ -662,400 +629,6 @@ def get_extra(field_info: FieldInfo) -> dict[str, Any]:
 
 
 
-# class ArtifactModel(Model):
-#     """
-#     A model that is versioned and belongs to a repo.
-#     """
-#     id: int = KeyField(primary_key=True)
-#     artifact_id: uuid.UUID = KeyField(default=None, type="uuid")
-#     version: int = ModelField(default=1)    
-#     branch_id: int = ModelField(foreign_key=True)
-#     turn_id: int = ModelField(foreign_key=True)    
-#     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
-#     updated_at: dt.datetime | None = ModelField(default=None)
-#     deleted_at: dt.datetime | None = ModelField(default=None)
-#     _repo: str = PrivateAttr(default=None)  # Namespace of the repo model
-    
-    
-#     async def save(self, turn: int | Turn | None = None, branch: int | Branch | None = None):
-#         """
-#         Save the artifact model instance to the database
-        
-#         Args:
-#             branch: Optional branch ID to save to
-#             turn: Optional turn ID to save to
-#         """        
-
-#         ns = NamespaceManager.get_namespace(self.__class__.get_namespace_name())
-#         result = await ns.save(self)
-#         # Update instance with returned data (e.g., ID)
-#         for key, value in result.items():
-#             setattr(self, key, value)
-        
-#         # Update relation instance IDs
-#         self._update_relation_instance()
-        
-#         return self
-    
-#     @classmethod
-#     async def get_artifact(cls: Type[MODEL], artifact_id: uuid.UUID, version: int | None = None):
-#         """
-#         Get an artifact model instance by artifact ID and version
-#         """
-#         ns = cls.get_namespace()
-#         data = await ns.get_artifact(artifact_id, version)
-#         if data is None:
-#             raise ValueError(f"Artifact '{artifact_id}' with version '{version}' not found")
-#         instance = cls(**data)
-#         instance._update_relation_instance()
-#         return instance
-    
-    
-#     async def delete(self, *args, **kwargs):
-#         """
-#         Delete the artifact model instance from the database
-#         """
-#         ns = self.get_namespace()
-#         data = self._payload_dump()
-#         result = await ns.delete(data=data, id=self.primary_id)
-#         return result
-
-    
-    
-# class ContextModel(ArtifactModel):
-#     # id: int = KeyField(primary_key=True)
-#     # created_at: dt.datetime = ModelField(default=None)
-    
-#     @classmethod
-#     def from_block(cls, block: "Block", output_model: "OutputModel | None" = None) -> "ContextModel":
-#         raise NotImplementedError("ContextModel.from_block is not implemented")
-    
-    
-#     def to_block(self, ctx: "Context") -> "Block":
-#         raise NotImplementedError("ContextModel.to_block is not implemented")
-    
-#     @classmethod
-#     def query(cls: Type[MODEL], partition_id: int | None = None, branch: int | Branch | None = None) -> "QuerySet[MODEL]":
-#         """
-#         Create a query for this model
-        
-#         Args:
-#             branch: Optional branch ID to query from
-#         """
-#         ns = cls.get_namespace()
-#         return ns.query(partition_id, branch)
-
-
-    
-    
-
-
-# PRIMARY_MODEL = TypeVar("PRIMARY_MODEL", bound="Model")
-# FOREIGN_MODEL = TypeVar("FOREIGN_MODEL", bound="Model")
-
-
-# class BaseRelation:
-#     _primary_instance: Model | None = None
-#     _partition_id: int | None = None
-#     namespace: Namespace
-    
-#     def __init__(self, namespace: Namespace):
-#         self._primary_instance = None
-#         self.namespace = namespace
-        
-#     @property
-#     def primary_cls(self) -> Type[Model]:
-#         if self._primary_instance is None:
-#             raise ValueError("Primary class is not set")
-#         return self._primary_instance.__class__
-    
-#     @property
-#     def is_context_model(self) -> bool:
-#         return self.namespace.is_context
-    
-#     @property
-#     def primary_instance(self) -> Model:
-#         if self._primary_instance is None:
-#             raise ValueError("Instance is not set")
-#         return self._primary_instance
-    
-#     def set_primary_instance(self, instance: Model):
-#         """Set the instance ID for this relation."""
-#         self._primary_instance = instance
-        
-#     def _build_query_set(self):
-#         raise NotImplementedError("Subclasses must implement this method")
-    
-#     @classmethod
-#     def validate_models(cls, value: Any) -> bool:
-#         raise NotImplementedError("Subclasses must implement this method")
-
-#     @classmethod
-#     def __get_pydantic_core_schema__(cls, source, handler):
-#         def validate_custom(value, info):
-#             if isinstance(value, cls):
-#                 if cls.validate_models(value):
-#                     return value
-#                 else:
-#                     raise TypeError("Relation must be a Model")
-#             else:
-#                 raise TypeError("Invalid type for Relation; expected Relation instance")
-#         return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
-
-
-# class Relation(Generic[FOREIGN_MODEL], BaseRelation):
-#     """
-#     A relation between models.
-    
-#     This class provides methods for querying related models.
-#     """    
-#     relation_field: NSRelationInfo
-    
-    
-#     def __init__(self, namespace: Namespace, relation_field: NSRelationInfo):
-#         super().__init__(namespace)
-#         self.relation_field = relation_field
-        
-
-    
-#     def _build_query_set(self) -> "QuerySet[FOREIGN_MODEL]":
-#         """Build a query set for this relation."""
-#         if not self.primary_instance:
-#             raise ValueError("Instance is not set")
-#         # return self.namespace.query(None)
-#         # return self.primary_cls.query(partition_id=self.primary_instance.primary_id)
-#         if self.is_context_model:
-#             return self.namespace.query(partition_id=self.primary_instance.primary_id)
-#         else:
-#             return self.relation_field.foreign_namespace.query(filters={self.relation_field.foreign_key: self.primary_instance.primary_id})
-        
-#     def build_query(self, partition):
-#         partition_id = partition.id
-#         if self.is_context_model:
-#             return self.namespace.query(partition_id=partition_id)
-#         else:
-#             return self.relation_field.foreign_namespace.query(partition_id=partition_id, filters={self.relation_field.foreign_key: self.primary_instance.primary_id})
-    
-#     def all(self):
-#         """Get all related models."""
-#         return self._build_query_set()
-    
-#     def filter(self, filter_fn: Callable[[FOREIGN_MODEL], bool] | None = None, **kwargs) -> "QuerySet[FOREIGN_MODEL]":
-#         """Filter related models."""
-#         qs = self._build_query_set()
-#         return qs.filter(filter_fn=filter_fn,**kwargs)
-    
-    
-#     def last(self) -> "QuerySetSingleAdapter[FOREIGN_MODEL]":
-#         """Get the last related model."""
-#         qs = self._build_query_set()
-#         return qs.last()
-    
-    
-#     def tail(self, limit: int = 10) -> "QuerySet[FOREIGN_MODEL]":
-#         """Get the last N related models."""
-#         qs = self._build_query_set()
-#         return qs.tail(limit)
-    
-#     def first(self) -> "QuerySetSingleAdapter[FOREIGN_MODEL]":
-#         """Get the first related model."""
-#         qs = self._build_query_set()
-#         return qs.first()
-    
-    
-#     def head(self, limit: int = 10) -> "QuerySet[FOREIGN_MODEL]":
-#         """Get the first N related models."""
-#         qs = self._build_query_set()
-#         return qs.head(limit)
-    
-#     def limit(self, limit: int) -> "QuerySet[FOREIGN_MODEL]":
-#         """Limit the number of related models."""
-#         qs = self._build_query_set()
-#         return qs.limit(limit)
-    
-#     async def add(self, obj: FOREIGN_MODEL, turn: Optional[int | Turn] = None, branch: Optional[int | Branch] = None) -> FOREIGN_MODEL:
-#         """
-#         Add a related model.
-        
-#         If the model has a _repo attribute, it will be saved with the appropriate branch.
-#         """
-#         if self.primary_instance is None:
-#             raise ValueError("Instance is not set")
-#         if not isinstance(obj, self.relation_field.foreign_cls):
-#             raise ValueError("Object ({}) is not of type {}".format(obj.__class__.__name__, self.relation_field.foreign_cls.__name__))
-#         # Set the relation field
-#         setattr(obj, self.relation_field.foreign_key, self.primary_instance.primary_id)
-        
-#         if obj._is_versioned:
-#             return await obj.save(turn=turn, branch=branch)
-#         else:
-#             return await obj.save()
-#         # Save the object (branch will be determined by the model's repo)
-
-    
-#     @classmethod
-#     def __get_pydantic_core_schema__(cls, source, handler):
-#         def validate_custom(value, info):
-#             if isinstance(value, cls):
-#                 relation_model = get_one_to_many_relation_model(value)
-#                 if issubclass(relation_model, Model):
-#                     return value
-#                 else:
-#                     raise TypeError("Relation must be a Model")
-#             else:
-#                 raise TypeError("Invalid type for Relation; expected Relation instance")
-#         return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
-
-
-
-
-# JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
-
-# class ManyRelation(Generic[FOREIGN_MODEL, JUNCTION_MODEL], BaseRelation):
-#     """
-#     A relation between models.
-    
-#     This class provides methods for querying related models.
-#     """        
-#     relation_field: NSManyToManyRelationInfo
-#     def __init__(self, namespace: Namespace, relation_field: NSManyToManyRelationInfo):
-#         super().__init__(namespace)  
-#         self.relation_field = relation_field      
-            
-#     def get_relation_key_params(self, obj: FOREIGN_MODEL, kwargs: dict[str, Any]):
-#         params = {}
-#         # params[self.relation_field.primary_key] = self.primary_instance.primary_id
-#         # params[self.relation_field.foreign_key] = obj.primary_id
-#         params[self.relation_field.junction_primary_key] = self.primary_instance.primary_id
-#         params[self.relation_field.junction_foreign_key] = obj.primary_id
-#         for key, value in kwargs.items():
-#             params[key] = value
-#         return params
-
-#     # def _build_query_set(self):
-#     #     """Build a query set for this relation."""
-#     #     if not self.primary_instance:
-#     #         raise ValueError("Instance is not set")
-#     #     return self.primary_cls.query(partition_id=self.primary_instance.primary_id)
-    
-#     def _build_query_set(self):
-#         """Build a query set for this relation."""
-#         if not self.primary_instance:
-#             raise ValueError("Instance is not set")
-#         return self.relation_field.foreign_namespace.query(
-#             partition_id=self.primary_instance.primary_id if self.is_context_model else None,
-#             # joins=[{
-#             #     "primary_table": self.relation_field.junction_table,
-#             #     "primary_key": self.relation_field.junction_foreign_key,
-#             #     "foreign_table": self.relation_field.foreign_table,
-#             #     "foreign_key": self.relation_field.foreign_key,
-#             # }],
-#             select=[self.relation_field.foreign_namespace.select_fields()],
-#             joins=[{
-#                 "primary_table": self.relation_field.foreign_table,
-#                 "primary_key": self.relation_field.foreign_key,
-#                 "foreign_table": self.relation_field.junction_table,
-#                 "foreign_key": self.relation_field.junction_foreign_key,
-#             }],
-#             filters={self.relation_field.junction_primary_key: self.primary_instance.primary_id},            
-#         )
-    
-#     def all(self):
-#         """Get all related models."""
-#         return self._build_query_set()
-    
-#     def filter(self, filter_fn: Callable[[FOREIGN_MODEL], bool] | None = None, **kwargs) -> QuerySet[FOREIGN_MODEL]:
-#         """Filter related models."""
-#         qs = self._build_query_set()
-#         return qs.filter(filter_fn=filter_fn,**kwargs)
-    
-#     def last(self) -> QuerySetSingleAdapter[FOREIGN_MODEL]:
-#         """Get the last related model."""
-#         qs = self._build_query_set()
-#         return qs.last()
-    
-#     def tail(self, limit: int = 10) -> QuerySet[FOREIGN_MODEL]:
-#         """Get the last N related models."""
-#         qs = self._build_query_set()
-#         return qs.tail(limit)
-    
-#     def first(self) -> QuerySetSingleAdapter[FOREIGN_MODEL]:
-#         """Get the first related model."""
-#         qs = self._build_query_set()
-#         return qs.first()
-    
-#     def head(self, limit: int = 10) -> QuerySet[FOREIGN_MODEL]:
-#         """Get the first N related models."""
-#         qs = self._build_query_set()
-#         return qs.head(limit)
-    
-#     def limit(self, limit: int) -> QuerySet[FOREIGN_MODEL]:
-#         """Limit the number of related models."""
-#         qs = self._build_query_set()
-#         return qs.limit(limit)
-        
-    
-#     async def add(self, obj: FOREIGN_MODEL, turn: Optional[int | Turn] = None, branch: Optional[int | Branch] = None, **kwargs) -> FOREIGN_MODEL:
-#         """
-#         Add a list of related models.
-#         """
-#         if self.primary_instance is None or self.relation_field.junction_cls is None:
-#             raise ValueError("Instance or many_relation_cls is not set")
-
-#         # obj = await super(ManyRelation, self).add(obj, turn, branch)        
-#         if self.primary_cls._is_versioned:
-#             obj = await obj.save(turn=turn, branch=branch)
-#         else:
-#             obj = await obj.save()
-            
-#         relation = self.relation_field.junction_cls(**self.get_relation_key_params(obj, kwargs))            
-#         if self.primary_cls._is_versioned:
-#             relation = await relation.save(turn=turn, branch=branch)
-#         else:
-#             relation = await relation.save()
-#         # setattr(obj, self.relation_field.foreign_key, relation.primary_id)
-#         # if obj.__class__._is_versioned:
-#         #     await obj.save(turn=turn, branch=branch)
-#         # else:
-#         #     await obj.save()
-#         return obj
-    
-    
-#     # @classmethod
-#     # def __get_pydantic_core_schema__(
-#     #     cls, 
-#     #     _source_type: Any, 
-#     #     _handler: Callable[[Any], pydantic_core.core_schema.CoreSchema]
-#     # ) -> pydantic_core.core_schema.CoreSchema:
-#     #     from pydantic_core import core_schema
-#     #     # Use a simple any schema since we're handling serialization ourselves
-#     #     return core_schema.any_schema()
-    
-#     @classmethod
-#     def __get_pydantic_core_schema__(cls, source, handler):
-#         def validate_custom(value, info):
-#             # print(value)
-#             # print("---------------")
-#             # print(info)
-#             # print(source)
-#             # print(handler)
-#             if isinstance(value, cls):
-#                 relation_model, target_model = get_many_to_many_relation_model(value)
-#                 if issubclass(relation_model, Model) and issubclass(target_model, Model):
-#                     return value
-#                 else:
-#                     raise TypeError("Relation must be a Model")
-#             elif isinstance(value, list):
-#                 for item in value:
-#                     relation_model, target_model = get_many_to_many_relation_model(item)
-#                     if not issubclass(relation_model, Model) or not issubclass(target_model, Model):
-#                         raise TypeError("Relation must be a Model")
-#                 return ManyRelation(cls.namespace, self.relation_field)
-            
-#             else:
-#                 print(value)
-#                 raise TypeError("Invalid type for Relation; expected Relation instance")
-#         return pydantic_core.core_schema.with_info_plain_validator_function(validate_custom)
 
 
 

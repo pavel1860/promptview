@@ -1,6 +1,6 @@
 from .model import Model
 # from .artifact_model import ArtifactModel
-from .fields import ModelField, RelationField, KeyField
+from .fields import ModelField, RelationField, KeyField, VectorField
 from .postgres.namespace import PostgresNamespace
 from .namespace_manager import NamespaceManager
 from .version_control_models import Branch, Turn, TurnStatus, TurnModel, VersioningError, ArtifactModel
@@ -17,6 +17,7 @@ __all__ = [
     "PostgresNamespace", 
     "NamespaceManager",
     "ModelField",
+    "VectorField",
     "RelationField",
     "KeyField",
     "Branch",

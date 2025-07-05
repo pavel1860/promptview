@@ -20,7 +20,8 @@ from promptview.model2.version_control_models import Branch
 from __tests__.utils import clean_database, test_db_pool
 
 class Like(ArtifactModel):
-    post_id: int = ModelField(foreign_key=True)    
+    post_id: int = ModelField(foreign_key=True)
+    sentiment: Literal["like", "dislike"] = ModelField(default="like")
 
 class Post(ArtifactModel):
     title: str = ModelField()
@@ -81,16 +82,17 @@ async def test_artifact_model_basic(clean_database):
     
     user = await User(name="test", age=10, address="test").save()
     branch = await Branch.get(1)
-    with branch:
-        async with Turn.start():
-            post1 = await user.add(Post(title="post 1", content="content 1"))
-            
-        async with Turn.start():
-            post2 = await user.add(Post(title="post 2", content="content 2"))
+    with user:
+        with branch:
+            async with Turn.start():
+                post1 = await user.add(Post(title="post 1", content="content 1"))
                 
-        async with Turn.start():
-            post1.content = "content 1 updated"
-            await post1.save()
+            async with Turn.start():
+                post2 = await user.add(Post(title="post 2", content="content 2"))
+                    
+            async with Turn.start():
+                post1.content = "content 1 updated"
+                await post1.save()
 
 
     posts = await Post.query().order_by("-created_at")
@@ -104,23 +106,24 @@ async def test_artifact_model_basic(clean_database):
 async def test_artifact_model_order_by(clean_database):
     user = await User(name="test", age=10, address="test").save()
     branch = await Branch.get(1)
-    with branch:
-        async with Turn.start():
-            post1 = await user.add(Post(title="post 1", content="content 1"))
-        async with Turn.start():
-            post2 = await user.add(Post(title="post 2", content="content 2"))
-        async with Turn.start():
-            post1.content = "content 1 updated 1"
-            await post1.save()
-        async with Turn.start():
-            post3 = await user.add(Post(title="post 3", content="content 3"))
-            post2.content = "content 2 updated 1"
-            await post2.save()
-            post1.content = "content 1 updated 2"
-            await post1.save()
-        async with Turn.start():
-            post1.content = "content 1 updated 3"
-            await post1.save()
+    with user:
+        with branch:
+            async with Turn.start():
+                post1 = await user.add(Post(title="post 1", content="content 1"))
+            async with Turn.start():
+                post2 = await user.add(Post(title="post 2", content="content 2"))
+            async with Turn.start():
+                post1.content = "content 1 updated 1"
+                await post1.save()
+            async with Turn.start():
+                post3 = await user.add(Post(title="post 3", content="content 3"))
+                post2.content = "content 2 updated 1"
+                await post2.save()
+                post1.content = "content 1 updated 2"
+                await post1.save()
+            async with Turn.start():
+                post1.content = "content 1 updated 3"
+                await post1.save()
             
             
     posts = await Post.query().order_by("created_at")

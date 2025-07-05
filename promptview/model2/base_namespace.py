@@ -1,7 +1,7 @@
 from abc import abstractmethod
 import asyncio
 import contextvars
-from enum import Enum
+from enum import Enum, StrEnum
 import inspect
 import json
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterator, List, Literal, Set, Type, TypeVar, TypedDict, Optional, get_args, get_origin
@@ -12,10 +12,11 @@ import datetime as dt
 
 
 
+from promptview.algebra.vectors.batch_vectorizer import BatchVectorizer
 from promptview.utils.model_utils import is_list_type, unpack_list_model
 from promptview.utils.string_utils import camel_to_snake
 
-DatabaseType = Literal["qdrant", "postgres"]
+DatabaseType = Literal["qdrant", "postgres", "neo4j"]
 
 if TYPE_CHECKING:
     from promptview.model2.namespace_manager import NamespaceManager
@@ -34,7 +35,14 @@ class SelectFields(TypedDict):
 
 
 
-    
+class Distance(StrEnum):
+    COSINE = "cosine"
+    EUCLID = "euclid"
+    DOT = "dot"
+    MANHATTAN = "manhattan"
+    CHEBYSHEV = "chebyshev"
+    MINKOWSKI = "minkowski"
+    HAMMING = "hamming"
 
     
 
@@ -48,7 +56,6 @@ class NSFieldInfo:
     is_list: bool = False    
     list_origin_type: Type[Any] | None = None
     is_temporal: bool = False
-    is_default_temporal: bool = False
     is_enum: bool = False
     is_foreign_key: bool = False
     is_literal: bool = False
@@ -57,19 +64,28 @@ class NSFieldInfo:
     is_key: bool = False
     is_primary_key: bool = False
     db_type: str | None = None
+    is_vector: bool = False
+    dimension: int | None = None
+    distance: Distance | None = None
+    
     
     def __init__(
         self,
         name: str,
         field_type: type[Any],
-        extra: dict[str, Any] | None = None,
+        is_optional: bool = False,
+        foreign_key: bool = False,
+        is_key: bool = False,
+        is_vector: bool = False,
+        dimension: int | None = None,
+        distance: Distance | None = None,
         namespace: "Namespace | None" = None,
+        is_primary_key: bool = False,
     ):
+        self.is_optional = is_optional
         self.name = name        
-        self.extra = extra
-        self.is_foreign_key = extra and extra.get("foreign_key", False)
+        self.is_foreign_key = foreign_key
         self.field_type = field_type
-        self.db_type = extra and extra.get("db_type", None)
         self.origin_type, self.is_optional = NSFieldInfo.parse_optional(field_type)
         self.list_origin_type, self.is_list = NSFieldInfo.parse_list(self.origin_type)
         if self.is_list and self.list_origin_type is not None:
@@ -89,20 +105,63 @@ class NSFieldInfo:
         else:
             self.is_temporal = False
             
-        if extra and extra.get("is_default_temporal", False):
-            if not field_type is dt.datetime:
-                raise ValueError("is_default_temporal can only be used with datetime")
-            self.is_default_temporal = True
+        self.is_key = is_key
+        self.is_primary_key = is_primary_key
+        if is_key:
+            self.key_type = "uuid" if self.field_type is uuid.UUID else "int"
+        if is_vector:
+            if not dimension:
+                raise ValueError("Dimension is required for vector field")
+            if not distance:
+                raise ValueError("Distance is required for vector field")
         
-        if extra:
-            if not extra.get("is_relation", False):
-                self.is_primary_key = extra.get("primary_key", False)
+        self.dimension = dimension
+        self.is_vector = is_vector
+        self.distance = distance
+        
+    # def __init__(
+    #     self,
+    #     name: str,
+    #     field_type: type[Any],
+    #     extra: dict[str, Any] | None = None,
+    # ):
+    #     self.name = name        
+    #     self.extra = extra
+    #     self.is_foreign_key = extra and extra.get("foreign_key", False)
+    #     self.field_type = field_type
+    #     self.db_type = extra and extra.get("db_type", None)
+    #     self.origin_type, self.is_optional = NSFieldInfo.parse_optional(field_type)
+    #     self.list_origin_type, self.is_list = NSFieldInfo.parse_list(self.origin_type)
+    #     if self.is_list and self.list_origin_type is not None:
+    #         self.is_enum, self.enum_values, self.is_literal = NSFieldInfo.parse_enum(self.list_origin_type)
+    #     else:
+    #         self.is_enum, self.enum_values, self.is_literal = NSFieldInfo.parse_enum(self.origin_type)            
+        
+    #     if self.is_enum:
+    #         if self.is_literal:
+    #             self.enum_name = camel_to_snake(name) + "_literal"
+    #         else:
+    #             self.enum_name = camel_to_snake(self.data_type.__name__) + "_enum"
+
+    #     if self.origin_type is dt.datetime:
+    #         self.is_temporal = True
+    #     else:
+    #         self.is_temporal = False
+            
+    #     if extra and extra.get("is_default_temporal", False):
+    #         if not field_type is dt.datetime:
+    #             raise ValueError("is_default_temporal can only be used with datetime")
+    #         self.is_default_temporal = True
+        
+    #     if extra:
+    #         if not extra.get("is_relation", False):
+    #             self.is_primary_key = extra.get("primary_key", False)
                     
-        self.is_key = extra and extra.get("is_key", False)
-        if self.is_key:
-            self.key_type = extra and extra.get("type", None)
-        self.dimension = extra and extra.get("dimension", None)
-        self.is_vector = extra and extra.get("is_vector", False)
+    #     self.is_key = extra and extra.get("is_key", False)
+    #     if self.is_key:
+    #         self.key_type = extra and extra.get("type", None)
+    #     self.dimension = extra and extra.get("dimension", None)
+    #     self.is_vector = extra and extra.get("is_vector", False)
         
     @property
     def data_type(self) -> Type[Any]:
@@ -203,7 +262,10 @@ class NSFieldInfo:
 
 MODEL = TypeVar("MODEL", bound="Model")
 FOREIGN_MODEL = TypeVar("FOREIGN_MODEL", bound="Model")
-class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
+JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
+
+
+class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL]):
     name: str
     foreign_cls: Type[FOREIGN_MODEL]
     primary_key: str
@@ -220,6 +282,8 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
         primary_key: str,
         foreign_key: str,
         foreign_cls: Type[FOREIGN_MODEL],
+        junction_keys: list[str] | None = None,
+        junction_cls: Type[JUNCTION_MODEL] | None = None,        
         on_delete: str = "CASCADE", 
         on_update: str = "CASCADE",        
     ):
@@ -227,6 +291,8 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
         self.primary_key = primary_key
         self.foreign_key = foreign_key
         self.foreign_cls = foreign_cls
+        self.junction_keys = junction_keys
+        self.junction_cls = junction_cls
         self.on_delete = on_delete
         self.on_update = on_update
         self.namespace = namespace
@@ -260,6 +326,35 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
         # return self.foreign_cls.get_namespace()
     
     
+    @property
+    def junction_table(self) -> str:
+        return self.junction_namespace.table_name
+
+    @property  
+    def junction_namespace(self) -> "Namespace":
+        from promptview.model2.namespace_manager import NamespaceManager
+        return NamespaceManager.get_namespace_by_model_cls(self.junction_cls)
+
+    @property
+    def junction_primary_key(self) -> str:
+        return self.junction_keys[0]
+    
+    @property
+    def junction_foreign_key(self) -> str:
+        return self.junction_keys[1]
+    
+    def inst_junction_model(self, data: dict[str, Any]) -> JUNCTION_MODEL:
+        return self.junction_namespace.instantiate_model(data)
+    
+    def inst_junction_model_from_models(self, primary_model: MODEL, forreign_model: FOREIGN_MODEL, data: dict[str, Any]) -> JUNCTION_MODEL:
+        data.update({
+            self.junction_primary_key: getattr(primary_model, self.primary_key),
+            self.junction_foreign_key: getattr(forreign_model, self.foreign_key),
+        })
+        return self.inst_junction_model(data)
+    
+    
+    
     def deserialize(self, value: Any) -> Any:
         if isinstance(value, str):
             json_value = json.loads(value)
@@ -276,6 +371,8 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
     
     def get_primary_ctx_value_or_none(self) -> Any:
         ctx_obj = self.primary_namespace.get_ctx()
+        if ctx_obj is None:
+            return None
         return getattr(ctx_obj, self.primary_key)
     
     def __repr__(self) -> str:
@@ -284,7 +381,7 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL]):
     
 JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
 
-class NSManyToManyRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL], NSRelationInfo[MODEL, FOREIGN_MODEL]):
+class NSManyToManyRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL], NSRelationInfo[MODEL, FOREIGN_MODEL, JUNCTION_MODEL]):
     """Many to many relation"""
     junction_cls: Type[JUNCTION_MODEL]
     junction_keys: list[str]
@@ -450,21 +547,113 @@ FIELD_INFO = TypeVar("FIELD_INFO", bound=NSFieldInfo)
 
 
 
-class Transformer(Generic[MODEL]):
-    def __init__(self, field_name: str, transform_fn: Callable[[MODEL], Any], vectorizer_cls: "Type[BaseVectorizer]"):
+# class Transformer(Generic[MODEL]):
+#     def __init__(self, field_name: str, transform_fn: Callable[[MODEL], Any], vectorizer_cls: "Type[BaseVectorizer]"):
+#         self.field_name = field_name
+#         self.transform_fn = transform_fn
+#         self.vectorizer_cls = vectorizer_cls
+    
+#     @property
+#     def vectorizer(self) -> "BaseVectorizer":
+#         from promptview.resource_manager import ResourceManager
+#         return ResourceManager.get_vectorizer_by_cls(self.vectorizer_cls)
+        
+#     async def __call__(self, models: list[MODEL]) -> list[Any]:        
+#         docs = [self.transform_fn(model) for model in models]
+#         return await self.vectorizer.embed_documents(docs)
+class Transformer:
+    def __init__(self, field_name: str, transform_fn: Callable[[dict[str, Any]], Any], vectorizer_cls: "Type[BaseVectorizer] | None" = None):
         self.field_name = field_name
         self.transform_fn = transform_fn
         self.vectorizer_cls = vectorizer_cls
     
     @property
-    def vectorizer(self) -> "BaseVectorizer":
+    def vectorizer(self) -> "BaseVectorizer | None":
         from promptview.resource_manager import ResourceManager
-        return ResourceManager.get_vectorizer_by_name(self.field_name)
+        if self.vectorizer_cls is None:
+            return None
+        return ResourceManager.get_vectorizer_by_cls(self.vectorizer_cls)
         
-    async def __call__(self, models: list[MODEL]) -> list[Any]:        
-        docs = [self.transform_fn(model) for model in models]
+    async def __call__(self, data_list: list[dict[str, Any]]) -> list[Any]:        
+        docs = [self.transform_fn(data) for data in data_list]
         return await self.vectorizer.embed_documents(docs)
         
+
+class VectorFields(Generic[FIELD_INFO]):
+    fields: dict[str, FIELD_INFO]
+    
+    def __init__(self):
+        self.fields = {}
+        self.transformers = {}
+        
+    def add_vector_field(self, field_name: str, field_info: FIELD_INFO):
+        self.fields[field_name] = field_info
+    
+    def add_transformer(self, field_name: str, transformer: Transformer):
+        self.transformers[field_name] = transformer
+        
+    def get(self, field_name: str) -> FIELD_INFO:
+        return self.fields[field_name]
+    
+    def get_transformer(self, field_name: str) -> Transformer:
+        return self.transformers[field_name]
+    
+    def __iter__(self) -> Iterator[FIELD_INFO]:
+        return iter(self.fields.values())
+    
+    def __len__(self) -> int:
+        return len(self.fields)
+    
+    def __contains__(self, field_name: str) -> bool:
+        return field_name in self.fields
+    
+    def __getitem__(self, field_name: str) -> FIELD_INFO:
+        return self.fields[field_name]
+    
+    def __setitem__(self, field_name: str, field_info: FIELD_INFO):
+        self.fields[field_name] = field_info
+        
+    def __delitem__(self, field_name: str):
+        del self.fields[field_name]
+    
+    def __repr__(self) -> str:
+        return f"VectorFields(fields={self.fields})"
+    
+    async def transform_field(self, field_name: str, model: MODEL) -> Any:
+        transformer = self.transformers[field_name]
+        return await transformer([model])
+    
+    
+    def get_vectorizer(self, field_name: str) -> "BaseVectorizer":
+        from promptview.resource_manager import ResourceManager
+        vectorizer = ResourceManager.get_vectorizer_by_name(field_name)
+        if vectorizer is None:
+            raise ValueError(f"Vectorizer for field {field_name} not found")
+        return vectorizer
+    
+    
+    async def transform_many(self, data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        vector_data = await asyncio.gather(*[transformer(data) for transformer in self.transformers.values()])
+        vectors = []
+        for v in vector_data:
+            vectors.append({vec_name: value for vec_name, value in zip(self.transformers.keys(), v)})        
+        return vectors
+    
+    async def transform(self, data: dict[str, Any]) -> dict[str, Any]:
+        vectors = await self.transform_many([data])
+        return vectors[0]
+    
+    def split_vector_data(self, data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        vector_data = {}
+        for field_name, field_info in self.fields.items():
+            if field_info.is_vector:
+                vector_data[field_name] = data[field_name]
+                del data[field_name]
+        return data, vector_data
+    
+    
+    
+    
 
 
 class Namespace(Generic[MODEL, FIELD_INFO]):
@@ -502,6 +691,8 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         self.is_artifact = is_artifact
         self.repo_namespace = repo_namespace
         self.namespace_manager = namespace_manager
+        self.vector_fields = VectorFields()
+        self.batch_vectorizer = BatchVectorizer()
         self._transformers = {}
         self.db_type = db_type
         self._model_cls = None
@@ -530,15 +721,21 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     @property
     def primary_key(self) -> FIELD_INFO:
-        if self.is_artifact:
-            return self._fields["artifact_id"]
-        if self._model_cls is None:
-            raise ValueError("Model class not set")
+        # if self.is_artifact:
+        #     return self._fields["artifact_id"]
         if self._primary_key is None:
-            self._primary_key = self.find_primary_key()
-            if self._primary_key is None:
-                raise ValueError("Primary key not found")
+            raise ValueError("Primary key not found")
         return self._primary_key
+    
+    def get_dump_primary_key(self, data: dict[str, Any], remove_key: bool = True) -> Any:
+        if self._primary_key is None:
+            raise ValueError("Primary key not found")
+        primary_key = data.get(self._primary_key.name)
+        # if primary_key is None:
+            # return None
+        if remove_key:
+            del data[self._primary_key.name]
+        return primary_key
     
     def find_primary_key(self) -> FIELD_INFO | None:
         for field_name, field_info in self._fields.items():
@@ -650,6 +847,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
             fields=[self._fields[field] for field in fields]
         )
         
+        
     def get_foreign_key_ctx_value(self, field: FIELD_INFO) -> Any:
         """Get the value of the foreign key field from the context"""
         from promptview.model2.namespace_manager import NamespaceManager
@@ -661,26 +859,35 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         return relation.get_primary_ctx_value_or_none()
         
         
-    def validate_model_fields(self, model_dump: dict[str, Any]) -> dict[str, Any]:
+    def validate_model_fields(self, dump: dict[str, Any]) -> dict[str, Any]:
         """Validate the model fields"""
         from promptview.model2.namespace_manager import NamespaceManager
         for field in self._fields.values():
             if field.is_foreign_key:
-                if model_dump[field.name] is None:
+                if dump[field.name] is None:
                     relation = NamespaceManager.get_reversed_relation(self.table_name, field.name)
                     if relation is None:
-                        raise ValueError(f"""Field "{field.name}" on model "{self.model_class.__name__}" is a key field but has no reversed relation""")
+                        # raise ValueError(f"""Field "{field.name}" on model "{self.model_class.__name__}" is a key field but has no reversed relation""")                        
+                        raise ValueError(f"""Field "{field.name}" in "{self.name}" is a key field but has no reversed relation""")
                     curr_rel_model = relation.primary_cls.current()
                     if curr_rel_model is None and not field.is_optional:
-                        raise ValueError(f"""Field "{field.name}" on model "{self.model_class.__name__}" is a key field but no context was found for class "{relation.primary_cls.__name__}".""")
-                    model_dump[field.name] = getattr(curr_rel_model, relation.primary_key) if curr_rel_model is not None else None
-        return model_dump
+                        # raise ValueError(f"""Field "{field.name}" on model "{self.model_class.__name__}" is a key field but no context was found for class "{relation.primary_cls.__name__}".""")
+                        raise ValueError(f"""Field "{field.name}" in "{self.name}" is a key field but no context was found for class "{relation.name}".""")
+                    dump[field.name] = getattr(curr_rel_model, relation.primary_key) if curr_rel_model is not None else None
+        return dump
     
     def add_field(
         self,
         name: str,
         field_type: type[Any],
-        extra: dict[str, Any] | None = None,
+        is_optional: bool = False,
+        foreign_key: bool = False,
+        is_key: bool = False,
+        is_vector: bool = False,
+        dimension: int | None = None,
+        distance: Distance | None = None,
+        is_primary_key: bool = False,
+        is_default_temporal: bool = False,        
     ):
         """Add a field to the namespace"""
         raise NotImplementedError("Not implemented")
@@ -690,7 +897,9 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         name: str,
         primary_key: str,
         foreign_key: str,
-        foreign_cls: Type["Model"],        
+        foreign_cls: Type["Model"], 
+        junction_cls: Type["Model"] | None = None,
+        junction_keys: list[str] | None = None,       
         on_delete: str = "CASCADE",
         on_update: str = "CASCADE",
     ):
@@ -706,6 +915,8 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
             on_update: The action to take when the referenced row is updated
         """
         raise NotImplementedError("Not implemented")
+    
+    
     
     def add_many_relation(
         self,
@@ -735,11 +946,25 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     @property
     def need_to_transform(self) -> bool:
-        return bool(self._transformers)
+        return bool(len(self.vector_fields) > 0)
     
-    def register_transformer(self, field_name: str, transformer: Callable[[MODEL], Any], vectorizer: "BaseVectorizer"):
-        self._transformers[field_name] = Transformer(field_name, transformer, vectorizer)
+    def register_transformer(self, field_name: str, transformer: Callable[[MODEL], Any], vectorizer_cls: "Type[BaseVectorizer] | None" = None):
+        from promptview.resource_manager import ResourceManager
+        if vectorizer_cls is not None:
+            ResourceManager.register_vectorizer(vectorizer_cls)
+        self.vector_fields.add_transformer(field_name, Transformer(field_name, transformer, vectorizer_cls))
+        # self._transformers[field_name] = Transformer(field_name, transformer, vectorizer)
         
+        
+    # def register_vectorizer(self, field_name: str, vectorizer_cls: "Type[BaseVectorizer]"):
+    #     from promptview.resource_manager import ResourceManager
+    #     ResourceManager.register_vectorizer(vectorizer_cls)
+    #     self.vector_fields.add_vector_field(field_name, vectorizer_cls())
+    def register_vector_field(self, field_name: str, vectorizer_cls: "Type[BaseVectorizer]"):
+        from promptview.resource_manager import ResourceManager
+        vectorizer = ResourceManager.register_vectorizer(vectorizer_cls)
+        self.batch_vectorizer.add_vectorizer(field_name, vectorizer)
+        return vectorizer
         
     def get_transformers(self) -> dict[str, Transformer]:
         return self._transformers
@@ -796,13 +1021,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         branch = await Context.get_current_branch(branch)        
         return partition, branch
     
-    def create_namespace(self):
-        """Create the namespace in the database"""
-        raise NotImplementedError("Not implemented")
-    
-    async def drop_namespace(self):
-        """Drop the namespace from the database"""
-        raise NotImplementedError("Not implemented")
+
     
     # async def save(self, data: Dict[str, Any], id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
     #     """Save data to the namespace"""
@@ -810,6 +1029,10 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     async def save(self, model: MODEL) -> MODEL:
         """Save data to the namespace"""
+        raise NotImplementedError("Not implemented")
+    
+    async def insert(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Insert a model into the namespace"""
         raise NotImplementedError("Not implemented")
     
     async def update(self, id: Any, data: dict[str, Any]) -> MODEL | None:
@@ -853,3 +1076,18 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         """
         raise NotImplementedError("Not implemented")
     
+
+    
+    async def recreate_namespace(self):
+        """Recreate the namespace in the database"""
+        raise NotImplementedError("Not implemented")
+    
+    
+    
+    def create_namespace(self):
+        """Create the namespace in the database"""
+        raise NotImplementedError("Not implemented")
+    
+    async def drop_namespace(self):
+        """Drop the namespace from the database"""
+        raise NotImplementedError("Not implemented")

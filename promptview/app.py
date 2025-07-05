@@ -14,7 +14,7 @@ from promptview.api.model_router import create_model_router
 from promptview.api.artifact_router import create_artifact_router
 from promptview.api.utils import Head, get_head
 from promptview.auth.dependencies import get_auth_user
-from promptview.auth.user_manager import AuthManager, AuthModel
+from promptview.auth.user_manager2 import AuthManager, AuthModel
 from promptview.model2 import ArtifactModel, Model, NamespaceManager, Context
 from promptview.context.model_context import CtxRequest, ModelCtx
 # from promptview.testing.test_manager import TestManager
@@ -22,6 +22,8 @@ from promptview.api.auth_router import create_auth_router
 from promptview.api.artifact_log_api import router as artifact_log_router
 from promptview.api.testing_router import connect_testing_routers
 from promptview.api.user_router import connect_user_model_routers
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 
 MSG_MODEL = TypeVar('MSG_MODEL', bound=Model)
@@ -36,10 +38,55 @@ EnpointType = Callable[Concatenate[CTX_MODEL, P], Awaitable[List[MSG_MODEL]]]
 app_ctx = ContextVar("app_ctx")
 
 
-def include_chatboard_routers(app: FastAPI, user_manager: Type[AuthManager[USER_MODEL]]):
+
+class AddCtxMiddleware(BaseHTTPMiddleware):
+    
+    
+    
+    def is_form_request(self,request: Request) -> bool:
+        content_type = request.headers.get("content-type", "")
+        return content_type.startswith("application/x-www-form-urlencoded") or \
+            content_type.startswith("multipart/form-data")
+            
+    async def dispatch(self, request: Request, call_next):
+        ctx = None
+        ctx_str = request.query_params.get("ctx")
+        if ctx_str is not None:
+            ctx = json.loads(ctx_str)
+        request.state.ctx = ctx
+        filters = request.query_params.get("filter")
+        if filters:
+            request.state.filters = filters
+        list_params = request.query_params.get("list")
+        if list_params:
+            list_params = json.loads(list_params)
+            request.state.list = {
+                "offset": list_params.get("offset"), 
+                "limit": list_params.get("limit")
+            }
+        message = None
+        config = None
+        if self.is_form_request(request):
+            form = await request.form()
+            message = form.get("message")            
+            message = json.loads(message) if message else None
+            config = form.get("config") 
+            config = json.loads(config) if config else None
+        request.state.message = message
+        request.state.config = config
+        
+        response = await call_next(request)
+        return response
+
+
+
+
+
+def include_chatboard_routers(app: FastAPI, user_manager: AuthManager[USER_MODEL]):
     app.include_router(artifact_log_router, prefix="/api")
     app.include_router(create_auth_router(user_manager), prefix="/api")
     app.include_router(tracing_router, prefix="/api")
+    app.add_middleware(AddCtxMiddleware)
 
 
 class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):

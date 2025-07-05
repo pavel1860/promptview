@@ -1,5 +1,5 @@
 from .test_models import TestCase, TestRun, InputTurn, TurnEval
-from .evaluator import eval_prompt
+from .evaluator import evaluate
 
 
 
@@ -9,5 +9,5 @@ __all__ = [
     "TestRun", 
     "InputTurn",
     "TurnEval",
-    "eval_prompt"
+    "evaluate"
 ]
