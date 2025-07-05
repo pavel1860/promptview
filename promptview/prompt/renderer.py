@@ -45,7 +45,7 @@ class ContentRenderer(Renderer):
     
     def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
         raise NotImplementedError("Subclass must implement this method")
-    
+ 
     
 class ItemsRenderer(Renderer):
     tags: list[str]
@@ -62,7 +62,51 @@ class IndentRenderer(ContentRenderer):
     def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
         if not block.content:
             return "\n".join(inner_content)
-        return block.content + "\n" + textwrap.indent("".join(inner_content), "  ")
+        content = block.content
+        if inner_content:
+            content += "\n" + textwrap.indent("".join(inner_content), "  ")
+        return content
+
+
+class TupleRenderer(ContentRenderer):
+    tags = ["tuple", "tuple-col"]
+    
+    def __call__(self, block: Block, inner_content: List[str], depth: int) -> List[str]:
+        # if block.inline_style.get("tuple-col"):
+        #     return "(" + ",\n".join(inner_content) + "\n)"
+        # else:
+        #     return "(" + ", ".join(inner_content) + ")"
+        if block.inline_style.get("tuple-col"):
+            return ["(" + ",\n".join(inner_content) + "\n)"]
+        else:
+            return ["(" + ", ".join(inner_content) + ")"]
+        
+        
+class FuncRenderer(ContentRenderer):
+    tags = ["func", "func-col"]
+    
+    def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
+        if block.inline_style.get("block_type") == "func-col":
+            return block.content + "(\n" + textwrap.indent(",\n".join(inner_content), "    ") + "\n)"
+        else:
+            return block.content + "(" + ", ".join(inner_content) + ")"
+
+
+
+# class RowRenderer(ContentRenderer):
+#     tags = ["row"]
+    
+#     def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
+#         return " ".join(inner_content)
+
+
+# class RowItemsRenderer(ItemsRenderer):
+#     tags = ["row"]
+    
+#     def __call__(self, block: Block, inner_content: List[str], depth: int) -> List[str]:
+#         return inner_content
+
+
 
 class MarkdownTitleRenderer(ContentRenderer):
     tags = ["md"]
