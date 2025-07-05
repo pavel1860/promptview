@@ -1088,6 +1088,6 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         """Create the namespace in the database"""
         raise NotImplementedError("Not implemented")
     
-    async def drop_namespace(self):
+    def drop_namespace(self):
         """Drop the namespace from the database"""
         raise NotImplementedError("Not implemented")
