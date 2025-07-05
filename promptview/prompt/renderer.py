@@ -14,6 +14,8 @@ from promptview.prompt.block6 import Block
 class RendererMeta(type):
     
     _renderers: dict[str, Type["Renderer"]] = {}
+    _content_renderers: dict[str, Type["ContentRenderer"]] = {}
+    _item_renderers: dict[str, Type["ItemsRenderer"]] = {}
     
     def __new__(cls, name, bases, dct):        
         renderer = super().__new__(cls, name, bases, dct)
@@ -58,13 +60,14 @@ class ItemsRenderer(Renderer):
 
 class IndentRenderer(ContentRenderer):
     tags = ["block"]
+    target = "content"
     
     def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
         if not block.content:
             return "\n".join(inner_content)
         content = block.content
         if inner_content:
-            content += "\n" + textwrap.indent("".join(inner_content), "  ")
+            content += "\n" + textwrap.indent("\n".join(inner_content), "   ")
         return content
 
 
@@ -128,7 +131,7 @@ class MarkdownTitleRenderer(ContentRenderer):
 
 
 class MarkdownParagraphRenderer(ItemsRenderer):
-    tags = ["md"]
+    tags = ["p"]
     
     def __call__(self, block: Block, inner_content: List[str], depth: int) -> List[str]:
         return inner_content
