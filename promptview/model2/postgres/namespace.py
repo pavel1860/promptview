@@ -256,12 +256,21 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                     # can't enforce foreign key constraint on artifact_id because it's not a single record
                     continue
                 try:
+                    # SQLBuilder.create_foreign_key(
+                    #     table_name=self.table_name,
+                    #     column_name=relation_info.primary_key,
+                    #     column_type=self.get_field(relation_info.primary_key).sql_type,
+                    #     referenced_table=relation_info.foreign_table,
+                    #     referenced_column=relation_info.foreign_key,
+                    #     on_delete=relation_info.on_delete,
+                    #     on_update=relation_info.on_update,
+                    # )
                     SQLBuilder.create_foreign_key(
-                        table_name=self.table_name,
-                        column_name=relation_info.primary_key,
+                        table_name=relation_info.foreign_table,
+                        column_name=relation_info.foreign_key,
                         column_type=self.get_field(relation_info.primary_key).sql_type,
-                        referenced_table=relation_info.foreign_table,
-                        referenced_column=relation_info.foreign_key,
+                        referenced_table=self.table_name,
+                        referenced_column=relation_info.primary_key,
                         on_delete=relation_info.on_delete,
                         on_update=relation_info.on_update,
                     )

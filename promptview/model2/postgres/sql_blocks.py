@@ -19,4 +19,7 @@ def create_table_block(blk: Block, name: str, *fields: "PgFieldInfo"):
     with blk(f"CREATE TABLE IF NOT EXISTS {name}", style="func-col") as blk:
         for field in fields:
             blk /= field.name, field.sql_type
-            blk += "NULL" if field.is_optional and not field.is_foreign_key else "NOT NULL"            
+            if field.is_primary_key:
+                blk += "PRIMARY KEY"
+            else:
+                blk += "NULL" if field.is_optional and not field.is_foreign_key else "NOT NULL"            

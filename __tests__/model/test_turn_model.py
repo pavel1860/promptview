@@ -157,7 +157,7 @@ async def seeded_post_database(clean_database):
     
     
     
-        await NamespaceManager.create_all_namespaces()
+        NamespaceManager.create_all_namespaces()
 
         data = {}
         

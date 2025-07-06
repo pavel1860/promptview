@@ -124,7 +124,7 @@ async def seeded_database(clean_database):
     
     try:
     
-        await NamespaceManager.create_all_namespaces()
+        NamespaceManager.create_all_namespaces()
 
         data = {}
         
@@ -168,7 +168,7 @@ async def seeded_database(clean_database):
             "p2c2_like1": p2c2_like1,
         }
     finally:
-        await NamespaceManager.drop_all_namespaces()
+        NamespaceManager.drop_all_namespaces()
 
 
 
