@@ -3,6 +3,8 @@ import asyncio
 import asyncpg
 from typing import List, Optional, Any, AsyncContextManager, Callable, TypeVar, cast, AsyncGenerator, Union, Awaitable
 from contextlib import asynccontextmanager
+import psycopg2
+from psycopg2 import pool
 
 T = TypeVar('T')
 R = TypeVar('R')
@@ -24,14 +26,16 @@ class Transaction:
     and for committing or rolling back the transaction.
     """
     def __init__(self):
-        self.connection = None
-        self.transaction = None
+        self.connection: Optional[asyncpg.Connection] = None
+        self.transaction: Optional[Any] = None
     
     async def __aenter__(self):
         if PGConnectionManager._pool is None:
             await PGConnectionManager.initialize()
         assert PGConnectionManager._pool is not None, "Pool must be initialized"
         self.connection = await PGConnectionManager._pool.acquire()
+        if self.connection is None:
+            raise RuntimeError("Failed to acquire a database connection.")
         self.transaction = self.connection.transaction()
         await self.transaction.__aenter__()
         return self
@@ -42,15 +46,23 @@ class Transaction:
     
     async def execute(self, query: str, *args) -> str:
         """Execute a query within the transaction."""
+        if self.connection is None:
+            raise RuntimeError("Connection is not initialized.")
         return await self.connection.execute(query, *args)
     
-    async def fetch(self, query: str, *args) -> List[asyncpg.Record]:
-        """Fetch multiple rows from the database within the transaction."""
-        return await self.connection.fetch(query, *args)
+    async def fetch(self, query: str, *args) -> List[dict]:
+        """Fetch multiple rows from the database within the transaction as list of dicts."""
+        if self.connection is None:
+            raise RuntimeError("Connection is not initialized.")
+        rows = await self.connection.fetch(query, *args)
+        return [dict(row) for row in rows]
     
-    async def fetch_one(self, query: str, *args) -> Optional[asyncpg.Record]:
-        """Fetch a single row from the database within the transaction."""
-        return await self.connection.fetchrow(query, *args)
+    async def fetch_one(self, query: str, *args) -> Optional[dict]:
+        """Fetch a single row from the database within the transaction as dict."""
+        if self.connection is None:
+            raise RuntimeError("Connection is not initialized.")
+        row = await self.connection.fetchrow(query, *args)
+        return dict(row) if row else None
     
     async def commit(self) -> None:
         """Commit the transaction."""
@@ -129,27 +141,29 @@ class PGConnectionManager:
             raise e
 
     @classmethod
-    async def fetch(cls, query: str, *args) -> List[asyncpg.Record]:
-        """Fetch multiple rows from the database."""
+    async def fetch(cls, query: str, *args) -> List[dict]:
+        """Fetch multiple rows from the database as list of dicts."""
         try:
             if cls._pool is None:
                 await cls.initialize()
             assert cls._pool is not None, "Pool must be initialized"
             async with cls._pool.acquire() as conn:
-                return await conn.fetch(query, *args)
+                rows = await conn.fetch(query, *args)
+                return [dict(row) for row in rows]
         except Exception as e:
             print_error_sql(query, args, e)
             raise e
     
     @classmethod
-    async def fetch_one(cls, query: str, *args) -> Optional[asyncpg.Record]:
+    async def fetch_one(cls, query: str, *args) -> Optional[dict]:
         try:
-            """Fetch a single row from the database."""
+            """Fetch a single row from the database as dict."""
             if cls._pool is None:
                 await cls.initialize()
             assert cls._pool is not None, "Pool must be initialized"
             async with cls._pool.acquire() as conn:
-                return await conn.fetchrow(query, *args)
+                row = await conn.fetchrow(query, *args)
+                return dict(row) if row else None
         except Exception as e:
             print_error_sql(query, args, e)
             raise e
@@ -223,6 +237,94 @@ class PGConnectionManager:
         if cls._pool is not None:
             await cls._pool.close()
             cls._pool = None
+        
+
+class SyncPGConnectionManager:
+    _pool: Optional[pool.SimpleConnectionPool] = None
+
+    @classmethod
+    def initialize(cls, url: Optional[str] = None) -> None:
+        """Initialize the connection pool if not already initialized."""
+        if cls._pool is None:
+            url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/promptview_test")
+            cls._pool = psycopg2.pool.SimpleConnectionPool(
+                minconn=5,
+                maxconn=20,
+                dsn=url
+            )
+
+    @classmethod
+    def get_connection(cls):
+        """Get a connection from the pool."""
+        if cls._pool is None:
+            cls.initialize()
+        assert cls._pool is not None, "Pool must be initialized"
+        return cls._pool.getconn()
+
+    @classmethod
+    def put_connection(cls, conn) -> None:
+        """Return a connection to the pool."""
+        if cls._pool is not None:
+            cls._pool.putconn(conn)
+
+    @classmethod
+    def close_all(cls) -> None:
+        """Close all connections in the pool."""
+        if cls._pool is not None:
+            cls._pool.closeall()
+
+    @classmethod
+    def execute(cls, query: str, *args) -> None:
+        """Execute a query with proper connection management."""
+        conn = None
+        try:
+            conn = cls.get_connection()
+            with conn.cursor() as cur:
+                cur.execute(query, args)
+                conn.commit()
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            print_error_sql(query, args, e)
+            raise e
+        finally:
+            if conn:
+                cls.put_connection(conn)
+
+    @classmethod
+    def fetch(cls, query: str, *args) -> List[dict]:
+        """Fetch multiple rows from the database as list of dicts."""
+        conn = None
+        try:
+            conn = cls.get_connection()
+            import psycopg2.extras
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(query, args)
+                return [dict(row) for row in cur.fetchall()]
+        except Exception as e:
+            print_error_sql(query, args, e)
+            raise e
+        finally:
+            if conn:
+                cls.put_connection(conn)
+
+    @classmethod
+    def fetch_one(cls, query: str, *args) -> Optional[dict]:
+        """Fetch a single row from the database as dict."""
+        conn = None
+        try:
+            conn = cls.get_connection()
+            import psycopg2.extras
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(query, args)
+                row = cur.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            print_error_sql(query, args, e)
+            raise e
+        finally:
+            if conn:
+                cls.put_connection(conn)
         
         
         

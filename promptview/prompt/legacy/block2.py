@@ -199,7 +199,7 @@ class TitleBlock(StrBlock):
     
     def register_model(self, action_name: str, model_class: Type[BaseModel]):
         """Register a model class for a specific action name."""
-        from .block_parser import ActionContent
+        from ..block_parser import ActionContent
         ActionContent.register_model(action_name, model_class)
         return self
     
@@ -218,7 +218,7 @@ class TitleBlock(StrBlock):
         The text should be in XML format with Observation, Thought, and Actions sections.
         Actions can contain registered model types that will be automatically instantiated.
         """
-        from .block_parser2 import parse_blocks
+        from ..block_parser2 import parse_blocks
         return parse_blocks(text)
     
     

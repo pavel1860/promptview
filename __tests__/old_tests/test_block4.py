@@ -1,6 +1,6 @@
 import pytest
 from promptview.prompt import Block as blk
-from promptview.prompt.style import style_manager
+from promptview.block.style import style_manager
 
 
 @pytest.fixture

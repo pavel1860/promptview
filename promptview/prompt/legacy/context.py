@@ -6,11 +6,11 @@ from typing import Any, Callable, Generic, List, Protocol, Type, TypeVar, Union,
 from promptview.artifact_log.artifact_log3 import ArtifactLog
 from promptview.model.model import Model
 from collections import defaultdict
-from promptview.prompt.block6 import BlockRole, ToolCall, LlmUsage, Block
+from promptview.block.block import BlockRole, ToolCall, LlmUsage, Block
 import datetime as dt
 
 from typing import TypedDict, List
-from .local_state import TurnHooks
+from ..local_state import TurnHooks
 
 class MessageView(TypedDict):
     content: List[str]

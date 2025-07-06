@@ -99,13 +99,13 @@ class NamespaceManager:
         
         
     @classmethod
-    async def install_extensions(cls):
+    def install_extensions(cls):
         """
         Install the necessary PostgreSQL extensions.
         """ 
         for extension in cls.extensions["postgres"].values():
             if not extension.is_installed:
-                await SQLBuilder.create_extension(extension.name)
+                SQLBuilder.create_extension(extension.name)
                 extension.is_installed = True
        
         
@@ -202,64 +202,53 @@ class NamespaceManager:
         from .version_control_models import Branch
         if not cls._namespaces:
             raise ValueError("No namespaces registered")
-        await cls.install_extensions()
+        cls.install_extensions()
+        
+        cls.initialize_namespace_metadata()
+        
         for namespace in cls.iter_namespaces("postgres"):
-            await SQLBuilder.create_enum_types(namespace)
+            SQLBuilder.create_enum_types(namespace)
         # if versioning:
             # await ArtifactLog.initialize_versioning()            
+        
+        
             
         # for namespace in cls._namespaces.values():
         for namespace in cls.iter_namespaces("postgres"):
-            await namespace.create_namespace()
-            if namespace.is_versioned:
-                await SQLBuilder.create_foreign_key(
-                    table_name=namespace.table_name,
-                    column_name="turn_id",
-                    column_type="INTEGER",
-                    referenced_table="turns",
-                    referenced_column="id",
-                    on_delete="CASCADE",
-                    on_update="CASCADE",
-                )
-                await SQLBuilder.create_foreign_key(
-                    table_name=namespace.table_name,
-                    column_name="branch_id",
-                    column_type="INTEGER",
-                    referenced_table="branches",
-                    referenced_column="id",
-                    on_delete="CASCADE",
-                    on_update="CASCADE",
-                )
+            namespace.create_namespace()
+            
+        for namespace in cls.iter_namespaces("postgres"):
+            namespace.create_foreign_keys()
+            # if namespace.is_versioned:
+                # SQLBuilder.create_foreign_key(
+                #     table_name=namespace.table_name,
+                #     column_name="turn_id",
+                #     column_type="INTEGER",
+                #     referenced_table="turns",
+                #     referenced_column="id",
+                #     on_delete="CASCADE",
+                #     on_update="CASCADE",
+                # )
+                # SQLBuilder.create_foreign_key(
+                #     table_name=namespace.table_name,
+                #     column_name="branch_id",
+                #     column_type="INTEGER",
+                #     referenced_table="branches",
+                #     referenced_column="id",
+                #     on_delete="CASCADE",
+                #     on_update="CASCADE",
+                # )
             for field in namespace.iter_fields():
                 if field.index:
-                    await SQLBuilder.create_index_for_column(
+                    SQLBuilder.create_index(
                         namespace=namespace,
                         column_name=field.name,
                         index_name=f"{namespace.table_name}_{field.name}_idx",
                     )
                 
-        # cls.replace_forward_refs()
-                
-        # for namespace in cls.iter_namespaces("postgres"):            
-        #     for relation in namespace.iter_relations():
-        #         cls.add_reversed_relation(relation)
-        cls.initialize_namespace_metadata()
-                                
-        cls._main_branch = await cls.get_or_create_main_branch()
-        # turn_fields = ArtifactLog.get_extra_turn_fields()
-        # if turn_fields:
-        #     await SQLBuilder.update_table_fields("turns", turn_fields)
-            
-        # if versioning:
-            # await ArtifactLog.add_partition_id_to_turns(partition_table, key)
-            
+        # cls.initialize_namespace_metadata()
         
-        
-        # try:
-        #     main_branch = await ArtifactLog.get_branch(1)
-        # except ValueError as e:        
-        #     await ArtifactLog.create_branch(name="main")
-            
+        await cls.get_or_create_main_branch()
         cls._is_initialized = True
         
     @classmethod
@@ -412,15 +401,15 @@ class NamespaceManager:
     
     
     @classmethod
-    async def drop_all_namespaces(cls):
+    def drop_all_namespaces(cls):
         """
         Drop all namespaces.
         """
-        await SQLBuilder.drop_all_tables()
+        SQLBuilder.drop_all_tables()
         for namespace in cls.iter_namespaces("qdrant"):
-            await namespace.drop_namespace()
+            namespace.drop_namespace()
         for namespace in cls.iter_namespaces("neo4j"):
-            await namespace.drop_namespace()
+            namespace.drop_namespace()
     
     
     @classmethod
@@ -428,5 +417,5 @@ class NamespaceManager:
         """
         Recreate all namespaces.
         """
-        await cls.drop_all_namespaces()
+        cls.drop_all_namespaces()
         await cls.create_all_namespaces()

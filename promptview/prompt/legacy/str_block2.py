@@ -1,9 +1,9 @@
 import json
 import textwrap
 from typing import Literal, Type, Any, Optional
-from promptview.prompt.block4 import BaseBlock, Block
+from promptview.prompt.legacy.block4 import BaseBlock, Block
 from promptview.utils.string_utils import int_to_roman
-from promptview.prompt.style import InlineStyle
+from promptview.block.style import InlineStyle
 
         
         

@@ -346,7 +346,7 @@
         
         
 from typing import Callable, Type, List, Callable      
-from promptview.prompt.base_prompt import Prompt 
+from promptview.prompt.legacy.base_prompt import Prompt 
 from pydantic import Field, BaseModel    
         
 

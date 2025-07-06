@@ -5,7 +5,7 @@ from typing import Generator, List, Tuple, Type, Union
 from promptview.llms.messages import (AIMessage, ActionMessage, BaseMessage, HumanMessage,
                                       SystemMessage, TypedContentBlock)
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import (BulletType, StripType, ViewBlock, add_tabs,
+from promptview.prompt.legacy.mvc import (BulletType, StripType, ViewBlock, add_tabs,
                                    replace_placeholders)
 from promptview.templates.action_template import system_action_view
 from promptview.utils.function_utils import flatten_list

@@ -1,10 +1,10 @@
 
-from promptview.prompt.base_prompt3 import prompt
+from promptview.prompt.base_prompt import prompt
 from promptview.llms.openai_llm2 import OpenAiLLM
 from app.test_models import Message, Context
-from promptview.prompt.context import BlockStream
+from promptview.prompt.legacy.context import BlockStream
 from promptview.prompt.depends import Depends
-from promptview.prompt.block2 import block as b
+from promptview.prompt.legacy.block2 import block as b
 
 
 

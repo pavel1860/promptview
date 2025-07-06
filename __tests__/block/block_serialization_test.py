@@ -1,4 +1,4 @@
-from promptview.prompt import Block
+from promptview.block import Block
 
 
 def recursive_validate(blk1: Block, blk2: Block):

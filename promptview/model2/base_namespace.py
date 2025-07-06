@@ -82,11 +82,11 @@ class NSFieldInfo:
         namespace: "Namespace | None" = None,
         is_primary_key: bool = False,
     ):
-        self.is_optional = is_optional
         self.name = name        
         self.is_foreign_key = foreign_key
         self.field_type = field_type
-        self.origin_type, self.is_optional = NSFieldInfo.parse_optional(field_type)
+        self.origin_type, type_is_optional = NSFieldInfo.parse_optional(field_type)
+        self.is_optional = is_optional or type_is_optional
         self.list_origin_type, self.is_list = NSFieldInfo.parse_list(self.origin_type)
         if self.is_list and self.list_origin_type is not None:
             self.is_enum, self.enum_values, self.is_literal = NSFieldInfo.parse_enum(self.list_origin_type)
@@ -1021,6 +1021,8 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         branch = await Context.get_current_branch(branch)        
         return partition, branch
     
+
+    
     # async def save(self, data: Dict[str, Any], id: Any | None = None, artifact_id: uuid.UUID | None = None, version: int | None = None, turn: "int | Turn | None" = None, branch: "int | Branch | None" = None) -> Dict[str, Any]:
     #     """Save data to the namespace"""
     #     raise NotImplementedError("Not implemented")
@@ -1076,14 +1078,16 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
 
     
-    async def create_namespace(self):
+    async def recreate_namespace(self):
+        """Recreate the namespace in the database"""
+        raise NotImplementedError("Not implemented")
+    
+    
+    
+    def create_namespace(self):
         """Create the namespace in the database"""
         raise NotImplementedError("Not implemented")
     
-    async def drop_namespace(self):
+    def drop_namespace(self):
         """Drop the namespace from the database"""
-        raise NotImplementedError("Not implemented")
-    
-    async def recreate_namespace(self):
-        """Recreate the namespace in the database"""
         raise NotImplementedError("Not implemented")

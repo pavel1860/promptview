@@ -1,6 +1,6 @@
 import pytest
 
-from promptview.prompt.block6 import Block
+from promptview.block.block import Block
 
 
 
@@ -11,6 +11,52 @@ def assert_render(block, target):
 
 
 
+def test_col_row_render():
+    with Block("say") as blk:
+        blk /= "Hello"
+        blk /= "World"
+
+    assert_render(blk, (
+        "say\n"
+        "   Hello\n"
+        "   World"
+    ))
+    
+    with Block("say", style="md") as blk:
+        blk /= "Hello"
+        blk /= "World"
+        
+    assert_render(blk, (
+        "# say\n"
+        "Hello\n"
+        "World"
+    ))
+        
+    with Block("say", style="md") as blk:
+        blk += "Hello"
+        blk += "World"
+
+    assert_render(blk, (
+        "# say\n"
+        "Hello World"
+    ))
+    # row append should be in the same line
+    with Block("say", style="md") as blk:
+        blk += "Hello", "World"
+
+    assert_render(blk, (
+        "# say\n"
+        "Hello World"
+    ))
+    
+    with Block("say", style="md") as blk:
+        blk /= "Hello", "World"
+
+    assert_render(blk, (
+        "# say\n"
+        "Hello World"
+    ))
+
 
 def test_basic_render():
     
@@ -20,7 +66,7 @@ def test_basic_render():
     assert_render(r, "you should speak like a pirate")
     
     
-    with Block("Pirate") as r:
+    with Block("Pirate", style="md") as r:
         r += "you should speak like a pirate"
     
     assert_render(r, "# Pirate\nyou should speak like a pirate")
@@ -31,7 +77,7 @@ def test_basic_render():
     assert_render(r, "<Pirate>\n  you should speak like a pirate\n</Pirate>")
 
 def test_basic_topic():
-    with Block("Tasks") as blk:
+    with Block("Tasks", style="md") as blk:
         blk /= "go to the store"
         blk /= "buy the groceries"
         blk /= "call the bank"
@@ -45,7 +91,7 @@ call the lawyer""")
 
 
 def test_basic_list():
-    with Block("Tasks", style=["list"]) as blk:
+    with Block("Tasks", style="md list") as blk:
         blk /= "go to the store"
         blk /= "buy the groceries"
         blk /= "call the bank"
@@ -61,7 +107,7 @@ def test_basic_list():
 def test_wrapper_block():
     with Block(tags=["system"]) as b:
         b /= "you are a helpful assistant"
-        with b("Task", tags=["task"]):
+        with b("Task", style="md", tags=["task"]):
             b /= "this is task you need to complete"
 
     assert_render(b, "you are a helpful assistant\n# Task\nthis is task you need to complete")
@@ -157,6 +203,8 @@ def test_get_block():
     assert len(multi_rules) == 2
     assert multi_rules[0].content == "Task"
     assert multi_rules[1].content == "this is main rule 222"
+
+
 
 
 

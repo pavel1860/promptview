@@ -16,7 +16,7 @@ from ..tracer import Tracer
 if TYPE_CHECKING:
     from promptview.model2.model import Model, ContextModel
     from promptview.model2.versioning import Branch, Turn
-    from promptview.prompt.block6 import Block, BlockList, Blockable
+    from promptview.block.block import Block, BlockList, Blockable
     
 PARTITION_MODEL = TypeVar("PARTITION_MODEL", bound="Model")
 CONTEXT_MODEL = TypeVar("CONTEXT_MODEL", bound="ContextModel")
@@ -311,7 +311,7 @@ class Context(Generic[PARTITION_MODEL, CONTEXT_MODEL]):
             # raise ValueError("Cannot load last messages from context")
         if not self.is_initialized:
             await self._init()
-        from promptview.prompt.block6 import Block, BlockList
+        from promptview.block.block import Block, BlockList
         records = await self.context_model.query(
             self.partition_id, 
             self.branch

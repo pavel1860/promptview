@@ -9,7 +9,7 @@ from promptview.llms.messages import AIMessage, BaseMessage, HumanMessage
 from promptview.llms.openai_llm import OpenAiLLM
 from promptview.llms.tracer import Tracer
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import ViewBlock, create_view_block
+from promptview.prompt.legacy.mvc import ViewBlock, create_view_block
 from promptview.state.context import Context
 from promptview.utils.function_utils import call_function, filter_func_args
 from pydantic import BaseModel, Field

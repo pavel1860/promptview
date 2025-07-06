@@ -1,11 +1,11 @@
 
 
 import textwrap
-from promptview.prompt.style import BulletType, StyleManager
+from promptview.block.style import BulletType, StyleManager
 from typing import TYPE_CHECKING, Any, List, Literal, Protocol, Type, TypedDict, Union
 
 from promptview.utils.string_utils import int_to_roman
-from promptview.prompt.block6 import Block
+from promptview.block.block import Block
 
 
 
@@ -14,6 +14,8 @@ from promptview.prompt.block6 import Block
 class RendererMeta(type):
     
     _renderers: dict[str, Type["Renderer"]] = {}
+    _content_renderers: dict[str, Type["ContentRenderer"]] = {}
+    _item_renderers: dict[str, Type["ItemsRenderer"]] = {}
     
     def __new__(cls, name, bases, dct):        
         renderer = super().__new__(cls, name, bases, dct)
@@ -45,7 +47,7 @@ class ContentRenderer(Renderer):
     
     def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
         raise NotImplementedError("Subclass must implement this method")
-    
+ 
     
 class ItemsRenderer(Renderer):
     tags: list[str]
@@ -54,6 +56,59 @@ class ItemsRenderer(Renderer):
     def __call__(self, block: Block, inner_content: List[str], depth: int) -> List[str]:
         raise NotImplementedError("Subclass must implement this method")
     
+
+
+class IndentRenderer(ContentRenderer):
+    tags = ["block"]
+    target = "content"
+    
+    def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
+        if not block.content:
+            return "\n".join(inner_content)
+        content = block.content
+        if inner_content:
+            content += "\n" + textwrap.indent("\n".join(inner_content), "   ")
+        return content
+
+
+class TupleRenderer(ContentRenderer):
+    tags = ["tuple", "tuple-col"]
+    
+    def __call__(self, block: Block, inner_content: List[str], depth: int) -> List[str]:
+        # if block.inline_style.get("tuple-col"):
+        #     return "(" + ",\n".join(inner_content) + "\n)"
+        # else:
+        #     return "(" + ", ".join(inner_content) + ")"
+        if block.inline_style.get("tuple-col"):
+            return ["(" + ",\n".join(inner_content) + "\n)"]
+        else:
+            return ["(" + ", ".join(inner_content) + ")"]
+        
+        
+class FuncRenderer(ContentRenderer):
+    tags = ["func", "func-col"]
+    
+    def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
+        if block.inline_style.get("block_type") == "func-col":
+            return block.content + "(\n" + textwrap.indent(",\n".join(inner_content), "    ") + "\n)"
+        else:
+            return block.content + "(" + ", ".join(inner_content) + ")"
+
+
+
+# class RowRenderer(ContentRenderer):
+#     tags = ["row"]
+    
+#     def __call__(self, block: Block, inner_content: List[str], depth: int) -> str:
+#         return " ".join(inner_content)
+
+
+# class RowItemsRenderer(ItemsRenderer):
+#     tags = ["row"]
+    
+#     def __call__(self, block: Block, inner_content: List[str], depth: int) -> List[str]:
+#         return inner_content
+
 
 
 class MarkdownTitleRenderer(ContentRenderer):
@@ -76,7 +131,7 @@ class MarkdownTitleRenderer(ContentRenderer):
 
 
 class MarkdownParagraphRenderer(ItemsRenderer):
-    tags = ["md"]
+    tags = ["p"]
     
     def __call__(self, block: Block, inner_content: List[str], depth: int) -> List[str]:
         return inner_content

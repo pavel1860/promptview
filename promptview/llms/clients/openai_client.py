@@ -9,7 +9,7 @@ from promptview.llms.exceptions import LLMToolNotFound, BadClientLlmRequest
 from promptview.llms.messages import AIMessage, ActionCall, BaseMessage, LlmUsage, filter_action_calls, validate_msgs
 from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
-from promptview.prompt.mvc import find_action
+from promptview.prompt.legacy.mvc import find_action
 from promptview.utils.model_utils import schema_to_function
 from pydantic import BaseModel
 

@@ -6,7 +6,7 @@ import uuid
 
 
 
-BlockType = Literal["xml", "md", "li"]
+BlockType = Literal["xml", "md", "li", "func", "func-col"]
 BulletType = Literal["number", "alpha", "roman", "roman_upper", "*", "-"] 
 ListType = Literal["list", "list:number", "list:alpha", "list:roman", "list:roman_lower", "list:*", "list:-"]
 # BlockType = Literal["list", "code", "table", "text"]
@@ -16,7 +16,7 @@ ListType = Literal["list", "list:number", "list:alpha", "list:roman", "list:roma
 # Define types for style properties
 StyleValue = Union[str, int, bool, None]
 StyleDict = Dict[str, StyleValue]
-InlineStyle = List[ListType | BlockType]
+InlineStyle = List[ListType | BlockType] | str
 T = TypeVar('T')
 
 
@@ -32,6 +32,8 @@ class BlockStyle:
     style: InlineStyle
     
     def __init__(self, style: InlineStyle | None = None):
+        if isinstance(style, str):
+            style = style.split(" ")
         self.style = style or []
         self.block_type = "md"
         self.is_list = False
@@ -41,10 +43,9 @@ class BlockStyle:
                 self.is_list = True
                 tag_parts = tag.split(":")
                 self.bullet_type = tag_parts[1] if len(tag_parts) > 1 else "number" # type: ignore
-            elif tag == "md":
-                self.block_type = "md"
-            elif tag == "xml":
-                self.block_type = "xml"
+            elif tag in {"md", "xml", "func", "func-col"}:
+                self.block_type = tag
+            
                 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default) or default
@@ -56,10 +57,14 @@ class BlockStyle:
                 self.is_list = True
                 tag_parts = tag.split(":")
                 self.bullet_type = tag_parts[1] if len(tag_parts) > 1 else "number" # type: ignore
-            elif tag == "md":
-                self.block_type = "md"
-            elif tag == "xml":
-                self.block_type = "xml"
+            elif tag in {"md", "xml", "func", "func-col"}:
+                self.block_type = tag
+            # elif tag == "md":
+            #     self.block_type = "md"
+            # elif tag == "xml":
+            #     self.block_type = "xml"
+            # elif tag == "func" or tag == "func-col":
+            #     self.block_type = "func"
                 
     def __or__(self, other: InlineStyle) -> "BlockStyle":
         self.update(other)

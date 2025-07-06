@@ -2,7 +2,7 @@ from abc import abstractmethod
 import json
 from typing import Any, List, Type
 
-from promptview.prompt.block6 import BlockList
+from promptview.block.block import BlockList
 from promptview.tracer.langsmith_tracer import Tracer
 from promptview.utils.model_utils import schema_to_function
 from .llm3 import LLM, LLMToolNotFound, LlmConfig, LlmContext
