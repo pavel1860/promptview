@@ -15,7 +15,7 @@ from promptview.model2 import Model, ArtifactModel, ModelField, RelationField, A
 import datetime as dt
 from promptview.model2.fields import KeyField, RelationField, ModelField
 from promptview.model2.namespace_manager import NamespaceManager
-from promptview.prompt import Block, ToolCall
+from promptview.block import Block, ToolCall
 
 from __tests__.utils import clean_database, test_db_pool
     

@@ -15,7 +15,7 @@ def create_table_block_from_namespace(blk: Block, namespace: "PostgresNamespace"
 
 
 @block()
-def create_table_block(blk: Block, name: str, *fields: PgFieldInfo):
+def create_table_block(blk: Block, name: str, *fields: "PgFieldInfo"):
     with blk(f"CREATE TABLE IF NOT EXISTS {name}", style="func-col") as blk:
         for field in fields:
             blk /= field.name, field.sql_type

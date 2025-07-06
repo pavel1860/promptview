@@ -203,33 +203,41 @@ class NamespaceManager:
         if not cls._namespaces:
             raise ValueError("No namespaces registered")
         cls.install_extensions()
+        
+        cls.initialize_namespace_metadata()
+        
         for namespace in cls.iter_namespaces("postgres"):
             SQLBuilder.create_enum_types(namespace)
         # if versioning:
             # await ArtifactLog.initialize_versioning()            
+        
+        
             
         # for namespace in cls._namespaces.values():
         for namespace in cls.iter_namespaces("postgres"):
             namespace.create_namespace()
-            if namespace.is_versioned:
-                SQLBuilder.create_foreign_key(
-                    table_name=namespace.table_name,
-                    column_name="turn_id",
-                    column_type="INTEGER",
-                    referenced_table="turns",
-                    referenced_column="id",
-                    on_delete="CASCADE",
-                    on_update="CASCADE",
-                )
-                SQLBuilder.create_foreign_key(
-                    table_name=namespace.table_name,
-                    column_name="branch_id",
-                    column_type="INTEGER",
-                    referenced_table="branches",
-                    referenced_column="id",
-                    on_delete="CASCADE",
-                    on_update="CASCADE",
-                )
+            
+        for namespace in cls.iter_namespaces("postgres"):
+            namespace.create_foreign_keys()
+            # if namespace.is_versioned:
+                # SQLBuilder.create_foreign_key(
+                #     table_name=namespace.table_name,
+                #     column_name="turn_id",
+                #     column_type="INTEGER",
+                #     referenced_table="turns",
+                #     referenced_column="id",
+                #     on_delete="CASCADE",
+                #     on_update="CASCADE",
+                # )
+                # SQLBuilder.create_foreign_key(
+                #     table_name=namespace.table_name,
+                #     column_name="branch_id",
+                #     column_type="INTEGER",
+                #     referenced_table="branches",
+                #     referenced_column="id",
+                #     on_delete="CASCADE",
+                #     on_update="CASCADE",
+                # )
             for field in namespace.iter_fields():
                 if field.index:
                     SQLBuilder.create_index(
@@ -238,7 +246,7 @@ class NamespaceManager:
                         index_name=f"{namespace.table_name}_{field.name}_idx",
                     )
                 
-        cls.initialize_namespace_metadata()
+        # cls.initialize_namespace_metadata()
         
             
         cls._is_initialized = True

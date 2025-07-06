@@ -56,7 +56,7 @@ class SQLBuilder:
         """Create a table for a namespace"""
         from promptview.model2.postgres.sql_blocks import create_table_block
         sql = str(create_table_block(name, *fields))
-        cls.execute(sql)        
+        res = cls.execute(sql)        
         return sql
 
 

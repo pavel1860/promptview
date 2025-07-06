@@ -243,25 +243,31 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
             The result of the create operation
         """
         # Create the table
-        res = SQLBuilder.create_table(self)
+        res = SQLBuilder.create_table(self.table_name, *self.iter_fields())
         
-        # Create foreign key constraints for relations
+        # Create foreign key constraints for relations        
+        
+        return res
+    
+    def create_foreign_keys(self):
         if self._relations:
             for relation_name, relation_info in self._relations.items():
                 if relation_info.primary_key == "artifact_id":
                     # can't enforce foreign key constraint on artifact_id because it's not a single record
                     continue
-                SQLBuilder.create_foreign_key(
-                    table_name=self.table_name,
-                    column_name=relation_info.primary_key,
-                    column_type=self.get_field(relation_info.primary_key).sql_type,
-                    referenced_table=relation_info.primary_table,
-                    referenced_column=relation_info.primary_key,
-                    on_delete=relation_info.on_delete,
-                    on_update=relation_info.on_update,
-                )
-        
-        return res
+                try:
+                    SQLBuilder.create_foreign_key(
+                        table_name=self.table_name,
+                        column_name=relation_info.primary_key,
+                        column_type=self.get_field(relation_info.primary_key).sql_type,
+                        referenced_table=relation_info.foreign_table,
+                        referenced_column=relation_info.foreign_key,
+                        on_delete=relation_info.on_delete,
+                        on_update=relation_info.on_update,
+                    )
+                except Exception as e:
+                    print(f"Error creating foreign key for {relation_info.primary_key} in {self.table_name}: {e}")
+                    raise e
     
     
     def pack_record(self, record: Dict[str, Any]) -> MODEL:
