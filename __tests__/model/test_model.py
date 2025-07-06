@@ -124,7 +124,7 @@ async def seeded_database(clean_database):
     
     try:
     
-        NamespaceManager.create_all_namespaces()
+        await NamespaceManager.create_all_namespaces()
 
         data = {}
         

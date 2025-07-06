@@ -193,7 +193,7 @@ class NamespaceManager:
                 cls.add_reversed_relation(relation)
     
     @classmethod
-    def create_all_namespaces(cls):
+    async def create_all_namespaces(cls):
         """
         Create all registered namespaces in the database.
         
@@ -248,7 +248,7 @@ class NamespaceManager:
                 
         # cls.initialize_namespace_metadata()
         
-            
+        await cls.get_or_create_main_branch()
         cls._is_initialized = True
         
     @classmethod
@@ -418,4 +418,4 @@ class NamespaceManager:
         Recreate all namespaces.
         """
         cls.drop_all_namespaces()
-        cls.create_all_namespaces()
+        await cls.create_all_namespaces()
