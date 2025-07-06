@@ -1,17 +1,12 @@
-import datetime as dt
-from enum import Enum
-import inspect
-from typing import TYPE_CHECKING, Any, List, Type
-import typing
-import typing_extensions
-import annotated_types
-
-from pydantic import BaseModel, Field, JsonValue
-from pydantic_core import PydanticUndefined
-from pydantic import types
+import uuid
+from pydantic._internal._model_construction import ModelMetaclass
+from pydantic import PrivateAttr, create_model, ConfigDict, BaseModel, Field
 from pydantic.fields import _Unset, AliasPath, AliasChoices, FieldInfo, JsonDict, Unpack, _EmptyKwargs, Deprecated # type: ignore
+from typing import TYPE_CHECKING, Any, Callable, Dict, ForwardRef, Generic, List, Literal, Optional, Protocol, Self, Type, TypeVar, get_args, get_origin
+from pydantic_core import PydanticUndefined
 
-from typing_extensions import Literal, TypeAlias, Unpack, deprecated
+from promptview.algebra.vectors.base_vectorizer import BaseVectorizer
+from promptview.algebra.vectors.empty_vectorizer import EmptyVectorizer
 
 if TYPE_CHECKING:
     from promptview.model.model import Model
@@ -21,225 +16,163 @@ if TYPE_CHECKING:
 
 
 
-class IndexType(Enum):
-    Keyword = "keyword"
-    Integer = "integer"
-    Float = "float"
-    Bool = "bool"
-    Geo = "geo"
-    Datetime = "datetime"
-    Text = "text"
-    Uuid = "uuid"
-
-
-
-class VectorSpaceMetrics(str, Enum):
-    """Supported metrics for vector similarity"""
-    COSINE = "cosine"
-    EUCLIDEAN = "euclidean"
-    MANHATTAN = "manhattan"
-
-
-
-
-
-
-
 
 def ModelField(
     default: Any = PydanticUndefined,
-    *,    
-    partition: dict[str, str] | None = None,
-    index: IndexType | None = None,
-    is_tenent: bool = False,
-    auto_now_add: bool = False,
-    auto_now: bool = False,
-    is_foreign_key: bool = False,
+    *,
+    foreign_key: bool = False,
+    index: Optional[str] = None,
+    default_factory: Callable[[], Any] | None = _Unset,
+    is_default_temporal: bool = False,
     db_type: str | None = None,
-    default_factory: typing.Callable[[], Any] | None = _Unset,
-    vec: str | list[str] | None = None,
-    alias: str | None = _Unset,
-    alias_priority: int | None = _Unset,
-    validation_alias: str | AliasPath | AliasChoices | None = _Unset,
-    serialization_alias: str | None = _Unset,
-    title: str | None = _Unset,
-    field_title_generator: typing_extensions.Callable[[str, FieldInfo], str] | None = _Unset,
     description: str | None = _Unset,
-    examples: list[Any] | None = _Unset,
-    exclude: bool | None = _Unset,
-    discriminator: str | types.Discriminator | None = _Unset,
-    deprecated: Deprecated | str | bool | None = _Unset,
-    json_schema_extra: JsonDict | typing.Callable[[JsonDict], None] | None = _Unset,
-    frozen: bool | None = _Unset,
-    validate_default: bool | None = _Unset,
-    repr: bool = _Unset,
-    init: bool | None = _Unset,
-    init_var: bool | None = _Unset,
-    kw_only: bool | None = _Unset,
-    pattern: str | typing.Pattern[str] | None = _Unset,
-    strict: bool | None = _Unset,
-    coerce_numbers_to_str: bool | None = _Unset,
-    gt: annotated_types.SupportsGt | None = _Unset,
-    ge: annotated_types.SupportsGe | None = _Unset,
-    lt: annotated_types.SupportsLt | None = _Unset,
-    le: annotated_types.SupportsLe | None = _Unset,
-    multiple_of: float | None = _Unset,
-    allow_inf_nan: bool | None = _Unset,
-    max_digits: int | None = _Unset,
-    decimal_places: int | None = _Unset,
-    min_length: int | None = _Unset,
-    max_length: int | None = _Unset,
-    union_mode: Literal['smart', 'left_to_right'] = _Unset,
-    fail_fast: bool | None = _Unset,
-    **extra: Unpack[_EmptyKwargs],
-):
-    """
-    par
-    """
-    if auto_now_add and auto_now:
-        raise ValueError("auto_now_add and auto_now cannot be True at the same time")
-    if auto_now_add:
-        if default_factory != _Unset:
-            raise ValueError("default_factory cannot be set when auto_now_add is True")
-        default_factory = dt.datetime.now
-        if index is None:
-            index = IndexType.Datetime
-        elif index != IndexType.Datetime:
-            raise ValueError("auto_now_add must have index type of Datetime")
-    
-    if auto_now:
-        if default_factory != _Unset:
-            raise ValueError("default_factory cannot be set when auto_now is True")
-        default_factory = dt.datetime.now
-        if index is None:
-            index = IndexType.Datetime
-        elif index != IndexType.Datetime:
-            raise ValueError("auto_now_add must have index type of Datetime")
-    #  vec if vec is None or type(vec) == list else [vec]
-    vec_list: list[JsonValue] | None = None
-    if type(vec) == str:
-        vec_list = [vec]
-    elif type(vec) == list:
-        vec_list = vec# type: ignore
-    elif vec is not None:
-        raise ValueError(f"vec must be a string or list of strings, {vec}")    
-    
-    if is_foreign_key:
-        if default == PydanticUndefined:
-            default = None
-            
-    json_schema_extra={
-            # "partition": partition,
-            "type": "field",
-            "is_relation": True if partition else False,
-            "index": index.value if index else None,
-            "is_tenent": is_tenent,
-            "auto_now_add": auto_now_add,
-            "auto_now": auto_now,
-            "vec": vec_list,
-            "db_type": db_type,
-            "is_foreign_key": is_foreign_key,
-        }
-    
+) -> Any:
+    """Define a model field with ORM-specific metadata"""
+    # Create extra metadata for the field
+    extra = {}
+    extra["is_model_field"] = True
+    extra["is_default_temporal"] = is_default_temporal
+    extra["index"] = index    
+    if db_type:
+        extra["db_type"] = db_type
+    if foreign_key:
+        extra["foreign_key"] = True
+        default = None
+    # Create the field with the extra metadata
     return Field(
         default,
         default_factory=default_factory,
-        alias=alias,
-        alias_priority=alias_priority,
-        validation_alias=validation_alias,
-        serialization_alias=serialization_alias,
-        title=title,
-        field_title_generator=field_title_generator,
+        json_schema_extra=extra,
         description=description,
-        examples=examples,
-        exclude=exclude,
-        discriminator=discriminator,
-        deprecated=deprecated,
-        json_schema_extra=json_schema_extra,
-        frozen=frozen,
-        validate_default=validate_default,
-        repr=repr,
-        init=init,
-        init_var=init_var,
-        kw_only=kw_only,
-        pattern=pattern,
-        strict=strict,
-        coerce_numbers_to_str=coerce_numbers_to_str,
-        gt=gt,
-        ge=ge,
-        lt=lt,
-        le=le,
-        multiple_of=multiple_of,
-        allow_inf_nan=allow_inf_nan,
-        max_digits=max_digits,
-        decimal_places=decimal_places,
-        min_length=min_length,
-        max_length=max_length,
-        union_mode=union_mode,
-        fail_fast=fail_fast,
-        **extra        
     )
 
 
+def KeyField(
+    default: Any = None,
+    # *,
+    primary_key: bool = False,
+    type: Literal["int", "uuid"] = "int",
+    description: str | None = _Unset,
+    # **kwargs
+) -> Any:
+    """Define a key field with ORM-specific metadata"""
+    # Create extra metadata for the field
+    extra = {}
+    extra["is_model_field"] = True
+    extra["primary_key"] = primary_key
+    extra["type"] = type
+    extra["is_key"] = True
+    # if type == "uuid" and not primary_key:
+        # return Field(default_factory=lambda: uuid.uuid4(), json_schema_extra=extra, description=description)
+    # Create the field with the extra metadata
+    return Field(default, json_schema_extra=extra, description=description)
 
 
-
-
-
-def get_field_extra(info):
-    if hasattr(info, 'json_schema_extra'):
-        return info.json_schema_extra
-    elif hasattr(info, 'field_info'): # check if pydantic v1
-        return info.field_info.extra
-    return {}
-
-
-
-def interate_fields(obj):
-    if hasattr(obj, "__fields__"):
-        for field, info in obj.__fields__.items():
-            if isinstance(info, FieldInfo):
-                yield field, info
-    else:
-        for field, info in obj.items():
-            if isinstance(info, FieldInfo):
-                yield field, info
-
-def get_model_indices(cls_, prefix=""):
-    indexs_to_create = []
-    for field, info in interate_fields(cls_):
-        if inspect.isclass(info.annotation) and issubclass(info.annotation, BaseModel):
-            indexs_to_create += get_model_indices(info.annotation, prefix=prefix+field+".")
-        extra = get_field_extra(info)        
-        if extra:
-            if extra.get("index", None):
-                indexs_to_create.append({
-                    "field": prefix+field,
-                    "schema": extra.get("index")
-                })
-    return indexs_to_create
-
-
-
-
-
-
+def RefField(
+    default: Any = None,
+    *,
+    key: str = "id",
+    description: str | None = _Unset,
+    # **kwargs
+) -> Any:
+    """Define a reference field with ORM-specific metadata"""
+    # Create extra metadata for the field
+    extra = {}
+    extra["is_model_field"] = True
+    extra["key"] = key
+    
+    return Field(default, json_schema_extra=extra, description=description)
 
 def RelationField(
-    # model: "Type[Model]",
-    key: str,
+    default: Any = None,
+    *,
+    primary_key: str | None = None,
+    foreign_key: str | None = None,
+    junction_keys: list[str] | None = None,
+    junction_model: "Type[Model] | None" = None,
     on_delete: str = "CASCADE",
     on_update: str = "CASCADE",
-):
-    json_schema_extra={
-        "type": "relation",
-        "is_relation": True,
-        "key": key,
-        "on_delete": on_delete,
-        "on_update": on_update,
-        # "model": model,
-    }
+    description: str | None = _Unset,
+    name: str | None = None,
+    # **kwargs
+) -> Any:
+    """
+    Define a relation field with ORM-specific metadata.
+    
+    Args:
+        primary_key: The name of the primary key in the related model
+        foreign_key: The name of the foreign key in the related model
+        junction_keys: The names of the junction keys in the related model
+        on_delete: The action to take when the referenced row is deleted
+        on_update: The action to take when the referenced row is updated
+    """
+    # Create extra metadata for the field
+    from promptview.model.relation import Relation
+    # if not primary_key and not foreign_key and not junction_keys:
+        # raise ValueError("primary_key or foreign_key or junction_keys must be provided")
+    if not default:
+        # default = []
+        default = Relation()
+        # default = EmptyRelation()
+    
+    extra = {}
+    extra["is_model_field"] = True
+    extra["is_relation"] = True
+    extra["primary_key"] = primary_key
+    extra["foreign_key"] = foreign_key
+    extra["junction_keys"] = junction_keys
+    extra["on_delete"] = on_delete
+    extra["on_update"] = on_update
+    extra["junction_model"] = junction_model
+    extra["name"] = name
+    
+    if junction_keys:
+        if not primary_key or not foreign_key:
+            raise ValueError("primary_key and foreign_key must be provided if junction_keys are provided")
+        if not junction_model:
+            raise ValueError("junction_model must be provided if junction_keys are provided")
+        # extra["type"] = "many_to_many"
+    # elif foreign_key:
+    #     extra["type"] = "many_to_one"
+    
+    # Create the field with the extra metadata and make it optional
     return Field(
-        # model,
-        json_schema_extra=json_schema_extra,
+        default, 
+        json_schema_extra=extra, 
+        description=description, 
+        # exclude=True,
+        # exclude_none=True
     )
+    # return Field(json_schema_extra=extra, **kwargs)
+    # return Field(json_schema_extra=extra, default_factory=lambda: None, **kwargs)
+
+
+
+
+
+def VectorField(
+    default: Any = None,
+    *,
+    dimension: int | None = None,
+    vectorizer: Type[BaseVectorizer] | None = None,
+    distance: Literal["cosine", "euclid"] = "cosine",
+    description: str | None = _Unset,
+) -> Any:
+    extra = {}
+    
+    # if vectorizer is None:
+    #     vectorizer = EmptyVectorizer
+    #     dimension = 300
+    # else:
+    #     if not dimension:
+    #         dimension = vectorizer.dimension
+    extra["is_model_field"] = True
+    extra["dimension"] = dimension
+    extra["is_vector"] = True    
+    extra["vectorizer"] = vectorizer
+    extra["distance"] = distance 
+    return Field(default, json_schema_extra=extra, description=description)
+
+
+
+

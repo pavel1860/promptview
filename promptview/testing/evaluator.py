@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Any, List, Literal
 from pydantic import BaseModel, Field
 from promptview.llms.llm3 import OutputModel
-from promptview.model2.fields import KeyField
+from promptview.model.fields import KeyField
 from promptview.prompt import prompt, Block, Depends
 from promptview.llms import LLM
 from promptview.testing.test_models import Evaluation, EvaluatorConfig    

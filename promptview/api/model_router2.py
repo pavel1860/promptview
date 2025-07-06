@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 # from app.util.dependencies import get_partitions
 from promptview.auth.dependencies import get_user_token
-from promptview.model2 import Model
+from promptview.model import Model
 # from app.util.auth import varify_token
 # from app.util.dependencies import unpack_request_token
 
@@ -14,7 +14,7 @@ from fastapi import Query
 from pydantic import BaseModel
 import json
 
-from promptview.model2.query_filters import QueryListType, QueryFilter, parse_query_params
+from promptview.model.query_filters import QueryListType, QueryFilter, parse_query_params
 MODEL = TypeVar("MODEL", bound=Model)
 
 

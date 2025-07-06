@@ -8,7 +8,7 @@ from promptview.auth.dependencies import get_auth_admin_user, get_auth_user, get
 from promptview.auth.user_manager2 import AuthManager, AuthModel, UserNotFound
 import os
 
-from promptview.model2.model import Model
+from promptview.model.model import Model
 
 
 

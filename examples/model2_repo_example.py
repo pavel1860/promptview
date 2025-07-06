@@ -8,9 +8,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import asyncio
 from typing import Optional
-from promptview.model2.model import Model, ArtifactModel, RepoModel, Relation
-from promptview.model2.fields import ModelField, KeyField, RelationField
-from promptview.model2.namespace_manager import NamespaceManager
+from promptview.model.model import Model, ArtifactModel, RepoModel, Relation
+from promptview.model.fields import ModelField, KeyField, RelationField
+from promptview.model.namespace_manager import NamespaceManager
 
 
 class Post(ArtifactModel):

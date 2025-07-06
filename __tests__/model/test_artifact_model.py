@@ -12,11 +12,11 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 
-from promptview.model2 import Model, ModelField, KeyField, RelationField, Relation
-from promptview.model2 import NamespaceManager
-from promptview.model2 import Turn as BaseTurn
-from promptview.model2 import ArtifactModel
-from promptview.model2.version_control_models import Branch
+from promptview.model import Model, ModelField, KeyField, RelationField, Relation
+from promptview.model import NamespaceManager
+from promptview.model import Turn as BaseTurn
+from promptview.model import ArtifactModel
+from promptview.model.version_control_models import Branch
 from __tests__.utils import clean_database, test_db_pool
 
 class Like(ArtifactModel):

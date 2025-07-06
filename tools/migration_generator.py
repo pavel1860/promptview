@@ -1,5 +1,5 @@
 import argparse
-from promptview.model2.migration_generator import discover_and_summarize_models, generate_migration_code
+from promptview.model.migration_generator import discover_and_summarize_models, generate_migration_code
 
 
 def main():
@@ -17,7 +17,7 @@ def main():
     if args.module:
         import importlib
         importlib.import_module(args.module)
-    from promptview.model2.namespace_manager import NamespaceManager
+    from promptview.model.namespace_manager import NamespaceManager
     namespaces = NamespaceManager.get_all_namespaces()
     discover_and_summarize_models(args.module)
 

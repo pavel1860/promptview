@@ -1,16 +1,16 @@
 from typing import List, Literal
 from pydantic import BaseModel
-from promptview.model2 import NamespaceManager
-from promptview.model2.relation import Relation
+from promptview.model import NamespaceManager
+from promptview.model.relation import Relation
 # from promptview.testing import TestCase, TestRun, TestTurn, TestInputs
-from promptview.model2 import Branch, Turn as TurnBase
+from promptview.model import Branch, Turn as TurnBase
 
 from datetime import datetime
-from promptview.model2.fields import KeyField, ModelField, RelationField
-from promptview.model2.version_control_models import TurnModel
+from promptview.model.fields import KeyField, ModelField, RelationField
+from promptview.model.version_control_models import TurnModel
 
 
-from promptview.model2 import Model, ModelField
+from promptview.model import Model, ModelField
 
 
 

@@ -3,9 +3,9 @@ import uuid
 import numpy as np
 from qdrant_client.http.models import VectorParams, Distance
 
-from promptview.model2.qdrant.namespace import QdrantNamespace
-from promptview.model2.qdrant.connection import QdrantConnectionManager
-from promptview.model2.base_namespace import NSFieldInfo
+from promptview.model.qdrant.namespace import QdrantNamespace
+from promptview.model.qdrant.connection import QdrantConnectionManager
+from promptview.model.base_namespace import NSFieldInfo
 
 
 class FakeModel:

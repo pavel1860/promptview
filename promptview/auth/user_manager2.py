@@ -6,15 +6,15 @@ from typing_extensions import TypeVar
 
 
 from pydantic import BaseModel
-from promptview.model2 import Model, ModelField
-from promptview.model2.fields import KeyField
+from promptview.model import Model, ModelField
+from promptview.model.fields import KeyField
 from promptview.utils.db_connections import PGConnectionManager
 
 
 
 
 from uuid import UUID
-from promptview.model2.model import Model
+from promptview.model.model import Model
 
 
 class AuthModel(Model):

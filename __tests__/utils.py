@@ -1,6 +1,6 @@
 import pytest
 import pytest_asyncio
-from promptview.model2 import NamespaceManager
+from promptview.model import NamespaceManager
 from promptview.utils.db_connections import PGConnectionManager
 
 @pytest_asyncio.fixture(scope="function")

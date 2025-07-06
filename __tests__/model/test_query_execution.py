@@ -9,9 +9,9 @@ import pytest_asyncio
 
 import datetime as dt
 from typing import List
-from promptview.model2 import Model, ModelField, KeyField, RelationField, Relation
-from promptview.model2.postgres.query_set3 import SelectQuerySet
-from promptview.model2 import NamespaceManager
+from promptview.model import Model, ModelField, KeyField, RelationField, Relation
+from promptview.model.postgres.query_set3 import SelectQuerySet
+from promptview.model import NamespaceManager
 from promptview.utils.db_connections import PGConnectionManager
 from __tests__.utils import clean_database, test_db_pool
 

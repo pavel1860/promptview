@@ -6,8 +6,8 @@ from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
 from pydantic import BaseModel
 # from promptview.model2.versioning import ArtifactLog, Branch, Partition, Turn, TurnStatus
-from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.version_control_models import Turn, Branch
+from promptview.model.namespace_manager import NamespaceManager
+from promptview.model.version_control_models import Turn, Branch
 
 
 

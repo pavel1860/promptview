@@ -4,7 +4,7 @@ import uuid
 import pytest_asyncio
 from qdrant_client.http.models import VectorParams, Distance
 from qdrant_client import models
-from promptview.model2.qdrant.connection import QdrantConnectionManager
+from promptview.model.qdrant.connection import QdrantConnectionManager
 
 COLLECTION_NAME = "test_collection"
 
