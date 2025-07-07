@@ -297,8 +297,8 @@ class Block:
         if dedent and content:
             if isinstance(content, str):
                 content = textwrap.dedent(content).strip()
-            elif isinstance(content, tuple):
-                content = tuple(textwrap.dedent(item).strip() if isinstance(item, str) and item[0] == "\n" else item for item in content)
+            elif isinstance(content, tuple):                
+                content = tuple(textwrap.dedent(item).strip() if isinstance(item, str) and item.startswith("\n") else item for item in content)
         self._content: tuple[str, ...] = content if isinstance(content, tuple) else (content,)
         self.tags = tags or []
         self.items = items or []
@@ -364,7 +364,8 @@ class Block:
             raise ValueError(f"Invalid _type: {data['_type']}")
         _type = data.pop("_type")
         items = data.pop("items")
-        return cls(**data, items=[cls.model_validate(item) for item in items])
+        content = data.pop("content")
+        return cls(*content,**data, items=[cls.model_validate(item) for item in items])
     
     @property
     def ctx_items(self) -> list["Block"]:
@@ -497,7 +498,7 @@ class Block:
         if isinstance(content, Block):
             inst = content
         else:
-            self._validate_content(content)
+            # self._validate_content(content)
             inst = Block(
                     *content, 
                     tags=tags, 

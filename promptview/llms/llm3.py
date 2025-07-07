@@ -237,7 +237,7 @@ class OutputModel(BaseModel):
     
     @classmethod
     def parse_tool_calls(cls, item: ET.Element, tools: List[Type[BaseModel]]) -> List[ToolCall]:
-        from promptview.prompt import ToolCall
+        from promptview.block import ToolCall
         from uuid import uuid4
         tool_calls = []
         tool_lookup = {tool.__name__: tool for tool in tools}        

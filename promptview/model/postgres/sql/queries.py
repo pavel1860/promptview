@@ -193,7 +193,9 @@ class SelectQuery:
                     c.alias = None
             obj = json_build_object(**columns)
             obj.order_by = self.order_by
-            subq = self.copy_query(exclude={"group_by", "order_by"})
+            obj.limit = self.limit
+            obj.offset = self.offset
+            subq = self.copy_query(exclude={"group_by", "order_by", "limit", "offset"})
             subq.columns = [Function(
                     "json_agg", 
                     obj, 

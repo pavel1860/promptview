@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
-from promptview.model.query import parse_query_params
+from promptview.model.postgres.query_url_params import parse_query_params
 from promptview.model import ArtifactModel
 from promptview.context.model_context import ModelCtx
 from promptview.model.query_filters import QueryFilter, QueryListType

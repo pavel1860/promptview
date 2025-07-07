@@ -101,7 +101,7 @@ async def get_branch_turns(branch_id: int, partition_id: int):
             turn_ns.query()
             .where(partition_id=partition_id)
             .include(branch_ns.model_class)
-            .head(20)
+            .tail(20)
         )
         .last()
     )

@@ -38,7 +38,7 @@ async def get_user_token(request: Request):
     
     
 def get_user_manager():
-    from promptview.app import Chatboard
+    from promptview.legacy.app import Chatboard
     return Chatboard.get_app_ctx()._auth_manager()
 
 
