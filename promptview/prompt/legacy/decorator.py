@@ -3,7 +3,7 @@ from typing import (Any, Awaitable, Callable, List, Literal, Optional, Tuple,
                     Type, TypeVar)
 
 from promptview.llms import OpenAiLLM
-from promptview.llms.llm import LLM
+from promptview.llms.legacy.llm import LLM
 from promptview.llms.messages import AIMessage
 from promptview.prompt.legacy.chat_prompt import ChatPrompt
 from pydantic import BaseModel, Field

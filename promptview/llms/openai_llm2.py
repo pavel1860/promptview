@@ -5,7 +5,7 @@ from typing import Any, List, Type
 from promptview.block.block import BlockList
 from promptview.tracer.langsmith_tracer import Tracer
 from promptview.utils.model_utils import schema_to_function
-from .llm3 import LLM, LLMToolNotFound, LlmConfig, LlmContext
+from .llm import LLM, LLMToolNotFound, LlmConfig, LlmContext
 from pydantic import Field, BaseModel
 from .utils.action_manager import Actions
 # from ..prompt.block import BaseBlock, ResponseBlock

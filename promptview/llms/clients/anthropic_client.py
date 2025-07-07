@@ -11,7 +11,7 @@ from promptview.llms.types import ToolChoice
 from promptview.llms.utils.action_manager import Actions
 from promptview.prompt.legacy.mvc import find_action, get_action_name
 from promptview.utils.model_utils import schema_to_function
-from promptview.llms.interpreter import LlmInterpreter
+from promptview.llms.legacy.interpreter import LlmInterpreter
 from typing import List, get_args
 import random
 

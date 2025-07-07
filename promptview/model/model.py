@@ -28,7 +28,7 @@ from promptview.utils.string_utils import camel_to_snake
 if TYPE_CHECKING:
     from promptview.model.version_control_models import Branch, Turn
     from promptview.block.block import Block
-    from promptview.llms.llm3 import OutputModel
+    from promptview.llms.llm import OutputModel
     from promptview.algebra.vectors.base_vectorizer import BaseVectorizer
 
 T = TypeVar('T', bound=BaseModel)

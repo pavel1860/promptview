@@ -1,7 +1,7 @@
 from typing import List
 
 from promptview.llms.clients.phi_llm_client import PhiLlmClient
-from promptview.llms.llm import LLM
+from promptview.llms.legacy.llm import LLM
 from pydantic import Field
 
 
