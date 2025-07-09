@@ -255,7 +255,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                 if relation_info.primary_key == "artifact_id":
                     # can't enforce foreign key constraint on artifact_id because it's not a single record
                     continue
-                try:
+                
                     # SQLBuilder.create_foreign_key(
                     #     table_name=self.table_name,
                     #     column_name=relation_info.primary_key,
@@ -265,18 +265,58 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                     #     on_delete=relation_info.on_delete,
                     #     on_update=relation_info.on_update,
                     # )
-                    SQLBuilder.create_foreign_key(
-                        table_name=relation_info.foreign_table,
-                        column_name=relation_info.foreign_key,
-                        column_type=self.get_field(relation_info.primary_key).sql_type,
-                        referenced_table=self.table_name,
-                        referenced_column=relation_info.primary_key,
-                        on_delete=relation_info.on_delete,
-                        on_update=relation_info.on_update,
-                    )
-                except Exception as e:
-                    print(f"Error creating foreign key for {relation_info.primary_key} in {self.table_name}: {e}")
-                    raise e
+                if not relation_info.junction_keys:
+                    try:
+                        SQLBuilder.create_foreign_key(
+                            table_name=relation_info.foreign_table,
+                            column_name=relation_info.foreign_key,
+                            column_type=relation_info.foreign_key_field.sql_type,
+                            referenced_table=self.table_name,
+                            referenced_column=relation_info.primary_key,
+                            on_delete=relation_info.on_delete,
+                            on_update=relation_info.on_update,
+                        )
+                    except Exception as e:
+                        print(f"Error creating foreign key for {relation_info.primary_key} in {self.table_name}: {e}")
+                        raise e
+                else:
+                    try:
+                        SQLBuilder.create_foreign_key(
+                            table_name=relation_info.junction_table,
+                            column_name=relation_info.junction_primary_key,
+                            column_type=relation_info.junction_primary_key_field.sql_type,
+                            referenced_table=self.table_name,
+                            referenced_column=relation_info.primary_key,
+                            on_delete=relation_info.on_delete,
+                            on_update=relation_info.on_update,
+                        )
+                    except Exception as e:
+                        print(f"Error creating foreign key for {relation_info.junction_primary_key} in {self.table_name}: {e}")
+                        raise e
+                    try:
+                        SQLBuilder.create_foreign_key(
+                            table_name=relation_info.junction_table,
+                            column_name=relation_info.junction_foreign_key,
+                            column_type=relation_info.junction_foreign_key_field.sql_type,
+                            referenced_table=relation_info.foreign_table,
+                            referenced_column=relation_info.foreign_key,
+                            on_delete=relation_info.on_delete,
+                            on_update=relation_info.on_update,
+                        )
+                    except Exception as e:
+                        print(f"Error creating foreign key for {relation_info.junction_foreign_key} in {self.table_name}: {e}")
+                        raise e
+                    
+                    # SQLBuilder.create_foreign_key(
+                    #     table_name=self.table_name,
+                    #     column_name=relation_info.primary_key,
+                    #     column_type=self.get_field(relation_info.primary_key).sql_type,
+                    #     referenced_table=relation_info.junction_cls.table_name,
+                    #     referenced_column=relation_info.junction_keys[0],
+                    #     on_delete=relation_info.on_delete,
+                    #     on_update=relation_info.on_update,
+                    # )
+            
     
     
     def pack_record(self, record: Dict[str, Any]) -> MODEL:

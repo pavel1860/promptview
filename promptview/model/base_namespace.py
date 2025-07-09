@@ -339,12 +339,30 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL]):
     def junction_primary_key(self) -> str:
         return self.junction_keys[0]
     
+    
     @property
     def junction_foreign_key(self) -> str:
         return self.junction_keys[1]
     
     def inst_junction_model(self, data: dict[str, Any]) -> JUNCTION_MODEL:
         return self.junction_namespace.instantiate_model(data)
+    
+    @property
+    def primary_key_field(self):
+        return self.namespace.get_field(self.primary_key)
+    
+    @property
+    def foreign_key_field(self):
+        return self.foreign_namespace.get_field(self.foreign_key)
+    
+    @property
+    def junction_primary_key_field(self):
+        return self.junction_namespace.get_field(self.junction_primary_key)
+    
+    @property
+    def junction_foreign_key_field(self):
+        return self.junction_namespace.get_field(self.junction_foreign_key)
+    
     
     def inst_junction_model_from_models(self, primary_model: MODEL, forreign_model: FOREIGN_MODEL, data: dict[str, Any]) -> JUNCTION_MODEL:
         data.update({

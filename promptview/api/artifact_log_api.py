@@ -109,7 +109,7 @@ async def create_partition(payload: CreatePartitionPayload, user: AuthModel = De
 @router.get("/turns/{branch_id}/partition/{partition_id}", response_model=List[Turn])
 async def get_branch_turns(branch_id: int, partition_id: int):    
     turn_ns = NamespaceManager.get_namespace("turns")
-    turns = await turn_ns.query().where(branch_id=1,partition_id=1).tail(20)
+    turns = await turn_ns.query().where(branch_id=branch_id,partition_id=partition_id).tail(20)
     return reversed(turns)
 
 
