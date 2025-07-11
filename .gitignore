@@ -14,3 +14,5 @@ __pycache__
 msgs_*.pkl
 scripts
 .cursor
+alembic
+alembic.ini

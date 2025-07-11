@@ -3,11 +3,11 @@ import pytest_asyncio
 
 import datetime as dt
 from typing import List
-from promptview.model2 import Model, ModelField, KeyField, RelationField
-from promptview.model2 import NamespaceManager
-from promptview.model2 import Turn as BaseTurn, TurnModel, Branch, Relation
+from promptview.model import Model, ModelField, KeyField, RelationField
+from promptview.model import NamespaceManager
+from promptview.model import Turn as BaseTurn, TurnModel, Branch, Relation
 from __tests__.utils import clean_database, test_db_pool
-from promptview.model2.version_control_models import VersioningError
+from promptview.model.version_control_models import VersioningError
 
 class Like(TurnModel):
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)

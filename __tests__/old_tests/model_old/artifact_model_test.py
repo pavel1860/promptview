@@ -5,12 +5,12 @@ import pytest_asyncio
 from enum import StrEnum
 from uuid import UUID
 from promptview.auth.user_manager import AuthModel
-from promptview.model2 import Model, ArtifactModel, RepoModel, ModelField, Relation, RelationField, ManyRelation, ArtifactModel
+from promptview.model import Model, ArtifactModel, RepoModel, ModelField, Relation, RelationField, ManyRelation, ArtifactModel
 import datetime as dt
-from promptview.model2.fields import KeyField, RelationField, ModelField
-from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.context import Context
-from promptview.model2.postgres.builder import SQLBuilder
+from promptview.model.fields import KeyField, RelationField, ModelField
+from promptview.model.namespace_manager import NamespaceManager
+from promptview.model.context import Context
+from promptview.model.postgres.builder import SQLBuilder
 
 
 

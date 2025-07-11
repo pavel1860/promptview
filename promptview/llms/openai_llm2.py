@@ -2,14 +2,14 @@ from abc import abstractmethod
 import json
 from typing import Any, List, Type
 
-from promptview.prompt.block6 import BlockList
+from promptview.block.block import BlockList
 from promptview.tracer.langsmith_tracer import Tracer
 from promptview.utils.model_utils import schema_to_function
-from .llm3 import LLM, LLMToolNotFound, LlmConfig, LlmContext
+from .llm import LLM, LLMToolNotFound, LlmConfig, LlmContext
 from pydantic import Field, BaseModel
 from .utils.action_manager import Actions
 # from ..prompt.block import BaseBlock, ResponseBlock
-from ..prompt import Block, ToolCall
+from ..block import Block, ToolCall
 import openai
 import os
 from openai.types.chat import ChatCompletionMessageParam
@@ -195,7 +195,7 @@ class OpenAiLLM(LlmContext):
                     ))
                       
         response_block = Block(
-            content=output.content,
+            output.content or "",
             role="assistant",
             tool_calls=tool_calls,
             # id=response.id,

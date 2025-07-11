@@ -6,20 +6,20 @@ from typing_extensions import TypeVar
 
 
 from pydantic import BaseModel
-from promptview.model2 import Model, ModelField
-from promptview.model2.fields import KeyField
+from promptview.model import Model, ModelField
+from promptview.model.fields import KeyField
 from promptview.utils.db_connections import PGConnectionManager
 
 
 
 
 from uuid import UUID
-from promptview.model2.model import Model
+from promptview.model.model import Model
 
 
 class AuthModel(Model):
     _is_base: bool = True
-    id: int = KeyField(primary_key=True)
+    id: UUID = KeyField(primary_key=True)
     auth_user_id: str | None = ModelField(None, index="btree")
     is_guest: bool = ModelField(default=True)
     guest_token: UUID | None = ModelField(None)

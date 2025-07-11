@@ -17,7 +17,7 @@ from app.test_agent import chat_prompt, run_agent
 from promptview.auth.user_manager import UserManager
 from promptview.model.resource_manager import connection_manager
 from promptview import testing
-from promptview.prompt.base_prompt3 import prompt
+from promptview.prompt.base_prompt import prompt
 
 
 @asynccontextmanager

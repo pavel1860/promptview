@@ -3,9 +3,9 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 from promptview.llms.exceptions import LLMToolNotFound
 from promptview.llms.messages import AIMessage, ActionCall
-from promptview.prompt.base_prompt import ToolChoiceParam
-from promptview.prompt.chat_prompt import ChatPrompt
-from promptview.prompt.mvc import view
+from promptview.prompt.legacy.base_prompt import ToolChoiceParam
+from promptview.prompt.legacy.chat_prompt import ChatPrompt
+from promptview.prompt.legacy.mvc import view
 import xml.etree.ElementTree as ET
 
 

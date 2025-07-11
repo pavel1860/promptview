@@ -61,7 +61,7 @@
 
 
 
-import promptview.model2 as model
+import promptview.model as model
 import promptview.prompt as prompt
 import promptview.utils as utils
 

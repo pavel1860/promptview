@@ -3,20 +3,16 @@ os.environ["POSTGRES_URL"] = "postgresql://ziggi:Aa123456@localhost:5432/promptv
 
 import pytest
 import pytest_asyncio
-from promptview.model2 import Model, ArtifactModel, ModelField, RelationField, ArtifactModel
-from promptview.model2.fields import KeyField, RelationField, ModelField
-from promptview.prompt import Block, ToolCall
-
-
-
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, List, Literal, Type
-from promptview.model2 import Model, ArtifactModel, ModelField, RelationField, ArtifactModel, Relation
+from promptview.model import Model, ArtifactModel, ModelField, RelationField, ArtifactModel, Relation
 import datetime as dt
-from promptview.model2.namespace_manager import NamespaceManager
-from promptview.prompt import Block, ToolCall
-from promptview.model2.version_control_models import Turn as BaseTurn, Branch
-from promptview.model2 import TurnModel
+from promptview.model.namespace_manager import NamespaceManager
+from promptview.model.version_control_models import Turn as BaseTurn, Branch
+from promptview.model import TurnModel
+from promptview.model.fields import KeyField, RelationField, ModelField
+from promptview.block import Block, ToolCall
+
 
 from __tests__.utils import clean_database, test_db_pool
 

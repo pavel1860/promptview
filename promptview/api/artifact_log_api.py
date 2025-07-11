@@ -1,4 +1,5 @@
 from typing import Dict, Type, List, TypeVar, Generic
+from uuid import UUID
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.datastructures import QueryParams
 from promptview.api.utils import Head, build_head_parser, get_head
@@ -6,8 +7,8 @@ from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
 from pydantic import BaseModel
 # from promptview.model2.versioning import ArtifactLog, Branch, Partition, Turn, TurnStatus
-from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.version_control_models import Turn, Branch
+from promptview.model.namespace_manager import NamespaceManager
+from promptview.model.version_control_models import Turn, Branch
 
 
 
@@ -19,7 +20,6 @@ router = APIRouter(prefix="/artifact_log", tags=["artifact_log"])
 #     if value is None or value == "null" or value == "undefined":
 #         return None
 #     return int(value)
-
 
 # def get_artifact_log(request: Request):
 #     head_id = unpack_int_env_header(request, "head_id")
@@ -88,24 +88,29 @@ async def create_partition(payload: CreatePartitionPayload, user: AuthModel = De
 
     
     
+# @router.get("/turns/{branch_id}/partition/{partition_id}", response_model=List[Turn])
+# async def get_branch_turns(branch_id: int, partition_id: int):    
+#     turn_ns = NamespaceManager.get_namespace("turns")
+#     branch_ns = NamespaceManager.get_namespace("branches")
+#     branch = await (
+#         branch_ns.query()
+#         .where(id=branch_id)
+#         .include(
+#             turn_ns.query()
+#             .where(partition_id=partition_id)
+#             .include(branch_ns.model_class)
+#             .tail(20)
+#         )
+#         .last()
+#     )
+#     return branch.turns
+
+
 @router.get("/turns/{branch_id}/partition/{partition_id}", response_model=List[Turn])
-async def get_branch_turns(branch_id: int, partition_id: int):    
+async def get_branch_turns(branch_id: int, partition_id: UUID):    
     turn_ns = NamespaceManager.get_namespace("turns")
-    branch_ns = NamespaceManager.get_namespace("branches")
-    # tq = turn_ns.query().include(branch_ns.model_class).head(20)
-    # branch = await branch_ns.query().where(id=branch_id).include(tq).last()
-    branch = await (
-        branch_ns.query()
-        .where(id=branch_id)
-        .include(
-            turn_ns.query()
-            .where(partition_id=partition_id)
-            .include(branch_ns.model_class)
-            .head(20)
-        )
-        .last()
-    )
-    return branch.turns
+    turns = await turn_ns.query().where(branch_id=branch_id,partition_id=partition_id).tail(20)
+    return reversed(turns)
 
 
 

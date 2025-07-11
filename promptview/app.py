@@ -3,25 +3,18 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from functools import wraps
 import json
-from typing import Annotated, Any, AsyncContextManager, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar
-from fastapi import Depends, FastAPI, Form, HTTPException, Header, Request
-from pydantic import BaseModel
+from typing import AsyncContextManager, Awaitable, Callable, Concatenate, Dict, Generic, List, Literal, ParamSpec, Type, TypeVar
+from fastapi import Depends, FastAPI, Request
 
 
 from promptview.api.tracing_router import router as tracing_router
-# from promptview.api.model_router2 import create_crud_router
 from promptview.api.model_router import create_model_router
-from promptview.api.artifact_router import create_artifact_router
-from promptview.api.utils import Head, get_head
-from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager2 import AuthManager, AuthModel
-from promptview.model2 import ArtifactModel, Model, NamespaceManager, Context
+from promptview.model import ArtifactModel, Model, NamespaceManager, Context
 from promptview.context.model_context import CtxRequest, ModelCtx
-# from promptview.testing.test_manager import TestManager
 from promptview.api.auth_router import create_auth_router
 from promptview.api.artifact_log_api import router as artifact_log_router
 from promptview.api.testing_router import connect_testing_routers
-from promptview.api.user_router import connect_user_model_routers
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
@@ -138,7 +131,6 @@ class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
         self._app.include_router(artifact_log_router, prefix="/api")
         self._app.include_router(create_auth_router(self._user_model), prefix="/api")
         self._app.include_router(tracing_router, prefix="/api")
-        connect_user_model_routers(self._app, [self._user_model])
         connect_testing_routers(self._app)
 
     

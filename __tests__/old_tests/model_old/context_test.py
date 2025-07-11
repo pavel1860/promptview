@@ -1,18 +1,18 @@
 import os
 from typing import Literal
 os.environ["POSTGRES_URL"] = "postgresql://ziggi:Aa123456@localhost:5432/promptview_test"
-from promptview.model2.versioning import ArtifactLog, TurnStatus
+from promptview.model.versioning import ArtifactLog, TurnStatus
 import pytest
 import pytest_asyncio
 from enum import StrEnum
 from uuid import UUID
 from promptview.auth.user_manager import AuthModel
-from promptview.model2 import Model, ArtifactModel, RepoModel, ModelField, Relation, RelationField, ManyRelation, ArtifactModel
+from promptview.model import Model, ArtifactModel, RepoModel, ModelField, Relation, RelationField, ManyRelation, ArtifactModel
 import datetime as dt
-from promptview.model2.fields import KeyField, RelationField, ModelField
-from promptview.model2.namespace_manager import NamespaceManager
-from promptview.model2.context import Context
-from promptview.model2.postgres.builder import SQLBuilder
+from promptview.model.fields import KeyField, RelationField, ModelField
+from promptview.model.namespace_manager import NamespaceManager
+from promptview.model.context import Context
+from promptview.model.postgres.builder import SQLBuilder
 
 
 

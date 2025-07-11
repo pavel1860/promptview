@@ -1,5 +1,5 @@
 import pytest
-from promptview.prompt.block2 import Block
+from promptview.prompt.legacy.block2 import Block
 from pydantic import BaseModel, Field
 
 

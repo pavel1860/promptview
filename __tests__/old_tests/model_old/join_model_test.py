@@ -20,12 +20,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 from promptview.auth.user_manager import AuthModel
-from promptview.model2 import Model, ArtifactModel, RepoModel, ModelField, Relation, RelationField, ManyRelation, ArtifactModel
+from promptview.model import Model, ArtifactModel, RepoModel, ModelField, Relation, RelationField, ManyRelation, ArtifactModel
 import datetime as dt
-from promptview.model2.fields import KeyField, RelationField, ModelField
-from promptview.model2.model import ContextModel
-from promptview.model2.context import Context as BaseContext
-from promptview.model2.namespace_manager import NamespaceManager
+from promptview.model.fields import KeyField, RelationField, ModelField
+from promptview.model.model import ContextModel
+from promptview.model.context import Context as BaseContext
+from promptview.model.namespace_manager import NamespaceManager
 from promptview.prompt import Block, ToolCall
 
 

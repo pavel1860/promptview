@@ -81,7 +81,7 @@ class Context(BaseModel):
     
     @classmethod
     def get_user_manager(cls):
-        from promptview.app import Chatboard
+        from promptview.legacy.app import Chatboard
         return Chatboard.get_app_ctx()._auth_manager()
     
 

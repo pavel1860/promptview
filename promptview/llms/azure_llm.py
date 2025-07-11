@@ -3,7 +3,7 @@ from typing import Optional
 
 from promptview.llms.clients.azure_client import AzureOpenAiLlmClient
 from promptview.llms.clients.base import BaseLlmClient
-from promptview.llms.llm2 import LLM
+from promptview.llms.legacy.llm2 import LLM
 
 
 class AzureOpenAiLLM(LLM):

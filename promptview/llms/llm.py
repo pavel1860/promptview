@@ -1,378 +1,572 @@
-
-import asyncio
-import json
-import os
-import re
-from time import time
-from typing import (Any, Callable, Coroutine, Dict, Generic, Iterable, List,
-                    Literal, Optional, Tuple, Type, TypeVar, Union)
-
-import tiktoken
-from promptview.llms.clients.azure_client import AzureOpenAiLlmClient
-from promptview.llms.clients.openai_client import OpenAiLlmClient
-from promptview.llms.clients.phi_llm_client import PhiLlmClient
-from promptview.llms.exceptions import LLMToolNotFound
-from promptview.llms.utils.completion_parsing import PromptParsingException
-from promptview.llms.utils.completion_parsing2 import OutputParser
+from __future__ import annotations
+from abc import abstractmethod
+from enum import StrEnum
+from functools import singledispatch
+from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Self, Type, TypeVar, Union, TYPE_CHECKING, get_args
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError
+from pydantic.fields import FieldInfo
+from promptview.llms.types import ErrorMessage
+from promptview.block import Block, BlockRole, ToolCall, LlmUsage
+from promptview.block.block import BlockList
+from promptview.tracer import Tracer
+from promptview.parsers import XmlOutputParser
+from promptview.utils import logger
 from promptview.utils.function_utils import call_function
-from promptview.utils.model_utils import schema_to_function
-from pydantic import BaseModel, Field, ValidationError, validator
+from promptview.utils.model_utils import get_list_type, is_list_type, is_optional_type, schema_to_ts  
+import xml.etree.ElementTree as ET
 
-from .messages import AIMessage, HumanMessage, SystemMessage
-from .tracer import Tracer
+class LLMToolNotFound(Exception):
+    
+    def __init__(self, tool_name) -> None:
+        self.tool_name = tool_name
+        super().__init__(f"Action {tool_name} is not found")
+
 
 ToolChoice = Literal['auto', 'required', 'none']
 
+LLM_CLIENT = TypeVar('LLM_CLIENT')
+CLIENT_PARAMS = ParamSpec('CLIENT_PARAMS')
+CLIENT_RESPONSE = TypeVar('CLIENT_RESPONSE')
 
 
 
+ToolReprFormat = Literal['json', 'function', 'xml']
 
-
-
-DEFAULT_MODEL = "gpt-3.5-turbo-0125"
-
-default_prompt_config = {
-    "model": DEFAULT_MODEL,
-    "temperature": 0,
-    "max_tokens": None,
-    "num_examples": 3,
-    "stop_sequences": None,
-    "ignore": [],
-}
-
-
-
-chat_models = [
-    "gpt-4o",
-    "gpt-3.5-turbo-0125",
-    'gpt-3.5-turbo',
-    'gpt-4-1106-preview',
-    'gpt-3.5-turbo-1106',
-    "gpt-4-0125-preview",
-]
-
-
-
-
-def encode_logits(string: str, bias_value: int, encoding_model: tiktoken.Encoding) -> dict:
-    """Returns the number of tokens in a text string."""
+class BaseLlmClient(BaseModel, Generic[LLM_CLIENT, CLIENT_RESPONSE]):
+    client: LLM_CLIENT
     
-    return {en: bias_value for en in encoding_model.encode(string)}
-
-
-def encode_logits_dict(logits, encoding_model = None):
-    if encoding_model is None:
-        encoding_model = tiktoken.get_encoding("cl100k_base")
-    encoded_logits = {}
-    for key, value in logits.items():
-        item_logits = encode_logits(key, value, encoding_model)
-        encoded_logits.update(item_logits)
-    return encoded_logits
-
-
-
-class LlmChunk(BaseModel):
-    content: str
-    finish: Optional[bool] = False
-    
-
-
-
-
-
-class LLM(BaseModel):
-
-    model: str
-    name: str
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    stop_sequences: Optional[List[str]] = None
-    stream: Optional[bool] = False
-    logit_bias: Optional[Dict[str, int]] = None
-    top_p: Optional[float] = None
-    presence_penalty: Optional[float] = None
-    logprobs: bool | None = None
-    frequency_penalty: Optional[float] = None
-    is_traceable: Optional[bool] = True
-    seed: Optional[int] = None
-    client: Union[OpenAiLlmClient, PhiLlmClient, AzureOpenAiLlmClient]    
-    parallel_tool_calls: Optional[bool] = True
-
-    class Config:
-        arbitrary_types_allowed = True
-
-
-    def get_llm(
-            self, 
-            tools=None,
-            **kwargs            
-        ):
-
-        model_kwargs={}
-        stop_sequences = kwargs.get("stop_sequences", self.stop_sequences)
-        if stop_sequences:
-            model_kwargs['stop'] = stop_sequences
-        logit_bias = kwargs.get("logit_bias", self.logit_bias)
-        if logit_bias:            
-            model_kwargs['logit_bias'] = logit_bias
-        top_p = kwargs.get("top_p", self.top_p)
-        if top_p:
-            if top_p > 1.0 or top_p < 0.0:
-                raise ValueError("top_p must be between 0.0 and 1.0")
-            model_kwargs['top_p'] = top_p
-        presence_penalty = kwargs.get("presence_penalty", self.presence_penalty)
-        if presence_penalty:
-            if presence_penalty > 2.0 or presence_penalty < -2.0:
-                raise ValueError("presence_penalty must be between -2.0 and 2.0")
-            model_kwargs['presence_penalty'] = presence_penalty
-        frequency_penalty = kwargs.get("frequency_penalty", self.frequency_penalty)
-        if frequency_penalty:
-            if frequency_penalty > 2.0 or frequency_penalty < -2.0:
-                raise ValueError("frequency_penalty must be between -2.0 and 2.0")
-            model_kwargs['frequency_penalty'] = frequency_penalty
-        temperature = kwargs.get("temperature", self.temperature)
-        if temperature is not None:
-            model_kwargs['temperature'] = temperature
-        max_tokens = kwargs.get("max_tokens", self.max_tokens)
-        if max_tokens is not None:
-            model_kwargs['max_tokens'] = max_tokens
-
-        model = kwargs.get("model", self.model)
-        if model is not None:
-            model_kwargs['model'] = model        
-        else:
-            model_kwargs['model'] = DEFAULT_MODEL
-        
-        seed = kwargs.get("seed", self.seed)
-        if seed is not None:
-            model_kwargs['seed'] = seed
-            
-        parallel_tool_calls = kwargs.get("parallel_tool_calls", self.parallel_tool_calls)
-        if parallel_tool_calls is not None and tools:
-            model_kwargs['parallel_tool_calls'] = parallel_tool_calls            
-            
-        logprobs = kwargs.get("logprobs", self.logprobs)
-        if logprobs is not None:
-            model_kwargs['logprobs'] = logprobs
-        
-        return model_kwargs
-
-
+    @abstractmethod
     async def complete(
-            self, 
-            msgs: List[SystemMessage | HumanMessage | AIMessage], 
-            tools: List[Type[BaseModel]] | None=None, 
-            tool_choice: ToolChoice | BaseModel | None = None,
-            response_model: type[BaseModel] | None=None,
-            tracer_run=None, 
-            metadata={},
-            completion=None,
-            retries=3, 
-            smart_retry=True,
-            output_parser: Callable | None=None,
-            # logprobs: bool=False,
-            **kwargs):
-
-        llm_kwargs = self.get_llm(tools=tools, **kwargs)
-
-        extra = metadata.copy()
-        extra.update(llm_kwargs)  
-
-        # if completion:
-            # return custom_completion(completion)
+        self, 
+        messages: List[dict], 
+        tools: List[dict], 
+        model: str, 
+        tool_choice: str, 
+        **kwargs
+    ) -> CLIENT_RESPONSE:
+        ...
 
 
-        with Tracer(
-            is_traceable=self.is_traceable,
-            tracer_run=tracer_run,
-            run_type="llm",
-            name=self.name,
-            inputs={"messages": [msg.to_openai() for msg in msgs]},
-            extra=extra,
-        ) as llm_run:
+class LlmConfig(BaseModel):
+    model: str | None = Field(default=None, description="The model to use")
+    temperature: float = Field(default=0, ge=0, le=1, description="The temperature of the response")
+    max_tokens: int = Field(default=None, ge=0, description="The maximum number of tokens in the response")
+    stop_sequences: List[str] = Field(default=None, description="The stop sequences of the response")
+    stream: bool = Field(default=False, description="If the response should be streamed")
+    logit_bias: Dict[str, int] | None = Field(default=None, description="The logit bias of the response")
+    top_p: float = Field(default=1, ge=0, le=1, description="The top p of the response")
+    presence_penalty: float | None = Field(default=None, ge=-2, le=2, description="The presence penalty of the response")
+    logprobs: bool | None = Field(default=None, description="If the logprobs should be returned")
+    seed: int | None = Field(default=None, description="The seed of the response")
+    frequency_penalty: float | None = Field(default=None, ge=-2, le=2, description="The frequency penalty of the response")
+    tools: List[Type[BaseModel]] | None = Field(default=None, description="The tools of the response")
+    retries: int = Field(default=3, ge=1, description="The number of retries")
+    parallel_tool_calls: bool = Field(default=False, description="If the tool calls should be parallel")
+    tool_choice: ToolChoice | None = Field(default=None, description="The tool choice of the response")
+    
+    
+    # def get_llm_args(self, **kwargs):
+    #     model_kwargs={}
+    #     stop_sequences = kwargs.get("stop_sequences", self.stop_sequences)
+    #     if stop_sequences:
+    #         model_kwargs['stop'] = stop_sequences
+    #     logit_bias = kwargs.get("logit_bias", self.logit_bias)
+    #     if logit_bias:            
+    #         model_kwargs['logit_bias'] = logit_bias
+    #     top_p = kwargs.get("top_p", self.top_p)
+    #     if top_p:
+    #         if top_p > 1.0 or top_p < 0.0:
+    #             raise ValueError("top_p must be between 0.0 and 1.0")
+    #         model_kwargs['top_p'] = top_p
+    #     presence_penalty = kwargs.get("presence_penalty", self.presence_penalty)
+    #     if presence_penalty:
+    #         if presence_penalty > 2.0 or presence_penalty < -2.0:
+    #             raise ValueError("presence_penalty must be between -2.0 and 2.0")
+    #         model_kwargs['presence_penalty'] = presence_penalty
+    #     frequency_penalty = kwargs.get("frequency_penalty", self.frequency_penalty)
+    #     if frequency_penalty:
+    #         if frequency_penalty > 2.0 or frequency_penalty < -2.0:
+    #             raise ValueError("frequency_penalty must be between -2.0 and 2.0")
+    #         model_kwargs['frequency_penalty'] = frequency_penalty
+    #     temperature = kwargs.get("temperature", self.temperature)
+    #     if temperature is not None:
+    #         model_kwargs['temperature'] = temperature
+    #     max_tokens = kwargs.get("max_tokens", self.max_tokens)
+    #     if max_tokens is not None:
+    #         model_kwargs['max_tokens'] = max_tokens
+
+    #     # model = kwargs.get("model", self.model)
+    #     # if model is not None:
+    #     #     model_kwargs['model'] = model
         
-            tool_schema = [schema_to_function(t) for t in tools] if tools else None
+    #     seed = kwargs.get("seed", self.seed)
+    #     if seed is not None:
+    #         model_kwargs['seed'] = seed
             
-            if isinstance(tool_choice, BaseModel):
-                tool_choice_schema =  {"type": "function", "function": {"name": tool_choice.__class__.__name__}}
-            else:
-                if tool_choice and tool_choice not in ["auto", "required", "none"]:
-                    raise ValueError("tool_choice must be one of 'auto', 'required', 'none' or an BaseModel")
-                tool_choice_schema = tool_choice
+    #     # parallel_tool_calls = kwargs.get("parallel_tool_calls", self.parallel_tool_calls)
+    #     # if parallel_tool_calls is not None and actions:
+    #     #     model_kwargs['parallel_tool_calls'] = parallel_tool_calls
             
-            for try_num in range(retries):
-                try:
-                    completion = await self.client.complete(
-                        msgs, 
-                        tools=tool_schema, 
-                        tool_choice=tool_choice_schema, 
-                        run_id=str(llm_run.id),
-                        # logprobs=logprobs,
-                        **llm_kwargs)                    
-                    ai_message = self.parse_output(completion, tools, tool_choice, response_model)
-                    ai_message.run_id = str(llm_run.id)
-                    if output_parser:                        
-                        ai_message = await call_function(
-                            output_parser,
-                            ai_message,                            
-                            llm_response=completion, 
-                        )                    
-                    
-                    llm_run.end(outputs=completion)
-                    return ai_message
-                except LLMToolNotFound as e:
-                    print(f"try {try_num} tool not found error")
-                    if try_num == retries - 1:
-                        llm_run.end(errors=str(e))
-                        raise e
-                    if smart_retry:
-                        msgs.append(HumanMessage(content=f"there is no such tool:\n{str(e)}"))
-                except PromptParsingException as e:
-                    print("prompt parsing exception")
-                    if try_num == retries - 1:
-                        llm_run.end(errors=str(e))
-                        raise e
-                    if smart_retry:
-                        msgs.append(HumanMessage(content=f"could not parse output:\n{str(e)}"))
-                except json.JSONDecodeError as e:
-                    if try_num == retries - 1:
-                        llm_run.end(errors=str(e))
-                        raise e
-                    if smart_retry:
-                        msgs.append(HumanMessage(content=f"bad json output:\n{str(e)}"))
-                except ValidationError as e:
-                    print(f"try {try_num} validation error")
-                    if try_num == retries - 1:
-                        llm_run.end(errors=str(e))
-                        raise e
-                    msgs.append(HumanMessage(content=f"something is wrong with the parameters:\n{str(e)}"))
-                except Exception as e:
-                    llm_run.end(errors=str(e))
-                    # import pickle
-                    # from datetime import datetime
-                    # date_str = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-                    # with open(f"msgs_{date_str}.pkl", "wb") as f:
-                    #     pickle.dump(msgs, f)
-                    raise e
-                    
-        
-    def parse_output(self, completion, tools, tool_choice: ToolChoice | BaseModel | None, response_model):
-        output = completion.choices[0].message
-        finish_reason = completion.choices[0].finish_reason
-        tool_calls = completion.choices[0].message.tool_calls
+    #     logprobs = kwargs.get("logprobs", self.logprobs)
+    #     if logprobs is not None:
+    #         model_kwargs['logprobs'] = logprobs        
+    #     return model_kwargs
 
-        if response_model:
-            parser = OutputParser(response_model)
-            try:
-                parsing_output = parser.parse(output.content)
-                return AIMessage(content=output.content, actions=[parsing_output])
-            except Exception as e:
-                print("########## ERROR PARSING OUTPUT ##########") 
-        actions = None
-        if finish_reason == "stop":
-            if tool_choice == "required" and not tool_calls:
-                raise LLMToolNotFound("Tool call is required")            
-        if tool_calls:
-            if completion.choices[0].message.content is not None:
-                print("### tool call with message: ", completion.choices[0].message.content)
-            tool_lookup = {t.__name__: t for t in tools}
-            actions = []
-            for tool_call in output.tool_calls:
-                tool_args = json.loads(tool_call.function.arguments)
-                tool_cls = tool_lookup.get(tool_call.function.name, None)
-                if tool_cls:
-                    actions.append(tool_cls(**tool_args))
+
+        
+def get_field_type(field_info) -> str:
+    if get_args(field_info.annotation):
+        return str(field_info.annotation)
+    return field_info.annotation.__name__
+
+
+class OutputModel(BaseModel):    
+    tool_calls: List[ToolCall] = Field(default=[], json_schema_extra={"render": False})
+    _block: Block = PrivateAttr()
+    
+    
+    
+    @classmethod
+    def user_suffix(cls) -> str:
+        return ""
+    
+    @classmethod
+    def response_prefix(cls) -> str:
+        return ""
+    
+    @classmethod
+    def extra_rules(cls) -> Block | None:
+        return None
+    
+    def output_fields(self) -> List[tuple[str, FieldInfo]]:
+        return [(field, field_info) for field, field_info in self.model_fields.items() if field != "tool_calls"]
+    
+    @classmethod
+    def iter_fields(cls):
+        for field, field_info in cls.model_fields.items():
+            extra = field_info.json_schema_extra
+            if extra and extra.get("render") == False:
+                continue
+            yield field, field_info
+            
+
+    @classmethod
+    def render(cls, tools: List[Type[BaseModel]] = [], config: LlmConfig | None = None) -> Block:
+        with Block("Output format", tags=["output_format"]) as blk:
+            blk += "you **MUST** use the following format for your output:"
+            for field, field_info in cls.iter_fields():
+                render_func = getattr(cls, f"render_{field}", None)                
+                if render_func:
+                    blk /= render_func()
                 else:
-                    raise LLMToolNotFound(f"Tool {tool_call.function.name} not found in tools")
-                tool_call.function.name                
-        # if finish_reason == "stop":
-        #     if tool_choice == "required":
-        #         raise LLMToolNotFound("Tool call is required")            
-        # elif finish_reason == "tool_calls":
-        #     if completion.choices[0].message.content is not None:
-        #         print("### tool call with message: ", completion.choices[0].message.content)
-        #     tool_lookup = {t.__name__: t for t in tools}
-        #     actions = []
-        #     for tool_call in output.tool_calls:
-        #         tool_args = json.loads(tool_call.function.arguments)
-        #         tool_cls = tool_lookup.get(tool_call.function.name, None)
-        #         if tool_cls:
-        #             actions.append(tool_cls(**tool_args))
-        #         else:
-        #             raise LLMToolNotFound(f"Tool {tool_call.function.name} not found in tools")
-        #         tool_call.function.name                
-            # return actions
-        return AIMessage(content=output.content, tool_calls=output.tool_calls, actions=actions)
-        
-
-    # async def send_stream(self, openai_messages, tracer_run, metadata={}, completion=None, **kwargs):
-
-    #     llm_kwargs = self.get_llm(**kwargs)
-
-    #     extra = metadata.copy() if metadata else {}
-    #     extra.update(llm_kwargs)  
-
-
-    #     with Tracer(
-    #         is_traceable=self.is_traceable,
-    #         tracer_run=tracer_run,
-    #         run_type="llm",
-    #         name=self.name,
-    #         inputs={"messages": openai_messages},
-    #         extra=extra,
-    #     ) as llm_run:
-        
-    #         stream = await self.client.chat.completions.create(
-    #             messages=openai_messages,
-    #             stream=True,
-    #             **llm_kwargs,
-    #         )
-    #         openai_completion = ""
-    #         async for chunk in stream:
-    #             if chunk.choices[0].delta.content is not None:
-    #                 openai_completion += chunk.choices[0].delta.content
-    #                 yield LlmChunk(
-    #                     content=chunk.choices[0].delta.content,
-    #                 )
+                    with blk(field, style=["xml"]):
+                        if field_info.description:
+                            blk += field_info.description
+            if tools:
+                
+                # elif config and config.tool_choice == "none":
+                    # blk += "you should not use any tool calls"
+                blk /= "the tool calls you want to use should be in the following xml format:"
+                # with blk("tool_calls", tags=["tool_calls"], style=["xml"]):
+                with blk("tool", tags=["tool_example"], attrs={"name": "{{the tool name}}"}, style=["xml"]):
+                    blk /= "{{the tool arguments in json format}}"
+                with blk("tool", tags=["tool_example"], attrs={"name": "{{the second tool name}}"}, style=["xml"]):
+                    blk /= "{{the second tool arguments in json format}}"
+                blk /= "<!-- (... more tool calls if needed) -->"
                     
-            
-    #         llm_run.end(outputs={
-    #             "messages": [AIMessage(content=openai_completion).to_openai()]
-    #         })
-    #         yield LlmChunk(
-    #             content=openai_completion,
-    #             finish=True
-    #         )
+                    
+                with blk("Tool Call Rules", tags=["tool_call_rules"], style=["list"]):
+                    blk /= "read carefully the tool description and the tool arguments."
+                    blk /= "understand if you have a tool that can help you to complete the task or you should respond only in text."
+                    blk /= "you can perform actions in response to the user input."
+                    blk /= "tool calls should be in xml format with json schema inside as a child element."
+                    blk /= "make sure the order of the xml tags is correct."
+                    blk /= "IMPORTANT! you must use this output format!"
+                    if config and config.tool_choice == "required":
+                        blk /= "you have to pick the right tool to respond to the user input"
+                    elif config and config.tool_choice == "auto":
+                        blk /= "you can use as many tools as needed to complete the task"
+                if extra_rules_block:= cls.extra_rules():
+                    blk /= extra_rules_block
+                blk /= "you must use the provided output format."
+                blk /= "** end of output format **"
+                # blk /= "don't forget to output a message when you have something to say."
+                blk /= ""
+                blk /= ""
+                with blk("Available tools", tags=["available_tools"], style=["xml"]):
+                    blk /= "you can use the following tools to complete the task:"
+                    for tool in tools:
+                        if not tool.__doc__:
+                            raise ValueError(f"Tool {tool.__name__} has no description")
+                        with blk("tool", attrs={"name": tool.__name__, "description": tool.__doc__}, tags=["tool"], style=["xml"]):                            
+                            # blk /= "description:" + tool.__doc__
+                            blk.model_schema(tool)
+        return blk
+    
+    def block(self) -> Block:
+        self._block.tool_calls = self.tool_calls
+        return self._block
+    
+    
+    def find_tool(self, tool_name: str) -> ToolCall | None:
+        for tool in self.tool_calls:
+            if tool.name == tool_name:
+                return tool
+        return None
 
+    def find_except(self, tool_name: str) -> List[ToolCall]:
+        tools = []
+        for tool in self.tool_calls:
+            if tool.name == tool_name:
+                continue
+            tools.append(tool)
+        return tools
+
+    # @classmethod
+    # def parse(cls, completion: Block, tools: List[Type[BaseModel]]) -> Self:
+    #     """parse the completion into the output model"""
+    #     try:
+    #         xml_parser = XmlOutputParser()
+    #         fmt_res, fmt_tools = xml_parser.parse(f"<root>{cls.response_prefix()}{completion.content}</root>", tools, cls)
+    #         fmt_res.tool_calls = fmt_tools
+    #         fmt_res._block = completion
+    #         return fmt_res
+    #     except ValidationError as e:
+    #         logger.exception("Output Model Validation Error")
+    #         raise ErrorMessage(f"Validation error: {e}")
+    
+    @classmethod
+    def parse_tool_calls(cls, item: ET.Element, tools: List[Type[BaseModel]]) -> List[ToolCall]:
+        from promptview.block import ToolCall
+        from uuid import uuid4
+        tool_calls = []
+        tool_lookup = {tool.__name__: tool for tool in tools}        
+        for tool in item.findall("tool"):
+            tool_cls = tool_lookup.get(tool.attrib["name"], None)
+            if not tool_cls:
+                from promptview.llms import ErrorMessage
+                raise ErrorMessage(tool.attrib["name"])
+            # params = {param.attrib["name"]: param.text for param in tool.findall(param_tag)}
+            tool_inst = tool_cls.model_validate_json(tool.text)
+            tool_calls.append(
+                ToolCall(
+                    id=f"tool_call_{uuid4()}"[:40], 
+                    name=tool.attrib["name"], 
+                    tool=tool_inst
+                )
+            )
+        return tool_calls
+    
+    @classmethod
+    def parse(cls, completion: Block, tools: List[Type[BaseModel]]) -> Self:
+        """parse the completion into the output model"""
+        try:
+            root = ET.fromstring(f"<root>{cls.response_prefix()}{completion.content}</root>")
+            params = {}
+            for field, field_info in cls.model_fields.items():
+                item = root.find(field)                 
+                if field == "tool_calls":
+                    params[field] = cls.parse_tool_calls(root, tools)
+                    continue
+                              
+                if item is None:
+                    continue
+                elif item.text is None:
+                    raise ErrorMessage(f"Field {field} has no text")
+                else:
+                    parse_func = getattr(cls, f"parse_{field}", None)
+                    if parse_func:
+                        params[field] = parse_func(item)
+                    else:
+                        params[field] = item.text.strip()             
+            obj = cls(**params)
+            obj._block = completion
+            return obj
+        except ValidationError as e:
+            logger.exception("Output Model Validation Error")
+            raise ErrorMessage(f"Validation error: {e}")
+    
+    
+    
+    def __repr__(self) -> str:
+        s = f"<{self.__class__.__name__}>"
+        for field, field_info in self.model_fields.items():
+            s += f"\n{field}: {getattr(self, field)}"
+        # for tool in self.tool_calls:
+        #     s += f"\n{tool}"
+        s += f"\n</{self.__class__.__name__}>"
+        return s
+ 
+ 
+OUTPUT_MODEL = TypeVar('OUTPUT_MODEL', bound=OutputModel)
+
+class LlmContext(Generic[OUTPUT_MODEL]):
+    models: list[str] = []  
+    
+    def __init__(self, model: str):
+        if model not in self.models:
+            raise ValueError(f"Model {model} is not supported by {self.__class__.__name__}")
+        self.config: LlmConfig = LlmConfig(model=model)
+        self.blocks: BlockList = BlockList()
+        self.tools: List[Type[BaseModel]] = []
+        self.output_model: Type[OutputModel] | None = None
+        self.is_traceable = True
+        self.tracer_run: Tracer | None = None
+        self.parse_response_fn: Callable[[Block], Block] | None = None
+        self.parse_output_fn: Callable[[OUTPUT_MODEL], OUTPUT_MODEL] | None = None
+        
+        
+    def __call__(self, blocks: BlockList) -> Self:
+        self.blocks = blocks
+        return self
+    
+    def __await__(self):                
+        return self.run_controller_block().__await__()
+    
+    def set_blocks(self, blocks: BlockList):
+        self.blocks = blocks
+        return self
+    
+    def set_model(self, model: str):
+        self.config.model = model
+        return self
+
+    @abstractmethod
+    def to_chat(
+        self, 
+        blocks: BlockList, 
+        tools: List[Type[BaseModel]] | None = None, 
+        error_blocks: BlockList | None = None
+    ) -> List[dict]:
+        ...
+        
+    @abstractmethod
+    async def client_complete(
+        self, 
+        blocks: BlockList, 
+        tools: List[Type[BaseModel]] | None = None, 
+        config: LlmConfig | None = None, 
+        error_blocks: List[Block] | None = None
+    ) -> Block:
+        ...
+    
+    def pick(
+        self, 
+        tools: List[Type[BaseModel]], 
+        tool_choice: ToolChoice="required", 
+        parallel_tool_calls: bool=False
+    ):
+        self.config.tool_choice = tool_choice
+        self.config.parallel_tool_calls = parallel_tool_calls
+        self.tools = tools
+        return self
+    
+    def pick_one(self, tools: List[Type[BaseModel]]):
+        self.config.tool_choice = "required"
+        self.config.parallel_tool_calls = False
+        self.tools = tools
+        return self
+    
+    def pick_many(self, tools: List[Type[BaseModel]]):
+        self.config.tool_choice = "required"
+        self.config.parallel_tool_calls = True
+        self.tools = tools
+        return self
+    
+    def generate_or_pick_one(self, tools: List[Type[BaseModel]]):
+        self.config.tool_choice = "auto"
+        self.config.parallel_tool_calls = False
+        self.tools = tools
+        return self
+    
+    def generate_or_pick_many(self, tools: List[Type[BaseModel]]):
+        self.config.tool_choice = "auto"
+        self.config.parallel_tool_calls = True
+        self.tools = tools
+        return self
+    
+    def parse_response(self, parse_response_fn: Callable[[Block], Block]) -> Self:
+        self.parse_response_fn = parse_response_fn
+        return self
+    
+    def parse_output(self, parse_output_fn: Callable[[OUTPUT_MODEL], OUTPUT_MODEL]) -> Self:
+        self.parse_output_fn = parse_output_fn
+        return self
+    
+    # @singledispatch
+    # async def complete(self, output_model):
+    #     raise NotImplementedError("Output model is not set")
+    
+    # @complete.register(type(None))
+    # async def _(self):
+    #     return await self.run_controller_block()
+        
+    # @complete.register    
+    # async def _(self, output_model: Type[OutputModel]):
+    #     self.output_model = output_model
+    #     response = await self.run_controller_output_model()
+    #     return response
+    
+    async def complete(self, output_model: Type[OUTPUT_MODEL] | None = None) -> OUTPUT_MODEL:
+        if output_model is None:
+            return await self.run_controller_output_model()
+        self.output_model = output_model
+        response = await self.run_controller_output_model()
+        return response
+    
+    async def run_controller_output_model(self) -> OUTPUT_MODEL:
+        blocks, output_model = await self.controller(self.blocks, self.tools, self.config)
+        if output_model is None:
+            raise ValueError("Output model is not set")
+        return output_model
+    
+    async def run_controller_block(self) -> Block:
+        blocks, output_model = await self.controller(self.blocks, self.tools, self.config)
+        return blocks
+    
+    
+    
+    async def controller(
+        self, 
+        blocks: BlockList,
+        tools: List[Type[BaseModel]],
+        config: LlmConfig    
+    ) -> tuple[Block, OUTPUT_MODEL | None]:        
+        response = None
+        error_blocks = BlockList()
+        for attempt in range(config.retries):
+            try:
+                response = await self.client_complete(
+                    blocks=blocks,
+                    tools=tools,
+                    config=config,
+                    error_blocks=error_blocks
+                )
+                if self.parse_response_fn:
+                    response = await call_function(self.parse_response_fn, response)
+                if self.output_model is not None:
+                    parsed_response = self.output_model.parse(response, tools)
+                    if self.parse_output_fn:
+                        parsed_response = await call_function(self.parse_output_fn, parsed_response)
+                    return response, parsed_response
+                return response, None
+            except ErrorMessage as e:
+                
+                if attempt == config.retries - 1:
+                    logger.warning(f"Error Message: {e.error_content}\n too many attempts, raising error.")
+                    raise
+                if e.should_retry:
+                    logger.warning(f"Error Message: {e.error_content}\n attempt {attempt + 1} of {config.retries}, retrying...")
+                    if response is not None:
+                        error_blocks.append(response)
+                    error_blocks.append(e.to_block(self.output_model, role="user", tags=["generation", "error"]))
+        raise Exception("Failed to complete")
+    
+    
+    async def run_complete2(
+        self, 
+        retries=3,    
+    ) -> Block:
+
+        
+        
+        messages = [self._to_message(b) for b in self._to_chat(self.ctx_blocks)]
+        for msg in messages:
+            if not msg.get("role"):
+                raise ValueError("role is not set")
+        for message in messages:
+            print(f"----------------------{message['role']}-------------------------")
+            print(message['content'])            
+        print(f"-----------------------------------------------------------------")
+        tools = self._to_tools(self.actions)
+        response = None
+        for attempt in range(retries):
+            try:
+                response = await self._complete(
+                    messages=messages,
+                    tools=tools,
+                    model=self.model,
+                    tool_choice=self.tool_choice,
+                    **self.config.get_llm_args()
+                )
+                parsed_response = self._parse_response(response, self.actions)
+                print(f"----------------------assistant response-------------------------")
+                print(parsed_response)
+                if self.output_model is not None:
+                    parsed_response = self.output_model.parse(parsed_response)
+                return parsed_response
+            except ErrorMessage as e:
+                if attempt == retries - 1:
+                    raise
+                if e.should_retry:
+                    if response:
+                        messages.append({"role": "assistant", "content": response.content})
+                        messages.append(e.to_block())
+        raise Exception("Failed to complete")
+
+
+
+
+
+class LLM():
+    
+    _model_registry: Dict[str, Type[LlmContext]] = {}
+    _default_model: str | None = None
+    
+    
+    @classmethod
+    def register(cls, model_cls: Type[LlmContext], default_model: str | None = None) -> Type[LlmContext]:
+        """Decorator to register a new LLM model implementation"""
+        if model_cls.__name__ in cls._model_registry:
+            raise ValueError(f"Model {model_cls.__name__} is already registered")
+        for model in model_cls.models:
+            cls._model_registry[model] = model_cls
+        if default_model:
+            cls._default_model = default_model
+        return model_cls
+    
+    @classmethod
+    def _get_llm(cls, model: str | None = None) -> LlmContext:
+        """Get a registered model by name"""
+        if model is None:
+            if cls._default_model is None:
+                raise ValueError("No default model is set")
+            model = cls._default_model
+        if model not in cls._model_registry:
+            raise KeyError(f"Model {model} is not registered")        
+        llm_cls = cls._model_registry[model]
+        llm = llm_cls(model)
+        return llm
 
     
+    def __call__(
+        self,        
+        # *args: Block | List[Block] | BlockList | str,
+        *args: Block | str,
+        model: str | None = None,
+    ) -> LlmContext:
 
-
-
-
-
-class CustomMessage(BaseModel):
-    content: str
-    role: Optional[str] = "assistant"
-    function_call: Optional[Dict[str, Any]] = None
-
-
-class CustomChoice:
-
-    def __init__(self, content):
-        self.message = CustomMessage(content=content)
-
-
-
-class CustomCompletion:
-    
-    def __init__(self, content):
-        self.id = "chatcmpl-custom"
-        self.choices = [
-            CustomChoice(content)
-        ]
-        self.created = time()
-
-def custom_completion(completion):
-    return CustomCompletion(completion)
-    
+        # with Block() as ctx_blocks:
+        #     for block in args:
+        #         if isinstance(block, str):
+        #             ctx_blocks.append(block, role="user", tags=["user_input"])
+        #         elif isinstance(block, Block):
+        #             if not block.role:
+        #                 raise ValueError("Block role is not set")
+        #             ctx_blocks.append(block)
+        #         elif isinstance(block, BlockList):
+        #             for b in block:
+        #                 ctx_blocks.append(b)
+        ctx_blocks = BlockList()
+        for block in args:
+            if isinstance(block, str):
+                ctx_blocks.append(block, role="user", tags=["user_input"])
+            elif isinstance(block, Block):
+                ctx_blocks.append(block)
+            else:
+                raise ValueError("Invalid block type")
+                
+        
+                        
+        llm_ctx = self._get_llm(model)
+        return llm_ctx(ctx_blocks)

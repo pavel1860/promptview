@@ -3,14 +3,14 @@ import inspect
 from functools import wraps
 from typing import Dict, Generic, List, Optional, Type, TypeVar, Union, Callable
 from pydantic import BaseModel
-from promptview.prompt.base_prompt import Prompt
+from promptview.prompt.legacy.base_prompt import Prompt
 from promptview.state.context import Context
 from promptview.llms.messages import AIMessage, ActionCall, ActionMessage, HumanMessage
 from promptview.utils.function_utils import call_function, filter_func_args
-from promptview.prompt.chat_prompt import ChatPrompt
+from promptview.prompt.legacy.chat_prompt import ChatPrompt
 from promptview.llms.tracer import Tracer
-from promptview.prompt.chat_prompt import ChatPrompt
-from promptview.prompt.decorator import prompt
+from promptview.prompt.legacy.chat_prompt import ChatPrompt
+from promptview.prompt.legacy.decorator import prompt
 from promptview.state.context import Context
 from promptview.utils.function_utils import call_function, filter_func_args
 from pydantic import BaseModel
