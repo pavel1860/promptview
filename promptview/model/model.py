@@ -185,6 +185,7 @@ class ModelMeta(ModelMetaclass, type):
                 ns.register_transformer(field_name, field_info, vectorizer_cls)
                 # ResourceManager.register_vectorizer(field_name, vectorizer_cls)
         
+        
         cls_obj = super().__new__(cls, name, bases, dct)
         
         for field_name, field_info in cls_obj.model_fields.items():
@@ -203,6 +204,9 @@ class ModelMeta(ModelMetaclass, type):
                 continue
             
             # Check if this is a relation field
+            if extra.get("is_key", False) and extra.get("primary_key", False):
+                if db_type == "postgres" and field_type == uuid.UUID:
+                    NamespaceManager.register_extension(db_type, '"uuid-ossp"')
             
             if extra.get("is_relation", False):
                 # Get the model class from the relation                                

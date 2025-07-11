@@ -101,18 +101,18 @@ Blocks are the fundamental building units in promptview. They represent discrete
 ```python
 from promptview.block.block import Block
 
-def test_wrapper_block():
-    with Block(tags=["system"]) as b:
-        b /= "you are a helpful assistant"
-        with b("Task", style="md", tags=["task"]):
-            b /= "this is task you need to complete"
 
-    assert b.render() == "you are a helpful assistant\n# Task\nthis is task you need to complete"
+with Block(tags=["system"]) as b:
+    b /= "you are a helpful assistant"
+    with b("Task", style="md", tags=["task"]):
+        b /= "this is task you need to complete"
+
+assert b.render() == "you are a helpful assistant\n# Task\nthis is task you need to complete"
 ```
 
 ### Advanced Example: The block Decorator
 
-The `block` decorator allows you to encapsulate block-building logic in reusable functions, and enables context management for nested blocks. This is especially useful for building complex, structured prompts or code blocks.
+The `block` decorator allows you to encapsulate block-building logic in reusable functions, and enables context management for nested blocks. This is especially useful for building extendable complex, structured prompts.
 
 ```python
 from promptview.block.block import block, Block
@@ -126,10 +126,34 @@ def create_table_block(blk: Block, name: str, *fields):
                 blk += "PRIMARY KEY"
             else:
                 blk += "NULL" if field.is_optional else "NOT NULL"
+```
 
+if the block is extendable, for instance if you want a reusable assistant profile, but with different rules 
+each time
+
+```python
 # Usage:
-with create_table_block("users", field1, field2) as table_blk:
-    print(table_blk.render())
+@block()
+def assistant_profile(blk: Block, query: str):
+    with Block(tags=["system"]) as b:
+        b /= "you are a helpful assistant"
+        with b("Task", style="md", tags=["task"]):
+            b /= "this is task you need to complete"
+
+        with b("Rules", style="list", tags["rules"]):
+            yield b 
+
+
+
+with assistant_profile("tell me a story") as b:
+    b /= "you should speak like a pirate"
+    b /= "you are on a ship looking for a treasure"
+
+
+with assistant_profile("tell me a story") as b:
+    b /= "you should speak like shakespeare"
+    b /= "you should right 15th centry poems"
+
 ```
 
 This pattern ensures that nested blocks and content are appended to the correct parent, making your block logic modular and maintainable.
@@ -145,29 +169,27 @@ Agents are responsible for managing conversations, orchestrating actions, and in
 **Example:** Defining an ActionAgent with prompt and reducer logic.
 
 ```python
-from promptview.agent.action_agent import ActionAgent
-from promptview import ChatPrompt
+@prompt()
+async def chat_prompt(message: Message, llm: OpenAiLLM = Depends(OpenAiLLM)):    
+    with Block(role="system") as b:
+        b([
+            "you are a pirate by name of black jack.",
+            "you should answer each question as a pirate",
+        ])
+        with b("Task", tags="task"):
+            b /= "give the user a quest"
 
-pirate_agent = ActionAgent(
-    name="pirate_agent", 
-    prompt_cls=ChatPrompt, 
-    add_input_history=True,
-    iterations=2
-)
+        with b("Rules", tags="rules"):
+            b([
+                "you should only speak about quest related topics",
+            ])
+        
+    
+    
+    res = await llm([sm] + conv).generate()
+    response = await conv.push(res)
+    return response
 
-@pirate_agent.prompt(
-    model="claude-3-5-sonnet-20240620",
-    background="you are a pirate by the name of Jack Sparrow.",
-    rules=[
-        "you can answer with a regular message or use an action.",
-        "if you provide a message, it should be without formatting. you should answer as if you are speaking.",
-    ],
-    actions=[AttackAction, GiveQuestAction, MoveAction, ChangeReputationAction],
-)
-def pirate_prompt(context, message, pirate_stats, user_stats):
-    if message.role == 'tool':
-        return [*context.history.get(10), message]
-    return [*context.history.get(10), pirate_view(pirate_stats, user_stats), message]
 ```
 
 ### Model

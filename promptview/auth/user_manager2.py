@@ -19,7 +19,7 @@ from promptview.model.model import Model
 
 class AuthModel(Model):
     _is_base: bool = True
-    id: int = KeyField(primary_key=True)
+    id: UUID = KeyField(primary_key=True)
     auth_user_id: str | None = ModelField(None, index="btree")
     is_guest: bool = ModelField(default=True)
     guest_token: UUID | None = ModelField(None)

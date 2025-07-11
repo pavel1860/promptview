@@ -21,6 +21,9 @@ def create_table_block(blk: Block, name: str, *fields: "PgFieldInfo"):
             blk /= f'"{field.name}"', field.sql_type
             if field.is_primary_key:
                 blk += "PRIMARY KEY"
+                if field.sql_type == "UUID":
+                    blk += "DEFAULT uuid_generate_v4()"
             else:
                 # blk += "NULL" if field.is_optional and not field.is_foreign_key else "NOT NULL"            
-                blk += "NULL" if field.is_optional else "NOT NULL"            
+                blk += "NULL" if field.is_optional else "NOT NULL"
+            

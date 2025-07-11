@@ -39,17 +39,19 @@ def ModelField(
         extra["foreign_key"] = True
         default = None
     # Create the field with the extra metadata
-    return Field(
-        default,
-        default_factory=default_factory,
-        json_schema_extra=extra,
-        description=description,
-    )
+    params = {
+        "json_schema_extra": extra,
+        "description": description,
+    }
+    if default_factory and default_factory != _Unset:
+        params["default_factory"] = default_factory
+    return Field(default, **params)
 
 
 def KeyField(
     default: Any = None,
     # *,
+    default_factory: Callable[[], Any] | Callable[[dict[str, Any]], Any] | None = _Unset,
     primary_key: bool = False,
     type: Literal["int", "uuid"] = "int",
     description: str | None = _Unset,
@@ -65,7 +67,15 @@ def KeyField(
     # if type == "uuid" and not primary_key:
         # return Field(default_factory=lambda: uuid.uuid4(), json_schema_extra=extra, description=description)
     # Create the field with the extra metadata
-    return Field(default, json_schema_extra=extra, description=description)
+    params = {
+        "json_schema_extra": extra,
+        "description": description,
+    }
+    if default_factory and default_factory != _Unset:
+        params["default_factory"] = default_factory
+        return Field(**params)
+    else:
+        return Field(default, **params)
 
 
 def RefField(

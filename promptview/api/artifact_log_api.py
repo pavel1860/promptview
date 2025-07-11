@@ -1,4 +1,5 @@
 from typing import Dict, Type, List, TypeVar, Generic
+from uuid import UUID
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.datastructures import QueryParams
 from promptview.api.utils import Head, build_head_parser, get_head
@@ -19,7 +20,6 @@ router = APIRouter(prefix="/artifact_log", tags=["artifact_log"])
 #     if value is None or value == "null" or value == "undefined":
 #         return None
 #     return int(value)
-
 
 # def get_artifact_log(request: Request):
 #     head_id = unpack_int_env_header(request, "head_id")
@@ -107,7 +107,7 @@ async def create_partition(payload: CreatePartitionPayload, user: AuthModel = De
 
 
 @router.get("/turns/{branch_id}/partition/{partition_id}", response_model=List[Turn])
-async def get_branch_turns(branch_id: int, partition_id: int):    
+async def get_branch_turns(branch_id: int, partition_id: UUID):    
     turn_ns = NamespaceManager.get_namespace("turns")
     turns = await turn_ns.query().where(branch_id=branch_id,partition_id=partition_id).tail(20)
     return reversed(turns)
