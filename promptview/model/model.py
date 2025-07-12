@@ -294,6 +294,7 @@ class ModelMeta(ModelMetaclass, type):
                 ns.add_field(
                     field_name, 
                     field_type, 
+                    default=field_info.default,
                     is_optional=extra.get("is_optional", False),
                     foreign_key=extra.get("foreign_key", False),
                     is_key=extra.get("is_key", False),

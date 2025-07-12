@@ -29,6 +29,7 @@ class PgFieldInfo(NSFieldInfo):
         self,
         name: str,
         field_type: type[Any],
+        default: Any | None = None,
         is_optional: bool = False,
         foreign_key: bool = False,
         is_key: bool = False,
@@ -40,6 +41,7 @@ class PgFieldInfo(NSFieldInfo):
         super().__init__(
             name, 
             field_type, 
+            default=default,
             is_optional=is_optional,
             foreign_key=foreign_key,
             is_key=is_key,
@@ -58,6 +60,8 @@ class PgFieldInfo(NSFieldInfo):
     def serialize(self, value: Any) -> Any:
         """Serialize the value for the database"""
         if value is None:
+            if self.default is not None:
+                return self.default
             return None
         if self.is_key and self.key_type == "uuid" and value is None:
             value = str(uuid.uuid4())

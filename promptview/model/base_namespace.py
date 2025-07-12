@@ -57,6 +57,7 @@ class Serializable(Protocol):
 class NSFieldInfo:
     name: str
     field_type: Type[Any]
+    default: Any | None = None
     origin_type: Type[Any]
     extra: dict[str, Any] | None = None
     is_optional: bool = False
@@ -80,6 +81,7 @@ class NSFieldInfo:
         self,
         name: str,
         field_type: type[Any],
+        default: Any | None = None,
         is_optional: bool = False,
         foreign_key: bool = False,
         is_key: bool = False,
@@ -89,7 +91,8 @@ class NSFieldInfo:
         namespace: "Namespace | None" = None,
         is_primary_key: bool = False,
     ):
-        self.name = name        
+        self.name = name   
+        self.default = default
         self.is_foreign_key = foreign_key
         self.field_type = field_type
         self.origin_type, type_is_optional = NSFieldInfo.parse_optional(field_type)
@@ -838,7 +841,8 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         select: Set[str] | None = None, 
         is_vector: bool = True, 
         is_optional: bool | None = None,
-        exclude: Set[str] | None = None
+        exclude: Set[str] | None = None,
+        default: bool | None = None
         ) -> "Iterator[FIELD_INFO]":
         for field in self._fields.values():
             if not keys and field.is_key:
@@ -851,6 +855,11 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
                 continue
             if exclude is not None and field.name in exclude:
                 continue
+            if default is not None:
+                if default and field.default is None:
+                    continue
+                if not default and field.default is not None:  
+                    continue
             yield field
             
     def iter_relations(self) -> Iterator[NSRelationInfo]:
@@ -905,6 +914,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         self,
         name: str,
         field_type: type[Any],
+        default: Any | None = None,
         is_optional: bool = False,
         foreign_key: bool = False,
         is_key: bool = False,

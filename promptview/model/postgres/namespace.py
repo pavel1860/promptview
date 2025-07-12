@@ -64,6 +64,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         self,
         name: str,
         field_type: type[Any],
+        default: Any | None = None,
         is_optional: bool = False,
         foreign_key: bool = False,
         is_key: bool = False,
@@ -83,6 +84,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         pg_field = PgFieldInfo(
             name=name,
             field_type=field_type,
+            default=default,
             is_optional=is_optional,
             foreign_key=foreign_key,
             is_key=is_key,
