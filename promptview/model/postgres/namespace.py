@@ -658,6 +658,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
     
     def query(
         self, 
+        parse: Callable[[MODEL], Any] | None = None,
         **kwargs
     ) -> QuerySet:
         """
@@ -669,7 +670,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         Returns:
             A query set for this namespace
         """
-        query = SelectQuerySet(self.model_class).select("*")
+        query = SelectQuerySet(self.model_class, parse=parse).select("*")
         if self.default_temporal_field:
             query.order_by(self.default_temporal_field.name)
         return query

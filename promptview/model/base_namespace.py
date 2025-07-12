@@ -4,7 +4,7 @@ import contextvars
 from enum import Enum, StrEnum
 import inspect
 import json
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterator, List, Literal, Set, Type, TypeVar, TypedDict, Optional, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterator, List, Literal, Protocol, Self, Set, Type, TypeVar, TypedDict, Optional, get_args, get_origin, runtime_checkable
 import uuid
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
@@ -44,7 +44,14 @@ class Distance(StrEnum):
     MINKOWSKI = "minkowski"
     HAMMING = "hamming"
 
-    
+
+@runtime_checkable
+class Serializable(Protocol):
+    def serialize(self) -> dict[str, Any]:
+        ...
+
+    def deserialize(self, data: dict[str, Any]) -> Self:
+        ...
 
     
 class NSFieldInfo:
@@ -1084,6 +1091,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     def query(
         self, 
+        parse: Callable[[MODEL], Any] | None = None,
         **kwargs
     ) -> QuerySet:
         """

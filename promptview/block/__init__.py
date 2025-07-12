@@ -18,5 +18,5 @@ __all__ = [
     "ToolCall", 
     "LlmUsage", 
     "BlockRole", 
-    "BlockList"
+    "BlockList",
 ]

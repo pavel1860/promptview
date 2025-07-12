@@ -6,12 +6,14 @@ from inspect import signature
 import inspect
 import json
 import textwrap
-from typing import Any, Callable, Concatenate, ContextManager, Generator, Generic, Iterator, List, Literal, ParamSpec, Protocol, SupportsIndex, Type, TypeVar, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Concatenate, ContextManager, Generator, Generic, Iterator, List, Literal, ParamSpec, Protocol, SupportsIndex, Type, TypeVar, Union, overload
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
 from promptview.block.style import InlineStyle, BlockStyle, style_manager
 from promptview.utils.model_utils import schema_to_ts
-
+if TYPE_CHECKING:
+    from promptview.model.block_model import BlockModel
+    from promptview.model.model import SelectQuerySet
 
 
 
@@ -365,6 +367,7 @@ class Block:
         _type = data.pop("_type")
         items = data.pop("items")
         content = data.pop("content")
+        content = content if isinstance(content, tuple) else (content,)
         return cls(*content,**data, items=[cls.model_validate(item) for item in items])
     
     @property
@@ -699,6 +702,16 @@ class Block:
             return v.model_dump()
         else:
             raise ValueError(f"Invalid block: {v}")
+        
+        
+    def to_model(self) -> "BlockModel":
+        from promptview.model.block_model import BlockModel
+        return BlockModel.from_block(self)
+    
+    @classmethod
+    def query(cls) -> "SelectQuerySet[BlockModel]":
+        from promptview.model.block_model import BlockModel
+        return BlockModel.query(parse=lambda x: x.to_block())
 
 
 class BlockContext:

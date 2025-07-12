@@ -64,7 +64,16 @@ class InputTurn(BaseModel):
     input: str = ModelField(default="")
     expected: List[str] = ModelField(default=[])
     evaluators: List[EvaluatorConfig] = ModelField(default=[])
-   
+    
+    
+class PromptEval(BaseModel):
+    description: str = ModelField(default="")
+    
+
+
+
+    
+
 
 class TestCase(Model):
     id: int = KeyField(primary_key=True)
@@ -72,8 +81,10 @@ class TestCase(Model):
     updated_at: datetime = ModelField(default_factory=datetime.now)
     title: str = ModelField(default="")
     description: str = ModelField(default="")
-    input_turns: list[InputTurn] = ModelField(default=[])
-    branch_id: int = ModelField(default=1, description="the branch this test case belongs to")
-    turn_id: int = ModelField(default=1, description="the turn this test case will start from")
-    user_id: int = ModelField(default=1, description="the user this test case belongs to")
+    evaluators: dict[int, PromptEval] = ModelField(default={})
+    branch_id: int = ModelField(default=1, foreign_key=True, description="the branch this test case belongs to")
+    start_turn_id: int = ModelField(foreign_key=True, description="the turn this test case will start from")
+    end_turn_id: int = ModelField(foreign_key=True, description="the turn this test case will end at")
+    limit: int = ModelField(description="the number of turns to test")
+    user_id: int = ModelField(description="the user this test case belongs to")
     test_runs: Relation[TestRun] = RelationField(foreign_key="test_case_id")
