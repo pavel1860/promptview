@@ -1,5 +1,6 @@
 from .test_models import TestCase, TestRun, TurnEval, TurnEvaluator, Evaluation, EvaluatorConfig, TestCaseEvaluators
-from .evaluator_decorator import evaluate, evaluator, EvalCtx
+from .evaluator_decorator import evaluator, EvalCtx
+from .test_runner import TestRunner
 from . import evaluators
 
 
@@ -10,10 +11,10 @@ __all__ = [
     "TurnEval",
     "TurnEvaluator",
     "Evaluation",
-    "evaluate",
     "EvaluatorConfig",
     "evaluator",
     "EvalCtx",
     "evaluators",
     "TestCaseEvaluators",
+    "TestRunner",
 ]

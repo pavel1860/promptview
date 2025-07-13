@@ -8,7 +8,10 @@ if TYPE_CHECKING:
 
 
 
-class EvalRunner:
+
+TURN_MODEL = TypeVar("TURN_MODEL", bound="Turn")
+
+class EvalRunner(Generic[TURN_MODEL]):
     
     def __init__(self, test_case: TestCase, test_run: TestRun, evaluators: list[EvaluatorConfig]):
         self.evaluators = []
@@ -17,7 +20,7 @@ class EvalRunner:
             if eval_builder is not None:
                 self.evaluators.append(eval_builder(test_case, test_run, e))
                 
-    async def __call__(self, ref_turn: Turn, test_turn: Turn):        
+    async def __call__(self, ref_turn: TURN_MODEL, test_turn: TURN_MODEL):        
         results = await asyncio.gather(*[e(ref_turn, test_turn) for e in self.evaluators])
         score = sum(r.score for r in results) / len(results)
         return TurnEval(score=score, evaluations=results, test_turn_id=test_turn.id, ref_turn_id=ref_turn.id)
@@ -25,13 +28,10 @@ class EvalRunner:
 
 
 
-async def iter_turns(test_case: TestCase, test_run: TestRun):
-    for turn in test_case.turns:
-        turn_eval = test_case.evaluators.get(turn.id)
-        yield turn, EvalRunner(test_case, test_run, turn_eval.evaluators)
 
 
-TURN_MODEL = TypeVar("TURN_MODEL", bound="Turn")
+
+
 class TestRunner(Generic[TURN_MODEL]):
     
     def __init__(self, test_case: TestCase):
@@ -43,6 +43,12 @@ class TestRunner(Generic[TURN_MODEL]):
     async def run(self, branch: "Branch", turn: TURN_MODEL) -> TURN_MODEL:
         raise NotImplementedError("Subclass must implement this method")
     
+    
+    async def iter_turns(self, test_case: TestCase, test_run: TestRun):
+        for turn in test_case.turns:
+            turn_eval = test_case.evaluators.get(turn.id)
+            yield turn, EvalRunner(test_case, test_run, turn_eval.evaluators)
+    
     async def __call__(self):
         from promptview.model import Branch
         branch = await Branch.get(self.test_case.turns[0].branch_id)
@@ -51,7 +57,7 @@ class TestRunner(Generic[TURN_MODEL]):
         with test_branch:
             test_run = await self.test_case.add(TestRun())
             async with test_run:
-                async for ref_turn, evals in iter_turns(self.test_case, test_run):                     
+                async for ref_turn, evals in self.iter_turns(self.test_case, test_run):                     
                     # Run the Agent
                     test_turn = await self.run(test_branch, ref_turn)
                     evaluation = await evals(ref_turn, test_turn)            
