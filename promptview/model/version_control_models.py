@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import enum
 import contextvars
 from functools import wraps
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Generic, List, ParamSpec, Self, Type, TypeVar, overload
 import uuid
 
@@ -26,6 +27,7 @@ class TurnStatus(enum.StrEnum):
     STAGED = "staged"
     COMMITTED = "committed"
     REVERTED = "reverted"
+    BRANCH_CREATED = "branch_created"
 
 MODEL = TypeVar("MODEL", bound="Model")
 TURN_MODEL = TypeVar("TURN_MODEL", bound="TurnModel")
@@ -73,6 +75,9 @@ class Turn(Model):
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now, is_default_temporal=True)
     ended_at: dt.datetime | None = ModelField(default=None)
     index: int = ModelField()
+    test_case_id: int | None = ModelField(default=None, foreign_key=True)
+    is_test: bool = ModelField(default=False)
+    is_test_definition: bool = ModelField(default=False)
     status: TurnStatus = ModelField(default=TurnStatus.STAGED)
     message: str | None = ModelField(default=None)
     branch_id: int = ModelField(foreign_key=True)
@@ -155,9 +160,10 @@ class Turn(Model):
         await self.save()
     
     
-    async def revert(self):
+    async def revert(self, error_message: str | None = None):
         self.ended_at = dt.datetime.now()   
         self.status = TurnStatus.REVERTED
+        self.message = error_message
         await self.save()
         
     async def __aenter__(self):
@@ -167,7 +173,7 @@ class Turn(Model):
         
     async def __aexit__(self, exc_type, exc_value, traceback):
         if exc_type is not None:
-            await self.revert()
+            await self.revert(f"{exc_type.__name__}: {exc_value}")
         else:
             await self.commit()
         
@@ -192,12 +198,12 @@ class Turn(Model):
     
     @classmethod
     @contextcallable
-    async def start(cls, branch: "Branch | int | None" = None, **kwargs) -> "Turn":
+    async def start(cls, branch: "Branch | int | None" = None, **kwargs) -> Self:
         branch = Branch.current()
         if branch is None:
             raise VersioningError("Branch is required")        
         ns = cls.get_namespace()
-        fields = ns.iter_fields(keys=False, is_optional=False, exclude={"created_at", "index", "status", "branch_id"})
+        fields = ns.iter_fields(keys=False, is_optional=False, default=False, exclude={"created_at", "index", "status", "branch_id"})
         for field in fields:
             if field.is_foreign_key:
                 value = ns.get_foreign_key_ctx_value(field)
@@ -214,8 +220,25 @@ class Turn(Model):
         branch_id = get_branch_id(branch, use_default=False)
         turn = await cls(branch_id=branch_id, **kwargs).save()
         return turn
+    
+    
+    
+    @classmethod
+    def query2(cls: "Type[Self]", branch: "Branch | int | None" = None, **kwargs) -> "SelectQuerySet[Self]":
+        branch_id = get_branch_id(branch)
+        turn_cte = cls.list_cte(branch_id)
+        return cls.query().with_cte("turn_cte", turn_cte)
         
-        
+    
+    # @classmethod
+    # def query(cls: "Type[Self]", branch: "Branch | int | None" = None, **kwargs) -> "SelectQuerySet[Self]":
+    #     branch_id = get_branch_id(branch)
+    #     branch_cte = Branch.recursive_cte(branch_id)
+    #     ns = cls.get_namespace()
+    #     query = ns.query(**kwargs).with_cte("branch_hierarchy", branch_cte, recursive=True)
+    #     query = query.join_cte("branch_hierarchy", "branch_id", "id", "bh")
+    #     query = query.where(lambda t: t.index <= RawValue("bh.start_turn_index"))
+    #     return query
         
     # @overload  
     # async def add(self, obj: TURN_MODEL, **kwargs) -> TURN_MODEL:
@@ -297,7 +320,31 @@ class Branch(Model):
         return cte
     
     
-    async def add_turn(self, message: str | None = None, status: TurnStatus = TurnStatus.STAGED, **kwargs) -> Turn:
+    async def add_turn(
+        self, 
+        message: str | None = None, 
+        status: TurnStatus = TurnStatus.STAGED, 
+        is_test: bool = False, 
+        is_test_definition: bool = False, 
+        **kwargs
+    ) -> Turn:
+        # query = f"""
+        # WITH updated_branch AS (
+        #     UPDATE branches
+        #     SET current_index = current_index + 1
+        #     WHERE id = $1
+        #     RETURNING id, current_index
+        # ),
+        # new_turn AS (
+        #     INSERT INTO turns (branch_id, index, created_at, status{"".join([", " + k for k in kwargs.keys()])})
+        #     SELECT id, current_index, current_timestamp, $2{"".join([", $" + str(i) for i in range(3, len(kwargs) + 3)])}
+        #     FROM updated_branch
+        #     RETURNING *
+        # )
+        # SELECT * FROM new_turn;
+        # """  
+        
+        
         query = f"""
         WITH updated_branch AS (
             UPDATE branches
@@ -306,8 +353,8 @@ class Branch(Model):
             RETURNING id, current_index
         ),
         new_turn AS (
-            INSERT INTO turns (branch_id, index, created_at, status{"".join([", " + k for k in kwargs.keys()])})
-            SELECT id, current_index, current_timestamp, $2{"".join([", $" + str(i) for i in range(3, len(kwargs) + 3)])}
+            INSERT INTO turns (branch_id, index, created_at, status, is_test, is_test_definition{"".join([", " + k for k in kwargs.keys()])})
+            SELECT id, current_index, current_timestamp, $2, $3, $4{"".join([", $" + str(i) for i in range(5, len(kwargs) + 5)])}
             FROM updated_branch
             RETURNING *
         )
@@ -315,7 +362,7 @@ class Branch(Model):
         """        
         turn_ns = Turn.get_namespace()
         
-        turn_record = await turn_ns.fetch(query, self.id, status.value, *[kwargs[k] for k in kwargs.keys()])
+        turn_record = await turn_ns.fetch(query, self.id, status.value, is_test, is_test_definition, *[kwargs[k] for k in kwargs.keys()])
         if not turn_record:
             raise VersioningError("Failed to add turn")
         # return Turn(**turn_record[0])

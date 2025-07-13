@@ -4,7 +4,7 @@ import contextvars
 from enum import Enum, StrEnum
 import inspect
 import json
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterator, List, Literal, Set, Type, TypeVar, TypedDict, Optional, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Generic, Iterator, List, Literal, Protocol, Self, Set, Type, TypeVar, TypedDict, Optional, get_args, get_origin, runtime_checkable
 import uuid
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
@@ -44,12 +44,20 @@ class Distance(StrEnum):
     MINKOWSKI = "minkowski"
     HAMMING = "hamming"
 
-    
+
+@runtime_checkable
+class Serializable(Protocol):
+    def serialize(self) -> dict[str, Any]:
+        ...
+
+    def deserialize(self, data: dict[str, Any]) -> Self:
+        ...
 
     
 class NSFieldInfo:
     name: str
     field_type: Type[Any]
+    default: Any | None = None
     origin_type: Type[Any]
     extra: dict[str, Any] | None = None
     is_optional: bool = False
@@ -73,6 +81,7 @@ class NSFieldInfo:
         self,
         name: str,
         field_type: type[Any],
+        default: Any | None = None,
         is_optional: bool = False,
         foreign_key: bool = False,
         is_key: bool = False,
@@ -82,7 +91,8 @@ class NSFieldInfo:
         namespace: "Namespace | None" = None,
         is_primary_key: bool = False,
     ):
-        self.name = name        
+        self.name = name   
+        self.default = default
         self.is_foreign_key = foreign_key
         self.field_type = field_type
         self.origin_type, type_is_optional = NSFieldInfo.parse_optional(field_type)
@@ -831,7 +841,8 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         select: Set[str] | None = None, 
         is_vector: bool = True, 
         is_optional: bool | None = None,
-        exclude: Set[str] | None = None
+        exclude: Set[str] | None = None,
+        default: bool | None = None
         ) -> "Iterator[FIELD_INFO]":
         for field in self._fields.values():
             if not keys and field.is_key:
@@ -844,6 +855,11 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
                 continue
             if exclude is not None and field.name in exclude:
                 continue
+            if default is not None:
+                if default and field.default is None:
+                    continue
+                if not default and field.default is not None:  
+                    continue
             yield field
             
     def iter_relations(self) -> Iterator[NSRelationInfo]:
@@ -898,6 +914,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         self,
         name: str,
         field_type: type[Any],
+        default: Any | None = None,
         is_optional: bool = False,
         foreign_key: bool = False,
         is_key: bool = False,
@@ -1084,6 +1101,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
     
     def query(
         self, 
+        parse: Callable[[MODEL], Any] | None = None,
         **kwargs
     ) -> QuerySet:
         """

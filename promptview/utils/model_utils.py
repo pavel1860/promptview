@@ -431,3 +431,17 @@ def make_json_serializable(data: dict[str, Any]):
         raise ValueError(f"Failed to serialize dict: {data}") from e
     return data
     
+    
+    
+def make_json_string_deserializable(data_str: str):
+    data = json.loads(data_str)
+    ret_data = {}
+    try:
+        for k, v in data.items():
+            if k.isdigit():
+                ret_data[int(k)] = v
+            else:
+                ret_data[k] = v
+    except Exception as e:
+        raise ValueError(f"Failed to deserialize dict: {data}") from e
+    return data

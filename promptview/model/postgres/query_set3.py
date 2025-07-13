@@ -111,7 +111,7 @@ def join_as_subquery(query, rel, parent_table):
 class SelectQuerySet(Generic[MODEL]):
     
     
-    def __init__(self, model_class: Type[MODEL], query: SelectQuery | None = None, alias: str | None = None):
+    def __init__(self, model_class: Type[MODEL], query: SelectQuery | None = None, alias: str | None = None, parse: Callable[[MODEL], Any] | None = None):
         self.model_class = model_class
         self.alias_lookup = {}        
         self.table_lookup = {}
@@ -120,6 +120,7 @@ class SelectQuerySet(Generic[MODEL]):
         self.table_lookup[str(table)] = table
         self.query = SelectQuery().from_(table) if query is None else query
         self._params = []
+        self._parse = parse
 
     def _set_alias(self, name: str, alias: str | None = None) -> str:
         if alias is not None:
@@ -460,12 +461,19 @@ class SelectQuerySet(Generic[MODEL]):
         return sql
     
     
+    def parse(self, row: dict[str, Any]) -> MODEL:
+        m = self.model_class.from_dict(self.namespace.pack_record(row))
+        if self._parse is not None:
+            return self._parse(m)
+        return m
+    
+    
     async def execute(self) -> List[MODEL]:
         # sql = self.render()        
         compiler = Compiler()
         sql, params = compiler.compile(self.query)
         results = await self.execute_sql(sql, *params)
-        return [self.model_class.from_dict(self.namespace.pack_record(dict(row))) for row in results]
+        return [self.parse(row) for row in results]
         # return [self.model_class(**self.namespace.pack_record(dict(row))) for row in results]
 
 

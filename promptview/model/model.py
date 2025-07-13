@@ -1,5 +1,5 @@
 import contextvars
-from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, Iterator, List, Literal, Optional, Self, Set, Tuple, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Dict, Generic, Iterable, Iterator, List, Literal, Optional, Protocol, Self, Set, Tuple, Type, TypeVar, Callable, cast, ForwardRef, get_args, get_origin, runtime_checkable
 import uuid
 from pydantic import BaseModel, Field, PrivateAttr
 from pydantic.config import JsonDict
@@ -294,6 +294,7 @@ class ModelMeta(ModelMetaclass, type):
                 ns.add_field(
                     field_name, 
                     field_type, 
+                    default=field_info.default,
                     is_optional=extra.get("is_optional", False),
                     foreign_key=extra.get("foreign_key", False),
                     is_key=extra.get("is_key", False),
@@ -356,8 +357,18 @@ class ModelMeta(ModelMetaclass, type):
         return SelectFieldProxy(cls, cls.get_namespace())
     
     
-MODEL = TypeVar("MODEL", bound="Model")
+MODEL = TypeVar("MODEL", bound="Model", covariant=True)
 JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
+
+
+@runtime_checkable
+class Modelable(Protocol, Generic[MODEL]):
+    def to_model(self) -> MODEL:
+        ...
+        
+    @classmethod
+    def query(cls) -> "SelectQuerySet[MODEL]":
+        ...
 
 class Model(BaseModel, metaclass=ModelMeta):
     """Base class for all models
@@ -479,7 +490,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     def transform(self) -> str:
         return self.model_dump_json()
     
-    async def save(self, *args, **kwargs) -> Self:
+    async def save(self, overwrite_relations: bool = False, *args, **kwargs) -> Self:
         """
         Save the model instance to the database
         """
@@ -500,6 +511,8 @@ class Model(BaseModel, metaclass=ModelMeta):
                 rel = ns.get_relation(key)
                 if rel is None:
                     raise ValueError(f"Field {key} not found in namespace {ns.table_name}")
+                if not overwrite_relations and not value:
+                    continue
                 setattr(self, key, value)
             else:
                 dv = field.deserialize(value)
@@ -539,9 +552,11 @@ class Model(BaseModel, metaclass=ModelMeta):
         return result
     
     
-    async def add(self, model: MODEL, **kwargs) -> MODEL:
+    async def add(self, model: MODEL | Modelable[MODEL], **kwargs) -> MODEL:
         """Add a model instance to the database"""
         ns = self.get_namespace()
+        if isinstance(model, Modelable):
+            model = model.to_model()
         relation = ns.get_relation_by_type(model.__class__)
         if not relation:
             raise ValueError(f"Relation model not found for type: {model.__class__.__name__}")
@@ -596,7 +611,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     
     
     @classmethod
-    def query(cls: Type[Self], **kwargs) -> "SelectQuerySet[Self]":
+    def query(cls: Type[Self], parse: Callable[[Self], Any] | None = None, **kwargs) -> "SelectQuerySet[Self]":
         """
         Create a query for this model
         
@@ -604,7 +619,7 @@ class Model(BaseModel, metaclass=ModelMeta):
             branch: Optional branch ID to query from
         """
         ns = cls.get_namespace()
-        return ns.query(**kwargs)
+        return ns.query(parse=parse, **kwargs)
     
     
     async def fetch(self, *fields: str) -> Self:

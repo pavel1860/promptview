@@ -8,8 +8,8 @@ import datetime as dt
 import numpy as np
 from pydantic import BaseModel
 from promptview.model.vectors import Vector
-from promptview.utils.model_utils import get_list_type, is_list_type, make_json_serializable
-from promptview.model.base_namespace import NSFieldInfo
+from promptview.utils.model_utils import get_list_type, is_list_type, make_json_serializable, make_json_string_deserializable
+from promptview.model.base_namespace import NSFieldInfo, Serializable
 if TYPE_CHECKING:
     from promptview.model.base_namespace import Model, Namespace
     
@@ -29,6 +29,7 @@ class PgFieldInfo(NSFieldInfo):
         self,
         name: str,
         field_type: type[Any],
+        default: Any | None = None,
         is_optional: bool = False,
         foreign_key: bool = False,
         is_key: bool = False,
@@ -40,6 +41,7 @@ class PgFieldInfo(NSFieldInfo):
         super().__init__(
             name, 
             field_type, 
+            default=default,
             is_optional=is_optional,
             foreign_key=foreign_key,
             is_key=is_key,
@@ -58,6 +60,8 @@ class PgFieldInfo(NSFieldInfo):
     def serialize(self, value: Any) -> Any:
         """Serialize the value for the database"""
         if value is None:
+            if self.default is not None:
+                return self.default
             return None
         if self.is_key and self.key_type == "uuid" and value is None:
             value = str(uuid.uuid4())
@@ -72,7 +76,10 @@ class PgFieldInfo(NSFieldInfo):
                     # value = 
                 # value = value.model_dump()
             elif self.data_type is dict or issubclass(self.data_type, BaseModel):
-                value = make_json_serializable(value)
+                if isinstance(value, Serializable):
+                    value = value.serialize()
+                else:
+                    value = make_json_serializable(value)
                 return json.dumps(value)
 
                 # parsed_values = {}
@@ -119,7 +126,7 @@ class PgFieldInfo(NSFieldInfo):
             return json.loads(value)
         elif self.data_type is dict:
             if type(value) is str:
-                return json.loads(value)
+                return make_json_string_deserializable(value)
             else:
                 return value
         elif self.is_enum and not self.is_literal:

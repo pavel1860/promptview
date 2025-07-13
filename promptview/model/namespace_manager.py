@@ -178,10 +178,11 @@ class NamespaceManager:
     
     @classmethod
     async def get_or_create_main_branch(cls):
-        from .version_control_models import Branch
+        from .version_control_models import Branch, TurnStatus
         branch = await Branch.query().filter(id=1).first()
         if branch is None:
             branch = await Branch(name="main").save()
+            turn = await branch.add_turn(status=TurnStatus.BRANCH_CREATED)
         return branch
     
     

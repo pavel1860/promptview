@@ -4,7 +4,7 @@ from promptview.model.fields import ModelField
 from promptview.model.model import Model
 from promptview.model.version_control_models import TurnModel
 from promptview.block.block import Blockable, ToolCall, Block
-
+import copy
 
 
 
@@ -42,5 +42,5 @@ class BlockModel(TurnModel):
         return res
         
     def to_block(self) -> Block:                
-        block = Block.model_validate(self.block)
+        block = Block.model_validate(copy.deepcopy(self.block))
         return block
