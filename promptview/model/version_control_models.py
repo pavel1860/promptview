@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import enum
 import contextvars
 from functools import wraps
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Generic, List, ParamSpec, Self, Type, TypeVar, overload
 import uuid
 
@@ -159,9 +160,10 @@ class Turn(Model):
         await self.save()
     
     
-    async def revert(self):
+    async def revert(self, error_message: str | None = None):
         self.ended_at = dt.datetime.now()   
         self.status = TurnStatus.REVERTED
+        self.message = error_message
         await self.save()
         
     async def __aenter__(self):
@@ -171,7 +173,7 @@ class Turn(Model):
         
     async def __aexit__(self, exc_type, exc_value, traceback):
         if exc_type is not None:
-            await self.revert()
+            await self.revert(f"{exc_type.__name__}: {exc_value}")
         else:
             await self.commit()
         
@@ -196,7 +198,7 @@ class Turn(Model):
     
     @classmethod
     @contextcallable
-    async def start(cls, branch: "Branch | int | None" = None, **kwargs) -> "Turn":
+    async def start(cls, branch: "Branch | int | None" = None, **kwargs) -> Self:
         branch = Branch.current()
         if branch is None:
             raise VersioningError("Branch is required")        

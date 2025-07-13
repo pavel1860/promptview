@@ -490,7 +490,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     def transform(self) -> str:
         return self.model_dump_json()
     
-    async def save(self, *args, **kwargs) -> Self:
+    async def save(self, overwrite_relations: bool = False, *args, **kwargs) -> Self:
         """
         Save the model instance to the database
         """
@@ -511,6 +511,8 @@ class Model(BaseModel, metaclass=ModelMeta):
                 rel = ns.get_relation(key)
                 if rel is None:
                     raise ValueError(f"Field {key} not found in namespace {ns.table_name}")
+                if not overwrite_relations and not value:
+                    continue
                 setattr(self, key, value)
             else:
                 dv = field.deserialize(value)
