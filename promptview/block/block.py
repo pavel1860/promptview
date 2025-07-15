@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 
-ContentType = Union[str , dict , "Block"]
+ContentType = Union[str , dict , "Block", "ContextManager[Block]"]
 
 
 

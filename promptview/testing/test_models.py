@@ -1,4 +1,5 @@
 from typing import List, Literal
+from uuid import UUID
 from pydantic import BaseModel, Field
 from promptview.model import NamespaceManager
 from promptview.model.relation import Relation
@@ -119,6 +120,6 @@ class TestCase(Model):
     # start_turn_id: int = ModelField(foreign_key=True, description="the turn this test case will start from")
     # end_turn_id: int = ModelField(foreign_key=True, description="the turn this test case will end at")
     # limit: int = ModelField(description="the number of turns to test")
-    user_id: int = ModelField(description="the user this test case belongs to")
+    user_id: UUID = ModelField(description="the user this test case belongs to")
     test_runs: Relation[TestRun] = RelationField(foreign_key="test_case_id")
     turns: Relation[Turn] = RelationField(foreign_key="test_case_id")
