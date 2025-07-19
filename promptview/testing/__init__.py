@@ -1,4 +1,4 @@
-from .test_models import TestCase, TestRun, TurnEval, TurnEvaluator, Evaluation, EvaluatorConfig, TestCaseEvaluators
+from .test_models import TestCase, TestRun, TestTurn, TurnEval, TurnEvaluator, Evaluation, EvaluatorConfig, TestCaseEvaluators
 from .evaluator_decorator import evaluator, EvalCtx
 from .test_runner import TestRunner
 from . import evaluators
@@ -8,6 +8,7 @@ from . import evaluators
 __all__ = [
     "TestCase",
     "TestRun", 
+    "TestTurn",
     "TurnEval",
     "TurnEvaluator",
     "Evaluation",

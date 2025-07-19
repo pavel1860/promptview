@@ -7,7 +7,7 @@ import re
 from typing import Literal
 
 from promptview.model.postgres.sql.joins import Join
-from promptview.model.postgres.sql.expressions import Function, Coalesce, Eq, Expression, Neq, Gt, Gte, Lt, Lte, OrderBy, Value, WhereClause, json_build_object, param
+from promptview.model.postgres.sql.expressions import Function, Coalesce, Eq, Expression, Neq, Gt, Gte, Lt, Lte, OrderBy, Value, WhereClause, json_build_object, param, In
 
 class Table:
     def __init__(self, name, alias=None):
@@ -64,6 +64,9 @@ class Column:
 
     def __le__(self, other):
         return Lte(self, param(other) if not isinstance(other, Expression) else other)
+    
+    def isin(self, values: list):
+        return In(self, values)
 
 
 JoinType = Literal["LEFT", "RIGHT", "INNER"]

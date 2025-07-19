@@ -18,6 +18,8 @@ from promptview.model.postgres.sql.expressions import OrderBy, RawSQL, RawValue,
 from promptview.model.postgres.sql.queries import Column, SelectQuery, Subquery
 from promptview.model.relation import Relation
 from promptview.utils.function_utils import contextcallable
+# if TYPE_CHECKING:
+from promptview.testing.test_models import TestTurn
 
 CURR_TURN = contextvars.ContextVar("curr_turn")
 CURR_BRANCH = contextvars.ContextVar("curr_branch")
@@ -75,9 +77,10 @@ class Turn(Model):
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now, is_default_temporal=True)
     ended_at: dt.datetime | None = ModelField(default=None)
     index: int = ModelField()
-    test_case_id: int | None = ModelField(default=None, foreign_key=True)
-    is_test: bool = ModelField(default=False)
-    is_test_definition: bool = ModelField(default=False)
+    # test_case_id: int | None = ModelField(default=None, foreign_key=True)
+    # is_test: bool = ModelField(default=False)
+    # is_test_definition: bool = ModelField(default=False)
+    # test_turns: Relation[TestTurn] = RelationField(foreign_key="turn_id")
     status: TurnStatus = ModelField(default=TurnStatus.STAGED)
     message: str | None = ModelField(default=None)
     branch_id: int = ModelField(foreign_key=True)
@@ -324,8 +327,6 @@ class Branch(Model):
         self, 
         message: str | None = None, 
         status: TurnStatus = TurnStatus.STAGED, 
-        is_test: bool = False, 
-        is_test_definition: bool = False, 
         **kwargs
     ) -> Turn:
         # query = f"""
@@ -353,8 +354,8 @@ class Branch(Model):
             RETURNING id, current_index
         ),
         new_turn AS (
-            INSERT INTO turns (branch_id, index, created_at, status, is_test, is_test_definition{"".join([", " + k for k in kwargs.keys()])})
-            SELECT id, current_index, current_timestamp, $2, $3, $4{"".join([", $" + str(i) for i in range(5, len(kwargs) + 5)])}
+            INSERT INTO turns (branch_id, index, created_at, status{"".join([", " + k for k in kwargs.keys()])})
+            SELECT id, current_index, current_timestamp, $2{"".join([", $" + str(i) for i in range(3, len(kwargs) + 3)])}
             FROM updated_branch
             RETURNING *
         )
@@ -362,7 +363,7 @@ class Branch(Model):
         """        
         turn_ns = Turn.get_namespace()
         
-        turn_record = await turn_ns.fetch(query, self.id, status.value, is_test, is_test_definition, *[kwargs[k] for k in kwargs.keys()])
+        turn_record = await turn_ns.fetch(query, self.id, status.value, *[kwargs[k] for k in kwargs.keys()])
         if not turn_record:
             raise VersioningError("Failed to add turn")
         # return Turn(**turn_record[0])

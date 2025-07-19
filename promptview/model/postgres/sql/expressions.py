@@ -171,6 +171,9 @@ class WhereClause:
         else:
             self.condition = Not(self.condition)
         return self
+    
+    def isin(self, values: list):
+        return In(self.condition, values)
         
     def __and__(self, other: Expression):
         return self.and_(other)
