@@ -19,7 +19,7 @@ from promptview.model.postgres.sql.queries import Column, SelectQuery, Subquery
 from promptview.model.relation import Relation
 from promptview.utils.function_utils import contextcallable
 # if TYPE_CHECKING:
-from promptview.testing.test_models import TestTurn
+# from promptview.testing.test_models import TestTurn
 
 CURR_TURN = contextvars.ContextVar("curr_turn")
 CURR_BRANCH = contextvars.ContextVar("curr_branch")
@@ -371,6 +371,25 @@ class Branch(Model):
         return turn
         
 
+from datetime import datetime
+from pydantic import BaseModel, Field
+
+class EvaluatorConfig(BaseModel):
+    name: str = Field(default="")
+    metadata: dict = Field(default={})
+
+
+class TestTurn(Model):
+    id: int = KeyField(primary_key=True)
+    created_at: datetime = ModelField(default_factory=datetime.now, is_default_temporal=True)
+    updated_at: datetime = ModelField(default_factory=datetime.now)
+    test_case_id: int = ModelField(default=None, foreign_key=True)
+    turn_id: int = ModelField(default=None, foreign_key=True)
+    evaluators: List[EvaluatorConfig] = ModelField(default=[])
+    turn: Turn = RelationField(
+        primary_key="turn_id", 
+        foreign_key="id", 
+    )
     
     
     

@@ -12,8 +12,9 @@ from promptview.model.fields import KeyField, ModelField, RelationField
 
 
 from promptview.model import Model, ModelField
-if TYPE_CHECKING:
-    from promptview.model import Branch, Turn
+from promptview.model.version_control_models import EvaluatorConfig
+# if TYPE_CHECKING:
+from promptview.model.version_control_models import Branch, Turn, TestTurn
 
 
 class Evaluation(Model):
@@ -64,9 +65,9 @@ class TestRun(Model):
         
     
 
-class EvaluatorConfig(BaseModel):
-    name: str = Field(default="")
-    metadata: dict = Field(default={})
+# class EvaluatorConfig(BaseModel):
+#     name: str = Field(default="")
+#     metadata: dict = Field(default={})
     
     
 class TurnEvaluator(BaseModel):
@@ -104,13 +105,18 @@ class TestCaseEvaluators(BaseModel):
 #     description: str = ModelField(default="")
     
 
-class TestTurn(Model):
-    id: int = KeyField(primary_key=True)
-    created_at: datetime = ModelField(default_factory=datetime.now, is_default_temporal=True)
-    updated_at: datetime = ModelField(default_factory=datetime.now)
-    test_case_id: int = ModelField(default=None, foreign_key=True)
-    turn_id: int = ModelField(default=None, foreign_key=True)
-    evaluators: List[EvaluatorConfig] = ModelField(default=[])
+# class TestTurn(Model):
+#     id: int = KeyField(primary_key=True)
+#     created_at: datetime = ModelField(default_factory=datetime.now, is_default_temporal=True)
+#     updated_at: datetime = ModelField(default_factory=datetime.now)
+#     test_case_id: int = ModelField(default=None, foreign_key=True)
+#     turn_id: int = ModelField(default=None, foreign_key=True)
+#     evaluators: List[EvaluatorConfig] = ModelField(default=[])
+#     turns: Relation["Turn"] = RelationField(
+#         primary_key="turn_id", 
+#         foreign_key="id", 
+#         create_foreign_key=False
+#     )
 
 
 

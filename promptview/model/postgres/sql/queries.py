@@ -177,7 +177,7 @@ class SelectQuery:
         self.distinct_on = list(cols)
         return self
 
-    def as_subquery(self, parent_table, primary_key, foreign_key, use_joins=False):
+    def as_list_subquery(self, parent_table, primary_key, foreign_key, use_joins=False):
         """
         Returns a the query as a subquery.
         parent_table - the parent table
@@ -211,6 +211,38 @@ class SelectQuery:
             subq.where &= Eq(Column(foreign_key, self.from_table), Column(primary_key, parent_table))
             
             coalesced = Coalesce(subq, Value("[]", inline=True))
+            return coalesced
+        except Exception as e:
+            print(e)
+            raise
+        
+    def as_subquery(self, parent_table, primary_key, foreign_key, use_joins=False):
+        """
+        Returns a the query as a subquery.
+        parent_table - the parent table
+        primary_key - the primary key of the parent table
+        foreign_key - the foreign key that joins this query to the parent table
+        """
+        try:
+            columns = {}
+            join_filter = set()
+            for c in self.columns:
+                if isinstance(c, Column):
+                    columns[c.name] = c
+                elif isinstance(c, Expression):
+                    columns[c.alias] = c
+                    join_filter.add(c.alias)
+                    c.alias = None
+            obj = json_build_object(**columns)
+            subq = self.copy_query(exclude={"group_by", "order_by", "limit", "offset"})            
+            subq.from_table = self.from_table
+            subq.columns = [obj]
+            if use_joins:
+                subq.joins = [j for j in self.joins if j.table.name not in join_filter]
+            
+            subq.where &= Eq(Column(foreign_key, self.from_table), Column(primary_key, parent_table))
+            
+            coalesced = Coalesce(subq, Value("{}", inline=True))
             return coalesced
         except Exception as e:
             print(e)

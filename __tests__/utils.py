@@ -24,5 +24,7 @@ async def test_db_pool():
 async def clean_database(test_db_pool):
     # Now uses an isolated pool
     await NamespaceManager.recreate_all_namespaces()
+    # NamespaceManager.drop_all_namespaces()
     yield
-    await NamespaceManager.recreate_all_namespaces()
+    # Don't recreate namespaces during teardown to avoid PostgreSQL type cache issues
+    # await NamespaceManager.recreate_all_namespaces()

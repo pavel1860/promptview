@@ -168,7 +168,9 @@ class SelectQuerySet(Generic[MODEL]):
     def select(self, *fields: str) -> "SelectQuerySet[MODEL]":
                 
         if len(fields) == 1 and fields[0] == "*":
-            self.query.select(*[Column(f.name, self.from_table) for f in self.model_class.iter_fields()])
+            columns = [Column(f.name, self.from_table) for f in self.model_class.iter_fields()]
+            # o2o_columns = [Column(f.name, self.from_table) for f in self.namespace.iter_relations(is_one_to_one=True)]
+            self.query.select(*columns)
         else:
             self.query.select(*[Column(f, self.from_table) for f in fields])
         return self
@@ -384,11 +386,26 @@ class SelectQuerySet(Generic[MODEL]):
             # nested_query = join_as_subquery(query_set.query, rel, self.from_table)    
             # nested_query.values[0].where &= Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table))
         else:
-            nested_query = query_set.query.as_subquery(self.from_table, rel.primary_key, rel.foreign_key)    
+            if rel.is_one_to_one:
+                nested_query = query_set.query.as_subquery(self.from_table, rel.primary_key, rel.foreign_key)    
+            else:
+                nested_query = query_set.query.as_list_subquery(self.from_table, rel.primary_key, rel.foreign_key)    
         nested_query.alias = rel.name
         self.query.columns.append(nested_query)
         return self
-        
+    
+    def reversed(self, target: "SelectQuerySet | Type[Model]", primary_key: str, foreign_key: str) -> "SelectQuerySet[MODEL]":
+        """
+        Reverse the relation of the current query set.
+        """
+        query_set = self._get_query_set(target)        
+        self.query.join(
+            query_set.from_table,
+            Eq(Column(primary_key, self.from_table), Column(foreign_key, query_set.from_table)),
+            "LEFT"
+        )
+        self.query.columns.append(Column("test", self.from_table))
+        return self
       
     def from_subquery(self, query_set: "SelectQuerySet"):
         if query_set.ctes:

@@ -212,10 +212,14 @@ class ModelMeta(ModelMetaclass, type):
                 # Get the model class from the relation                                
                 field_origin = get_origin(field_type)
                 foreign_cls = None
+                is_one_to_one = False
                 if field_origin is Relation:                    
                     foreign_cls = get_relation_model(field_type)
                     if not issubclass(foreign_cls, Model) and not isinstance(foreign_cls, ForwardRef):
                         raise ValueError(f"foreign_cls must be a subclass of Model: {foreign_cls}")
+                elif field_origin is None and issubclass(field_type, Model):
+                    foreign_cls = field_type
+                    is_one_to_one = True
                 if not foreign_cls:
                     raise ValueError(f"foreign_cls is required for relation: {field_type} on Model {name}")
                              
@@ -228,6 +232,7 @@ class ModelMeta(ModelMetaclass, type):
                     junction_cls=extra.get("junction_model", None),                    
                     on_delete=extra.get("on_delete") or "CASCADE",
                     on_update=extra.get("on_update") or "CASCADE",
+                    is_one_to_one=is_one_to_one
                 )    
                 # primary_key, foreign_key, junction_keys, relation_type, junction_cls, on_delete, on_update = unpack_relation_extra(extra, field_origin, ns.is_versioned, ns.is_artifact)
                                 
@@ -460,7 +465,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         
         for field_name in self._get_relation_fields():
             relation = getattr(self, field_name)
-            if relation is not None:
+            if relation is not None and isinstance(relation, Relation):
                 relation.set_primary_instance(self)
                 
     def model_dump(self, *args, **kwargs):
