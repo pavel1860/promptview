@@ -23,8 +23,8 @@ class StyleManager:
         if block.parent:
             parent_style = self.resolve(block.parent)
             for k, v in parent_style.items():
-                if k not in ("format",):  # don't inherit format
-                    resolved[k] = v
+                # if k not in ("format",):  # don't inherit format
+                resolved[k] = v
 
         for s in block.styles:
             if s in self.rules:
