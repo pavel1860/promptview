@@ -2,7 +2,7 @@
 
 
 
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, List, Set, TypeVar
 
 from promptview.block.block_renderer2 import render
 
@@ -100,21 +100,6 @@ class ContextStack:
         return self._ctx_stack.pop()
     
 
-    
-
-
-        
-        
-        
-    
-        
-
-
-
-    
-        
-
-
 
 def children_to_blocklist(children: list["Block"] | tuple["Block", ...] | None) -> "BlockList":
     if children is None:
@@ -129,14 +114,28 @@ def to_chunk(content: ContentType | Chunk) -> Chunk:
     return Chunk(content)
 
 
+def parse_style(style: str | List[str] | None) -> List[str]:
+    if isinstance(style, str):
+        return list(style.split(" "))
+    elif type(style) is list:
+        return style
+    else:
+        return []
+
+
 class Block:
     
     __slots__ = [
         "content",
         "children",
         "role",        
-        "tags",        
+        "tags",
+        "styles",        
+        "attrs",
+        "depth",
+        "parent",
     ]
+    
     
     def __init__(
         self, 
@@ -144,12 +143,27 @@ class Block:
         children: list["Block"] | None = None,
         role: str | None = None,
         tags: list[str] | None = None,
+        style: str | None = None,
+        attrs: dict | None = None,
+        depth: int = 0,
+        parent: "Block | None" = None,
     ):
         self.content: ChunkList = ChunkList([to_chunk(c) for c in chunks])
         self.children: "BlockList" = children_to_blocklist(children)
         self.role = role        
         self.tags: list[str] = tags or []
+        self.styles = parse_style(style)
+        self.attrs = attrs or {}
+        self.depth = depth
+        self.parent = parent
+        
+    @property
+    def is_block(self) -> bool:
+        return len(self.children) > 0
     
+    @property
+    def is_inline(self) -> bool:
+        return len(self.children) == 0
     
     def hstack(self, other: "Block") -> "Block":
         """
@@ -209,6 +223,14 @@ class Block:
         self.children.extend(children_to_blocklist(children))
     
     
+    def add_child(self, child: "Block"):
+        child.parent = self
+        child.depth = self.depth + 1
+        self.children.append(child)
+        
+    def add_content(self, content: Chunk):
+        self.content.append(content)
+    
     
     def __enter__(self):
         return BlockContext(self)
@@ -258,7 +280,13 @@ class BlockContext:
     @property
     def last(self) -> Block:
         if self.ctx.top.children:
-            return self.ctx.top.children[-1]
+            target = self.ctx.top.children[-1]
+        else:
+            target =self.ctx.top
+        return target
+    
+    @property
+    def top(self) -> Block:
         return self.ctx.top
     
     @property
@@ -291,20 +319,29 @@ class BlockContext:
         *content: ContentType | Chunk | Block,
         role: str | None = None,
         tags: list[str] | None = None,
+        style: str | List[str] | None = None,
+        attrs: dict | None = None,        
     ):
         if isinstance(content, Block):
             self.extend_children(content)
         elif isinstance(content, Chunk):
             self.extend_content(content)
         elif isinstance(content, tuple):
-            self.extend_children(Block(*content))
+            self.extend_children(Block(*content, role=role, tags=tags, style=style, attrs=attrs))
         elif isinstance(content, str):
-            self.extend_children(Block(content, role=role, tags=tags))
+            self.extend_children(Block(content, role=role, tags=tags, style=style, attrs=attrs))
         else:
             raise ValueError(f"Invalid content type: {type(content)}")
         return self
     
     def __enter__(self):
+        """
+        Enter a new block context.
+        with Block("title") as b:
+            with b("subtitle") as b:
+                b /= "item 1"
+                b /= "item 2"
+        """
         if self.ctx.top.children:
             target_block = self.ctx.top.children[-1]
         else:
@@ -315,21 +352,26 @@ class BlockContext:
     def __exit__(self, exc_type, exc_value, traceback):
         self.ctx.pop()
         
-    
-        
-    def extend_content(self, *content: Chunk):
-        if self.ctx.top.children:
-            self.ctx.top.children[-1].content.extend(content)
-        else:
-            self.ctx.top.content.extend(content)
+    def extend_content(self, *content: Chunk):        
+        for c in content:
+            self.last.add_content(c)
         
     def extend_children(self, *children: Block):
-        self.ctx.top.children.extend(children_to_blocklist(children))
-        
-        
+        for c in children:
+            self.ctx.top.add_child(c)
+
     
 
     def __itruediv__(self, content: ContentType | tuple[ContentType, ...] | Block):
+        """
+        Add child to the current block as a new line.
+        with Block("title") as b:
+            b /= "item 1"
+            b /= "item 2"
+            
+        >>> b.render()
+        "title\n item 1\n item 2"
+        """
         if isinstance(content, list):
             raise ValueError("Cannot use list as single line content")
         elif isinstance(content, tuple):
@@ -342,6 +384,15 @@ class BlockContext:
     
     
     def __iadd__(self, other: ContentType | tuple[ContentType, ...]):
+        """
+        Add content to the current block. inline.
+        with Block("title") as b:
+            b += "item 1"
+            b += "item 2"
+            
+        >>> b.render()
+        "title item 1 item 2"
+        """
         if isinstance(other, list):
             raise ValueError("Cannot use list as single line content")
         elif isinstance(other, tuple):
