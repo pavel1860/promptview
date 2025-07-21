@@ -1,8 +1,10 @@
 from abc import abstractmethod
 import json
-from typing import Any, List, Type
+from typing import Any, AsyncGenerator, List, Type
 
 from promptview.block.block import BlockList
+from promptview.block.block7 import Chunk, ChunkList
+from promptview.block.util import LLMEvent, StreamEvent
 from promptview.tracer.langsmith_tracer import Tracer
 from promptview.utils.model_utils import schema_to_function
 from .llm import LLM, LLMToolNotFound, LlmConfig, LlmContext
@@ -63,66 +65,8 @@ class OpenAiLLM(LlmContext):
             message["name"] = name        
         return message
     
-    # def to_chat(self, blocks: Block | BlockList, tools: List[Type[BaseModel]] | None = []) -> List[dict]:
-    #     output_prompt = self.output_model.render(tools) if self.output_model else None
-    #     system_blocks = blocks.find("system").group_to_list(extra=output_prompt)
-    #     pre_blocks, pivot_block, post_blocks = blocks.filter("system").split("user_input")
-    #     user_message = self.to_message(pivot_block.render(), role="user")
-    #     if output_prompt:
-    #         user_message["content"] += self.output_model.user_suffix()
-    #     messages = [
-    #         *system_blocks.map(lambda x: self.to_message(x.render(), role="system")),
-    #         *pre_blocks.map(lambda x: self.to_message(x.render(), role=x.role, tool_calls=x.tool_calls, tool_call_id=x.id)),
-    #         user_message,
-    #         *post_blocks.map(lambda x: self.to_message(x.render(), role=x.role, tool_calls=x.tool_calls, tool_call_id=x.id)),
-    #     ]
-    #     return messages
     
-    # def to_chat(self, blocks: BlockList, tools: List[Type[BaseModel]] | None = None, error_blocks: BlockList | None = None) -> List[dict]:        
-    #     output_prompt = self.output_model.render(tools) if self.output_model else None
-    #     system_blocks = (
-    #         blocks.find("system").group_to_list(extra=output_prompt)
-    #         .map(lambda x: self.to_message(x.render(), role=x.role or "system"))
-    #     )
-    #     messages = (
-    #         blocks
-    #         .slice(1, -1)
-    #         .find(["content", "generation"])
-    #         .map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
-    #     )
-    #     last_block = blocks[-1]
-    #     last_message = self.to_message(last_block.render(), role=last_block.role or "user", tool_calls=last_block.tool_calls, tool_call_id=last_block.id)
-        
-    #     messages = [
-    #         *system_blocks,
-    #         *messages,
-    #         last_message,
-    #     ]
-    #     if error_blocks:
-    #         error_messages = error_blocks.map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
-    #         messages.extend(error_messages)
-    #     return messages
     
-    # def to_chat(self, blocks: BlockList, tools: List[Type[BaseModel]] | None = None, error_blocks: BlockList | None = None) -> List[dict]:        
-    #     output_prompt = self.output_model.render(tools) if self.output_model else None
-    #     system_blocks = (
-    #         blocks.find("system").group_to_list(extra=output_prompt)
-    #         .map(lambda x: self.to_message(x.render(), role=x.role or "system"))
-    #     )
-    #     messages = (
-    #         blocks
-    #         .filter("system")
-    #         .map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
-    #     )        
-        
-    #     messages = [
-    #         *system_blocks,
-    #         *messages,         
-    #     ]
-    #     if error_blocks:
-    #         error_messages = error_blocks.map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
-    #         messages.extend(error_messages)
-    #     return messages
     
     
     def to_chat(self, blocks: BlockList, tools: List[Type[BaseModel]] | None = None, error_blocks: BlockList | None = None) -> List[dict]:        
@@ -145,6 +89,57 @@ class OpenAiLLM(LlmContext):
             error_messages = error_blocks.map(lambda x: self.to_message(x.render(), role=x.role or "user", tool_calls=x.tool_calls, tool_call_id=x.id))
             messages.extend(error_messages)
         return messages
+    
+    
+    async def stream(
+        self,        
+    ) -> AsyncGenerator[StreamEvent, None]:
+        
+        
+        messages = [
+            self.to_message(b.render(), role=b.role or "user", tool_calls=b.tool_calls, tool_call_id=b.id)
+            for b in self.blocks
+        ]
+        llm_tools = None
+        tool_choice = None
+        if self.tools and self.output_model is None:
+            llm_tools = [self.to_tool(tool) for tool in self.tools]        
+            tool_choice = self.config.tool_choice
+
+        try:       
+            res_stream = await self.client.chat.completions.create(
+                    messages=messages,
+                    tools=llm_tools,
+                    model=self.config.model,
+                    tool_choice=tool_choice,
+                    stream=True,
+                    logprobs=True,                
+                )
+            
+            block = Block(sep="")
+            yield LLMEvent(type="stream_start")
+            async for chunk in res_stream:
+                if chunk.choices[0].delta:
+                    choice = chunk.choices[0]
+                    if choice.finish_reason:
+                        break
+                    content = choice.delta.content
+                    try:
+                        if choice.logprobs and choice.logprobs.content:                
+                            logprob = choice.logprobs.content[0].logprob
+                        else:
+                            logprob = 0  
+                    except:
+                        raise ValueError("No logprobs")        
+                    c = Chunk(content, logprob=logprob)
+                    block.add_content(c)
+                    yield c
+            yield LLMEvent(type="stream_success")
+            yield block
+        except Exception as e:
+            yield LLMEvent(type="stream_error", data={"error": str(e)})
+            raise e
+
     
     
     async def client_complete(

@@ -2,9 +2,11 @@ from __future__ import annotations
 from abc import abstractmethod
 from enum import StrEnum
 from functools import singledispatch
-from typing import Any, Callable, Dict, Generic, List, Literal, ParamSpec, Self, Type, TypeVar, Union, TYPE_CHECKING, get_args
+from typing import Any, AsyncGenerator, Callable, Dict, Generic, List, Literal, ParamSpec, Self, Type, TypeVar, Union, TYPE_CHECKING, get_args
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 from pydantic.fields import FieldInfo
+from promptview.block import Chunk, ChunkList
+from promptview.block.util import StreamEvent
 from promptview.llms.types import ErrorMessage
 from promptview.block import Block, BlockRole, ToolCall, LlmUsage
 from promptview.block.block import BlockList
@@ -423,6 +425,10 @@ class LlmContext(Generic[OUTPUT_MODEL]):
     async def run_controller_block(self) -> Block:
         blocks, output_model = await self.controller(self.blocks, self.tools, self.config)
         return blocks
+    
+    
+    async def stream(self) -> AsyncGenerator[StreamEvent, None]:
+        raise NotImplementedError("Streaming is not implemented")
     
     
     

@@ -53,7 +53,7 @@ class ContentRenderer(BaseRenderer):
     def render(self, block, style: dict, depth: int) -> str:
         def indent(text: str) -> str:
             return "\n".join([f"{' ' * depth}{line}" for line in text.split("\n")])
-        return indent(" ".join([indent(str(c)) for c in block.content]))
+        return indent(block.sep.join([indent(str(c)) for c in block.content]))
     
         
         
@@ -62,7 +62,7 @@ class MarkdownHeaderRenderer(BaseRenderer):
     
     def render(self, block, style: dict, depth: int) -> str:
         level = min(depth + 1, 6)
-        content = " ".join([str(c) for c in block.content])
+        content = block.sep.join([str(c) for c in block.content])
         return f"{'#' * level} {content}"
     
     

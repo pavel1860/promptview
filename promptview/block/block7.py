@@ -1,11 +1,7 @@
-
-
-
-
 from typing import Any, Generic, List, Set, TypeVar
 
 from promptview.block.block_renderer2 import render
-
+from promptview.block.util import LlmUsage, StreamEvent, StreamStatus, ToolCall
 
 
 
@@ -14,17 +10,20 @@ ContentType = str | int | float | bool | None
 
 CHUNK_TYPE = TypeVar("CHUNK_TYPE", str, int, float, bool, None)
 
-class Chunk:
+class Chunk(StreamEvent):
     
     __slots__ = [
         "content",
         "logprob",
+        "event",
+        "metadata",
     ]
     
-    def __init__(self, content: ContentType, logprob: float = 0):
+    def __init__(self, content: ContentType, logprob: float = 0, event: StreamStatus | None = None, metadata: dict | None = None):
         self.content: ContentType = content 
         self.logprob: float = logprob
-        
+        self.event: StreamStatus | None = event
+        self.metadata: dict | None = metadata
         
     def merge(self, other: "Chunk") -> "ChunkList":
         return ChunkList([self, other])
@@ -123,7 +122,56 @@ def parse_style(style: str | List[str] | None) -> List[str]:
         return []
 
 
-class Block:
+class Block(StreamEvent):
+    """
+    Block(content, children=None, role=None, tags=None, style=None, ...)
+
+    A composable building block for programmatic prompt and string construction.
+
+    The Block class enables flexible, component-based prompt engineering in Python,
+    inspired by React/HTML composition. It separates content from style (e.g., markdown,
+    XML, JSON, numbered lists), supports tagging, and allows for easy reuse and
+    manipulation of prompt components. Blocks can be nested, stacked, and combined
+    horizontally or vertically, making it easy to build complex, context-aware prompts
+    for LLMs and other applications.
+
+    Key Features:
+    - Compose prompts using nested, reusable blocks
+    - Separate content from formatting via a style system
+    - Add roles, tags, and metadata for context and organization
+    - Horizontal and vertical stacking (hstack, vstack, +, /=, +=)
+    - Context manager support for building nested structures
+    - Designed for dynamic, programmatic prompt generation
+
+    Args:
+        *chunks: Content pieces (str, int, float, bool, None, or Chunk)
+        children: Optional list of child Blocks
+        role: Optional string indicating the role (e.g., "user", "assistant")
+        tags: Optional list of tags for organization or filtering
+        style: Optional style string or list (e.g., "markdown-header", "numbered-list")
+        attrs: Optional dictionary of additional attributes
+        depth: Nesting depth (used internally)
+        parent: Parent Block (used internally)
+        run_id, model, tool_calls, usage, id, db_id, sep, event, metadata: Advanced/streaming options
+
+    Example:
+        >>> block = Block("Hello", "World", style="markdown-header", tags=["greeting"])
+        >>> print(block.render())
+        # Hello World
+
+        >>> with Block("List", style="numbered-list") as lst:
+        ...     lst /= "Item 1"
+        ...     lst /= "Item 2"
+        >>> print(lst.render())
+        1. Item 1
+        2. Item 2
+
+    See Also:
+        - hstack, vstack, ihstack: for block composition
+        - append, extend, add_child: for adding content/children
+        - render(): to produce the final string output
+        - Context manager usage for nested block construction
+    """
     
     __slots__ = [
         "content",
@@ -134,6 +182,15 @@ class Block:
         "attrs",
         "depth",
         "parent",
+        "run_id",
+        "model",
+        "tool_calls",
+        "usage",
+        "id",
+        "db_id",
+        "sep",
+        "event",
+        "metadata",
     ]
     
     
@@ -147,7 +204,19 @@ class Block:
         attrs: dict | None = None,
         depth: int = 0,
         parent: "Block | None" = None,
+        run_id: str | None = None,
+        model: str | None = None,
+        tool_calls: list[ToolCall] | None = None,
+        usage: LlmUsage | None = None,
+        id: str | None = None,
+        db_id: str | None = None,
+        sep: str = " ",
+        event: StreamStatus | None = None,
+        metadata: dict | None = None,
     ):
+        """
+        Basic component of prompt building. 
+        """
         self.content: ChunkList = ChunkList([to_chunk(c) for c in chunks])
         self.children: "BlockList" = children_to_blocklist(children)
         self.role = role        
@@ -156,6 +225,15 @@ class Block:
         self.attrs = attrs or {}
         self.depth = depth
         self.parent = parent
+        self.run_id = run_id
+        self.model = model
+        self.tool_calls = tool_calls or []
+        self.usage = usage
+        self.id = id
+        self.db_id = db_id
+        self.sep = sep
+        self.event = event
+        self.metadata = metadata
         
     @property
     def is_block(self) -> bool:

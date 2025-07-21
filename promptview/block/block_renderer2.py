@@ -33,7 +33,6 @@ default_renderer = ContentRenderer()
 
 
 
-
 def render(block, depth=0):
     style = style_manager.resolve(block)
     fmt = style.get("format", None)
