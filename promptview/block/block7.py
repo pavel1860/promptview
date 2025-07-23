@@ -146,6 +146,7 @@ class BlockParams(TypedDict, total=False):
     event: StreamStatus | None
     metadata: dict | None
     styles: list[str] | None
+    logprob: float | None
     
 class BaseBlock(StreamEvent):
     
@@ -168,6 +169,7 @@ class BaseBlock(StreamEvent):
     "db_id",
     "event",
     "metadata",
+    "_logprob",
     ]
     
     def __init__(self, **kwargs: Unpack[BlockParams]):        
@@ -195,7 +197,12 @@ class BaseBlock(StreamEvent):
         self.db_id: str | None = kwargs.get("db_id")
         self.event: StreamStatus | None = kwargs.get("event")
         self.metadata: dict | None = kwargs.get("metadata")
+        self._logprob: float | None = kwargs.get("logprob")
         
+    @property
+    def logprob(self) -> float | None:
+        return self._logprob
+    
         
     def  __to_dict(self):
         dump = {}
@@ -212,8 +219,10 @@ class BaseBlock(StreamEvent):
         print(self.render())
     
     def __str__(self) -> str:
-        return self.render()
-
+        out = self.render()
+        if out is None:
+            return "None"
+        return out
         
 
 class Block(BaseBlock):
@@ -275,7 +284,7 @@ class Block(BaseBlock):
     
     def __init__(
         self, 
-        content: ContentType,
+        content: ContentType | None = None,
         **kwargs: Unpack[BlockParams]
     ):
         """
@@ -509,7 +518,9 @@ class BlockList(UserList[Block], BaseBlock):
         UserList.__init__(self, blocks)
         BaseBlock.__init__(self, **kwargs)        
     
-    
+    @property
+    def logprob(self) -> float | None:
+        return sum(block.logprob for block in self if block.logprob is not None)
     
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
@@ -558,13 +569,22 @@ class BlockContext(BaseBlock):
             self.root: BlockList = root
         else:
             self.root: BlockList = BlockList([], parent=self)
-        self.children: BlockList = BlockList([], sep="\n", parent=self)
+        self.children: BlockList = BlockList([], sep=kwargs.get("vsep", "\n"), parent=self)
         if root:
             root.parent = self
+    
+    @property
+    def logprob(self) -> float | None:
+        logprob = sum(block.logprob for block in self.children if block.logprob is not None) or 0
+        root_logprob = self.root.logprob or 0
+        return logprob + root_logprob
+        
             
             
+    def __call__(self, content: ContentType | BaseBlock | list[str] | None = None) -> Block:
+        if content is None:
+            content = Block()
             
-    def __call__(self, content: ContentType | BaseBlock | list[str]) -> Block:
         if isinstance(content, Block):
             self.append_child(content)
             return content
@@ -579,16 +599,29 @@ class BlockContext(BaseBlock):
         
     
     
-    def __iadd__(self, other: ContentType | Block):
-        if not isinstance(other, Block):
-            other = Block(other)
-        self.append_root(other)
+    def __iadd__(self, other: ContentType | Block | tuple[ContentType, ...]):
+        if isinstance(other, ContentType):            
+            other = Block(other)        
+            self.append_root(other)
+        elif isinstance(other, Block):
+            self.append_child(other)
+        elif isinstance(other, tuple):
+            for c in other:
+                if isinstance(c, ContentType):
+                    c = Block(c)
+                self.append_root(c)
+        else:
+            raise ValueError(f"Invalid content type: {type(other)}")
         return self
     
     
-    def __itruediv__(self, other: ContentType | Block):
+    def __itruediv__(self, other: ContentType | Block | tuple[ContentType, ...]):
         if not isinstance(other, Block):
-            other = Block(other)
+            if isinstance(other, tuple):
+                other = BlockList([Block(item) for item in other], style="list:row")                
+            else:
+                other = Block(other)
+        
         self.append_child(other)
         return self
     
@@ -681,27 +714,7 @@ class BlockPrompt:
         
         
         
-        
 
-    # def __call__(
-    #     self, 
-    #     *content: ContentType | Chunk | Block | list,
-    #     role: str | None = None,
-    #     tags: list[str] | None = None,
-    #     style: str | None = None,
-    #     attrs: dict | None = None,        
-    # ):
-    #     if isinstance(content, Block):
-    #         self.extend_children(content)
-    #     elif isinstance(content, Chunk):
-    #         self.extend_content(content)
-    #     elif isinstance(content, tuple):
-    #         self.extend_children(Block(*content, role=role, tags=tags, style=style, attrs=attrs))
-    #     elif isinstance(content, str):
-    #         self.extend_children(Block(content, role=role, tags=tags, style=style, attrs=attrs))
-    #     else:
-    #         raise ValueError(f"Invalid content type: {type(content)}")
-    #     return self
     
     def __call__(
         self, 

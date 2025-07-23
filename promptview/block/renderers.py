@@ -93,10 +93,3 @@ class NumberedListRenderer(BaseRenderer):
     
     
     
-    
-    
-    
-    
-    
-    
-    

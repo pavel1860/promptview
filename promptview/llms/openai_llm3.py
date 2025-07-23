@@ -3,7 +3,7 @@ import openai
 import os
 
 from pydantic import BaseModel
-from promptview.block.block7 import Block, Chunk
+from promptview.block.block7 import Block, BlockList, Chunk
 from promptview.block.util import LLMEvent, ToolCall
 from promptview.llms.llm2 import LLMStream, LlmConfig
 from openai.types.chat import ChatCompletionMessageParam
@@ -54,7 +54,7 @@ class OpenAiLLM(LLMStream):
     async def run(self):
         messages = [
             self.to_message(b.render(), role=b.role or "user", tool_calls=b.tool_calls, tool_call_id=b.id)
-            for b in self.blocks.children
+            for b in self.blocks
         ]
         llm_tools = None
         tool_choice = None
@@ -72,13 +72,10 @@ class OpenAiLLM(LLMStream):
                     logprobs=True,                
                 )
             
-            block = Block(sep="")
-            yield LLMEvent(type="stream_start")
+            block = BlockList(sep="")
             async for chunk in res_stream:
                 if chunk.choices[0].delta:
-                    choice = chunk.choices[0]
-                    if choice.finish_reason:
-                        break
+                    choice = chunk.choices[0]                   
                     content = choice.delta.content
                     try:
                         if choice.logprobs and choice.logprobs.content:                
@@ -87,11 +84,16 @@ class OpenAiLLM(LLMStream):
                             logprob = 0  
                     except:
                         raise ValueError("No logprobs")        
-                    c = Chunk(content, logprob=logprob)
-                    block.add_content(c)
-                    yield c
-            yield LLMEvent(type="stream_success")
+                    blk_chunk = Block(content, logprob=logprob)
+                    block.append(blk_chunk)
+                    if choice.index == 0:
+                        blk_chunk.event = "stream_start"
+                    if choice.finish_reason:
+                        blk_chunk.event = "stream_success"
+                    yield blk_chunk            
             yield block
         except Exception as e:
-            yield LLMEvent(type="stream_error", data={"error": str(e)})
+            block = Block(str(e))
+            block.event = "stream_error"
+            yield block
             raise e

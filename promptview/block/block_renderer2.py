@@ -18,6 +18,7 @@ style_manager = StyleManager()
 style_manager.add_style(["markdown-header", "md"], {"header-format": "markdown-header"})
 # style_manager.add_style(["markdown-header", "md"], {"block-format": "markdown-header"})
 style_manager.add_style(["numbered-list", "list:num"], {"list-format": "numbered-list"})
+style_manager.add_style(["row", "list:row"], {"list-format": "row-list"})
 
 renderer_registry = RendererRegistry()
 
@@ -27,11 +28,22 @@ renderer_registry.register("markdown-header", MarkdownHeaderRenderer())
 # renderer_registry.register("json", JsonRenderer())
 # renderer_registry.register("xml", XmlRenderer())
 renderer_registry.register("numbered-list", NumberedListRenderer())
+renderer_registry.register("row-list", ContentRenderer())
+
 # renderer_registry.register("bulleted-list", BulletedListRenderer())
 
 # default fallback renderer
 default_renderer = ContentRenderer()
 
+
+
+def combine_content(left: str, right: str, sep: str):
+    if left and right:
+        return left + sep + right
+    elif left:
+        return left
+    elif right:
+        return right
 
 
 def render(target, depth=0, style=None):
@@ -64,8 +76,8 @@ def render_list(block_list: BlockList, depth: int, style: dict):
             depth=depth,
             index=index
         ) for index, child in enumerate(block_list)]
-    return block_list.sep.join(content_list)
-    
+    return block_list.sep.join([c for c in content_list if c is not None])
+
 
     
 
@@ -74,9 +86,15 @@ def render_context(block: BlockContext, style: dict, depth):
     children_fmt = style.get("list-format")
     root_content = render_list(block.root, depth, {})
     renderer = renderer_registry.get(root_fmt) if root_fmt else default_renderer    
-    root_content = renderer.render(block.root, root_content, style, depth)
+    root_content = renderer.render(block.root, root_content, style, depth)        
     children_content = render_list(block.children, depth+1, {"list-format": children_fmt})
-    return root_content + "\n" + children_content
+    
+    if block.wrap:
+        root_content = block.wrap[0] + root_content + block.wrap[1]
+    if block.vwrap and children_content:
+        children_content = block.vwrap[0] + children_content + block.vwrap[1]
+        
+    return combine_content(root_content, children_content, "\n")
     
 
 
