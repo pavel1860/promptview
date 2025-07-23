@@ -8,8 +8,7 @@ from pydantic.fields import FieldInfo
 from promptview.block import Chunk, ChunkList
 from promptview.block.util import StreamEvent
 from promptview.llms.types import ErrorMessage
-from promptview.block import Block, BlockRole, ToolCall, LlmUsage
-from promptview.block.block import BlockList
+from promptview.block import Block, BlockRole, ToolCall, LlmUsage, BlockList
 from promptview.tracer import Tracer
 from promptview.parsers import XmlOutputParser
 from promptview.utils import logger

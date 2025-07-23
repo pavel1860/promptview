@@ -6,7 +6,7 @@ from promptview.context import ExecutionContext
 # from promptview.conversation.history import History
 
 
-from promptview.block.block import Block
+from promptview.block import Block
 from .depends import  DependsContainer, resolve_dependency
 from ..model.context import Context
 from ..utils.function_utils import filter_args_by_exclude

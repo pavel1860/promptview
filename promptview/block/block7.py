@@ -181,7 +181,11 @@ class Block(StreamEvent):
         "children",
         "role",        
         "tags",
-        "styles",        
+        "styles",  
+        "sep",  
+        "vsep",
+        "wrap",
+        "vwrap",
         "attrs",
         "depth",
         "parent",
@@ -191,7 +195,6 @@ class Block(StreamEvent):
         "usage",
         "id",
         "db_id",
-        "sep",
         "event",
         "metadata",
     ]
@@ -204,6 +207,10 @@ class Block(StreamEvent):
         role: str | None = None,
         tags: list[str] | None = None,
         style: str | None = None,
+        sep: str = " ",
+        vsep: str = "\n",
+        wrap: tuple[str, str] | None = None,
+        vwrap: tuple[str, str] | None = None,
         attrs: dict | None = None,
         depth: int = 0,
         parent: "Block | None" = None,
@@ -212,8 +219,7 @@ class Block(StreamEvent):
         tool_calls: list[ToolCall] | None = None,
         usage: LlmUsage | None = None,
         id: str | None = None,
-        db_id: str | None = None,
-        sep: str = " ",
+        db_id: str | None = None,        
         event: StreamStatus | None = None,
         metadata: dict | None = None,
     ):
@@ -235,6 +241,9 @@ class Block(StreamEvent):
         self.id = id
         self.db_id = db_id
         self.sep = sep
+        self.vsep = vsep
+        self.wrap = wrap
+        self.vwrap = vwrap
         self.event = event
         self.metadata = metadata
         
@@ -373,6 +382,13 @@ class Block(StreamEvent):
         return BlockModel.from_block(self)
     
     def model_dump(self):
+        dump = {}
+        for slot in self.__slots__:
+            if hasattr(self, slot):
+                dump[slot] = getattr(self, slot)
+        return dump
+    
+        
         return {
             "_type": self.__class__.__name__,
             "content": self.content,
@@ -637,3 +653,23 @@ class Blockable(Protocol):
 
 
 
+def block(
+    *content: ContentType | Chunk | Block | list,
+    role: str | None = None,
+    tags: list[str] | None = None,
+    style: str | None = None,
+    attrs: dict | None = None,
+    sep: str = " ",
+    vsep: str = "\n",
+    wrap: tuple[str, str] | None = None,
+):
+    return Block(
+        *content,
+        role=role,
+        tags=tags,
+        style=style,
+        attrs=attrs,
+        sep=sep,
+        vsep=vsep,
+        wrap=wrap,
+    )
