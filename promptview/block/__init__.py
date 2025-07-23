@@ -1,6 +1,6 @@
 # from .block import Block, block, BlockList
-from .block import block
-from .block7 import Block, BlockList, Chunk, ChunkList, ContextStack
+# from .block import block
+from .block7 import Block, BlockList, block, Chunk, ChunkList, ContextStack, Blockable
 from .util import BlockRole, LlmUsage, ToolCall
 from .block_renderer import BlockRenderer
 from .renderer import RendererMeta, Renderer, ContentRenderer, ItemsRenderer
@@ -25,4 +25,5 @@ __all__ = [
     "Chunk",
     "ChunkList",
     "ContextStack",
+    "Blockable",
 ]

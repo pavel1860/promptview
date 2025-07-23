@@ -2,90 +2,7 @@ from functools import wraps
 import inspect
 from typing import (Any, AsyncGenerator, Callable, Dict, Generic, Type, TypeVar, ParamSpec)
 
-from promptview.block.util import StreamEvent
-from promptview.context import ExecutionContext
 
-# from promptview.conversation.history import History
-
-
-from promptview.block.block import Block
-from .depends import  DependsContainer, resolve_dependency
-from ..model.context import Context
-from ..utils.function_utils import filter_args_by_exclude
-
-
-P = ParamSpec('P')
-R = TypeVar('R')
-
-
-class StreamController2(Generic[P, R]):
-    _name: str
-    _complete: Callable[P, R]
-    
-    
-    # def _set_history(self, history: History):
-    #     history.init_last_session()
-    #     return history
-    
-    
-    def _filter_args_for_trace(self, *args: P.args, **kwargs: P.kwargs) -> dict[str, Any]:
-        from promptview.llms import LLM
-        _args, _kwargs = filter_args_by_exclude(args, kwargs, (LLM, Context))
-        return {"args": _args, "kwargs": _kwargs}
-    
-    
-    def _sanitize_output(self, output: Any) -> Any:
-        if isinstance(output, Block):
-            return output.content
-        return output
-    
-    def build_execution_ctx(self) -> Context:
-        curr_ctx: Context | None = Context.get_current(False)
-        if curr_ctx is not None:
-            ctx = curr_ctx.build_child(self._name)
-        else:
-            # raise ValueError("Context is not set")
-            # ctx = Context().start()
-            # ctx = Context()
-            ctx = ExecutionContext(self._name)
-        return ctx    
-        
-
-    async def _inject_dependencies(self, *args: P.args, **kwargs: P.kwargs) -> Dict[str, Any]:
-        signature = inspect.signature(self._complete)
-        injection_kwargs = {}
-        for param_name, param in signature.parameters.items():
-            default_val = param.default
-            if isinstance(default_val, DependsContainer):
-                dependency_func = default_val.dependency
-                resolved_val = await resolve_dependency(dependency_func,  *args, **kwargs)
-                # if isinstance(resolved_val, History):
-                #     resolved_val = self._set_history(resolved_val)
-                injection_kwargs[param_name] = resolved_val            
-                
-        return injection_kwargs
-    
-    
-    
-    # async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[StreamEvent, None]:
-    #     execution_ctx = self.build_execution_ctx()
-    #     async with execution_ctx.start_tracer(self._name, "prompt", inputs={}) as ctx:
-    #         inspect.signature(self._complete).bind(*args, **kwargs)
-    #         injection_kwargs = await self._inject_dependencies(*args, **kwargs)               
-    #         kwargs.update(injection_kwargs)
-    #         try:
-    #             gen = self._complete(*args, **kwargs)
-                    
-    #             # yield chunk
-    #             ctx.tracer.add_outputs({"response": self._sanitize_output(res)})
-    #         except Exception as e:
-    #             ctx.tracer.end(errors=str(e))
-    #             raise e
-            
-            
-            
-            
-import asyncio
 
 
 
@@ -96,7 +13,7 @@ STREAM_EVENT = TypeVar("STREAM_EVENT")
 STREAM_RESPONSE = TypeVar("STREAM_RESPONSE")
 P = ParamSpec("P")
 
-class StreamController(Generic[STREAM_EVENT, STREAM_RESPONSE, P]):
+class StreamController(Generic[P, STREAM_EVENT, STREAM_RESPONSE]):
     """
     Base class to control an async generator stream:
     - automatically exhausts it if desired
@@ -113,12 +30,14 @@ class StreamController(Generic[STREAM_EVENT, STREAM_RESPONSE, P]):
         self,                 
         # args: tuple,
         # kwargs: dict,
+        name: str,
         response_type: Type[STREAM_RESPONSE] | None = None,
         *args: P.args,                 
         **kwargs: P.kwargs,        
     ):
         self._args = args
         self._kwargs = kwargs
+        self._name = name
         self._agen: AsyncGenerator[STREAM_EVENT, None] | None = None
         self._closed = False
         self.response_type = response_type
@@ -132,7 +51,7 @@ class StreamController(Generic[STREAM_EVENT, STREAM_RESPONSE, P]):
     async def start(self):
         """Starts the generator by calling the user-defined async generator."""
         self._agen = self.run(*self._args, **self._kwargs)
-        await self.agen.asend(None)  # prime it
+        # await self.agen.asend(None)  # prime it
 
     async def next(self):
         """Get next value from generator."""
@@ -192,7 +111,7 @@ class StreamController(Generic[STREAM_EVENT, STREAM_RESPONSE, P]):
     
     
     async def stream(self) -> AsyncGenerator[STREAM_EVENT, None]:        
-        self._agen = self.run(*self._args, **self._kwargs)        
+        await self.start()        
         response = None
         try:
             while event:= await self.send(response):
@@ -212,7 +131,6 @@ class StreamController(Generic[STREAM_EVENT, STREAM_RESPONSE, P]):
                 except Exception as e:
                     await self.throw(e)
         except StopAsyncIteration:
-            print("STOPPED", self._name)
             return      
         finally:
             await self.close()
@@ -245,13 +163,17 @@ def stream(
     response_type: Type[STREAM_RESPONSE] | None = None,
     ) -> Callable[
     [Callable[P, AsyncGenerator[STREAM_EVENT, None]]],
-    Callable[P, StreamController[STREAM_EVENT, STREAM_RESPONSE, P]]
+    Callable[P, StreamController[P, STREAM_EVENT, STREAM_RESPONSE]]
 ]:    
-    def decorator(func: Callable[P, AsyncGenerator[STREAM_EVENT, None]]) -> Callable[P, StreamController[STREAM_EVENT, STREAM_RESPONSE, P]]:        
+    def decorator(func: Callable[P, AsyncGenerator[STREAM_EVENT, None]]) -> Callable[P, StreamController[P, STREAM_EVENT, STREAM_RESPONSE]]:        
         @wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> StreamController[STREAM_EVENT, STREAM_RESPONSE, P]:
-            stream_controller = StreamController(response_type, *args, **kwargs)
-            stream_controller._name = func.__name__
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> StreamController[P, STREAM_EVENT, STREAM_RESPONSE]:
+            stream_controller = StreamController(
+                func.__name__, 
+                response_type, 
+                *args, 
+                **kwargs
+            ) 
             stream_controller.run = func
             return stream_controller
         return wrapper    

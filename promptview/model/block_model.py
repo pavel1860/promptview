@@ -3,7 +3,7 @@ from typing import List, Literal
 from promptview.model.fields import ModelField
 from promptview.model.model import Model
 from promptview.model.version_control_models import TurnModel
-from promptview.block.block import Blockable, ToolCall, Block
+from promptview.block.block7 import Blockable, ToolCall, Block
 import copy
 
 

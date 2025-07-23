@@ -42,16 +42,24 @@ def render(block, depth=0):
     
     if not renderer.can_render(block):
         renderer = default_renderer
-        
-    content = renderer.render(block, style, depth)
-    children_content = []
-    if block.children:
-        if child_fmt:
-            for child in block.children:
-                child_content = render(child, depth+1)
-                children_content.append(child_content)
+    content_list = []
+    if not block.is_empty_content:
+        content = renderer.render(block, style, depth)
+        content_list.append(content)
+    
+    child_depth = depth
+    if not block.is_empty_content:
+        child_depth += 1
+    
+    if block.children:        
+        for child in block.children:
+            child_content = render(child, child_depth)
+            if child_fmt:
+                child_renderer = renderer_registry.get(child_fmt)
+                child_content = child_renderer.render(child_content, style, child_depth)
+            content_list.append(child_content)
             
-    return "\n".join([content] + children_content)
+    return "\n".join(content_list)
     
     
     

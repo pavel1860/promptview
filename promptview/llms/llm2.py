@@ -1,12 +1,16 @@
-from typing import AsyncGenerator, Dict, List, Type
+from typing import AsyncGenerator, Dict, List, Literal, Type
 from pydantic import BaseModel, Field
-from pydantic.types import ToolChoice
 
 
-from promptview.block.block7 import Block
+
+from promptview.block.block7 import Block, BlockContext, BlockList, Chunk
 from promptview.block.util import StreamEvent
 from promptview.prompt.stream import StreamController
 
+
+
+
+ToolChoice = Literal['auto', 'required', 'none']
 
 class LlmConfig(BaseModel):
     model: str | None = Field(default=None, description="The model to use")
@@ -28,9 +32,26 @@ class LlmConfig(BaseModel):
 
 
 
-class LLMStream(StreamController[StreamEvent]):
-    pass
+class LLMStream(StreamController):
+    blocks: Block
+    config: LlmConfig
+    tools: List[Type[BaseModel]] | None = None
+    model: str | None = None
+    models: List[str] = []
     
+    
+    def __init__(self):
+        super().__init__(self.__class__.__name__, response_type=Block)
+    
+
+    def __call__(self, block: Block, config: LlmConfig, tools: List[Type[BaseModel]] | None = None):
+        self.blocks = block
+        self.config = config
+        self.tools = tools
+        return self
+    
+    
+
     
     
     
@@ -42,10 +63,11 @@ class LLM():
     
     _model_registry: Dict[str, Type[LLMStream]] = {}
     _default_model: str | None = None
+        
     
     
     @classmethod
-    def register(cls, model_cls: Type[LLMStream], default_model: str | None = None) -> Type[LlmContext]:
+    def register(cls, model_cls: Type[LLMStream], default_model: str | None = None) -> Type[LLMStream]:
         """Decorator to register a new LLM model implementation"""
         if model_cls.__name__ in cls._model_registry:
             raise ValueError(f"Model {model_cls.__name__} is already registered")
@@ -65,16 +87,21 @@ class LLM():
         if model not in cls._model_registry:
             raise KeyError(f"Model {model} is not registered")        
         llm_cls = cls._model_registry[model]
-        llm = llm_cls(model)
+        llm = llm_cls()
         return llm
 
     
     def __call__(
         self,        
-        *args: Block | str,
+        block: Block | BlockContext | str,
         model: str | None = None,
+        config: LlmConfig | None = None,
     ) -> LLMStream:                        
-                        
-                        
+        if isinstance(block, str):
+            block = Block().add_child(Block(block))
+        elif isinstance(block, BlockContext):
+            block = block.root
+        
         llm_ctx = self._get_llm(model)
-        return llm_ctx(ctx_blocks)
+        config = config or LlmConfig(model=llm_ctx.model)
+        return llm_ctx(block, config)

@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Literal, Optional, Type, Union
 from pydantic import BaseModel
 
-from promptview.block.block import Block
+from promptview.block import Block
 
 
 ToolChoice = Literal['auto', 'required', 'none']
@@ -19,9 +19,9 @@ class ErrorMessage(Exception):
         
     def to_block(self, output_model: Type[BaseModel] | None = None, role: str = "user", tags: List[str] = ["error"]) -> Block:
         with Block(tags=tags, role=role) as b:
-            b.append(self.error_content)
+            b /= self.error_content
             if output_model:
                 b /= "do not add any other text or apologies"
                 b /= "use the output format as provided to generate your answer"                
-        return b
+        return b.root
     

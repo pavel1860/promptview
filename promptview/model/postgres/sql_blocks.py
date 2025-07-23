@@ -1,5 +1,5 @@
 from typing import TYPE_CHECKING, Any, Literal
-from promptview.block import block, Block
+from promptview.block.block import block, Block
 if TYPE_CHECKING:
     from promptview.model.postgres.namespace import PostgresNamespace, PgFieldInfo
 
