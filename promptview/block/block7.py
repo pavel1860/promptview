@@ -148,6 +148,13 @@ class BlockParams(TypedDict, total=False):
     styles: list[str] | None
     logprob: float | None
     
+def all_slots(cls):
+    slots = []
+    for base in cls.__mro__:
+        if '__slots__' in base.__dict__:
+            slots.extend(base.__slots__)
+    return slots
+
 class BaseBlock(StreamEvent):
     
     __slots__ = [
@@ -204,12 +211,27 @@ class BaseBlock(StreamEvent):
         return self._logprob
     
         
-    def  __to_dict(self):
+    def model_dump(self):
         dump = {}
-        for slot in self.__slots__:
+        for slot in all_slots(type(self)):
+            if slot == "parent":
+                continue
             if hasattr(self, slot):
                 dump[slot] = getattr(self, slot)
+        dump["_type"] = self.__class__.__name__
         return dump
+    
+    
+    # @classmethod
+    # def model_validate(cls, data: dict):
+    #     if "_type" not in data:
+    #         raise ValueError("Missing _type, not a valid block")
+    #     if data["_type"] != cls.__name__:
+    #         raise ValueError(f"Invalid _type: {data['_type']}")
+    #     _type = data.pop("_type")
+    #     content = content if isinstance(content, tuple) else (content,)
+    #     return cls(*content,**data, children=[cls.model_validate(c) for c in children])
+    
     
     def render(self) -> str:
         from promptview.block.block_renderer2 import render
@@ -462,12 +484,9 @@ class Block(BaseBlock):
         return BlockModel.from_block(self)
     
     def model_dump(self):
-        dump = {
-            "_type": self.__class__.__name__,
-        }
-        for slot in self.__slots__:
-            if hasattr(self, slot):
-                dump[slot] = getattr(self, slot)
+        dump = super().model_dump()
+        dump["_type"] = "Block"
+        dump["content"] = self.content        
         return dump
     
         
@@ -493,17 +512,17 @@ class Block(BaseBlock):
         }
     
     
-    @classmethod
-    def model_validate(cls, data: dict):
-        if "_type" not in data:
-            raise ValueError("Missing _type, not a valid block")
-        if data["_type"] != cls.__name__:
-            raise ValueError(f"Invalid _type: {data['_type']}")
-        _type = data.pop("_type")
-        children = data.pop("children")
-        content = data.pop("content")
-        content = content if isinstance(content, tuple) else (content,)
-        return cls(*content,**data, children=[cls.model_validate(c) for c in children])
+    # @classmethod
+    # def model_validate(cls, data: dict):
+    #     if "_type" not in data:
+    #         raise ValueError("Missing _type, not a valid block")
+    #     if data["_type"] != cls.__name__:
+    #         raise ValueError(f"Invalid _type: {data['_type']}")
+    #     _type = data.pop("_type")
+    #     children = data.pop("children")
+    #     content = data.pop("content")
+    #     content = content if isinstance(content, tuple) else (content,)
+    #     return cls(*content,**data, children=[cls.model_validate(c) for c in children])
 
 
 
@@ -521,6 +540,26 @@ class BlockList(UserList[Block], BaseBlock):
     @property
     def logprob(self) -> float | None:
         return sum(block.logprob for block in self if block.logprob is not None)
+    
+    
+    def model_dump(self):
+        dump = super().model_dump()
+        dump["_type"] = "BlockList"
+        dump["blocks"] = [b.model_dump() for b in self]
+        return dump
+    
+    @classmethod
+    def model_validate(cls, data: dict):
+        if "_type" not in data:
+            raise ValueError("Missing _type, not a valid block")
+        if data["_type"] != cls.__name__:
+            raise ValueError(f"Invalid _type: {data['_type']}")
+        _type = data.pop("_type")
+        
+        if blocks := data.get("blocks"):
+            blocks = [Block.model_validate(b) for b in blocks]
+            data.pop("blocks")
+        return cls(blocks=blocks, **data)
     
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
@@ -561,7 +600,7 @@ class BlockContext(BaseBlock):
         "children",
     ]
     
-    def __init__(self, root: Block | BlockList | None = None, **kwargs: Unpack[BlockParams]):
+    def __init__(self, root: Block | BlockList | None = None, children: BlockList | None = None, **kwargs: Unpack[BlockParams]):
         super().__init__(**kwargs)
         if isinstance(root, Block):
             self.root: BlockList = BlockList([root], parent=self)
@@ -569,16 +608,34 @@ class BlockContext(BaseBlock):
             self.root: BlockList = root
         else:
             self.root: BlockList = BlockList([], parent=self)
-        self.children: BlockList = BlockList([], sep=kwargs.get("vsep", "\n"), parent=self)
-        if root:
-            root.parent = self
+        if children is None:
+            self.children: BlockList = BlockList([], sep=kwargs.get("vsep", "\n"), parent=self)
+        else:
+            self.children: BlockList = children
+        # if root:
+            # root.parent = self
+    @classmethod
+    def model_validate(cls, data: dict):
+        if "_type" not in data:
+            raise ValueError("Missing _type, not a valid block")
+        if data["_type"] != "BlockContext":
+            raise ValueError(f"Invalid _type: {data['_type']}")
+        _type = data.pop("_type")
+        
+        if root := data.get("root"):        
+            root = BlockList.model_validate(root)
+            data.pop("root")
+        if children := data.get("children"):
+            children = BlockList.model_validate(children)
+            data.pop("children")
+        return cls(root=root, children=children, **data)
     
     @property
     def logprob(self) -> float | None:
         logprob = sum(block.logprob for block in self.children if block.logprob is not None) or 0
         root_logprob = self.root.logprob or 0
         return logprob + root_logprob
-        
+       
             
             
     def __call__(self, content: ContentType | BaseBlock | list[str] | None = None) -> Block:
@@ -638,6 +695,15 @@ class BlockContext(BaseBlock):
         content.parent = self
         self.root.append(content)
         return self
+    
+    
+    def model_dump(self):
+        dump = super().model_dump()
+        # dump = self.base_model_dump()
+        dump["_type"] = "BlockContext"
+        dump["root"] = self.root.model_dump()
+        dump["children"] = [c.model_dump() for c in self.children]
+        return dump
     
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
