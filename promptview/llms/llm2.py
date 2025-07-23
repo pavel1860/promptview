@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 
 
-from promptview.block.block7 import Block, BlockContext, BlockList, Chunk
+from promptview.block.block7 import Block, BlockPrompt, BlockList, Chunk
 from promptview.block.util import StreamEvent
 from promptview.prompt.stream import StreamController
 
@@ -93,13 +93,13 @@ class LLM():
     
     def __call__(
         self,        
-        block: Block | BlockContext | str,
+        block: Block | BlockPrompt | str,
         model: str | None = None,
         config: LlmConfig | None = None,
     ) -> LLMStream:                        
         if isinstance(block, str):
             block = Block().add_child(Block(block))
-        elif isinstance(block, BlockContext):
+        elif isinstance(block, BlockPrompt):
             block = block.root
         
         llm_ctx = self._get_llm(model)

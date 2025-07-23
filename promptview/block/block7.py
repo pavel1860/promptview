@@ -1,7 +1,7 @@
-from typing import TYPE_CHECKING, Any, Generic, List, Protocol, Set, TypeVar
+from collections import UserList
+from typing import TYPE_CHECKING, Any, Generic, List, Protocol, Set, TypeVar, TypedDict, Unpack
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
-from promptview.block.block_renderer2 import render
 from promptview.block.util import LlmUsage, StreamEvent, StreamStatus, ToolCall
 if TYPE_CHECKING:
     from promptview.model.block_model import BlockModel
@@ -123,9 +123,100 @@ def parse_style(style: str | List[str] | None) -> List[str]:
         return style
     else:
         return []
+    
 
 
-class Block(StreamEvent):
+class BlockParams(TypedDict, total=False):
+    role: str | None
+    tags: list[str] | None
+    style: str | None
+    sep: str
+    vsep: str
+    wrap: tuple[str, str] | None
+    vwrap: tuple[str, str] | None
+    attrs: dict | None
+    depth: int
+    parent: "BaseBlock | None"
+    run_id: str | None
+    model: str | None
+    tool_calls: list[ToolCall] | None
+    usage: LlmUsage | None
+    id: str | None
+    db_id: str | None
+    event: StreamStatus | None
+    metadata: dict | None
+    styles: list[str] | None
+    
+class BaseBlock(StreamEvent):
+    
+    __slots__ = [
+    "role",        
+    "tags",
+    "styles",  
+    "sep",  
+    "vsep",
+    "wrap",
+    "vwrap",
+    "attrs",
+    "depth",
+    "parent",
+    "run_id",
+    "model",
+    "tool_calls",
+    "usage",
+    "id",
+    "db_id",
+    "event",
+    "metadata",
+    ]
+    
+    def __init__(self, **kwargs: Unpack[BlockParams]):        
+        self.role: str | None = kwargs.get("role")
+        self.tags: list[str] | None = kwargs.get("tags")
+        if kwargs.get("styles"):
+            self.styles = kwargs.get("styles")
+        else:
+            self.styles: list[str] | None = parse_style(kwargs.get("style"))
+        
+        self.sep: str = kwargs.get("sep", " ")
+        self.vsep: str = kwargs.get("vsep", "\n")
+        self.wrap: tuple[str, str] | None = kwargs.get("wrap")
+        self.vwrap: tuple[str, str] | None = kwargs.get("vwrap")
+        self.attrs: dict | None = kwargs.get("attrs")
+        
+        self.attrs: dict | None = kwargs.get("attrs")
+        self.depth: int = kwargs.get("depth", 0)
+        self.parent: "BaseBlock | None" = kwargs.get("parent")
+        self.run_id: str | None = kwargs.get("run_id")
+        self.model: str | None = kwargs.get("model")
+        self.tool_calls: list[ToolCall] | None = kwargs.get("tool_calls")
+        self.usage: LlmUsage | None = kwargs.get("usage")
+        self.id: str | None = kwargs.get("id")
+        self.db_id: str | None = kwargs.get("db_id")
+        self.event: StreamStatus | None = kwargs.get("event")
+        self.metadata: dict | None = kwargs.get("metadata")
+        
+        
+    def  __to_dict(self):
+        dump = {}
+        for slot in self.__slots__:
+            if hasattr(self, slot):
+                dump[slot] = getattr(self, slot)
+        return dump
+    
+    def render(self) -> str:
+        from promptview.block.block_renderer2 import render
+        return render(self)
+    
+    def print(self):
+        print(self.render())
+    
+    def __str__(self) -> str:
+        return self.render()
+
+        
+
+class Block(BaseBlock):
     """
     Block(content, children=None, role=None, tags=None, style=None, ...)
 
@@ -178,75 +269,22 @@ class Block(StreamEvent):
     
     __slots__ = [
         "content",
-        "children",
-        "role",        
-        "tags",
-        "styles",  
-        "sep",  
-        "vsep",
-        "wrap",
-        "vwrap",
-        "attrs",
-        "depth",
-        "parent",
-        "run_id",
-        "model",
-        "tool_calls",
-        "usage",
-        "id",
-        "db_id",
-        "event",
-        "metadata",
+        "children",        
     ]
     
     
     def __init__(
         self, 
-        *chunks: ContentType | Chunk,
-        children: list["Block"] | None = None,
-        role: str | None = None,
-        tags: list[str] | None = None,
-        style: str | None = None,
-        sep: str = " ",
-        vsep: str = "\n",
-        wrap: tuple[str, str] | None = None,
-        vwrap: tuple[str, str] | None = None,
-        attrs: dict | None = None,
-        depth: int = 0,
-        parent: "Block | None" = None,
-        run_id: str | None = None,
-        model: str | None = None,
-        tool_calls: list[ToolCall] | None = None,
-        usage: LlmUsage | None = None,
-        id: str | None = None,
-        db_id: str | None = None,        
-        event: StreamStatus | None = None,
-        metadata: dict | None = None,
+        content: ContentType,
+        **kwargs: Unpack[BlockParams]
     ):
         """
         Basic component of prompt building. 
         """
-        self.content: ChunkList = ChunkList([to_chunk(c) for c in chunks])
-        self.children: "BlockList" = children_to_blocklist(children)
-        self.role = role        
-        self.tags: list[str] = tags or []
-        self.styles = parse_style(style)
-        self.attrs = attrs or {}
-        self.depth = depth
-        self.parent = parent
-        self.run_id = run_id
-        self.model = model
-        self.tool_calls = tool_calls or []
-        self.usage = usage
-        self.id = id
-        self.db_id = db_id
-        self.sep = sep
-        self.vsep = vsep
-        self.wrap = wrap
-        self.vwrap = vwrap
-        self.event = event
-        self.metadata = metadata
+        super().__init__(**kwargs)
+        self.content: ContentType = content
         
+            
     @property
     def is_block(self) -> bool:
         return len(self.children) > 0
@@ -255,86 +293,127 @@ class Block(StreamEvent):
     def is_inline(self) -> bool:
         return len(self.children) == 0
     
-    @property
-    def is_empty_content(self) -> bool:
-        return len(self.content) == 0
+    # @property
+    # def is_empty_content(self) -> bool:
+    #     return len(self.content) == 0
     
-    def hstack(self, other: "Block") -> "Block":
-        """
-        Horizontaly stack two blocks
-        b1 = Block("Hello")
-        b2 = Block("World")
-        b3 = b1.hstack(b2)
+    # def hstack(self, other: "Block") -> "Block":
+    #     """
+    #     Horizontaly stack two blocks
+    #     b1 = Block("Hello")
+    #     b2 = Block("World")
+    #     b3 = b1.hstack(b2)
         
-        >>> b3.render()
-        "Hello World"        
-        """
-        return Block(
-            *self.content,
-            *other.content,
-            children=self.children + other.children,
-            role=self.role,
-            tags=self.tags + other.tags,
-        )
+    #     >>> b3.render()
+    #     "Hello World"        
+    #     """
+    #     return Block(
+    #         *self.content,
+    #         *other.content,
+    #         children=self.children + other.children,
+    #         role=self.role,
+    #         tags=self.tags + other.tags,
+    #     )
     
-    def vstack(self, other: "Block") -> "Block":
-        """
-        Vertically stack two blocks
-        b1 = Block("Hello")
-        b2 = Block("World")
-        b3 = b1.vstack(b2)
+    # def vstack(self, other: "Block") -> "Block":
+    #     """
+    #     Vertically stack two blocks
+    #     b1 = Block("Hello")
+    #     b2 = Block("World")
+    #     b3 = b1.vstack(b2)
         
-        >>> b3.render()
-        "Hello\nWorld"
-        """
-        return Block(
-            children=[self, other],
-            role=self.role,
-            tags=self.tags + other.tags,
-        )
+    #     >>> b3.render()
+    #     "Hello\nWorld"
+    #     """
+    #     return Block(
+    #         children=[self, other],
+    #         role=self.role,
+    #         tags=self.tags + other.tags,
+    #     )
         
-    def ihstack(self, other: "Block") -> "Block":
-        """
-        In-place horizontaly stack two blocks
-        b1 = Block("Hello")
-        b2 = Block("World")
-        b1.ihstack(b2)
+    # def ihstack(self, other: "Block") -> "Block":
+    #     """
+    #     In-place horizontaly stack two blocks
+    #     b1 = Block("Hello")
+    #     b2 = Block("World")
+    #     b1.ihstack(b2)
         
-        >>> b1.render()
-        "Hello World"
-        """
-        self.content.extend(other.content)
-        self.children.extend(other.children)
-        self.role = self.role or other.role
-        self.tags = self.tags + other.tags
-        return self
-    
-    
-    def append(self, *content: ContentType | Chunk):
-        self.content.extend([to_chunk(c) for c in content])
-        
-    def extend(self, *children: "Block"):
-        self.children.extend(children_to_blocklist(children))
+    #     >>> b1.render()
+    #     "Hello World"
+    #     """
+    #     self.content.extend(other.content)
+    #     self.children.extend(other.children)
+    #     self.role = self.role or other.role
+    #     self.tags = self.tags + other.tags
+    #     return self
     
     
-    def add_child(self, child: "Block"):
-        child.parent = self
-        child.depth = self.depth + 1
-        self.children.append(child)
-        return self
+    # def append(self, *content: ContentType | Chunk):
+    #     self.content.extend([to_chunk(c) for c in content])
         
-    def add_content(self, content: Chunk):
-        self.content.append(content)
+    # def extend(self, *children: "Block"):
+    #     self.children.extend(children_to_blocklist(children))
+    
+    
+    # def add_child(self, child: "Block"):
+    #     child.parent = self
+    #     child.depth = self.depth + 1
+    #     self.children.append(child)
+    #     return self
+        
+    # def add_content(self, content: Chunk):
+    #     self.content.append(content)
     
     
     def __enter__(self):
-        return BlockContext(self)
+        parent = self.parent
+        ctx = BlockContext(
+            self,
+            role=self.role,
+            attrs=self.attrs,
+            depth=self.depth,
+            parent=parent,
+            run_id=self.run_id,
+            model=self.model,
+            tool_calls=self.tool_calls,
+            usage=self.usage,
+            id=self.id,
+            db_id=self.db_id,
+            event=self.event,
+            metadata=self.metadata,
+            styles=self.styles,
+            sep=self.sep,
+            vsep=self.vsep,
+            wrap=self.wrap,
+            vwrap=self.vwrap,
+        )
+        self.parent = ctx
+        if isinstance(parent, BlockContext):
+            parent.children.pop()
+            parent.append_child(ctx)
+        return ctx
     
     def __exit__(self, exc_type, exc_value, traceback):
         pass
         
     def __add__(self, other: "Block"):
-        return self.hstack(other)
+        
+        
+        return BlockList(
+            [self, other], 
+            role=self.role,
+            attrs=self.attrs,
+            depth=self.depth,
+            parent=self.parent,
+            run_id=self.run_id,
+            model=self.model,
+            tool_calls=self.tool_calls,
+            usage=self.usage,
+            id=self.id,
+            db_id=self.db_id,
+            event=self.event,
+            metadata=self.metadata,
+        )
     
     def __radd__(self, other: "Block"):
         return other.hstack(self)
@@ -343,14 +422,6 @@ class Block(StreamEvent):
         self.ihstack(other)
         return self
     
-    def render(self) -> str:
-        return render(self)
-    
-    def print(self):
-        print(self.render())
-    
-    def __str__(self) -> str:
-        return self.render()
     
     
     @classmethod
@@ -382,7 +453,9 @@ class Block(StreamEvent):
         return BlockModel.from_block(self)
     
     def model_dump(self):
-        dump = {}
+        dump = {
+            "_type": self.__class__.__name__,
+        }
         for slot in self.__slots__:
             if hasattr(self, slot):
                 dump[slot] = getattr(self, slot)
@@ -425,10 +498,17 @@ class Block(StreamEvent):
 
 
 
-class BlockList(list[Block]):
+class BlockList(UserList[Block], BaseBlock):
     
-    # def __init__(self, blocks: list[Block]):
-    #     super().__init__(blocks)
+    
+    def __init__(self, blocks: list[Block] | None = None, **kwargs: Unpack[BlockParams]):
+        if blocks is None:
+            blocks = []
+        for block in blocks:
+            block.parent = self
+        UserList.__init__(self, blocks)
+        BaseBlock.__init__(self, **kwargs)        
+    
     
     
     @classmethod
@@ -460,12 +540,102 @@ class BlockList(list[Block]):
             raise ValueError(f"Invalid block list: {v}")
         
         
+      
+      
         
+class BlockContext(BaseBlock):
+    
+    __slots__ = [
+        "root",
+        "children",
+    ]
+    
+    def __init__(self, root: Block | BlockList | None = None, **kwargs: Unpack[BlockParams]):
+        super().__init__(**kwargs)
+        if isinstance(root, Block):
+            self.root: BlockList = BlockList([root], parent=self)
+        elif isinstance(root, BlockList):
+            self.root: BlockList = root
+        else:
+            self.root: BlockList = BlockList([], parent=self)
+        self.children: BlockList = BlockList([], sep="\n", parent=self)
+        if root:
+            root.parent = self
+            
+            
+            
+    def __call__(self, content: ContentType | BaseBlock | list[str]) -> Block:
+        if isinstance(content, Block):
+            self.append_child(content)
+            return content
+        elif isinstance(content, list):
+            for c in content:
+                self.append_child(c)
+            return c
+        else:
+            content = Block(content)
+            self.append_child(content)
+            return content
+        
+    
+    
+    def __iadd__(self, other: ContentType | Block):
+        if not isinstance(other, Block):
+            other = Block(other)
+        self.append_root(other)
+        return self
+    
+    
+    def __itruediv__(self, other: ContentType | Block):
+        if not isinstance(other, Block):
+            other = Block(other)
+        self.append_child(other)
+        return self
+    
+    
+    
+    def append_child(self, child: Block):
+        child.parent = self
+        self.children.append(child)
+        return self
+    
+    def append_root(self, content: ContentType | Block):
+        if not isinstance(content, Block):
+            content = Block(content)
+        content.parent = self
+        self.root.append(content)
+        return self
+    
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            cls._validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                cls._serialize
+            )
+        )
+        
+    @staticmethod
+    def _validate(v: Any) -> Any:
+        if isinstance(v, BlockContext):
+            return v
+        elif isinstance(v, list):
+            for item in v:
+                if not isinstance(item, Block):
+                    raise ValueError(f"Invalid block list: {v}")
+            return BlockList(v)
+        else:
+            raise ValueError(f"Invalid block list: {v}")
+
+    @staticmethod
+    def _serialize(v: Any) -> Any:
+        if isinstance(v, BlockContext):
+            return v.model_dump()
+        else:
+            raise ValueError(f"Invalid block list: {v}")
 
 
-
-
-class BlockContext:
+class BlockPrompt:
     
     def __init__(self, root: Block):
         self.ctx = ContextStack()
@@ -628,6 +798,7 @@ class BlockContext:
     
     
     def render(self) -> str:
+        from promptview.block.block_renderer2 import render
         return render(self.ctx.root)
     
     def print(self):
