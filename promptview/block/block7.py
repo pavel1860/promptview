@@ -2,7 +2,7 @@ from collections import UserList
 from typing import TYPE_CHECKING, Any, Generic, List, Protocol, Set, TypeVar, TypedDict, Unpack
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
-from promptview.block.util import LlmUsage, StreamEvent, StreamStatus, ToolCall
+from promptview.block.util import LlmUsage, ToolCall
 if TYPE_CHECKING:
     from promptview.model.block_model import BlockModel
     from promptview.model.model import SelectQuerySet
@@ -13,20 +13,16 @@ ContentType = str | int | float | bool | None
 
 CHUNK_TYPE = TypeVar("CHUNK_TYPE", str, int, float, bool, None)
 
-class Chunk(StreamEvent):
+class Chunk:
     
     __slots__ = [
         "content",
         "logprob",
-        "event",
-        "metadata",
     ]
     
-    def __init__(self, content: ContentType, logprob: float = 0, event: StreamStatus | None = None, metadata: dict | None = None):
+    def __init__(self, content: ContentType, logprob: float = 0):
         self.content: ContentType = content 
         self.logprob: float = logprob
-        self.event: StreamStatus | None = event
-        self.metadata: dict | None = metadata
         
     def merge(self, other: "Chunk") -> "ChunkList":
         return ChunkList([self, other])
@@ -143,8 +139,6 @@ class BlockParams(TypedDict, total=False):
     usage: LlmUsage | None
     id: str | None
     db_id: str | None
-    event: StreamStatus | None
-    metadata: dict | None
     styles: list[str] | None
     logprob: float | None
     
@@ -155,7 +149,7 @@ def all_slots(cls):
             slots.extend(base.__slots__)
     return slots
 
-class BaseBlock(StreamEvent):
+class BaseBlock:
     
     __slots__ = [
     "role",        
@@ -174,8 +168,6 @@ class BaseBlock(StreamEvent):
     "usage",
     "id",
     "db_id",
-    "event",
-    "metadata",
     "_logprob",
     ]
     
@@ -202,8 +194,6 @@ class BaseBlock(StreamEvent):
         self.usage: LlmUsage | None = kwargs.get("usage")
         self.id: str | None = kwargs.get("id")
         self.db_id: str | None = kwargs.get("db_id")
-        self.event: StreamStatus | None = kwargs.get("event")
-        self.metadata: dict | None = kwargs.get("metadata")
         self._logprob: float | None = kwargs.get("logprob")
         
     @property
@@ -235,7 +225,8 @@ class BaseBlock(StreamEvent):
     
     def render(self) -> str:
         from promptview.block.block_renderer2 import render
-        return render(self)
+        result = render(self)
+        return result if result is not None else ""
     
     def print(self):
         print(self.render())
@@ -277,7 +268,7 @@ class Block(BaseBlock):
         attrs: Optional dictionary of additional attributes
         depth: Nesting depth (used internally)
         parent: Parent Block (used internally)
-        run_id, model, tool_calls, usage, id, db_id, sep, event, metadata: Advanced/streaming options
+        run_id, model, tool_calls, usage, id, db_id, sep: Advanced/streaming options
 
     Example:
         >>> block = Block("Hello", "World", style="markdown-header", tags=["greeting"])
@@ -410,8 +401,6 @@ class Block(BaseBlock):
             usage=self.usage,
             id=self.id,
             db_id=self.db_id,
-            event=self.event,
-            metadata=self.metadata,
             styles=self.styles,
             sep=self.sep,
             vsep=self.vsep,
@@ -442,8 +431,6 @@ class Block(BaseBlock):
             usage=self.usage,
             id=self.id,
             db_id=self.db_id,
-            event=self.event,
-            metadata=self.metadata,
         )
     
     def __radd__(self, other: "Block"):
@@ -507,22 +494,21 @@ class Block(BaseBlock):
             "id": self.id,
             "db_id": self.db_id,
             "sep": self.sep,
-            "event": self.event,
-            "metadata": self.metadata,
         }
     
     
-    # @classmethod
-    # def model_validate(cls, data: dict):
-    #     if "_type" not in data:
-    #         raise ValueError("Missing _type, not a valid block")
-    #     if data["_type"] != cls.__name__:
-    #         raise ValueError(f"Invalid _type: {data['_type']}")
-    #     _type = data.pop("_type")
-    #     children = data.pop("children")
-    #     content = data.pop("content")
-    #     content = content if isinstance(content, tuple) else (content,)
-    #     return cls(*content,**data, children=[cls.model_validate(c) for c in children])
+    @classmethod
+    def model_validate(cls, data: dict):
+        if "_type" not in data or data["_type"] != "Block":
+            raise ValueError(f"Invalid or missing _type for Block: {data.get('_type')}")
+        data = dict(data)  # copy
+        data.pop("_type")
+        content = data.pop("content", None)
+        children_data = data.pop("children", [])
+        children = [Block.model_validate(child) for child in children_data]
+        block = cls(content, **data)
+        block.children = children
+        return block
 
 
 
@@ -550,15 +536,12 @@ class BlockList(UserList[Block], BaseBlock):
     
     @classmethod
     def model_validate(cls, data: dict):
-        if "_type" not in data:
-            raise ValueError("Missing _type, not a valid block")
-        if data["_type"] != cls.__name__:
-            raise ValueError(f"Invalid _type: {data['_type']}")
-        _type = data.pop("_type")
-        
-        if blocks := data.get("blocks"):
-            blocks = [Block.model_validate(b) for b in blocks]
-            data.pop("blocks")
+        if "_type" not in data or data["_type"] != "BlockList":
+            raise ValueError(f"Invalid or missing _type for BlockList: {data.get('_type')}")
+        data = dict(data)
+        data.pop("_type")
+        blocks_data = data.pop("blocks", [])
+        blocks = [Block.model_validate(b) for b in blocks_data]
         return cls(blocks=blocks, **data)
     
     @classmethod
@@ -589,7 +572,20 @@ class BlockList(UserList[Block], BaseBlock):
         else:
             raise ValueError(f"Invalid block list: {v}")
         
-        
+
+
+
+def parse_content(content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> Block:
+    if content is None:
+        return Block(**kwargs)
+    elif isinstance(content, Block):
+        return content
+    elif isinstance(content, list):
+        return Block(content, **kwargs)
+    elif isinstance(content, str):
+        return Block(content, **kwargs)
+    else:
+        raise ValueError(f"Invalid content type: {type(content)}")
       
       
         
@@ -616,18 +612,14 @@ class BlockContext(BaseBlock):
             # root.parent = self
     @classmethod
     def model_validate(cls, data: dict):
-        if "_type" not in data:
-            raise ValueError("Missing _type, not a valid block")
-        if data["_type"] != "BlockContext":
-            raise ValueError(f"Invalid _type: {data['_type']}")
-        _type = data.pop("_type")
-        
-        if root := data.get("root"):        
-            root = BlockList.model_validate(root)
-            data.pop("root")
-        if children := data.get("children"):
-            children = BlockList.model_validate(children)
-            data.pop("children")
+        if "_type" not in data or data["_type"] != "BlockContext":
+            raise ValueError(f"Invalid or missing _type for BlockContext: {data.get('_type')}")
+        data = dict(data)
+        data.pop("_type")
+        root_data = data.pop("root", None)
+        children_data = data.pop("children", [])
+        root = BlockList.model_validate(root_data) if root_data else BlockList()
+        children = BlockList.model_validate({"_type": "BlockList", "blocks": children_data}) if children_data else BlockList()
         return cls(root=root, children=children, **data)
     
     @property
@@ -638,22 +630,27 @@ class BlockContext(BaseBlock):
        
             
             
-    def __call__(self, content: ContentType | BaseBlock | list[str] | None = None) -> Block:
-        if content is None:
-            content = Block()
+    # def __call__(self, content: ContentType | BaseBlock | list[str] | None = None) -> Block:
+    #     if content is None:
+    #         content = Block()
             
-        if isinstance(content, Block):
-            self.append_child(content)
-            return content
-        elif isinstance(content, list):
-            for c in content:
-                self.append_child(c)
-            return c
-        else:
-            content = Block(content)
-            self.append_child(content)
-            return content
-        
+    #     if isinstance(content, Block):
+    #         self.append_child(content)
+    #         return content
+    #     elif isinstance(content, list):
+    #         for c in content:
+    #             self.append_child(c)
+    #         return c
+    #     else:
+    #         content = Block(content)
+    #         self.append_child(content)
+    #         return content
+    
+    def __call__(self, content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> Block:
+        # if isinstance(content, str)
+        block = parse_content(content, **kwargs)
+        self.append_child(block)
+        return block
     
     
     def __iadd__(self, other: ContentType | Block | tuple[ContentType, ...]):
@@ -736,9 +733,10 @@ class BlockContext(BaseBlock):
 
 class BlockPrompt:
     
-    def __init__(self, root: Block):
+    def __init__(self):
         self.ctx = ContextStack()
-        self.ctx.push(root)
+        self._root = BlockList()        
+        
         
         
     @property
@@ -782,31 +780,37 @@ class BlockPrompt:
         
 
     
-    def __call__(
-        self, 
-        *content: ContentType | Chunk | Block | list,
-        role: str | None = None,
-        tags: list[str] | None = None,
-        style: str | None = None,
-        attrs: dict | None = None,        
-    ):
-        if content:
-            if isinstance(content[0], Block):
-                self.extend_children(content)
-            elif isinstance(content[0], Chunk):
-                self.extend_content(content)
-            elif isinstance(content[0], list):
-                self.extend_children(*[Block(c, role=role, tags=tags, style=style, attrs=attrs) for c in content[0]])
-            elif isinstance(content, tuple):
-                self.extend_children(Block(*content, role=role, tags=tags, style=style, attrs=attrs))
-                # self.extend_content(*[to_chunk(c) for c in content])        
-            elif isinstance(content, str):
-                self.extend_children(Block(content, role=role, tags=tags, style=style, attrs=attrs))
-            else:
-                raise ValueError(f"Invalid content type: {type(content)}")
-        else:
-            self.extend_children(Block(role=role, tags=tags, style=style, attrs=attrs))
-        return self
+    # def __call__(
+    #     self, 
+    #     *content: ContentType | Chunk | Block | list,
+    #     role: str | None = None,
+    #     tags: list[str] | None = None,
+    #     style: str | None = None,
+    #     attrs: dict | None = None,        
+    # ):
+    #     if content:
+    #         if isinstance(content[0], Block):
+    #             self.extend_children(content)
+    #         elif isinstance(content[0], Chunk):
+    #             self.extend_content(content)
+    #         elif isinstance(content[0], list):
+    #             self.extend_children(*[Block(c, role=role, tags=tags, style=style, attrs=attrs) for c in content[0]])
+    #         elif isinstance(content, tuple):
+    #             self.extend_children(Block(*content, role=role, tags=tags, style=style, attrs=attrs))
+    #             # self.extend_content(*[to_chunk(c) for c in content])        
+    #         elif isinstance(content, str):
+    #             self.extend_children(Block(content, role=role, tags=tags, style=style, attrs=attrs))
+    #         else:
+    #             raise ValueError(f"Invalid content type: {type(content)}")
+    #     else:
+    #         self.extend_children(Block(role=role, tags=tags, style=style, attrs=attrs))
+    #     return self
+    
+    def __call__(self, content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> Block:
+        block = parse_content(content, **kwargs)
+        # self._root.append(block)
+        self.ctx.push(block)
+        return block
     
     def __enter__(self):
         """
@@ -878,7 +882,8 @@ class BlockPrompt:
     
     def render(self) -> str:
         from promptview.block.block_renderer2 import render
-        return render(self.ctx.root)
+        result = render(self.ctx.root)
+        return result if result is not None else ""
     
     def print(self):
         print(self.render())

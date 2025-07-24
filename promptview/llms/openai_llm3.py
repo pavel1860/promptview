@@ -8,6 +8,7 @@ from promptview.block.util import LLMEvent, ToolCall
 from promptview.llms.llm2 import LLMStream, LlmConfig
 from openai.types.chat import ChatCompletionMessageParam
 
+from promptview.prompt.events import Event
 from promptview.utils.model_utils import schema_to_function
 
 
@@ -87,13 +88,15 @@ class OpenAiLLM(LLMStream):
                     blk_chunk = Block(content, logprob=logprob)
                     block.append(blk_chunk)
                     if choice.index == 0:
-                        blk_chunk.event = "stream_start"
-                    if choice.finish_reason:
-                        blk_chunk.event = "stream_success"
-                    yield blk_chunk            
+                        event = Event(type="stream_start", payload=block, timestamp=chunk.created)
+                    elif choice.finish_reason:
+                        event = Event(type="stream_end", payload=block, timestamp=chunk.created)
+                    else:
+                        event = Event(type="message_delta", payload=block, timestamp=chunk.created)
+                    yield event            
             yield block
         except Exception as e:
             block = Block(str(e))
-            block.event = "stream_error"
-            yield block
+            event = Event(type="stream_error", payload=block, timestamp=chunk.created)
+            yield event
             raise e
