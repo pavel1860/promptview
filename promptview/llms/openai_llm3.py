@@ -59,6 +59,7 @@ class OpenAiLLM(LLMStream):
         ]
         llm_tools = None
         tool_choice = None
+        did_start = False
         if self.tools:
             llm_tools = [self.to_tool(tool) for tool in self.tools]        
             tool_choice = self.config.tool_choice
@@ -87,14 +88,14 @@ class OpenAiLLM(LLMStream):
                         raise ValueError("No logprobs")        
                     blk_chunk = Block(content, logprob=logprob)
                     block.append(blk_chunk)
-                    if choice.index == 0:
-                        event = Event(type="stream_start", payload=block, timestamp=chunk.created)
+                    if not did_start:
+                        did_start = True
+                        event = Event(type="stream_start", payload=blk_chunk, timestamp=chunk.created)
                     elif choice.finish_reason:
                         event = Event(type="stream_end", payload=block, timestamp=chunk.created)
                     else:
-                        event = Event(type="message_delta", payload=block, timestamp=chunk.created)
-                    yield event            
-            yield block
+                        event = Event(type="message_delta", payload=blk_chunk, timestamp=chunk.created)
+                    yield event
         except Exception as e:
             block = Block(str(e))
             event = Event(type="stream_error", payload=block, timestamp=chunk.created)

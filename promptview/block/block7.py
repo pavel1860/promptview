@@ -207,7 +207,10 @@ class BaseBlock:
             if slot == "parent":
                 continue
             if hasattr(self, slot):
-                dump[slot] = getattr(self, slot)
+                value = getattr(self, slot)
+                if value is None:
+                    continue
+                dump[slot] = value
         dump["_type"] = self.__class__.__name__
         return dump
     

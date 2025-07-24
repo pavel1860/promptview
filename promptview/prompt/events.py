@@ -20,6 +20,7 @@ EventType = LlmStreamType
 class EventParams(TypedDict, total=False):
     timestamp: int | None
     error: str | None
+    index: int | None
 
 
 
@@ -30,6 +31,7 @@ class Event:
         "timestamp",
         "payload",
         "error",
+        "index",
     ]
     def __init__(
         self, 
@@ -40,7 +42,7 @@ class Event:
         self.payload = payload
         self.timestamp: int | None = kwargs.get("timestamp")
         self.error: str | None = kwargs.get("error")
-        
+        self.index: int | None = kwargs.get("index")
         
     def payload_to_dict(self):
         if hasattr(self.payload, "model_dump"):
@@ -56,6 +58,7 @@ class Event:
         dump = {
             "type": self.type,
             "payload": payload,
+            "index": self.index,
         }        
         if self.error:
             dump["error"] = self.error
@@ -71,3 +74,95 @@ class Event:
     
     
     
+
+    
+from pydantic import BaseModel, Field
+from typing import Any, Literal, Protocol, Union, Optional, List, Dict
+from datetime import datetime
+
+
+
+class Serializeble(Protocol):
+    
+    def model_dump(self) -> dict:
+        ...
+    
+
+
+# -- Base event --
+class BaseEvent(BaseModel):
+    turn_id: int
+    timestamp: Optional[datetime] = None
+
+
+# -- Event: Stream Start --
+class StreamStart(BaseEvent):
+    type: Literal["stream_start"] = "stream_start"
+
+class MessageDelta(BaseEvent):
+    type: Literal["message_delta"] = "message_delta"
+    payload: Any
+
+class StreamEnd(BaseEvent):
+    type: Literal["stream_end"] = "stream_end"
+    response: Any
+    done: Literal[True] = True
+
+# -- Tool Call Info --
+class ToolCallObject(BaseModel):
+    id: str
+    name: str
+    args: Dict
+    status: Literal["started", "completed", "errored"]
+    output: Optional[Dict] = None
+    error: Optional[str] = None
+
+
+# -- Event: Tool Call --
+class ToolCallEvent(BaseEvent):
+    type: Literal["tool_call"]
+    tool_calls: List[ToolCallObject]
+
+
+# -- Event: State Update --
+class StateUpdate(BaseEvent):
+    type: Literal["state_update"]
+    state: Dict[str, Dict]
+
+
+# -- Event: Agent Final Output --
+class AgentResponse(BaseEvent):
+    type: Literal["agent_response"]
+    message: Dict
+
+
+# -- Event: Developer Log Line --
+class LogEvent(BaseEvent):
+    type: Literal["log"]
+    content: str
+
+
+# -- Event: Trace Info (execution stack, context diffs) --
+class TraceEvent(BaseEvent):
+    type: Literal["trace"]
+    state: Dict
+
+
+# -- Event: Error Info --
+class ErrorEvent(BaseEvent):
+    type: Literal["error"]
+    content: str
+
+
+# -- Union: All Stream Events --
+StreamEvent = Union[
+    StreamStart,
+    MessageDelta,
+    StreamEnd,
+    ToolCallEvent,
+    StateUpdate,
+    AgentResponse,
+    LogEvent,
+    TraceEvent,
+    ErrorEvent,
+]
