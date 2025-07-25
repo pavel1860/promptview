@@ -3,17 +3,51 @@ import inspect
 from typing import Any, AsyncGenerator, Callable, ParamSpec, Union, AsyncIterator, Optional
 from typing_extensions import TypeVar
 
+
+
+class StreamResponse:
+    
+    def __init__(self, value: Any):
+        self.value = value
+        
+    def __str__(self):
+        return str(self.value)
+    
+    def __repr__(self):
+        return f"StreamResponse({self.value})"
+
 class GeneratorFrame:
-    def __init__(self, agen: AsyncGenerator):
+    def __init__(self, agen: AsyncGenerator, accumulator: Any):
         self.agen = agen
+        self.accumulator = self._init_accumulator(accumulator)
         self.started = False
 
-    async def advance(self, value: Any):
+    async def advance(self, value: Any | None = None):
         if not self.started:
             self.started = True
             return await self.agen.__anext__()
         else:
-            return await self.agen.asend(value)
+            return await self.agen.asend(value or self.accumulator)
+        
+        
+    def _init_accumulator(self, acc) -> Any:
+        if acc is None:
+            return ""
+        elif callable(acc):
+            return acc()
+        else:
+            return acc
+        
+    def try_append(self, value: Any):
+        # Try using append or += for accumulation
+        try:
+            self.accumulator.append(value)
+        except AttributeError:
+            try:
+                self.accumulator += value
+            except Exception:
+                pass  # Optionally: raise or log a warning
+
 
 class AsyncStreamWrapper:
     def __init__(
@@ -23,7 +57,7 @@ class AsyncStreamWrapper:
     ):
         self._stack = []
         self._initial_gen = agen
-        self._accumulator = self._init_accumulator(accumulator)
+        self._accumulator_factory = accumulator
         
         
     @property
@@ -32,42 +66,41 @@ class AsyncStreamWrapper:
             raise ValueError("No current generator")
         return self._stack[-1]
 
-    def _init_accumulator(self, acc) -> Any:
-        if acc is None:
-            return ""
-        elif callable(acc):
-            return acc()
-        else:
-            return acc
         
     def __await__(self):
         async def _consume():
             async for _ in self:
                 pass
-            return self._accumulator
+            return self.current.accumulator
         return _consume().__await__()
 
 
     def __aiter__(self) -> AsyncIterator[Any]:
-        self._stack = [self._wrap(self._initial_gen)]
+        self._stack = [self.build_frame()]
         return self
 
     async def __anext__(self) -> Any:
+        frame_response = None
         while self._stack:
             try:
-                value = await self.current.advance(self._accumulator)
+                value = await self.current.advance(frame_response)
+                frame_response = None
                 
                 if isinstance(value, AsyncStreamWrapper):
-                    self._stack.append(self._wrap(value._initial_gen))
+                    self._stack.append(value.build_frame())
                     continue
 
                 # Attempt to append to the accumulator
-                self._try_append(value)
+                self.current.try_append(value)
 
                 return value
 
             except StopAsyncIteration as e:
-                self._stack.pop()
+                if len(self._stack) == 1:
+                    raise e
+                frame = self._stack.pop()
+                frame_response = frame.accumulator
+                
                 if hasattr(e, "value") and e.value is not None:
                     self._accumulator = e.value
 
@@ -78,17 +111,11 @@ class AsyncStreamWrapper:
             value = value()
         if not inspect.isasyncgen(value):
             raise TypeError(f"{value} is not an async generator")
-        return GeneratorFrame(value)
+        return GeneratorFrame(value, self._accumulator_factory)
+    
+    def build_frame(self) -> GeneratorFrame:
+        return GeneratorFrame(self._initial_gen, self._accumulator_factory)
 
-    def _try_append(self, value: Any):
-        # Try using append or += for accumulation
-        try:
-            self._accumulator.append(value)
-        except AttributeError:
-            try:
-                self._accumulator += value
-            except Exception:
-                pass  # Optionally: raise or log a warning
 
     async def stream_events(self):
         yield {"type": "stream_start"}
