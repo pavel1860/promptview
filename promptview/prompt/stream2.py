@@ -24,6 +24,13 @@ class AsyncStreamWrapper:
         self._stack = []
         self._initial_gen = agen
         self._accumulator = self._init_accumulator(accumulator)
+        
+        
+    @property
+    def current(self) -> Any:
+        if not self._stack:
+            raise ValueError("No current generator")
+        return self._stack[-1]
 
     def _init_accumulator(self, acc) -> Any:
         if acc is None:
@@ -47,12 +54,11 @@ class AsyncStreamWrapper:
 
     async def __anext__(self) -> Any:
         while self._stack:
-            current = self._stack[-1]
             try:
-                value = await current.advance(self._accumulator)
-
-                if inspect.isasyncgen(value):
-                    self._stack.append(self._wrap(value))
+                value = await self.current.advance(self._accumulator)
+                
+                if isinstance(value, AsyncStreamWrapper):
+                    self._stack.append(self._wrap(value._initial_gen))
                     continue
 
                 # Attempt to append to the accumulator
