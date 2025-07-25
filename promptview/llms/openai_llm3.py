@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Type
 import openai
 import os
@@ -5,6 +6,7 @@ import os
 from pydantic import BaseModel
 from promptview.block.block7 import Block, BlockList, Chunk
 from promptview.block.util import LLMEvent, ToolCall
+from promptview.context.execution_context import ExecutionContext
 from promptview.llms.llm2 import LLMStream, LlmConfig
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -60,6 +62,7 @@ class OpenAiLLM(LLMStream):
         llm_tools = None
         tool_choice = None
         did_start = False
+        request_id = ExecutionContext.current().request_id
         if self.tools:
             llm_tools = [self.to_tool(tool) for tool in self.tools]        
             tool_choice = self.config.tool_choice
@@ -90,14 +93,14 @@ class OpenAiLLM(LLMStream):
                     block.append(blk_chunk)
                     if not did_start:
                         did_start = True
-                        event = Event(type="stream_start", payload=blk_chunk, timestamp=chunk.created)
+                        event = Event(type="stream_start", payload=blk_chunk, timestamp=chunk.created, request_id=request_id)
                     elif choice.finish_reason:
-                        event = Event(type="stream_end", payload=block, timestamp=chunk.created)
+                        event = Event(type="stream_end", payload=block, timestamp=chunk.created, request_id=request_id)
                     else:
-                        event = Event(type="message_delta", payload=blk_chunk, timestamp=chunk.created)
+                        event = Event(type="message_delta", payload=blk_chunk, timestamp=chunk.created, request_id=request_id)
                     yield event
         except Exception as e:
             block = Block(str(e))
-            event = Event(type="stream_error", payload=block, timestamp=chunk.created)
+            event = Event(type="stream_error", payload=block, timestamp=int(datetime.now().timestamp()), request_id=request_id)
             yield event
             raise e

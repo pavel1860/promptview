@@ -5,15 +5,15 @@ import json
 from typing import Any, Literal, TypedDict, Unpack
 from pydantic import BaseModel, Field
 import uuid
-from datetime import datetime
+import datetime as dt
 
 
 
 LlmStreamType = Literal["stream_start", "message_delta", "stream_end", "stream_error"]
 
-AgentMessageType = Literal["agent_message"]
+MessageType = Literal["user_message", "assistant_message"]
 
-EventType = LlmStreamType
+EventType = LlmStreamType | MessageType
 
 
 
@@ -21,6 +21,7 @@ class EventParams(TypedDict, total=False):
     timestamp: int | None
     error: str | None
     index: int | None
+    request_id: str | None
 
 
 
@@ -32,6 +33,7 @@ class Event:
         "payload",
         "error",
         "index",
+        "request_id",
     ]
     def __init__(
         self, 
@@ -43,6 +45,7 @@ class Event:
         self.timestamp: int | None = kwargs.get("timestamp")
         self.error: str | None = kwargs.get("error")
         self.index: int | None = kwargs.get("index")
+        self.request_id: str | None = kwargs.get("request_id")
         
     def payload_to_dict(self):
         if hasattr(self.payload, "model_dump"):
@@ -52,6 +55,16 @@ class Event:
         else:
             return self.payload
         
+        
+    @staticmethod
+    def _json_default(obj):
+        if isinstance(obj, dt.datetime):
+            return obj.isoformat()
+        if isinstance(obj, dt.date):
+            return obj.isoformat()
+        # Add more types if needed
+        raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+        
     def to_json(self):
         payload = self.payload_to_dict()
         
@@ -59,6 +72,7 @@ class Event:
             "type": self.type,
             "payload": payload,
             "index": self.index,
+            "request_id": self.request_id,
         }        
         if self.error:
             dump["error"] = self.error
@@ -66,7 +80,7 @@ class Event:
         if self.timestamp:
             dump["timestamp"] = self.timestamp
             
-        return json.dumps(dump)
+        return json.dumps(dump, default=self._json_default)
     
     def to_ndjson(self):
         return self.to_json() + "\n"
@@ -78,7 +92,7 @@ class Event:
     
 from pydantic import BaseModel, Field
 from typing import Any, Literal, Protocol, Union, Optional, List, Dict
-from datetime import datetime
+import datetime as dt
 
 
 
@@ -92,7 +106,7 @@ class Serializeble(Protocol):
 # -- Base event --
 class BaseEvent(BaseModel):
     turn_id: int
-    timestamp: Optional[datetime] = None
+    timestamp: Optional[dt.datetime] = None
 
 
 # -- Event: Stream Start --
