@@ -5,9 +5,59 @@ import inspect
 from pydantic import BaseModel
 
 from promptview.prompt.depends import DependsContainer, resolve_dependency
+from promptview.prompt.events import Event
 from promptview.prompt.stream2 import AsyncStreamWrapper
-
+from uuid import uuid4
 # Assuming AsyncStreamWrapper, DependsContainer, and resolve_dependency are available
+
+
+class Span:
+    def __init__(self, name: str, inputs: Any, id: str | None = None):
+        self.name = name
+        self.id = id or str(uuid4())
+        self.start_time = None
+        self.end_time = None
+        self.duration = None
+        self.error = None
+        self.inputs = inputs
+        self.output = None
+        self.events = []
+        
+    def start(self):
+        self.start_time = time.time()
+        self.events.append(Event(type="span_start", payload=self.dump_start(), index=0))
+        
+    def end(self, output: Any = None):
+        self.end_time = time.time()
+        if self.start_time is None:
+            raise ValueError("Span not started")
+        self.duration = self.end_time - self.start_time
+        self.output = output
+        self.events.append(Event(type="span_end", payload=self.dump_end(), index=0))
+        
+    def error(self, error: Exception):
+        self.error = error
+        
+    def dump_start(self):
+        return {
+            "type": "span_start",
+            "name": self.name,
+            "id": self.id,
+            "start_time": self.start_time,
+            "inputs": self.inputs,
+        }
+                
+    def dump_end(self):
+        return {
+            "type": "span_end",
+            "name": self.name,
+            "id": self.id,
+            "end_time": self.end_time,
+            "duration": self.duration,
+            "error": self.error,
+            "output": self.output,
+        }
+        
 
 class SpanController:
     def __init__(
@@ -26,6 +76,19 @@ class SpanController:
         self._end_time = None
         self._trace_id = id(self)
         self._stream: Optional[AsyncStreamWrapper] = None
+        self._span = None
+        
+    @property
+    def span(self):
+        if self._span is None:
+            raise ValueError("Span not started")
+        return self._span
+    
+    @property
+    def stream(self):
+        if self._stream is None:
+            raise ValueError("Stream not started")
+        return self._stream
 
     async def _resolve_dependencies(self):
         signature = inspect.signature(self.span_func)
@@ -43,37 +106,38 @@ class SpanController:
         return inspect.BoundArguments(signature, bound.arguments | dep_kwargs)
 
     async def _init_stream(self):
-        self._start_span()
+        self._span = Span(self.span_func.__name__, self._trace_id, self.resolved_args)
+        self._span.start()
         self.resolved_args = await self._resolve_dependencies()
         gen = self.span_func(*self.resolved_args.args, **self.resolved_args.kwargs)        
         self._stream = AsyncStreamWrapper(gen, self.accumulator_factory)
         self._stream.__aiter__()
 
-    def _start_span(self):
-        self._start_time = time.time()
-        print(f"[Span Start] {self.span_func.__name__} (trace_id={self._trace_id})")
+    # def _start_span(self):
+    #     self._start_time = time.time()
+    #     print(f"[Span Start] {self.span_func.__name__} (trace_id={self._trace_id})")
 
-    def _end_span(self, error: Optional[Exception] = None):
-        if self._end_time is None:
-            self._end_time = time.time()
-            duration = self._end_time - self._start_time
-            if error:
-                print(f"[Span Error] {self.span_func.__name__}: {error}")
-            print(f"[Span End] {self.span_func.__name__} (duration={duration:.2f}s)")
+    # def _end_span(self, error: Optional[Exception] = None):
+    #     if self._end_time is None:
+    #         self._end_time = time.time()
+    #         duration = self._end_time - self._start_time
+    #         if error:
+    #             print(f"[Span Error] {self.span_func.__name__}: {error}")
+    #         print(f"[Span End] {self.span_func.__name__} (duration={duration:.2f}s)")
 
     def __aiter__(self):
         return self
 
     async def __anext__(self):
-        if not self._stream:
+        if not self.stream:
             await self._init_stream()
         try:
-            return await self._stream.__anext__()
+            return await self.stream.__anext__()
         except StopAsyncIteration:
-            self._end_span()
+            self.span.end()
             raise
         except Exception as e:
-            self._end_span(error=e)
+            self.span.error(e)
             raise
 
 
@@ -81,21 +145,25 @@ class SpanController:
         async def event_stream():
             if not self._stream:
                 await self._init_stream()
-            async for event in self._stream.stream_events():
+            event = Event(type="span_start", payload=self.span.dump_start(), index=0)
+            yield event
+            async for event in self.stream.stream_events():
                 yield event
-            self._end_span()
+            self.span.end(self.stream.current.accumulator)
+            event = Event(type="span_end", payload=self.span.dump_end(), index=1)
+            yield event
         return event_stream()
 
     def __await__(self):
         async def await_result():
-            if not self._stream:
+            if not self.stream:
                 await self._init_stream()
             try:
-                result = await self._stream
-                self._end_span()
+                result = await self.stream
+                self.span.end(result)
                 return result
             except Exception as e:
-                self._end_span(error=e)
+                self.span.error(e)
                 raise
         return await_result().__await__()
 

@@ -11,9 +11,11 @@ import datetime as dt
 
 LlmStreamType = Literal["stream_start", "message_delta", "stream_end", "stream_error"]
 
+SpanEventType = Literal["span_start", "span_end"]
+
 MessageType = Literal["user_message", "assistant_message"]
 
-EventType = LlmStreamType | MessageType
+EventType = LlmStreamType | MessageType | SpanEventType
 
 
 
@@ -85,7 +87,8 @@ class Event:
     def to_ndjson(self):
         return self.to_json() + "\n"
     
-    
+    def __repr__(self):
+        return f"Event(type={self.type}, payload={self.payload}, index={self.index}, request_id={self.request_id})"
     
     
 

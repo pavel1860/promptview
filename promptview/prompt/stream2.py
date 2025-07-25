@@ -3,6 +3,8 @@ import inspect
 from typing import Any, AsyncGenerator, Callable, ParamSpec, Union, AsyncIterator, Optional
 from typing_extensions import TypeVar
 
+from promptview.prompt.events import Event
+
 
 
 class StreamResponse:
@@ -21,8 +23,10 @@ class GeneratorFrame:
         self.agen = agen
         self.accumulator = self._init_accumulator(accumulator)
         self.started = False
+        self.index = 0
 
     async def advance(self, value: Any | None = None):
+        self.index += 1
         if not self.started:
             self.started = True
             return await self.agen.__anext__()
@@ -118,12 +122,15 @@ class AsyncStreamWrapper:
 
 
     async def stream_events(self):
-        yield {"type": "stream_start"}
+        event = Event(type="stream_start", payload=None, index=0)
+        yield event
 
         async for chunk in self:
-            yield {"type": "stream_delta", "value": chunk}
+            event = Event(type="message_delta", payload=chunk, index=self.current.index)
+            yield event
 
-        yield {"type": "stream_end", "final_value": self._accumulator}
+        event = Event(type="stream_end", payload=self.current.accumulator, index=self.current.index)
+        yield event
 
 
 
