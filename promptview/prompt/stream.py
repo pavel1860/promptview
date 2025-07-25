@@ -2,6 +2,8 @@ from functools import wraps
 import inspect
 from typing import (Any, AsyncGenerator, Callable, Dict, Generic, Type, TypeVar, ParamSpec)
 
+from promptview.prompt.events import Event
+
 
 
 
@@ -41,12 +43,19 @@ class StreamController(Generic[P, STREAM_EVENT, STREAM_RESPONSE]):
         self._agen: AsyncGenerator[STREAM_EVENT, None] | None = None
         self._closed = False
         self.response_type = response_type
+        self._did_stop = False
+        self.index = 0
         
     @property
     def agen(self) -> AsyncGenerator[STREAM_EVENT, None]:
         if self._agen is None:
             raise ValueError("Generator not started")
         return self._agen
+    
+    def get_and_increment_index(self) -> int:
+        index = self.index
+        self.index += 1
+        return index
 
     async def start(self):
         """Starts the generator by calling the user-defined async generator."""
@@ -64,12 +73,16 @@ class StreamController(Generic[P, STREAM_EVENT, STREAM_RESPONSE]):
     async def throw(self, exc):
         """Throw exception into the generator."""
         return await self.agen.athrow(exc)
+    
+    def _stop(self):
+        self._is_streaming = False
 
     async def close(self):
         """Close the generator."""
         if self.agen and not self._closed:
             await self.agen.aclose()
             self._closed = True
+            
 
     async def exhaust(self):
         """Iterate over all values until exhausted."""
@@ -97,13 +110,26 @@ class StreamController(Generic[P, STREAM_EVENT, STREAM_RESPONSE]):
     def is_response_type_match(self, event: STREAM_EVENT) -> bool:
         if self.response_type is None:
             return False
-        return isinstance(event, self.response_type)        
+        return isinstance(event, self.response_type)  
+    
+
+    
+    def emit_event(self, payload: STREAM_EVENT | Event, index: int) -> Event:        
+        if index == 0:           
+            event = Event(type="stream_start", payload=payload, index=index)
+        elif self._did_stop:
+            event = Event(type="stream_end", payload=payload, index=index)
+        else:
+            event = Event(type="message_delta", payload=payload, index=index)
+        return event
     
     
-    async def stream(self) -> AsyncGenerator[STREAM_EVENT, None]:        
+    # async def stream(self) -> AsyncGenerator[STREAM_EVENT, None]:
+    
+    async def stream(self) -> AsyncGenerator[Event, None]:        
         await self.start()        
         response = None
-        index = 0
+        prev_event = None
         try:
             while event:= await self.send(response):
                 try:
@@ -117,15 +143,16 @@ class StreamController(Generic[P, STREAM_EVENT, STREAM_RESPONSE]):
                                 response = sub_event
                             yield sub_event                    
                     
-                    else:
-                        if event.index is None:
-                            event.index = index
-                        index += 1
-                        yield event                              
+                    else:  
+                        if prev_event is not None:                                                                 
+                            yield self.emit_event(prev_event, self.get_and_increment_index())
+                        prev_event = event
+                                           
                 except Exception as e:
                     await self.throw(e)
-        except StopAsyncIteration:
-            return      
+        except StopAsyncIteration:            
+            self._did_stop = True
+            yield self.emit_event(event, self.get_and_increment_index())          
         finally:
             await self.close()
 
