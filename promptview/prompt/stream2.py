@@ -1,5 +1,7 @@
+from functools import wraps
 import inspect
-from typing import Any, AsyncGenerator, Callable, Union, AsyncIterator, Optional
+from typing import Any, AsyncGenerator, Callable, ParamSpec, Union, AsyncIterator, Optional
+from typing_extensions import TypeVar
 
 class GeneratorFrame:
     def __init__(self, agen: AsyncGenerator):
@@ -30,6 +32,14 @@ class AsyncStreamWrapper:
             return acc()
         else:
             return acc
+        
+    def __await__(self):
+        async def _consume():
+            async for _ in self:
+                pass
+            return self._accumulator
+        return _consume().__await__()
+
 
     def __aiter__(self) -> AsyncIterator[Any]:
         self._stack = [self._wrap(self._initial_gen)]
@@ -81,3 +91,21 @@ class AsyncStreamWrapper:
             yield {"type": "stream_delta", "value": chunk}
 
         yield {"type": "stream_end", "final_value": self._accumulator}
+
+
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+def stream(
+    accumulator: Optional[Union[Any, Callable[[], Any]]] = None
+) -> Callable[[Callable[P, AsyncGenerator[Any, Any]]], Callable[P, AsyncStreamWrapper]]:
+    def decorator(
+        func: Callable[P, AsyncGenerator[Any, Any]]
+    ) -> Callable[P, AsyncStreamWrapper]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> AsyncStreamWrapper:
+            agen = func(*args, **kwargs)
+            return AsyncStreamWrapper(agen, accumulator)
+        return wrapper
+    return decorator
