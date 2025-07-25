@@ -20,6 +20,7 @@ class SpanController:
         self.span_func = span_func
         self.span_args = args
         self.span_kwargs = kwargs
+        self.resolved_args = None
         self.accumulator_factory = accumulator
         self._start_time = None
         self._end_time = None
@@ -43,9 +44,10 @@ class SpanController:
 
     async def _init_stream(self):
         self._start_span()
-        resolved_args = await self._resolve_dependencies()
-        gen = self.span_func(*resolved_args.args, **resolved_args.kwargs)        
+        self.resolved_args = await self._resolve_dependencies()
+        gen = self.span_func(*self.resolved_args.args, **self.resolved_args.kwargs)        
         self._stream = AsyncStreamWrapper(gen, self.accumulator_factory)
+        self._stream.__aiter__()
 
     def _start_span(self):
         self._start_time = time.time()
