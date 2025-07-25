@@ -93,17 +93,7 @@ class StreamController(Generic[P, STREAM_EVENT, STREAM_RESPONSE]):
         """
         raise NotImplementedError("You must override the `run()` method.")
         yield
-        
-    # async def stream(self) -> AsyncGenerator[STREAM_EVENT, None]:
-    #     await self.start()
-    #     async for event in self.agen:
-    #         if isinstance(event, StreamController):
-    #             async for sub_event in event.stream():
-    #                 yield sub_event
-    #         else:
-    #             yield event
-    #     await self.close()
-    
+
     def is_response_type_match(self, event: STREAM_EVENT) -> bool:
         if self.response_type is None:
             return False
@@ -113,6 +103,7 @@ class StreamController(Generic[P, STREAM_EVENT, STREAM_RESPONSE]):
     async def stream(self) -> AsyncGenerator[STREAM_EVENT, None]:        
         await self.start()        
         response = None
+        index = 0
         try:
             while event:= await self.send(response):
                 try:
@@ -127,6 +118,9 @@ class StreamController(Generic[P, STREAM_EVENT, STREAM_RESPONSE]):
                             yield sub_event                    
                     
                     else:
+                        if event.index is None:
+                            event.index = index
+                        index += 1
                         yield event                              
                 except Exception as e:
                     await self.throw(e)

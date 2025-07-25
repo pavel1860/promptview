@@ -35,13 +35,13 @@ if TYPE_CHECKING:
 def create_table_block(name: str, *fields: "PgFieldInfo"):
     with Block(f"CREATE TABLE IF NOT EXISTS {name}", vwrap=("(\n", "\n)"), vsep=",\n") as blk:
         for field in fields:
-            blk /= f'"{field.name}"', field.sql_type
-            if field.is_primary_key:
-                blk += "PRIMARY KEY"
-                if field.sql_type == "UUID":
-                    blk += "DEFAULT uuid_generate_v4()"
-            else:
-                # blk += "NULL" if field.is_optional and not field.is_foreign_key else "NOT NULL"            
-                blk += "NULL" if field.is_optional else "NOT NULL"
-                
+            with blk() as f:
+                f += f'"{field.name}"', field.sql_type
+                if field.is_primary_key:
+                    f += "PRIMARY KEY"
+                    if field.sql_type == "UUID":
+                        f += "DEFAULT uuid_generate_v4()"
+                else:
+                    # blk += "NULL" if field.is_optional and not field.is_foreign_key else "NOT NULL"            
+                    f += "NULL" if field.is_optional else "NOT NULL"                
     return blk

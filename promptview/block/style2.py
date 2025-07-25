@@ -13,8 +13,12 @@ class StyleManager:
     def __init__(self):
         self.rules = {}  # list of (selector, props)
 
-    def add_style(self, selector: str, props: dict):
-        self.rules[selector.strip()] = props
+    def add_style(self, selector: str | list[str], props: dict):
+        if isinstance(selector, str):
+            selector = [selector]
+        elif isinstance(selector, list):        
+            for s in selector:
+                self.rules[s.strip()] = props        
 
     def resolve(self, block) -> dict:        
         resolved = {}

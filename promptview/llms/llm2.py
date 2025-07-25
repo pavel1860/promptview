@@ -1,12 +1,12 @@
-from typing import AsyncGenerator, Dict, List, Literal, Type
+from typing import AsyncGenerator, Dict, List, Literal, Type, Unpack
 from pydantic import BaseModel, Field
 
 
 
-from promptview.block.block7 import Block, BlockContext, BlockList, Chunk
+from promptview.block.block7 import Block, BlockPrompt, BlockList, Chunk
 from promptview.block.util import StreamEvent
 from promptview.prompt.stream import StreamController
-
+from promptview.prompt.events import Event, EventParams
 
 
 
@@ -33,7 +33,7 @@ class LlmConfig(BaseModel):
 
 
 class LLMStream(StreamController):
-    blocks: Block
+    blocks: BlockList
     config: LlmConfig
     tools: List[Type[BaseModel]] | None = None
     model: str | None = None
@@ -44,8 +44,8 @@ class LLMStream(StreamController):
         super().__init__(self.__class__.__name__, response_type=Block)
     
 
-    def __call__(self, block: Block, config: LlmConfig, tools: List[Type[BaseModel]] | None = None):
-        self.blocks = block
+    def __call__(self, blocks: BlockList, config: LlmConfig, tools: List[Type[BaseModel]] | None = None):
+        self.blocks = blocks
         self.config = config
         self.tools = tools
         return self
@@ -93,15 +93,21 @@ class LLM():
     
     def __call__(
         self,        
-        block: Block | BlockContext | str,
+        blocks: BlockList | Block | BlockPrompt | str,
         model: str | None = None,
         config: LlmConfig | None = None,
     ) -> LLMStream:                        
-        if isinstance(block, str):
-            block = Block().add_child(Block(block))
-        elif isinstance(block, BlockContext):
-            block = block.root
+        if isinstance(blocks, str):
+            llm_blocks = BlockList([Block(blocks)])
+        elif isinstance(blocks, Block):
+            llm_blocks = BlockList([blocks])
+        elif isinstance(blocks, BlockPrompt):
+            llm_blocks = BlockList([blocks.root])
+        elif isinstance(blocks, BlockList):
+            llm_blocks = blocks
+        else:
+            raise ValueError(f"Invalid blocks type: {type(blocks)}")
         
         llm_ctx = self._get_llm(model)
         config = config or LlmConfig(model=llm_ctx.model)
-        return llm_ctx(block, config)
+        return llm_ctx(llm_blocks, config)

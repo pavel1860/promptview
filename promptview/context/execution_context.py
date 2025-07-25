@@ -13,10 +13,11 @@ CURR_CONTEXT = contextvars.ContextVar("curr_context")
 class ExecutionContext:
     
     
-    def __init__(self, span_name: str | None = None):
+    def __init__(self, span_name: str | None = None, request_id: str | None = None):
         self.tracer_run = None
         self.parent_ctx = None
         self.span_name = span_name
+        self.request_id = request_id
     
     
     @property
@@ -30,20 +31,21 @@ class ExecutionContext:
         return str(self.tracer.id)
     
     @classmethod
-    def current(cls, raise_error: bool = True):
+    def current(cls)-> "ExecutionContext":
         try:            
             ctx = CURR_CONTEXT.get()
+            return ctx
+        except LookupError:            
+            raise ValueError("Context not set")               
+        
+    
+    @classmethod
+    def current_or_none(cls)-> "ExecutionContext | None":
+        try:            
+            ctx = CURR_CONTEXT.get()
+            return ctx
         except LookupError:
-            if raise_error:
-                raise ValueError("Context not set")
-            else:
-                return None        
-        if not isinstance(ctx, ExecutionContext):
-            if raise_error:
-                raise ValueError("Context is not a Context")
-            else:
-                return None
-        return ctx
+            return None        
     
     def _set_context(self):
         self._ctx_token = CURR_CONTEXT.set(self)
@@ -55,7 +57,7 @@ class ExecutionContext:
         self._ctx_token = None
 
     def build_child(self, span_name: str | None = None):
-        child = ExecutionContext(span_name=span_name)
+        child = ExecutionContext(span_name=span_name, request_id=self.request_id)
         child.parent_ctx = self
         return child
         

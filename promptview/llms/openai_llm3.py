@@ -1,13 +1,16 @@
+from datetime import datetime
 from typing import List, Type
 import openai
 import os
 
 from pydantic import BaseModel
-from promptview.block.block7 import Block, Chunk
+from promptview.block.block7 import Block, BlockList, Chunk
 from promptview.block.util import LLMEvent, ToolCall
+from promptview.context.execution_context import ExecutionContext
 from promptview.llms.llm2 import LLMStream, LlmConfig
 from openai.types.chat import ChatCompletionMessageParam
 
+from promptview.prompt.events import Event
 from promptview.utils.model_utils import schema_to_function
 
 
@@ -54,10 +57,12 @@ class OpenAiLLM(LLMStream):
     async def run(self):
         messages = [
             self.to_message(b.render(), role=b.role or "user", tool_calls=b.tool_calls, tool_call_id=b.id)
-            for b in self.blocks.children
+            for b in self.blocks
         ]
         llm_tools = None
         tool_choice = None
+        did_start = False
+        request_id = ExecutionContext.current().request_id
         if self.tools:
             llm_tools = [self.to_tool(tool) for tool in self.tools]        
             tool_choice = self.config.tool_choice
@@ -72,13 +77,10 @@ class OpenAiLLM(LLMStream):
                     logprobs=True,                
                 )
             
-            block = Block(sep="")
-            yield LLMEvent(type="stream_start")
+            block = BlockList(sep="")
             async for chunk in res_stream:
                 if chunk.choices[0].delta:
-                    choice = chunk.choices[0]
-                    if choice.finish_reason:
-                        break
+                    choice = chunk.choices[0]                   
                     content = choice.delta.content
                     try:
                         if choice.logprobs and choice.logprobs.content:                
@@ -87,11 +89,18 @@ class OpenAiLLM(LLMStream):
                             logprob = 0  
                     except:
                         raise ValueError("No logprobs")        
-                    c = Chunk(content, logprob=logprob)
-                    block.add_content(c)
-                    yield c
-            yield LLMEvent(type="stream_success")
-            yield block
+                    blk_chunk = Block(content, logprob=logprob)
+                    block.append(blk_chunk)
+                    if not did_start:
+                        did_start = True
+                        event = Event(type="stream_start", payload=blk_chunk, timestamp=chunk.created, request_id=request_id)
+                    elif choice.finish_reason:
+                        event = Event(type="stream_end", payload=block, timestamp=chunk.created, request_id=request_id)
+                    else:
+                        event = Event(type="message_delta", payload=blk_chunk, timestamp=chunk.created, request_id=request_id)
+                    yield event
         except Exception as e:
-            yield LLMEvent(type="stream_error", data={"error": str(e)})
+            block = Block(str(e))
+            event = Event(type="stream_error", payload=block, timestamp=int(datetime.now().timestamp()), request_id=request_id)
+            yield event
             raise e
