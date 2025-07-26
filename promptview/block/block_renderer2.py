@@ -1,12 +1,18 @@
 from promptview.block.block7 import  Block, BlockContext, BlockList
 from promptview.block.style2 import StyleManager
 from promptview.block.renderers import (
+    AsteriskListRenderer,
+    BulletListRenderer,
+    CheckboxListRenderer,
+    DashListRenderer,
+    PlusListRenderer,
+    RenderContext,
     ContentRenderer,
     RendererRegistry,
     MarkdownHeaderRenderer,
     # YamlRenderer,
     # JsonRenderer,
-    # XmlRenderer,
+    XmlTitleRenderer,
     NumberedListRenderer,
     # BulletedListRenderer
 )
@@ -15,24 +21,43 @@ from promptview.block.renderers import (
 style_manager = StyleManager()
 
 
-style_manager.add_style(["markdown-header", "md"], {"header-format": "markdown-header"})
-# style_manager.add_style(["markdown-header", "md"], {"block-format": "markdown-header"})
-style_manager.add_style(["numbered-list", "list:num"], {"list-format": "numbered-list"})
-style_manager.add_style(["row", "list:row"], {"list-format": "row-list"})
+style_manager.add_style(["markdown-title", "md"], {"title-format": "markdown-title"})
+
+style_manager.add_style(["list-num", "li1"], {"list-format": "numbered-list"})
+style_manager.add_style(["list-bullet", "li•"], {"list-format": "bullet-list"})
+style_manager.add_style(["list-dash", "li-"], {"list-format": "dash-list"})
+style_manager.add_style(["list-plus", "li+"], {"list-format": "plus-list"})
+style_manager.add_style(["list-asterisk", "li*"], {"list-format": "asterisk-list"})
+
+style_manager.add_style(["list-checkbox", "li[]"], {"list-format": "checkbox-list"})
+
+
+
+
+style_manager.add_style(["row", "list-row"], {"row-format": "row-list"})
+
+
+
+style_manager.add_style(["xml"], {"title-format": "xml-title"})
 
 renderer_registry = RendererRegistry()
 
 # register default renderers
-renderer_registry.register("markdown-header", MarkdownHeaderRenderer())
-# renderer_registry.register("yaml", YamlRenderer())
-# renderer_registry.register("json", JsonRenderer())
-# renderer_registry.register("xml", XmlRenderer())
+renderer_registry.register("markdown-title", MarkdownHeaderRenderer())
+renderer_registry.register("xml-title", XmlTitleRenderer())
+
+
 renderer_registry.register("numbered-list", NumberedListRenderer())
+renderer_registry.register("bullet-list", BulletListRenderer())
+renderer_registry.register("dash-list", DashListRenderer())
+renderer_registry.register("plus-list", PlusListRenderer())
+renderer_registry.register("checkbox-list", CheckboxListRenderer())
+renderer_registry.register("asterisk-list", AsteriskListRenderer())
+
+
 renderer_registry.register("row-list", ContentRenderer())
 
-# renderer_registry.register("bulleted-list", BulletedListRenderer())
 
-# default fallback renderer
 default_renderer = ContentRenderer()
 
 
@@ -46,55 +71,77 @@ def combine_content(left: str, right: str, sep: str):
         return right
 
 
-def render(target, depth=0, style=None):
+def render(target, index=0, depth=0, style=None, parent_ctx: RenderContext | None = None):
     if style is None:
         style = style_manager.resolve(target)
+    ctx = RenderContext(target, style, index, depth, parent_ctx)
     if isinstance(target, BlockContext):
-        return render_context(target, style, depth)
+        return render_context(target, ctx)
     elif isinstance(target, BlockList):
-        return render_list(target, depth, style)
+        return render_item_list(target, ctx)
     elif isinstance(target, Block):
-        return render_block(target, depth, style)
+        return render_block(target, ctx)
     else:
         raise ValueError(f"Invalid block type: {type(target)}")
     
     
-def render_block(block: Block, depth: int, style: dict):
-    fmt = style.get("block-format")
+def render_block(block: Block, ctx: RenderContext):
+    fmt = ctx.style.get("block-format")
     renderer = renderer_registry.get(fmt) if fmt else default_renderer    
-    content = renderer.render(block, block.content, style, depth)
+    content = renderer.try_render(ctx, block.content)
+    return content
+
+def render_row(block_list: BlockList, ctx: RenderContext):
+    fmt = ctx.style.get("row-format")
+    renderer = renderer_registry.get(fmt) if fmt else default_renderer
+    item_content = [render(item, index=index, depth=ctx.depth, style=ctx.style, parent_ctx=ctx) for index, item in enumerate(block_list)]
+    content = renderer.try_render_list(ctx, item_content)
     return content
     
-def render_list(block_list: BlockList, depth: int, style: dict):
-    fmt = style.get("list-format")
+def render_item_list(block_list: BlockList, ctx: RenderContext):
+    fmt = ctx.style.get("list-format")
     renderer = renderer_registry.get(fmt) if fmt else default_renderer    
-    content_list = [
-        renderer.render_child(
-            block_list,
-            render(child, depth+1),
-            style=style,
-            depth=depth,
-            index=index
-        ) for index, child in enumerate(block_list)]
-    return block_list.sep.join([c for c in content_list if c is not None])
-
-
+    item_content = [render(item, index=index, depth=ctx.depth, style=ctx.style, parent_ctx=ctx) for index, item in enumerate(block_list)]
+    content = renderer.try_render_list(ctx, item_content)
+    return content
     
 
-def render_context(block: BlockContext, style: dict, depth):
-    root_fmt = style.get("header-format")
-    children_fmt = style.get("list-format")
-    root_content = render_list(block.root, depth, {})
-    renderer = renderer_registry.get(root_fmt) if root_fmt else default_renderer    
-    root_content = renderer.render(block.root, root_content, style, depth)        
-    children_content = render_list(block.children, depth+1, {"list-format": children_fmt})
+
+def render_context(block: BlockContext, ctx: RenderContext):
     
+    #! render title content
+    title_fmt = ctx.style.get("title-format") 
+    title_content = render_row(block.root, ctx)
     if block.wrap:
-        root_content = block.wrap[0] + root_content + block.wrap[1]
+        title_content = block.wrap[0] + title_content + block.wrap[1]
+    
+    #! render children
+    # children_content = render_item_list(block.children, ctx)    
+    children_content = render(block.children, ctx.index, ctx.depth + 1, None, ctx)
     if block.vwrap and children_content:
         children_content = block.vwrap[0] + children_content + block.vwrap[1]
+    
+    #! render title with children content
+    title_renderer = renderer_registry.get(title_fmt) if title_fmt else default_renderer
+    content = title_renderer.try_render(ctx, title_content, children_content)
+    return content
         
-    return combine_content(root_content, children_content, "\n")
+    # return combine_content(title_content, children_content, "\n")
+  
+# def render_context(block: BlockContext, ctx: RenderContext):
+#     title_fmt = ctx.style.get("title-format")
+#     list_fmt = ctx.style.get("list-format")
+#     root_content = render_list(block.root, ctx)
+#     renderer = renderer_registry.get(title_fmt) if title_fmt else default_renderer    
+#     root_content = renderer.render(ctx, root_content, root_content)        
+#     children_content = render_list(block.children, ctx)
+    
+#     if block.wrap:
+#         root_content = block.wrap[0] + root_content + block.wrap[1]
+#     if block.vwrap and children_content:
+#         children_content = block.vwrap[0] + children_content + block.vwrap[1]
+        
+#     return combine_content(root_content, children_content, "\n")
     
 
 

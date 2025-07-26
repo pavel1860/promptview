@@ -1,9 +1,13 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+
+from promptview.block.types import StyleProps
 
 
 if TYPE_CHECKING:
     from promptview.block.block7 import Block
-    
+
+
+
     
 class StyleManager:
     """
@@ -13,7 +17,7 @@ class StyleManager:
     def __init__(self):
         self.rules = {}  # list of (selector, props)
 
-    def add_style(self, selector: str | list[str], props: dict):
+    def add_style(self, selector: str | list[str], props: StyleProps):
         if isinstance(selector, str):
             selector = [selector]
         elif isinstance(selector, list):        

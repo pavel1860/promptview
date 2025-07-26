@@ -2,6 +2,7 @@ from collections import UserList
 from typing import TYPE_CHECKING, Any, Generic, List, Protocol, Set, TypeVar, TypedDict, Unpack
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
+from promptview.block.types import ContentType
 from promptview.block.util import LlmUsage, ToolCall
 if TYPE_CHECKING:
     from promptview.model.block_model import BlockModel
@@ -9,7 +10,7 @@ if TYPE_CHECKING:
 
 
 
-ContentType = str | int | float | bool | None
+
 
 CHUNK_TYPE = TypeVar("CHUNK_TYPE", str, int, float, bool, None)
 

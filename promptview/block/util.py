@@ -1,4 +1,5 @@
 import json
+import textwrap
 from typing import Literal
 from pydantic import BaseModel
 
@@ -72,4 +73,28 @@ class LLMEvent(StreamEvent):
         
         
         
-        
+def strip(text: str):
+    return textwrap.dedent(text).strip()
+
+
+def diff(block, target: str):
+    import difflib
+    diff = difflib.unified_diff(
+        strip(target).splitlines(),
+        str(block).splitlines(),
+        fromfile='target',
+        tofile='actual',
+        lineterm=''
+    )
+    return "\n".join(diff)
+
+
+
+def assert_render(block, target):
+    render_out = block.render()
+    print(render_out)
+    try:
+        assert render_out == strip(target)
+    except AssertionError as e:
+        print(diff(block, target))
+        raise e

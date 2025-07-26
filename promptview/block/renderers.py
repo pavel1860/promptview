@@ -1,44 +1,90 @@
 import json
+import textwrap
 import yaml
 from typing import TYPE_CHECKING
 from abc import ABC, abstractmethod
 
+from promptview.block.types import ContentType
+
+
+
 if TYPE_CHECKING:
-    from promptview.block.block7 import Block
+    from promptview.block.block7 import Block, BaseBlock
 
 
+class RenderContext:
+    def __init__(
+        self, 
+        block: "BaseBlock | None",
+        style: dict, 
+        index: int, 
+        depth: int,
+        parent_ctx: "RenderContext | None" = None,
+    ):
+        self.block = block
+        self.style = style
+        self.index = index
+        self.depth = depth
+        self.parent_ctx = parent_ctx
+        
+    @property
+    def is_list(self) -> bool:
+        from promptview.block.block7 import BlockList
+        return isinstance(self.block, BlockList)
 
-class BaseRenderer(ABC):
-    is_block: bool | None = None
-    is_inline: bool | None = None
-    
-    
-    def can_render(self, block: "Block") -> bool:
-        if self.is_block is not None:
-            return self.is_block == block.is_block
-        elif self.is_inline is not None:
-            return self.is_inline == block.is_inline
-        else:
+class BaseRenderer(ABC):    
+        
+    def validate_content(self, content: ContentType) -> bool:
+        if isinstance(content, str):
             return True
+        elif isinstance(content, int):
+            return True
+        elif isinstance(content, float):
+            return True
+        elif isinstance(content, bool):
+            return True
+        else:
+            return False
+        
+    def validate_inner_content(self, inner_content: str | None) -> bool:
+        if inner_content is None:
+            return True
+        elif isinstance(inner_content, str):
+            return True
+        else:
+            return False
+        
+    def validate_list_content(self, content: list[str]) -> bool:
+        return all(isinstance(c, str) for c in content)
+        
     
-    def render(self, block, content: str, style: dict, depth: int) -> str:
+    def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
         """
         Render the current block itself.
         """
-        raise NotImplementedError("Subclasses must implement this method")
+        raise NotImplementedError(f"{self.__class__.__name__} must implement render method")
     
-    def render_child(self, block_list, content: str, style: dict, depth: int, index: int) -> str:
+    def try_render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
+        if not self.validate_content(content):
+            raise ValueError(f"Invalid content type: {type(content)} in renderer {self.__class__.__name__}")
+        if inner_content is not None and not self.validate_inner_content(inner_content):
+            raise ValueError(f"Invalid inner content type: {type(inner_content)} in renderer {self.__class__.__name__}")
+        return self.render(ctx, content, inner_content)
+    
+    
+    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
         """
-        Render a child block of a list.
-        
-        Args:
-            block_list: The list of blocks.
-            content: The content of the child block.
-            style: The style of the child block.
-            depth: The depth of the child block.
-            index: The index of the child block.
+        Render a list of blocks.
         """
-        raise NotImplementedError("Subclasses must implement this method")
+        raise NotImplementedError(f"{self.__class__.__name__} must implement list render method")
+    
+    
+    def try_render_list(self, ctx: RenderContext, content: list[str]) -> str:
+        if not self.validate_list_content(content):
+            content_types = [type(c) for c in content]
+            raise ValueError(f"Invalid list content types: {content_types} in renderer {self.__class__.__name__}")
+        return self.render_list(ctx, content)
+    
         
 
 
@@ -60,11 +106,26 @@ class RendererRegistry:
     
 class ContentRenderer(BaseRenderer):    
     
-    def render(self, block, content: str, style: dict, depth: int) -> str:
-        return content
+    def render(self, ctx: RenderContext, content: ContentType, inner_content: ContentType | None = None) -> str:
+        head_content = ""
+        if isinstance(content, str):
+            head_content = content
+        elif isinstance(content, int):
+            head_content = str(content)
+        elif isinstance(content, float):
+            head_content = str(content)
+        elif isinstance(content, bool):
+            head_content = str(content)
+        else:
+            raise ValueError(f"Invalid content type: {type(content)}")
+        
+        if inner_content is not None and isinstance(inner_content, str):
+            inner_content = textwrap.indent(inner_content, " ")
+        return f"{head_content}\n{inner_content}" if inner_content else head_content
+        
+    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
+        return "\n".join([self.render(ctx, c) for c in content])
     
-    def render_child(self, block_list, content: str, style: dict, depth: int, index: int) -> str:
-        return content
     
     
     
@@ -77,18 +138,101 @@ class ContentRenderer(BaseRenderer):
         
         
 class MarkdownHeaderRenderer(BaseRenderer):
-    is_block: bool | None = True
     
-    def render(self, block, content: str, style: dict, depth: int) -> str:
-        level = min(depth + 1, 6)        
-        return f"{'#' * level} {content}"
+    def render(self, ctx: RenderContext, content: ContentType, inner_content: ContentType | None = None) -> str:
+        level = min(ctx.depth + 1, 6)        
+        header_content = f"{'#' * level} {content}"
+        if inner_content is not None and isinstance(inner_content, str):
+            return f"{header_content}\n{inner_content}"
+        else:
+            return header_content
     
     
 class NumberedListRenderer(BaseRenderer):
-    is_block: bool | None = False
     
-    def render_child(self, block_list, content: str, style: dict, depth: int, index: int) -> str:
-        return f"{index + 1}. {content}"
+    def _get_prefix(self, ctx: RenderContext) -> str:
+        idx_list = []
+        curr = ctx.parent_ctx
+        while curr:
+            if curr.parent_ctx and curr.parent_ctx.block and curr.style.get("list-format") == "numbered-list":                
+                if not curr.is_list:
+                    idx_list.append(curr.index)
+                curr = curr.parent_ctx
+            else:
+                break
+        if not idx_list:
+            return ""
+        return ".".join([str(i + 1) for i in reversed(idx_list)]) + "."
+    
+    def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
+        return f"{ctx.index + 1}. {content}"
+    
+    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
+        prefix = self._get_prefix(ctx)
+        postfix = "." if not prefix else ""
+        return "\n".join([f"{prefix}{i + 1}{postfix} {c}" for i, c in enumerate(content)])
+    
+    
+class AsteriskListRenderer(BaseRenderer):
+    
+    def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
+        return f"* {content}"
+    
+    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
+        return "\n".join([f"* {c}" for c in content])
+    
+
+class DashListRenderer(BaseRenderer):
+    
+    def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
+        return f"- {content}"
+    
+    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
+        return "\n".join([f"- {c}" for c in content])
+    
+    
+class PlusListRenderer(BaseRenderer):
+    
+    def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
+        return f"+ {content}"
+    
+    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
+        return "\n".join([f"+ {c}" for c in content])
+    
+class BulletListRenderer(BaseRenderer):
+    
+    def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
+        return f"• {content}"
+    
+    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
+        return "\n".join([f"• {c}" for c in content])
+
+
+class CheckboxListRenderer(BaseRenderer):
+    
+    def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
+        return f"[ ] {content}"
+    
+    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
+        return "\n".join([f"[ ] {c}" for c in content])
+
+  
+class XmlTitleRenderer(BaseRenderer):
+    
+    def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
+        
+        if ctx.block.attrs:
+            attrs = " " + " ".join([f"{k}=\"{v}\"" for k, v in ctx.block.attrs.items()])
+        else:
+            attrs = ""
+        
+        if inner_content is not None:
+            inner_content = textwrap.indent(inner_content, " ")
+            return f"<{content}{attrs}>\n{inner_content}\n</{content}>"
+        else:
+            return f"<{content}{attrs} />"
+    
+    
     
     
     
