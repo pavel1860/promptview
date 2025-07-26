@@ -41,7 +41,7 @@ class LLMStream(StreamController):
     
     
     def __init__(self):
-        super().__init__(self.__class__.__name__, accumulator=BlockList)
+        super().__init__(self.__class__.__name__, accumulator=lambda x: BlockList(x, style="list-stream"))
         
     async def stream(self) -> AsyncGenerator[Any, None]:
         pass

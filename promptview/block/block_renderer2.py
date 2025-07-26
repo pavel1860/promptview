@@ -2,9 +2,12 @@ from promptview.block.block7 import  Block, BlockContext, BlockList
 from promptview.block.style2 import StyleManager
 from promptview.block.renderers import (
     AsteriskListRenderer,
+    BaseRenderer,
     BulletListRenderer,
     CheckboxListRenderer,
     DashListRenderer,
+    ListColumnLayoutRenderer,
+    ListRowLayoutRenderer,
     PlusListRenderer,
     RenderContext,
     ContentRenderer,
@@ -14,6 +17,7 @@ from promptview.block.renderers import (
     # JsonRenderer,
     XmlTitleRenderer,
     NumberedListRenderer,
+    ListStreamLayoutRenderer,
     # BulletedListRenderer
 )
 
@@ -22,6 +26,9 @@ style_manager = StyleManager()
 
 
 style_manager.add_style(["markdown-title", "md"], {"title-format": "markdown-title"})
+
+
+
 
 style_manager.add_style(["list-num", "li1"], {"list-format": "numbered-list"})
 style_manager.add_style(["list-bullet", "li•"], {"list-format": "bullet-list"})
@@ -33,8 +40,9 @@ style_manager.add_style(["list-checkbox", "li[]"], {"list-format": "checkbox-lis
 
 
 
-
-style_manager.add_style(["row", "list-row"], {"row-format": "row-list"})
+style_manager.add_style(['list-col', 'col'], {"list-layout": "list-column-layout"})
+style_manager.add_style(["row", "list-row"], {"list-layout": "list-row-layout"})
+style_manager.add_style(["stream", "list-stream"], {"list-layout": "list-stream-layout"})
 
 
 
@@ -55,10 +63,14 @@ renderer_registry.register("checkbox-list", CheckboxListRenderer())
 renderer_registry.register("asterisk-list", AsteriskListRenderer())
 
 
-renderer_registry.register("row-list", ContentRenderer())
+renderer_registry.register("list-column-layout", ListColumnLayoutRenderer())
+renderer_registry.register("list-row-layout", ListRowLayoutRenderer())
+renderer_registry.register("list-stream-layout", ListStreamLayoutRenderer())
 
 
 default_renderer = ContentRenderer()
+
+default_list_layout_renderer = ListRowLayoutRenderer()
 
 
 
@@ -78,7 +90,7 @@ def render(target, index=0, depth=0, style=None, parent_ctx: RenderContext | Non
     if isinstance(target, BlockContext):
         return render_context(target, ctx)
     elif isinstance(target, BlockList):
-        return render_item_list(target, ctx)
+        return render_list(target, ctx)
     elif isinstance(target, Block):
         return render_block(target, ctx)
     else:
@@ -91,27 +103,32 @@ def render_block(block: Block, ctx: RenderContext):
     content = renderer.try_render(ctx, block.content)
     return content
 
-def render_row(block_list: BlockList, ctx: RenderContext):
-    fmt = ctx.style.get("row-format")
-    renderer = renderer_registry.get(fmt) if fmt else default_renderer
-    item_content = [render(item, index=index, depth=ctx.depth, style=ctx.style, parent_ctx=ctx) for index, item in enumerate(block_list)]
-    content = renderer.try_render_list(ctx, item_content)
-    return content
     
-def render_item_list(block_list: BlockList, ctx: RenderContext):
+def render_list(block_list: BlockList, ctx: RenderContext):
     fmt = ctx.style.get("list-format")
-    renderer = renderer_registry.get(fmt) if fmt else default_renderer    
+    layout_fmt = ctx.style.get("list-layout")
     item_content = [render(item, index=index, depth=ctx.depth, style=ctx.style, parent_ctx=ctx) for index, item in enumerate(block_list)]
-    content = renderer.try_render_list(ctx, item_content)
+    
+    renderer = renderer_registry.get(fmt) if fmt else default_renderer    
+    content_list = renderer.try_render_list(ctx, item_content)
+        
+    layout_renderer = renderer_registry.get(layout_fmt) if layout_fmt else default_list_layout_renderer
+    content = layout_renderer.try_render_list_layout(ctx, content_list)
     return content
     
-
+def render_root_row(block_list: BlockList, ctx: RenderContext):
+    item_content = [render(item, index=index, depth=ctx.depth, style=ctx.style, parent_ctx=ctx) for index, item in enumerate(block_list)]
+    content_list = default_renderer.try_render_list(ctx, item_content)
+    content = default_list_layout_renderer.render_list_layout(ctx, content_list)
+    return content
+    
 
 def render_context(block: BlockContext, ctx: RenderContext):
     
     #! render title content
     title_fmt = ctx.style.get("title-format") 
-    title_content = render_row(block.root, ctx) if not ctx.is_wrapper else ""
+    # title_content = render_list(block.root, ctx) if not ctx.is_wrapper else ""
+    title_content = render_root_row(block.root, ctx)
     if title_content and block.wrap:
         title_content = block.wrap[0] + title_content + block.wrap[1]
     

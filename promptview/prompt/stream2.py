@@ -65,6 +65,7 @@ class StreamController(Generic[P]):
         self._stack = []
         self._initial_gen = agen or self.stream
         self._accumulator_factory = accumulator
+        self._raise_on_next = False
         
     async def stream(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[Any, None]:
         """
@@ -96,6 +97,9 @@ class StreamController(Generic[P]):
 
     async def __anext__(self) -> Any:
         frame_response = None
+        if self._raise_on_next:
+            self._raise_on_next = False
+            raise StopAsyncIteration(self.current.accumulator)
         while self._stack:
             try:
                 value = await self.current.advance(frame_response)
@@ -112,8 +116,9 @@ class StreamController(Generic[P]):
 
             except StopAsyncIteration as e:
                 if len(self._stack) == 1:
-                    raise e
-                    # return self.current.accumulator
+                    self._raise_on_next = True
+                    # raise e
+                    return self.current.accumulator
                 frame = self._stack.pop()
                 frame_response = frame.accumulator
                 

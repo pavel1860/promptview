@@ -89,20 +89,33 @@ class BaseRenderer(ABC):
         return self.render(ctx, content, inner_content)
     
     
-    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
+    def render_list(self, ctx: RenderContext, content: list[str]) -> list[str]:
         """
         Render a list of blocks.
         """
         raise NotImplementedError(f"{self.__class__.__name__} must implement list render method")
     
     
-    def try_render_list(self, ctx: RenderContext, content: list[str]) -> str:
+    def try_render_list(self, ctx: RenderContext, content: list[str]) -> list[str]:
         if not self.validate_list_content(content):
             content_types = [type(c) for c in content]
             raise ValueError(f"Invalid list content types: {content_types} in renderer {self.__class__.__name__}")
         return self.render_list(ctx, content)
     
-        
+    
+    def try_render_list_layout(self, ctx: RenderContext, content: list[str]) -> str:
+        if not self.validate_list_content(content):
+            content_types = [type(c) for c in content]
+            raise ValueError(f"Invalid list content types: {content_types} in renderer {self.__class__.__name__}")
+        return self.render_list_layout(ctx, content)
+    
+    def render_list_layout(self, ctx: RenderContext, content: list[str]) -> str:
+        """
+        Render a list of blocks with a layout.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} must implement list layout render method")
+    
+    
 
 
 class RendererRegistry:
@@ -145,10 +158,27 @@ class ContentRenderer(BaseRenderer):
         else:
             return ""
         
-    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
-        return "\n".join([self.render(ctx, c) for c in content])
+    def render_list(self, ctx: RenderContext, content: list[str]) -> list[str]:
+        return [self.render(ctx, c) for c in content]
+        
+
+
+class ListColumnLayoutRenderer(BaseRenderer):
     
+    def render_list_layout(self, ctx: RenderContext, content: list[str]) -> str:
+        return "\n".join(content)
     
+
+class ListRowLayoutRenderer(BaseRenderer):
+    
+    def render_list_layout(self, ctx: RenderContext, content: list[str]) -> str:
+        return " ".join(content)
+
+
+class ListStreamLayoutRenderer(BaseRenderer):
+    
+    def render_list_layout(self, ctx: RenderContext, content: list[str]) -> str:
+        return "".join(content)
     
     
     
@@ -189,7 +219,7 @@ class NumberedListRenderer(BaseRenderer):
     def _get_prefix(self, ctx: RenderContext) -> str:
         idx_list = []
         curr = ctx.parent_ctx
-        while curr:            
+        while curr:
             if curr.is_context and curr.style.get("list-format") == "numbered-list" and not curr.is_root and curr.parent_ctx.style.get("list-format") == "numbered-list":
                 idx_list.append(curr.index)
             curr = curr.parent_ctx
@@ -202,10 +232,10 @@ class NumberedListRenderer(BaseRenderer):
     def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
         return f"{ctx.index + 1}. {content}"
     
-    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
+    def render_list(self, ctx: RenderContext, content: list[str]) -> list[str]:
         prefix = self._get_prefix(ctx)
         postfix = "." if not prefix else ""
-        return "\n".join([f"{prefix}{i + 1}{postfix} {c}" for i, c in enumerate(content)])
+        return [f"{prefix}{i + 1}{postfix} {c}" for i, c in enumerate(content)]
     
     
 class AsteriskListRenderer(BaseRenderer):
@@ -213,8 +243,8 @@ class AsteriskListRenderer(BaseRenderer):
     def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
         return f"* {content}"
     
-    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
-        return "\n".join([f"* {c}" for c in content])
+    def render_list(self, ctx: RenderContext, content: list[str]) -> list[str]:
+        return [f"* {c}" for c in content]
     
 
 class DashListRenderer(BaseRenderer):
@@ -222,8 +252,8 @@ class DashListRenderer(BaseRenderer):
     def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
         return f"- {content}"
     
-    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
-        return "\n".join([f"- {c}" for c in content])
+    def render_list(self, ctx: RenderContext, content: list[str]) -> list[str]:
+        return [f"- {c}" for c in content]
     
     
 class PlusListRenderer(BaseRenderer):
@@ -231,16 +261,16 @@ class PlusListRenderer(BaseRenderer):
     def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
         return f"+ {content}"
     
-    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
-        return "\n".join([f"+ {c}" for c in content])
+    def render_list(self, ctx: RenderContext, content: list[str]) -> list[str]:
+        return [f"+ {c}" for c in content]
     
 class BulletListRenderer(BaseRenderer):
     
     def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
         return f"• {content}"
     
-    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
-        return "\n".join([f"• {c}" for c in content])
+    def render_list(self, ctx: RenderContext, content: list[str]) -> list[str]:
+        return [f"• {c}" for c in content]
 
 
 class CheckboxListRenderer(BaseRenderer):
@@ -248,8 +278,8 @@ class CheckboxListRenderer(BaseRenderer):
     def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
         return f"[ ] {content}"
     
-    def render_list(self, ctx: RenderContext, content: list[str]) -> str:
-        return "\n".join([f"[ ] {c}" for c in content])
+    def render_list(self, ctx: RenderContext, content: list[str]) -> list[str]:
+        return [f"[ ] {c}" for c in content]
 
   
 class XmlTitleRenderer(BaseRenderer):

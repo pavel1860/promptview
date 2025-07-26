@@ -611,9 +611,13 @@ class BlockContext(BaseBlock):
         else:
             self.root: BlockList = BlockList([], parent=self)
         if children is None:
-            self.children: BlockList = BlockList([], sep=kwargs.get("vsep", "\n"), parent=self)
+            self.children: BlockList = BlockList([], style="list-col", parent=self)
         else:
             self.children: BlockList = children
+            if self.children.styles:    
+                self.children.styles.append("list-col")
+            else:
+                self.children.styles = ["list-col"]
         # if root:
             # root.parent = self
     @classmethod
