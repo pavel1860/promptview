@@ -33,6 +33,15 @@ class RenderContext:
         return isinstance(self.block, BlockList)
     
     @property
+    def is_context(self) -> bool:
+        from promptview.block.block7 import BlockContext
+        return isinstance(self.block, BlockContext)
+    
+    @property
+    def is_root(self) -> bool:
+        return self.parent_ctx is None
+    
+    @property
     def is_wrapper(self) -> bool:
         from promptview.block.block7 import BlockContext
         if self.block and isinstance(self.block, BlockContext):
@@ -163,19 +172,32 @@ class MarkdownHeaderRenderer(BaseRenderer):
     
 class NumberedListRenderer(BaseRenderer):
     
+    # def _get_prefix(self, ctx: RenderContext) -> str:
+    #     idx_list = []
+    #     curr = ctx.parent_ctx
+    #     while curr:
+    #         if curr.parent_ctx and curr.parent_ctx.block and curr.style.get("list-format") == "numbered-list":                
+    #             if not curr.is_list:
+    #                 idx_list.append(curr.index)
+    #             curr = curr.parent_ctx
+    #         else:
+    #             break
+    #     if not idx_list:
+    #         return ""
+    #     return ".".join([str(i + 1) for i in reversed(idx_list)]) + "."
+    
     def _get_prefix(self, ctx: RenderContext) -> str:
         idx_list = []
         curr = ctx.parent_ctx
-        while curr:
-            if curr.parent_ctx and curr.parent_ctx.block and curr.style.get("list-format") == "numbered-list":                
-                if not curr.is_list:
-                    idx_list.append(curr.index)
-                curr = curr.parent_ctx
-            else:
-                break
+        while curr:            
+            if curr.is_context and curr.style.get("list-format") == "numbered-list" and not curr.is_root and curr.parent_ctx.style.get("list-format") == "numbered-list":
+                idx_list.append(curr.index)
+            curr = curr.parent_ctx
+            
         if not idx_list:
             return ""
         return ".".join([str(i + 1) for i in reversed(idx_list)]) + "."
+
     
     def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
         return f"{ctx.index + 1}. {content}"

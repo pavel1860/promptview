@@ -72,8 +72,8 @@ def combine_content(left: str, right: str, sep: str):
 
 
 def render(target, index=0, depth=0, style=None, parent_ctx: RenderContext | None = None):
-    if style is None:
-        style = style_manager.resolve(target)
+    # if style is None:
+    style = style_manager.resolve(target)
     ctx = RenderContext(target, style, index, depth, parent_ctx)
     if isinstance(target, BlockContext):
         return render_context(target, ctx)
