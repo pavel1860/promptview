@@ -1,11 +1,11 @@
-from typing import AsyncGenerator, Dict, List, Literal, Type, Unpack
+from typing import Any, AsyncGenerator, Dict, List, Literal, Type, Unpack
 from pydantic import BaseModel, Field
 
 
 
-from promptview.block.block7 import Block, BlockPrompt, BlockList, Chunk
+from promptview.block.block7 import Block, BlockContext, BlockPrompt, BlockList, Chunk
 from promptview.block.util import StreamEvent
-from promptview.prompt.stream import StreamController
+from promptview.prompt.stream2 import StreamController
 from promptview.prompt.events import Event, EventParams
 
 
@@ -41,7 +41,12 @@ class LLMStream(StreamController):
     
     
     def __init__(self):
-        super().__init__(self.__class__.__name__, response_type=Block)
+        super().__init__(self.__class__.__name__, accumulator=BlockList)
+        
+    async def stream(self) -> AsyncGenerator[Any, None]:
+        pass
+        yield
+    
     
 
     def __call__(self, blocks: BlockList, config: LlmConfig, tools: List[Type[BaseModel]] | None = None):
@@ -90,24 +95,50 @@ class LLM():
         llm = llm_cls()
         return llm
 
-    
     def __call__(
         self,        
-        blocks: BlockList | Block | BlockPrompt | str,
+        *blocks: Block | BlockContext |BlockList | BlockPrompt | str,
         model: str | None = None,
         config: LlmConfig | None = None,
-    ) -> LLMStream:                        
+    ) -> LLMStream:                                
         if isinstance(blocks, str):
             llm_blocks = BlockList([Block(blocks)])
+        elif isinstance(blocks, tuple):
+            llm_blocks = BlockList()
+            for b in blocks:
+                if isinstance(b, str):
+                    llm_blocks.append(Block(b))
+                else:
+                    llm_blocks.append(b)
         elif isinstance(blocks, Block):
             llm_blocks = BlockList([blocks])
         elif isinstance(blocks, BlockPrompt):
             llm_blocks = BlockList([blocks.root])
         elif isinstance(blocks, BlockList):
-            llm_blocks = blocks
+            llm_blocks = blocks        
         else:
             raise ValueError(f"Invalid blocks type: {type(blocks)}")
         
         llm_ctx = self._get_llm(model)
         config = config or LlmConfig(model=llm_ctx.model)
         return llm_ctx(llm_blocks, config)
+    # def __call__(
+    #     self,        
+    #     blocks: BlockContext |BlockList | Block | BlockPrompt | str,
+    #     model: str | None = None,
+    #     config: LlmConfig | None = None,
+    # ) -> LLMStream:                        
+    #     if isinstance(blocks, str):
+    #         llm_blocks = BlockList([Block(blocks)])
+    #     elif isinstance(blocks, Block):
+    #         llm_blocks = BlockList([blocks])
+    #     elif isinstance(blocks, BlockPrompt):
+    #         llm_blocks = BlockList([blocks.root])
+    #     elif isinstance(blocks, BlockList):
+    #         llm_blocks = blocks        
+    #     else:
+    #         raise ValueError(f"Invalid blocks type: {type(blocks)}")
+        
+    #     llm_ctx = self._get_llm(model)
+    #     config = config or LlmConfig(model=llm_ctx.model)
+    #     return llm_ctx(llm_blocks, config)

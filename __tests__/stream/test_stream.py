@@ -1,7 +1,7 @@
 import pytest
 from typing import AsyncGenerator, Callable, Union, Optional, Any
 
-from promptview.prompt.stream2 import AsyncStreamWrapper, stream  # Adjust the import
+from promptview.prompt.stream2 import StreamController, stream  # Adjust the import
 
 @pytest.mark.asyncio
 async def test_basic_stream():
@@ -9,13 +9,13 @@ async def test_basic_stream():
         yield "A"
         yield "B"
 
-    wrapper = AsyncStreamWrapper(gen(), accumulator=str)
+    wrapper = StreamController(gen(), accumulator=str)
     chunks = []
     async for chunk in wrapper:
         chunks.append(chunk)
 
     assert chunks == ["A", "B"]
-    assert await AsyncStreamWrapper(gen(), accumulator=str) == "AB"
+    assert await StreamController(gen(), accumulator=str) == "AB"
 
 @pytest.mark.asyncio
 async def test_nested_stream():
@@ -28,13 +28,13 @@ async def test_nested_stream():
         yield inner()
         yield "End"
 
-    wrapper = AsyncStreamWrapper(outer(), accumulator=str)
+    wrapper = StreamController(outer(), accumulator=str)
     result = []
     async for token in wrapper:
         result.append(token)
 
     assert result == ["Start", "X", "Y", "End"]
-    assert await AsyncStreamWrapper(outer(), accumulator=str) == "StartXYEnd"
+    assert await StreamController(outer(), accumulator=str) == "StartXYEnd"
 
 @pytest.mark.asyncio
 async def test_stream_events():
@@ -42,7 +42,7 @@ async def test_stream_events():
         yield "A"
         yield "B"
 
-    stream = AsyncStreamWrapper(gen(), accumulator=str)
+    stream = StreamController(gen(), accumulator=str)
     events = []
     async for event in stream.stream_events():
         events.append(event)
@@ -68,7 +68,7 @@ async def test_custom_accumulator():
         def append(self, x):
             self.data.append(x)
 
-    stream = AsyncStreamWrapper(gen(), accumulator=MyCollector)
+    stream = StreamController(gen(), accumulator=MyCollector)
     result = await stream
     assert isinstance(result, MyCollector)
     assert result.data == ["x", "y"]
@@ -94,10 +94,10 @@ async def test_stream_non_appendable_handling():
         yield 42  # not appendable to str
         yield "B"
 
-    stream = AsyncStreamWrapper(gen(), accumulator=str)
+    stream = StreamController(gen(), accumulator=str)
     chunks = []
     async for chunk in stream:
         chunks.append(chunk)
 
     assert chunks == [42, "B"]
-    assert await AsyncStreamWrapper(gen(), accumulator=str) == "B"
+    assert await StreamController(gen(), accumulator=str) == "B"

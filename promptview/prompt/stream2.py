@@ -1,6 +1,6 @@
 from functools import wraps
 import inspect
-from typing import Any, AsyncGenerator, Callable, ParamSpec, Union, AsyncIterator, Optional
+from typing import Any, AsyncGenerator, Callable, ParamSpec, Union, AsyncIterator, Optional, Generic
 from typing_extensions import TypeVar
 
 from promptview.prompt.events import Event
@@ -52,16 +52,27 @@ class GeneratorFrame:
             except Exception:
                 pass  # Optionally: raise or log a warning
 
+P = ParamSpec("P")
 
-class AsyncStreamWrapper:
+class StreamController(Generic[P]):
     def __init__(
         self,
-        agen: Union[AsyncGenerator, Callable[[], AsyncGenerator]],
+        name: str | None = None,
+        agen: Union[AsyncGenerator, Callable[[], AsyncGenerator]] | None = None,
         accumulator: Optional[Union[Any, Callable[[], Any]]] = None
     ):
+        self._name = name
         self._stack = []
-        self._initial_gen = agen
+        self._initial_gen = agen or self.stream
         self._accumulator_factory = accumulator
+        
+    async def stream(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[Any, None]:
+        """
+        Override this method in your subclass to implement your custom logic.
+        This must be an async generator.
+        """
+        pass
+        yield
         
         
     @property
@@ -90,7 +101,7 @@ class AsyncStreamWrapper:
                 value = await self.current.advance(frame_response)
                 frame_response = None
                 
-                if isinstance(value, AsyncStreamWrapper):
+                if isinstance(value, StreamController):
                     self._stack.append(value.build_frame())
                     continue
 
@@ -102,6 +113,7 @@ class AsyncStreamWrapper:
             except StopAsyncIteration as e:
                 if len(self._stack) == 1:
                     raise e
+                    # return self.current.accumulator
                 frame = self._stack.pop()
                 frame_response = frame.accumulator
                 
@@ -118,7 +130,10 @@ class AsyncStreamWrapper:
         return GeneratorFrame(value, self._accumulator_factory)
     
     def build_frame(self) -> GeneratorFrame:
-        return GeneratorFrame(self._initial_gen, self._accumulator_factory)
+        if inspect.ismethod(self._initial_gen):
+            return GeneratorFrame(self._initial_gen(), self._accumulator_factory)
+        else:
+            return GeneratorFrame(self._initial_gen, self._accumulator_factory)
 
 
     async def stream_events(self):
@@ -139,13 +154,13 @@ T = TypeVar("T")
 
 def stream(
     accumulator: Optional[Union[Any, Callable[[], Any]]] = None
-) -> Callable[[Callable[P, AsyncGenerator[Any, Any]]], Callable[P, AsyncStreamWrapper]]:
+) -> Callable[[Callable[P, AsyncGenerator[Any, Any]]], Callable[P, StreamController]]:
     def decorator(
         func: Callable[P, AsyncGenerator[Any, Any]]
-    ) -> Callable[P, AsyncStreamWrapper]:
+    ) -> Callable[P, StreamController]:
         @wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> AsyncStreamWrapper:
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> StreamController:
             agen = func(*args, **kwargs)
-            return AsyncStreamWrapper(agen, accumulator)
+            return StreamController(name=func.__name__, agen=agen, accumulator=accumulator)
         return wrapper
     return decorator

@@ -54,15 +54,13 @@ class OpenAiLLM(LLMStream):
         schema = schema_to_function(tool)
         return schema
     
-    async def run(self):
+    async def stream(self):
         messages = [
             self.to_message(b.render(), role=b.role or "user", tool_calls=b.tool_calls, tool_call_id=b.id)
             for b in self.blocks
         ]
         llm_tools = None
         tool_choice = None
-        did_start = False
-        request_id = ExecutionContext.current().request_id
         if self.tools:
             llm_tools = [self.to_tool(tool) for tool in self.tools]        
             tool_choice = self.config.tool_choice
@@ -76,12 +74,14 @@ class OpenAiLLM(LLMStream):
                     stream=True,
                     logprobs=True,                
                 )
-            
-            block = BlockList(sep="")
-            async for chunk in res_stream:
+                        
+            async for chunk in res_stream:                
                 if chunk.choices[0].delta:
                     choice = chunk.choices[0]                   
                     content = choice.delta.content
+                    print(content)
+                    if content is None:
+                        continue
                     try:
                         if choice.logprobs and choice.logprobs.content:                
                             logprob = choice.logprobs.content[0].logprob
@@ -90,15 +90,9 @@ class OpenAiLLM(LLMStream):
                     except:
                         raise ValueError("No logprobs")        
                     blk_chunk = Block(content, logprob=logprob)
-                    block.append(blk_chunk)
-                    if not did_start:
-                        did_start = True
-                        event = Event(type="stream_start", payload=blk_chunk, timestamp=chunk.created, request_id=request_id)
-                    elif choice.finish_reason:
-                        event = Event(type="stream_end", payload=block, timestamp=chunk.created, request_id=request_id)
-                    else:
-                        event = Event(type="message_delta", payload=blk_chunk, timestamp=chunk.created, request_id=request_id)
-                    yield event
+                    yield blk_chunk
+                    
+                    
         except Exception as e:
             block = Block(str(e))
             event = Event(type="stream_error", payload=block, timestamp=int(datetime.now().timestamp()), request_id=request_id)

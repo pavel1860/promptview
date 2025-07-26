@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from promptview.prompt.depends import DependsContainer, resolve_dependency
 from promptview.prompt.events import Event
-from promptview.prompt.stream2 import AsyncStreamWrapper
+from promptview.prompt.stream2 import StreamController
 from uuid import uuid4
 # Assuming AsyncStreamWrapper, DependsContainer, and resolve_dependency are available
 
@@ -62,12 +62,14 @@ class Span:
 class SpanController:
     def __init__(
         self,
-        span_func: Callable[..., AsyncGenerator],
+        name: str | None = None,
+        span_func: Callable[..., AsyncGenerator] | None = None,
         *args,
         accumulator: Optional[Union[Any, Callable[[], Any]]] = None,
         **kwargs,
     ):
-        self.span_func = span_func
+        self.name = name
+        self.span_func = span_func or self.run
         self.span_args = args
         self.span_kwargs = kwargs
         self.resolved_args = None
@@ -75,9 +77,18 @@ class SpanController:
         self._start_time = None
         self._end_time = None
         self._trace_id = id(self)
-        self._stream: Optional[AsyncStreamWrapper] = None
+        self._stream: Optional[StreamController] = None
         self._span = None
-        
+    
+    async def run(self, *args, **kwargs):
+        """
+        Override this method in your subclass to implement your custom logic.
+        This must be an async generator.
+        """
+        pass
+        yield
+    
+    
     @property
     def span(self):
         if self._span is None:
@@ -87,7 +98,7 @@ class SpanController:
     @property
     def stream(self):
         if self._stream is None:
-            raise ValueError("Stream not started")
+            raise ValueError(f"Stream not started for span {self.name}")
         return self._stream
 
     async def _resolve_dependencies(self):
@@ -106,11 +117,12 @@ class SpanController:
         return inspect.BoundArguments(signature, bound.arguments | dep_kwargs)
 
     async def _init_stream(self):
-        self._span = Span(self.span_func.__name__, self._trace_id, self.resolved_args)
+        name = self.name or self.span_func.__name__
+        self._span = Span(name, self._trace_id, self.resolved_args)
         self._span.start()
         self.resolved_args = await self._resolve_dependencies()
         gen = self.span_func(*self.resolved_args.args, **self.resolved_args.kwargs)        
-        self._stream = AsyncStreamWrapper(gen, self.accumulator_factory)
+        self._stream = StreamController(name=name, agen=gen, accumulator=self.accumulator_factory)
         self._stream.__aiter__()
 
     # def _start_span(self):
@@ -129,7 +141,7 @@ class SpanController:
         return self
 
     async def __anext__(self):
-        if not self.stream:
+        if not self._stream:
             await self._init_stream()
         try:
             return await self.stream.__anext__()
@@ -175,7 +187,7 @@ def span(
     def decorator(func: Callable[..., AsyncGenerator]) -> Callable[..., SpanController]:
         @wraps(func)
         def wrapper(*args, **kwargs) -> SpanController:
-            return SpanController(func, *args, accumulator=accumulator, **kwargs)
+            return SpanController(name=func.__name__, span_func=func, *args, accumulator=accumulator, **kwargs)
         return wrapper
     return decorator
 
