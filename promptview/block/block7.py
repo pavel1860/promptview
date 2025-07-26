@@ -393,10 +393,12 @@ class Block(BaseBlock):
     
     def __enter__(self):
         parent = self.parent
+        block = self if self.content is not None else None
         ctx = BlockContext(
-            self,
+            block,
             role=self.role,
             attrs=self.attrs,
+            tags=self.tags,
             depth=self.depth,
             parent=parent,
             run_id=self.run_id,

@@ -111,13 +111,14 @@ def render_context(block: BlockContext, ctx: RenderContext):
     
     #! render title content
     title_fmt = ctx.style.get("title-format") 
-    title_content = render_row(block.root, ctx)
-    if block.wrap:
+    title_content = render_row(block.root, ctx) if not ctx.is_wrapper else ""
+    if title_content and block.wrap:
         title_content = block.wrap[0] + title_content + block.wrap[1]
     
     #! render children
-    # children_content = render_item_list(block.children, ctx)    
-    children_content = render(block.children, ctx.index, ctx.depth + 1, None, ctx)
+    # children_content = render_item_list(block.children, ctx)
+    child_depth = ctx.depth + 1 if not ctx.is_wrapper else ctx.depth    
+    children_content = render(block.children, ctx.index, child_depth, None, ctx)
     if block.vwrap and children_content:
         children_content = block.vwrap[0] + children_content + block.vwrap[1]
     

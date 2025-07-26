@@ -31,6 +31,14 @@ class RenderContext:
     def is_list(self) -> bool:
         from promptview.block.block7 import BlockList
         return isinstance(self.block, BlockList)
+    
+    @property
+    def is_wrapper(self) -> bool:
+        from promptview.block.block7 import BlockContext
+        if self.block and isinstance(self.block, BlockContext):
+            if not self.block.root:
+                return True
+        return False
 
 class BaseRenderer(ABC):    
         
@@ -106,7 +114,7 @@ class RendererRegistry:
     
 class ContentRenderer(BaseRenderer):    
     
-    def render(self, ctx: RenderContext, content: ContentType, inner_content: ContentType | None = None) -> str:
+    def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
         head_content = ""
         if isinstance(content, str):
             head_content = content
@@ -119,9 +127,14 @@ class ContentRenderer(BaseRenderer):
         else:
             raise ValueError(f"Invalid content type: {type(content)}")
         
-        if inner_content is not None and isinstance(inner_content, str):
-            inner_content = textwrap.indent(inner_content, " ")
-        return f"{head_content}\n{inner_content}" if inner_content else head_content
+        if head_content:
+            if inner_content:
+                inner_content = textwrap.indent(inner_content, " ")
+            return f"{head_content}\n{inner_content}" if inner_content else head_content
+        elif inner_content:
+            return inner_content
+        else:
+            return ""
         
     def render_list(self, ctx: RenderContext, content: list[str]) -> str:
         return "\n".join([self.render(ctx, c) for c in content])
