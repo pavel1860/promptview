@@ -30,6 +30,7 @@ class GeneratorFrame(Generic[CHUNK, RESPONSE]):
         self.controller = controller
         self.agen = agen
         self.accumulator = self._init_accumulator(accumulator)
+        self.emitted_start = False
         self.started = False
         self.index = 0
         self.exhausted = False
@@ -173,6 +174,8 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
             self._raise_on_next = False
             raise StopAsyncIteration(self.current.accumulator)
         while self._stack:
+            if not self.current.emitted_start and self.current.output_mode == "events":
+                return self.current.to_event(None)
             if self.current.exhausted: 
                 if len(self._stack) == 1:
                     raise StopAsyncIteration()                                   
@@ -218,7 +221,8 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
         return self
     
     def to_event(self, ctx: GeneratorFrame, value: CHUNK) -> Event:
-        if ctx.index == 0:
+        if not ctx.emitted_start:
+            ctx.emitted_start = True
             return Event(type="stream_start", span=self._name, payload=None, index=0)
         elif ctx.exhausted:
             return Event(type="stream_end", span=self._name, payload=ctx.accumulator, index=ctx.index)
