@@ -31,6 +31,7 @@ class EventParams(TypedDict, total=False):
 class Event:
     __slots__ = [
         "type",
+        "span",
         "timestamp",
         "payload",
         "error",
@@ -40,9 +41,11 @@ class Event:
     def __init__(
         self, 
         type: EventType,
-        payload: Any,
+        payload: Any,        
+        span: str | None = None,        
         **kwargs: Unpack[EventParams]):
         self.type = type
+        self.span = span
         self.payload = payload
         self.timestamp: int | None = kwargs.get("timestamp")
         self.error: str | None = kwargs.get("error")
@@ -72,6 +75,7 @@ class Event:
         
         dump = {
             "type": self.type,
+            "span": self.span,
             "payload": payload,
             "index": self.index,
             "request_id": self.request_id,
@@ -88,7 +92,7 @@ class Event:
         return self.to_json() + "\n"
     
     def __repr__(self):
-        return f"Event(type={self.type}, payload={self.payload}, index={self.index}, request_id={self.request_id})"
+        return f"Event(type={self.type}, span={self.span}, payload={self.payload}, index={self.index}, request_id={self.request_id})"
     
     
 

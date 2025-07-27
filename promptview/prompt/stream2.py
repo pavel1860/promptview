@@ -1,6 +1,6 @@
 from functools import wraps
 import inspect
-from typing import Any, AsyncGenerator, Callable, ParamSpec, Union, AsyncIterator, Optional, Generic
+from typing import Any, AsyncGenerator, Callable, Literal, ParamSpec, Union, AsyncIterator, Optional, Generic
 from typing_extensions import TypeVar
 
 from promptview.prompt.events import Event
@@ -23,22 +23,41 @@ CHUNK = TypeVar("CHUNK")
 RESPONSE = TypeVar("RESPONSE")
 
 
+StreamFilter = Literal["all", "self", "pass"]
+
 class GeneratorFrame(Generic[CHUNK, RESPONSE]):
-    def __init__(self, agen: AsyncGenerator[CHUNK, RESPONSE], accumulator: RESPONSE):
+    def __init__(self, controller: "StreamController", agen: AsyncGenerator[CHUNK, RESPONSE], accumulator: RESPONSE):
+        self.controller = controller
         self.agen = agen
         self.accumulator = self._init_accumulator(accumulator)
         self.started = False
         self.index = 0
+        self.exhausted = False
 
     async def advance(self, value: CHUNK | None = None):
-        self.index += 1
-        if not self.started:
-            self.started = True
-            return await self.agen.__anext__()
-        else:
-            # return await self.agen.asend(self.accumulator)
-            return await self.agen.asend(value or self.accumulator)
+        try:
+            self.index += 1
+            if not self.started:
+                self.started = True
+                return await self.agen.__anext__()
+            else:
+                # return await self.agen.asend(self.accumulator)
+                return await self.agen.asend(value or self.accumulator)
+        except StopAsyncIteration as e:
+            self.exhausted = True
+            return self.accumulator
+            
         
+    @property
+    def output_mode(self) -> Literal["events", "chunks"]:
+        return self.controller._output_mode
+    
+    @property
+    def filter_mode(self) -> StreamFilter:
+        return self.controller._filter_mode
+    
+    def to_event(self, value: CHUNK) -> Event:
+        return self.controller.to_event(self, value)
         
     def _init_accumulator(self, acc) -> Any:
         if acc is None:
@@ -74,6 +93,8 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
         self._initial_gen = agen or self.stream
         self._accumulator_factory = accumulator
         self._raise_on_next = False
+        self._output_mode: Literal["events", "chunks"] = "chunks"
+        self._filter_mode: StreamFilter = "all"
         
         
     @property
@@ -108,61 +129,116 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
         self._stack = [self.build_frame()]
         return self
 
+    # async def __anext__(self) -> Any:
+    #     frame_response = None
+    #     if self._raise_on_next:
+    #         self._raise_on_next = False
+    #         raise StopAsyncIteration(self.current.accumulator)
+    #     while self._stack:
+    #         try:
+    #             value = await self.current.advance(frame_response)
+    #             frame_response = None
+                
+    #             if isinstance(value, StreamController):
+    #                 if self._filter_mode == "pass":                        
+    #                     return value
+    #                 else:
+    #                     value._output_mode = self._output_mode
+    #                     self._stack.append(value.build_frame())
+    #                     continue                    
+
+    #             # Attempt to append to the accumulator
+    #             self.current.try_append(value)
+                
+    #             if self.current.output_mode == "events":
+    #                 return self.current.to_event(value)
+    #             return value
+
+    #         except StopAsyncIteration as e:
+    #             if len(self._stack) == 1:
+    #                 raise e
+    #                 # self._raise_on_next = True                    
+    #                 # return self.current.accumulator
+    #             frame = self._stack.pop()
+    #             frame_response = frame.accumulator
+                
+    #             if hasattr(e, "value") and e.value is not None:
+    #                 self._accumulator = e.value
+
+    #     raise StopAsyncIteration
+    
     async def __anext__(self) -> Any:
-        frame_response = None
+        
         if self._raise_on_next:
             self._raise_on_next = False
             raise StopAsyncIteration(self.current.accumulator)
         while self._stack:
-            try:
-                value = await self.current.advance(frame_response)
-                frame_response = None
-                
-                if isinstance(value, StreamController):
-                    self._stack.append(value.build_frame())
-                    continue
-
-                # Attempt to append to the accumulator
-                self.current.try_append(value)
-
-                return value
-
-            except StopAsyncIteration as e:
+            if self.current.exhausted: 
                 if len(self._stack) == 1:
-                    raise e
-                    # self._raise_on_next = True                    
-                    # return self.current.accumulator
+                    raise StopAsyncIteration()                                   
                 frame = self._stack.pop()
-                frame_response = frame.accumulator
-                
-                if hasattr(e, "value") and e.value is not None:
-                    self._accumulator = e.value
+                value = await self.current.advance(frame.accumulator)
+            else:    
+                value = await self.current.advance()
+            if isinstance(value, StreamController):
+                if self._filter_mode == "pass":                        
+                    return value
+                else:
+                    value._output_mode = self._output_mode                    
+                    self._stack.append(value.build_frame())
+                    continue                    
 
+            # Attempt to append to the accumulator
+            if not self.current.exhausted:
+                self.current.try_append(value)
+            
+            if self.current.output_mode == "events":
+                value = self.current.to_event(value)
+            return value
         raise StopAsyncIteration
+
 
     def _wrap(self, value: Any) -> GeneratorFrame:
         if inspect.isasyncgenfunction(value):
             value = value()
         if not inspect.isasyncgen(value):
             raise TypeError(f"{value} is not an async generator")
-        return GeneratorFrame(value, self._accumulator_factory)
+        return GeneratorFrame(self,value, self._accumulator_factory)
     
     def build_frame(self) -> GeneratorFrame:
         if inspect.ismethod(self._initial_gen):
-            return GeneratorFrame(self._initial_gen(), self._accumulator_factory)
+            return GeneratorFrame(self, self._initial_gen(), self._accumulator_factory)
         else:
-            return GeneratorFrame(self._initial_gen, self._accumulator_factory)
+            return GeneratorFrame(self, self._initial_gen, self._accumulator_factory)
 
+    
+    def config(self, filter_mode: StreamFilter = "all", output_mode: Literal["events", "chunks"] = "chunks"):
+        self._filter_mode = filter_mode
+        self._output_mode = output_mode
+        return self
+    
+    def to_event(self, ctx: GeneratorFrame, value: CHUNK) -> Event:
+        if ctx.index == 0:
+            return Event(type="stream_start", span=self._name, payload=None, index=0)
+        elif ctx.exhausted:
+            return Event(type="stream_end", span=self._name, payload=ctx.accumulator, index=ctx.index)
+        else:
+            return Event(type="message_delta", span=self._name, payload=value, index=ctx.index)
+        
+        
 
-    async def stream_events(self):
-        event = Event(type="stream_start", payload=None, index=0)
+    async def stream_events(self, filter_mode: StreamFilter = "all"):
+        self._filter_mode = filter_mode
+        self._output_mode = "events"
+        event = Event(type="stream_start", span=self._name, payload=None, index=0)
         yield event
 
-        async for chunk in self:
-            event = Event(type="message_delta", payload=chunk, index=self.current.index)
+        async for event in self:
+            if not isinstance(event, Event):
+                event = Event(type="message_delta", span=self._name, payload=event, index=self.current.index)
             yield event
 
-        event = Event(type="stream_end", payload=self.current.accumulator, index=self.current.index)
+        event = Event(type="stream_end", span=self._name, payload=self.current.accumulator, index=self.current.index)
         yield event
 
 

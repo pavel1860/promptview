@@ -1,4 +1,4 @@
-from promptview.block.block7 import  Block, BlockContext, BlockList
+from promptview.block.block7 import  BaseBlock, Block, BlockContext, BlockList
 from promptview.block.style2 import StyleManager
 from promptview.block.renderers import (
     AsteriskListRenderer,
@@ -85,6 +85,8 @@ def combine_content(left: str, right: str, sep: str):
 
 def render(target, index=0, depth=0, style=None, parent_ctx: RenderContext | None = None):
     # if style is None:
+    if not isinstance(target, BaseBlock):
+        raise ValueError(f"Invalid block type: {type(target)}")
     style = style_manager.resolve(target)
     ctx = RenderContext(target, style, index, depth, parent_ctx)
     if isinstance(target, BlockContext):

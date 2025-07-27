@@ -157,12 +157,12 @@ class Component:
         async def event_stream():
             if not self._stream:
                 await self._init_stream()
-            event = Event(type="span_start", payload=self.span.dump_start(), index=0)
+            event = Event(type="span_start", span=self._name, payload=self.span.dump_start(), index=0)
             yield event
             async for event in self.stream.stream_events():
                 yield event
             self.span.end(self.stream.current.accumulator)
-            event = Event(type="span_end", payload=self.span.dump_end(), index=1)
+            event = Event(type="span_end", span=self._name, payload=self.span.dump_end(), index=1)
             yield event
         return event_stream()
 
