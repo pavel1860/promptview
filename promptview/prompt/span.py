@@ -59,7 +59,7 @@ class Span:
         }
         
 
-class SpanController:
+class Component:
     def __init__(
         self,
         name: str | None = None,
@@ -68,7 +68,7 @@ class SpanController:
         accumulator: Optional[Union[Any, Callable[[], Any]]] = None,
         kwargs: dict = {},
     ):
-        self.name = name
+        self._name = name
         self.span_func = span_func or self.run
         self.span_args = args
         self.span_kwargs = kwargs
@@ -98,7 +98,7 @@ class SpanController:
     @property
     def stream(self):
         if self._stream is None:
-            raise ValueError(f"Stream not started for span {self.name}")
+            raise ValueError(f"Stream not started for span {self._name}")
         return self._stream
 
     async def _resolve_dependencies(self):
@@ -117,7 +117,7 @@ class SpanController:
         return inspect.BoundArguments(signature, bound.arguments | dep_kwargs)
 
     async def _init_stream(self):
-        name = self.name or self.span_func.__name__
+        name = self._name or self.span_func.__name__
         self._span = Span(name, self._trace_id, self.resolved_args)
         self._span.start()
         self.resolved_args = await self._resolve_dependencies()
@@ -181,13 +181,13 @@ class SpanController:
 
 
 # Decorator for span-enabled async generators using composition
-def span(
+def component(
     accumulator: Optional[Union[Any, Callable[[], Any]]] = None
-) -> Callable[[Callable[..., AsyncGenerator]], Callable[..., SpanController]]:
-    def decorator(func: Callable[..., AsyncGenerator]) -> Callable[..., SpanController]:
+) -> Callable[[Callable[..., AsyncGenerator]], Callable[..., Component]]:
+    def decorator(func: Callable[..., AsyncGenerator]) -> Callable[..., Component]:
         @wraps(func)
-        def wrapper(*args, **kwargs) -> SpanController:
-            return SpanController(name=func.__name__, span_func=func, args=args, kwargs=kwargs, accumulator=accumulator)
+        def wrapper(*args, **kwargs) -> Component:
+            return Component(name=func.__name__, span_func=func, args=args, kwargs=kwargs, accumulator=accumulator)
         return wrapper
     return decorator
 

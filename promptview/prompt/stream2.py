@@ -17,20 +17,26 @@ class StreamResponse:
     
     def __repr__(self):
         return f"StreamResponse({self.value})"
+    
+    
+CHUNK = TypeVar("CHUNK")
+RESPONSE = TypeVar("RESPONSE")
 
-class GeneratorFrame:
-    def __init__(self, agen: AsyncGenerator, accumulator: Any):
+
+class GeneratorFrame(Generic[CHUNK, RESPONSE]):
+    def __init__(self, agen: AsyncGenerator[CHUNK, RESPONSE], accumulator: RESPONSE):
         self.agen = agen
         self.accumulator = self._init_accumulator(accumulator)
         self.started = False
         self.index = 0
 
-    async def advance(self, value: Any | None = None):
+    async def advance(self, value: CHUNK | None = None):
         self.index += 1
         if not self.started:
             self.started = True
             return await self.agen.__anext__()
         else:
+            # return await self.agen.asend(self.accumulator)
             return await self.agen.asend(value or self.accumulator)
         
         
@@ -54,18 +60,25 @@ class GeneratorFrame:
 
 P = ParamSpec("P")
 
-class StreamController(Generic[P]):
+
+
+class StreamController(Generic[P, CHUNK, RESPONSE]):
     def __init__(
         self,
         name: str | None = None,
-        agen: Union[AsyncGenerator, Callable[[], AsyncGenerator]] | None = None,
-        accumulator: Optional[Union[Any, Callable[[], Any]]] = None
+        agen: Union[AsyncGenerator[CHUNK | RESPONSE, RESPONSE], Callable[[], AsyncGenerator[CHUNK, RESPONSE]]] | None = None,
+        accumulator: RESPONSE | Callable[[], RESPONSE] | None = None
     ):
         self._name = name
         self._stack = []
         self._initial_gen = agen or self.stream
         self._accumulator_factory = accumulator
         self._raise_on_next = False
+        
+        
+    @property
+    def response(self) -> RESPONSE:
+        return self.current.accumulator
         
     async def stream(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[Any, None]:
         """
@@ -116,9 +129,9 @@ class StreamController(Generic[P]):
 
             except StopAsyncIteration as e:
                 if len(self._stack) == 1:
-                    self._raise_on_next = True
-                    # raise e
-                    return self.current.accumulator
+                    raise e
+                    # self._raise_on_next = True                    
+                    # return self.current.accumulator
                 frame = self._stack.pop()
                 frame_response = frame.accumulator
                 
