@@ -79,7 +79,6 @@ class OpenAiLLM(LLMStream):
                 if chunk.choices[0].delta:
                     choice = chunk.choices[0]                   
                     content = choice.delta.content
-                    print(content)
                     if content is None:
                         continue
                     try:

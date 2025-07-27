@@ -216,6 +216,10 @@ class BaseBlock:
         return dump
     
     
+    def model_dump_json(self):
+        import json
+        return json.dumps(self.model_dump())
+    
     # @classmethod
     # def model_validate(cls, data: dict):
     #     if "_type" not in data:

@@ -64,9 +64,9 @@ class SpanController:
         self,
         name: str | None = None,
         span_func: Callable[..., AsyncGenerator] | None = None,
-        *args,
+        args: tuple = (),
         accumulator: Optional[Union[Any, Callable[[], Any]]] = None,
-        **kwargs,
+        kwargs: dict = {},
     ):
         self.name = name
         self.span_func = span_func or self.run
@@ -187,7 +187,7 @@ def span(
     def decorator(func: Callable[..., AsyncGenerator]) -> Callable[..., SpanController]:
         @wraps(func)
         def wrapper(*args, **kwargs) -> SpanController:
-            return SpanController(name=func.__name__, span_func=func, *args, accumulator=accumulator, **kwargs)
+            return SpanController(name=func.__name__, span_func=func, args=args, kwargs=kwargs, accumulator=accumulator)
         return wrapper
     return decorator
 
