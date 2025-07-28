@@ -15,7 +15,7 @@ SpanEventType = Literal["span_start", "span_end"]
 
 MessageType = Literal["user_message", "assistant_message"]
 
-EventType = LlmStreamType | MessageType | SpanEventType
+EventType = LlmStreamType | MessageType | SpanEventType | Any
 
 
 

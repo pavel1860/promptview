@@ -175,6 +175,11 @@ class ListRowLayoutRenderer(BaseRenderer):
         return " ".join(content)
 
 
+class ListColumnTupleLayoutRenderer(BaseRenderer):
+    
+    def render_list_layout(self, ctx: RenderContext, content: list[str]) -> str:
+        return ",\n".join(content)
+
 class ListStreamLayoutRenderer(BaseRenderer):
     
     def render_list_layout(self, ctx: RenderContext, content: list[str]) -> str:

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from promptview.prompt.depends import DependsContainer, resolve_dependency
 from promptview.prompt.events import Event
-from promptview.prompt.stream2 import StreamController
+from promptview.prompt.stream2 import GeneratorFrame, StreamController
 from uuid import uuid4
 # Assuming AsyncStreamWrapper, DependsContainer, and resolve_dependency are available
 
@@ -59,7 +59,7 @@ class Span:
         }
         
 
-class Component:
+class Component(StreamController):
     def __init__(
         self,
         name: str | None = None,
@@ -68,8 +68,10 @@ class Component:
         accumulator: Optional[Union[Any, Callable[[], Any]]] = None,
         kwargs: dict = {},
     ):
-        self._name = name
+        super().__init__(name=name, agen=span_func or self.run, accumulator=accumulator)
+        # self._name = name
         self.span_func = span_func or self.run
+        # self.span_func = span_func or self.run
         self.span_args = args
         self.span_kwargs = kwargs
         self.resolved_args = None
@@ -77,7 +79,7 @@ class Component:
         self._start_time = None
         self._end_time = None
         self._trace_id = id(self)
-        self._stream: Optional[StreamController] = None
+        # self._stream: Optional[StreamController] = None
         self._span = None
     
     async def run(self, *args, **kwargs):
@@ -95,11 +97,11 @@ class Component:
             raise ValueError("Span not started")
         return self._span
     
-    @property
-    def stream(self):
-        if self._stream is None:
-            raise ValueError(f"Stream not started for span {self._name}")
-        return self._stream
+    # @property
+    # def stream(self):
+    #     if self._stream is None:
+    #         raise ValueError(f"Stream not started for span {self._name}")
+    #     return self._stream
 
     async def _resolve_dependencies(self):
         signature = inspect.signature(self.span_func)
@@ -115,15 +117,34 @@ class Component:
                 dep_kwargs[name] = val
 
         return inspect.BoundArguments(signature, bound.arguments | dep_kwargs)
-
-    async def _init_stream(self):
+    
+    async def build_frame(self) -> GeneratorFrame:        
         name = self._name or self.span_func.__name__
         self._span = Span(name, self._trace_id, self.resolved_args)
         self._span.start()
         self.resolved_args = await self._resolve_dependencies()
         gen = self.span_func(*self.resolved_args.args, **self.resolved_args.kwargs)        
-        self._stream = StreamController(name=name, agen=gen, accumulator=self.accumulator_factory)
-        self._stream.__aiter__()
+        return GeneratorFrame(self, gen, self.accumulator_factory)
+    
+    
+    def to_event(self, ctx: GeneratorFrame, value: Any) -> Event:
+        if not ctx.emitted_start:
+            ctx.emitted_start = True
+            return Event(type="span_start", span=self._name, payload=None, index=0)
+        elif ctx.exhausted:
+            return Event(type="span_end", span=self._name, payload=ctx.accumulator, index=ctx.index)
+        else:
+            return Event(type="span_delta", span=self._name, payload=value, index=ctx.index)
+
+
+    # async def _init_stream(self):
+    #     name = self._name or self.span_func.__name__
+    #     self._span = Span(name, self._trace_id, self.resolved_args)
+    #     self._span.start()
+    #     self.resolved_args = await self._resolve_dependencies()
+    #     gen = self.span_func(*self.resolved_args.args, **self.resolved_args.kwargs)        
+    #     self._stream = StreamController(name=name, agen=gen, accumulator=self.accumulator_factory)
+    #     self._stream.__aiter__()
 
     # def _start_span(self):
     #     self._start_time = time.time()
@@ -137,47 +158,62 @@ class Component:
     #             print(f"[Span Error] {self.span_func.__name__}: {error}")
     #         print(f"[Span End] {self.span_func.__name__} (duration={duration:.2f}s)")
 
-    def __aiter__(self):
-        return self
+    # def __aiter__(self):
+    #     return self
 
-    async def __anext__(self):
-        if not self._stream:
-            await self._init_stream()
-        try:
-            return await self.stream.__anext__()
-        except StopAsyncIteration:
-            self.span.end()
-            raise
-        except Exception as e:
-            self.span.error(e)
-            raise
+    # async def __anext__(self):
+    #     if not self._stream:
+    #         await self._init_stream()
+    #     try:
+    #         return await self.stream.__anext__()
+    #     except StopAsyncIteration:
+    #         self.span.end()
+    #         raise
+    #     except Exception as e:
+    #         self.span.error(e)
+    #         raise
 
 
-    def stream_events(self):
-        async def event_stream():
-            if not self._stream:
-                await self._init_stream()
-            event = Event(type="span_start", span=self._name, payload=self.span.dump_start(), index=0)
-            yield event
-            async for event in self.stream.stream_events():
-                yield event
-            self.span.end(self.stream.current.accumulator)
-            event = Event(type="span_end", span=self._name, payload=self.span.dump_end(), index=1)
-            yield event
-        return event_stream()
+    # def stream_events(self):
+    #     async def event_stream():
+    #         if not self._stream:
+    #             await self._init_stream()
+    #         event = Event(type="span_start", span=self._name, payload=self.span.dump_start(), index=0)
+    #         yield event
+    #         async for event in self.stream.stream_events():
+    #             yield event
+    #         self.span.end(self.stream.current.accumulator)
+    #         event = Event(type="span_end", span=self._name, payload=self.span.dump_end(), index=1)
+    #         yield event
+    #     return event_stream()
+    
+    
 
-    def __await__(self):
-        async def await_result():
-            if not self.stream:
-                await self._init_stream()
-            try:
-                result = await self.stream
-                self.span.end(result)
-                return result
-            except Exception as e:
-                self.span.error(e)
-                raise
-        return await_result().__await__()
+    # def __await__(self):
+    #     async def await_result():
+    #         if not self.stream:
+    #             await self._init_stream()
+    #         try:
+    #             result = await self.stream
+    #             self.span.end(result)
+    #             return result
+    #         except Exception as e:
+    #             self.span.error(e)
+    #             raise
+    #     return await_result().__await__()
+    @classmethod
+    def decorator_factory(cls):
+        def component(
+            accumulator: Optional[Union[Any, Callable[[], Any]]] = None
+        ) -> Callable[[Callable[..., AsyncGenerator]], Callable[..., cls]]:
+            def decorator(func: Callable[..., AsyncGenerator]) -> Callable[..., cls]:
+                @wraps(func)
+                def wrapper(*args, **kwargs) -> cls:
+                    return cls(name=func.__name__, span_func=func, args=args, kwargs=kwargs, accumulator=accumulator)
+                return wrapper
+            return decorator
+        return component
+
 
 
 # Decorator for span-enabled async generators using composition

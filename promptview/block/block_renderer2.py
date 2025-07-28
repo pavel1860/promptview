@@ -7,6 +7,7 @@ from promptview.block.renderers import (
     CheckboxListRenderer,
     DashListRenderer,
     ListColumnLayoutRenderer,
+    ListColumnTupleLayoutRenderer,
     ListRowLayoutRenderer,
     PlusListRenderer,
     RenderContext,
@@ -43,7 +44,7 @@ style_manager.add_style(["list-checkbox", "li[]"], {"list-format": "checkbox-lis
 style_manager.add_style(['list-col', 'col'], {"list-layout": "list-column-layout"})
 style_manager.add_style(["row", "list-row"], {"list-layout": "list-row-layout"})
 style_manager.add_style(["stream", "list-stream"], {"list-layout": "list-stream-layout"})
-
+style_manager.add_style(["col-tuple"], {"list-layout": "list-column-tuple-layout"})
 
 
 style_manager.add_style(["xml"], {"title-format": "xml-title"})
@@ -66,7 +67,7 @@ renderer_registry.register("asterisk-list", AsteriskListRenderer())
 renderer_registry.register("list-column-layout", ListColumnLayoutRenderer())
 renderer_registry.register("list-row-layout", ListRowLayoutRenderer())
 renderer_registry.register("list-stream-layout", ListStreamLayoutRenderer())
-
+renderer_registry.register("list-column-tuple-layout", ListColumnTupleLayoutRenderer())
 
 default_renderer = ContentRenderer()
 

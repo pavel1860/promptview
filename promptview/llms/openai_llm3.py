@@ -63,13 +63,13 @@ class OpenAiLLM(LLMStream):
         tool_choice = None
         if self.tools:
             llm_tools = [self.to_tool(tool) for tool in self.tools]        
-            tool_choice = self.config.tool_choice
+            tool_choice = self.llm_config.tool_choice
 
         try:       
             res_stream = await self.client.chat.completions.create(
                     messages=messages,
                     tools=llm_tools,
-                    model=self.config.model,
+                    model=self.llm_config.model,
                     tool_choice=tool_choice,
                     stream=True,
                     logprobs=True,                

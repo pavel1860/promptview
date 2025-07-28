@@ -33,7 +33,8 @@ if TYPE_CHECKING:
 
 
 def create_table_block(name: str, *fields: "PgFieldInfo"):
-    with Block(f"CREATE TABLE IF NOT EXISTS {name}", vwrap=("(\n", "\n)"), vsep=",\n") as blk:
+    with Block(f"CREATE TABLE IF NOT EXISTS {name}", style="col-tuple", vwrap=("(\n", "\n)"), vsep=",\n") as blk:
+    # with Block(f"CREATE TABLE IF NOT EXISTS {name}", style="col-tuple") as blk:
         for field in fields:
             with blk() as f:
                 f += f'"{field.name}"', field.sql_type

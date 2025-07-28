@@ -62,7 +62,7 @@ class GeneratorFrame(Generic[CHUNK, RESPONSE]):
         
     def _init_accumulator(self, acc) -> Any:
         if acc is None:
-            return ""
+            return None
         elif callable(acc):
             return acc()
         else:
@@ -70,6 +70,8 @@ class GeneratorFrame(Generic[CHUNK, RESPONSE]):
         
     def try_append(self, value: Any):
         # Try using append or += for accumulation
+        if self.accumulator is None:
+            return None
         try:
             self.accumulator.append(value)
         except AttributeError:
@@ -127,7 +129,7 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
 
 
     def __aiter__(self) -> AsyncIterator[Any]:
-        self._stack = [self.build_frame()]
+        # self._stack = [self.build_frame()]
         return self
 
     # async def __anext__(self) -> Any:
@@ -169,10 +171,9 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
     #     raise StopAsyncIteration
     
     async def __anext__(self) -> Any:
+        if not self._stack:
+            self._stack.append(await self.build_frame())
         
-        if self._raise_on_next:
-            self._raise_on_next = False
-            raise StopAsyncIteration(self.current.accumulator)
         while self._stack:
             if not self.current.emitted_start and self.current.output_mode == "events":
                 return self.current.to_event(None)
@@ -188,7 +189,8 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
                     return value
                 else:
                     value._output_mode = self._output_mode                    
-                    self._stack.append(value.build_frame())
+                    frame = await value.build_frame()
+                    self._stack.append(frame)
                     continue                    
 
             # Attempt to append to the accumulator
@@ -208,7 +210,7 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
             raise TypeError(f"{value} is not an async generator")
         return GeneratorFrame(self,value, self._accumulator_factory)
     
-    def build_frame(self) -> GeneratorFrame:
+    async def build_frame(self) -> GeneratorFrame:
         if inspect.ismethod(self._initial_gen):
             return GeneratorFrame(self, self._initial_gen(), self._accumulator_factory)
         else:

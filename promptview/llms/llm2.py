@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from promptview.block.block7 import Block, BlockContext, BlockPrompt, BlockList, Chunk
 from promptview.block.util import StreamEvent
-from promptview.prompt.stream2 import StreamController
+from promptview.prompt.stream2 import GeneratorFrame, StreamController
 from promptview.prompt.events import Event, EventParams
 
 
@@ -31,10 +31,11 @@ class LlmConfig(BaseModel):
 
 
 
+    
 
 class LLMStream(StreamController):
     blocks: BlockList
-    config: LlmConfig
+    llm_config: LlmConfig
     tools: List[Type[BaseModel]] | None = None
     model: str | None = None
     models: List[str] = []
@@ -51,12 +52,25 @@ class LLMStream(StreamController):
 
     def __call__(self, blocks: BlockList, config: LlmConfig, tools: List[Type[BaseModel]] | None = None):
         self.blocks = blocks
-        self.config = config
+        self.llm_config = config
         self.tools = tools
         return self
     
     
-
+    def to_event(self, ctx: GeneratorFrame, value: Any) -> Event:
+        if not ctx.emitted_start:
+            ctx.emitted_start = True
+            llm_payload = {
+                "config": self.llm_config.model_dump(),
+                "tools": [tool.model_dump() for tool in self.tools] if self.tools else None,
+                "model": self.model,
+                "blocks": [b.render() for b in self.blocks]
+            }
+            return Event(type="stream_start", span=self._name, payload=llm_payload, index=0)
+        elif ctx.exhausted:
+            return Event(type="stream_end", span=self._name, payload=ctx.accumulator, index=ctx.index)
+        else:
+            return Event(type="message_delta", span=self._name, payload=value, index=ctx.index)
     
     
     
