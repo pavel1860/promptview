@@ -2,8 +2,10 @@ from typing import Any, Callable, Optional, Union, AsyncGenerator
 from functools import wraps
 import time
 import inspect
+from typing_extensions import TypeVar
 from pydantic import BaseModel
 
+from promptview.block.block7 import Block
 from promptview.prompt.depends import DependsContainer, resolve_dependency
 from promptview.prompt.events import Event
 from promptview.prompt.stream2 import GeneratorFrame, StreamController
@@ -215,11 +217,12 @@ class Component(StreamController):
         return component
 
 
+RESPONSE_ACC = TypeVar("RESPONSE_ACC")
 
 # Decorator for span-enabled async generators using composition
 def component(
-    accumulator: Optional[Union[Any, Callable[[], Any]]] = None
-) -> Callable[[Callable[..., AsyncGenerator]], Callable[..., Component]]:
+    accumulator: RESPONSE_ACC | Callable[[], RESPONSE_ACC]
+) -> Callable[[Callable[..., AsyncGenerator[StreamController, None]]], Callable[..., Component]]:
     def decorator(func: Callable[..., AsyncGenerator]) -> Callable[..., Component]:
         @wraps(func)
         def wrapper(*args, **kwargs) -> Component:

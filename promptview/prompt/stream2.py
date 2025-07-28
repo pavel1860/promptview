@@ -1,6 +1,6 @@
 from functools import wraps
 import inspect
-from typing import Any, AsyncGenerator, Callable, Literal, ParamSpec, Union, AsyncIterator, Optional, Generic
+from typing import Any, AsyncGenerator, Callable, Iterable, Literal, ParamSpec, Protocol, Union, AsyncIterator, Optional, Generic
 from typing_extensions import TypeVar
 
 from promptview.prompt.events import Event
@@ -17,13 +17,13 @@ class StreamResponse:
     
     def __repr__(self):
         return f"StreamResponse({self.value})"
-    
-    
+
+
 CHUNK = TypeVar("CHUNK")
 RESPONSE = TypeVar("RESPONSE")
 
 
-StreamFilter = Literal["all", "self", "pass"]
+StreamFilter = Literal["pass_events", "all", "self"]
 
 class GeneratorFrame(Generic[CHUNK, RESPONSE]):
     def __init__(self, controller: "StreamController", agen: AsyncGenerator[CHUNK, RESPONSE], accumulator: RESPONSE):
@@ -97,7 +97,7 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
         self._accumulator_factory = accumulator
         self._raise_on_next = False
         self._output_mode: Literal["events", "chunks"] = "chunks"
-        self._filter_mode: StreamFilter = "all"
+        self._filter_mode: StreamFilter = "pass_events"
         
         
     @property
@@ -169,6 +169,9 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
     #                 self._accumulator = e.value
 
     #     raise StopAsyncIteration
+    @property
+    def is_self_stream(self):
+        return len(self._stack) == 1
     
     async def __anext__(self) -> Any:
         if not self._stack:
@@ -197,11 +200,40 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
             if not self.current.exhausted:
                 self.current.try_append(value)
             
-            if self.current.output_mode == "events":
-                value = self.current.to_event(value)
-            return value
-        raise StopAsyncIteration
+            # if (
+            #     not self.is_self_stream or \
+            #     self._output_mode == "events" or \
+            #     self._filter_mode in ["pass_events", "all"] \
+            # ):
+            #     return self._pack_value(value)
+            # else:
+            #     continue
+            if self._should_output(value):
+                return self._pack_value(value)
+            else:
+                continue
 
+            
+                
+                    
+            
+        raise StopAsyncIteration
+    
+    def _should_output(self, value: Any):
+        if not self.is_self_stream:
+            if self._filter_mode == "all":
+                return True
+            elif self._filter_mode == "pass_events" and self._output_mode == "events":
+                return True
+            else:
+                return False
+        return True
+                        
+
+    def _pack_value(self, value: Any):
+        if self.current.output_mode == "events":
+            value = self.current.to_event(value)
+        return value
 
     def _wrap(self, value: Any) -> GeneratorFrame:
         if inspect.isasyncgenfunction(value):
