@@ -19,14 +19,24 @@ class StreamResponse:
         return f"StreamResponse({self.value})"
 
 
-CHUNK = TypeVar("CHUNK")
-RESPONSE = TypeVar("RESPONSE")
 
+
+
+
+
+CHUNK = TypeVar("CHUNK")
+
+class SupportsExtend(Protocol[CHUNK]):
+    def extend(self, iterable: Iterable[CHUNK], /) -> None: ...
+    def append(self, item: CHUNK, /) -> None: ...
+    def __iter__(self) -> Iterable[CHUNK]: ...
 
 StreamFilter = Literal["pass_events", "all", "self"]
+RESPONSE_ACC = TypeVar("RESPONSE_ACC", bound="SupportsExtend[Any]")
 
-class GeneratorFrame(Generic[CHUNK, RESPONSE]):
-    def __init__(self, controller: "StreamController", agen: AsyncGenerator[CHUNK, RESPONSE], accumulator: RESPONSE):
+
+class GeneratorFrame(Generic[CHUNK]):
+    def __init__(self, controller: "StreamController", agen: AsyncGenerator[CHUNK, None], accumulator: SupportsExtend[CHUNK]):
         self.controller = controller
         self.agen = agen
         self.accumulator = self._init_accumulator(accumulator)
@@ -84,12 +94,12 @@ P = ParamSpec("P")
 
 
 
-class StreamController(Generic[P, CHUNK, RESPONSE]):
+class StreamController(Generic[P, CHUNK]):
     def __init__(
         self,
         name: str | None = None,
-        agen: Union[AsyncGenerator[CHUNK | RESPONSE, RESPONSE], Callable[[], AsyncGenerator[CHUNK, RESPONSE]]] | None = None,
-        accumulator: RESPONSE | Callable[[], RESPONSE] | None = None
+        agen: Union[AsyncGenerator[CHUNK , None], Callable[[], AsyncGenerator[CHUNK, None]]] | None = None,
+        accumulator: SupportsExtend[CHUNK] | Callable[[], SupportsExtend[CHUNK]] | None = None
     ):
         self._name = name
         self._stack = []
@@ -101,7 +111,7 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
         
         
     @property
-    def response(self) -> RESPONSE:
+    def response(self) -> SupportsExtend[CHUNK]:
         return self.current.accumulator
         
     async def stream(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[Any, None]:
@@ -284,9 +294,11 @@ class StreamController(Generic[P, CHUNK, RESPONSE]):
 P = ParamSpec("P")
 T = TypeVar("T")
 
+
+
 def stream(
-    accumulator: Optional[Union[Any, Callable[[], Any]]] = None
-) -> Callable[[Callable[P, AsyncGenerator[Any, Any]]], Callable[P, StreamController]]:
+    accumulator: SupportsExtend[CHUNK] | Callable[[], SupportsExtend[CHUNK]]
+) -> Callable[[Callable[P, AsyncGenerator[CHUNK, None]]], Callable[P, StreamController[P, CHUNK]]]:
     def decorator(
         func: Callable[P, AsyncGenerator[Any, Any]]
     ) -> Callable[P, StreamController]:

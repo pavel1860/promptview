@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from promptview.block.block7 import Block
 from promptview.prompt.depends import DependsContainer, resolve_dependency
 from promptview.prompt.events import Event
-from promptview.prompt.stream2 import GeneratorFrame, StreamController
+from promptview.prompt.stream2 import GeneratorFrame, StreamController, SupportsExtend, CHUNK
 from uuid import uuid4
 # Assuming AsyncStreamWrapper, DependsContainer, and resolve_dependency are available
 
@@ -217,11 +217,11 @@ class Component(StreamController):
         return component
 
 
-RESPONSE_ACC = TypeVar("RESPONSE_ACC")
+
 
 # Decorator for span-enabled async generators using composition
 def component(
-    accumulator: RESPONSE_ACC | Callable[[], RESPONSE_ACC]
+    accumulator: SupportsExtend[CHUNK] | Callable[[], SupportsExtend[CHUNK]]
 ) -> Callable[[Callable[..., AsyncGenerator[StreamController, None]]], Callable[..., Component]]:
     def decorator(func: Callable[..., AsyncGenerator]) -> Callable[..., Component]:
         @wraps(func)
