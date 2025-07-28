@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional, Union, AsyncGenerator
+from typing import Any, Callable, Optional, ParamSpec, Union, AsyncGenerator
 from functools import wraps
 import time
 import inspect
@@ -217,16 +217,18 @@ class Component(StreamController):
         return component
 
 
+P = ParamSpec("P")
 
 
-# Decorator for span-enabled async generators using composition
+
 def component(
     accumulator: SupportsExtend[CHUNK] | Callable[[], SupportsExtend[CHUNK]]
-) -> Callable[[Callable[..., AsyncGenerator[StreamController, None]]], Callable[..., Component]]:
-    def decorator(func: Callable[..., AsyncGenerator]) -> Callable[..., Component]:
+) -> Callable[[Callable[P, AsyncGenerator[CHUNK | StreamController, None]]], Callable[P, Component]]:
+    def decorator(func: Callable[P, AsyncGenerator[CHUNK | StreamController, None]]) -> Callable[P, Component]:
         @wraps(func)
-        def wrapper(*args, **kwargs) -> Component:
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> Component:
             return Component(name=func.__name__, span_func=func, args=args, kwargs=kwargs, accumulator=accumulator)
         return wrapper
     return decorator
 
+# Decorator for span-enabled async generators using composition
