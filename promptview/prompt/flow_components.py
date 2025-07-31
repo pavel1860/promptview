@@ -151,11 +151,13 @@ class Accumulator(BaseFbpComponent):
 
 class StreamController:
     
-    def __init__(self, gen_func, output_format=None):
-        self._gen_func = gen_func
+    def __init__(self, gen_func=None, output_format=None, acc_factory=None):
+        self._gen_func = gen_func or self.stream
         self._flow = None
         self._stream = None
         self._output_format = output_format
+        self._acc_factory = acc_factory or BlockList
+        
         
     @property
     def acc(self):
@@ -171,7 +173,7 @@ class StreamController:
         
     async def __aiter__(self): 
         self._stream = Stream(self._gen_func())
-        self._acc = Accumulator(BlockList())
+        self._acc = Accumulator(self._acc_factory())
         flow = self._stream | self._acc 
         if self._output_format:
             flow |= Parser()
@@ -185,7 +187,11 @@ class StreamController:
         yield StreamEvent(type="stream_end")
           
           
-          
+     
+    async def stream(self, *args, **kwargs):
+        raise NotImplementedError("StreamController is not streamable")
+        yield
+             
           
 
 
@@ -201,15 +207,7 @@ class PipeController:
         self._gen_func = gen_func
         self._args = args
         self._kwargs = kwargs
-        # self.gen = gen_func
-        # self._stack = []
-        
-    # @property
-    # def current(self):
-    #     if not self._stack:
-    #         raise ValueError("No current generator")
-    #     return self._stack[-1]
-    
+
     
     async def __aiter__(self):
         # bound = await resolve_dependencies(self._gen_func, self._args, self._kwargs)

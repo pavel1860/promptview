@@ -23,8 +23,8 @@ class OpenAiLLM(LLMStream):
     models = ["gpt-4o", "gpt-4o-mini"]
     
     
-    def __init__(self):
-        super().__init__()
+    def __init__(self, blocks: BlockList, config: LlmConfig, tools: List[Type[BaseModel]] | None = None, model: str | None = None):
+        super().__init__(blocks, config, tools, model)
         self.client = openai.AsyncClient(api_key=os.getenv("OPENAI_API_KEY"))
     
     def to_message(self, content: str, role: str, tool_calls: List[ToolCall] | None = None, tool_call_id: str | None = None, name: str | None = None) -> ChatCompletionMessageParam:
@@ -65,35 +65,35 @@ class OpenAiLLM(LLMStream):
             llm_tools = [self.to_tool(tool) for tool in self.tools]        
             tool_choice = self.llm_config.tool_choice
 
-        try:       
-            res_stream = await self.client.chat.completions.create(
-                    messages=messages,
-                    tools=llm_tools,
-                    model=self.llm_config.model,
-                    tool_choice=tool_choice,
-                    stream=True,
-                    logprobs=True,                
-                )
-                        
-            async for chunk in res_stream:                
-                if chunk.choices[0].delta:
-                    choice = chunk.choices[0]                   
-                    content = choice.delta.content
-                    if content is None:
-                        continue
-                    try:
-                        if choice.logprobs and choice.logprobs.content:                
-                            logprob = choice.logprobs.content[0].logprob
-                        else:
-                            logprob = 0  
-                    except:
-                        raise ValueError("No logprobs")        
-                    blk_chunk = Block(content, logprob=logprob)
-                    yield blk_chunk
+        # try:       
+        res_stream = await self.client.chat.completions.create(
+                messages=messages,
+                tools=llm_tools,
+                model=self.llm_config.model,
+                tool_choice=tool_choice,
+                stream=True,
+                logprobs=True,                
+            )
+                    
+        async for chunk in res_stream:                
+            if chunk.choices[0].delta:
+                choice = chunk.choices[0]                   
+                content = choice.delta.content
+                if content is None:
+                    continue
+                try:
+                    if choice.logprobs and choice.logprobs.content:                
+                        logprob = choice.logprobs.content[0].logprob
+                    else:
+                        logprob = 0  
+                except:
+                    raise ValueError("No logprobs")        
+                blk_chunk = Block(content, logprob=logprob)
+                yield blk_chunk
                     
                     
-        except Exception as e:
-            block = Block(str(e))
-            event = Event(type="stream_error", payload=block, timestamp=int(datetime.now().timestamp()), request_id=request_id)
-            yield event
-            raise e
+        # except Exception as e:
+            # yield = Block(str(e))
+            # event = Event(type="stream_error", payload=block, timestamp=int(datetime.now().timestamp()), request_id=request_id)
+            # yield event
+            # raise e

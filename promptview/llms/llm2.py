@@ -5,7 +5,8 @@ from pydantic import BaseModel, Field
 
 from promptview.block.block7 import Block, BlockContext, BlockPrompt, BlockList, Chunk
 from promptview.block.util import StreamEvent
-from promptview.prompt.stream2 import GeneratorFrame, StreamController
+# from promptview.prompt.stream2 import GeneratorFrame, StreamController
+from promptview.prompt.flow_components import StreamController
 from promptview.prompt.events import Event, EventParams
 
 
@@ -41,8 +42,13 @@ class LLMStream(StreamController):
     models: List[str] = []
     
     
-    def __init__(self):
-        super().__init__(self.__class__.__name__, accumulator=lambda : BlockList([], style="list-stream"))
+    def __init__(self, blocks: BlockList, config: LlmConfig, tools: List[Type[BaseModel]] | None = None, model: str | None = None):
+        super().__init__(self.stream, acc_factory=lambda : BlockList([], style="stream"))
+        self.blocks = blocks
+        self.llm_config = config
+        self.tools = tools
+        self.model = model
+        
         
     async def stream(self) -> AsyncGenerator[Any, None]:
         pass
@@ -50,27 +56,11 @@ class LLMStream(StreamController):
     
     
 
-    def __call__(self, blocks: BlockList, config: LlmConfig, tools: List[Type[BaseModel]] | None = None):
-        self.blocks = blocks
-        self.llm_config = config
-        self.tools = tools
-        return self
-    
-    
-    def to_event(self, ctx: GeneratorFrame, value: Any) -> Event:
-        if not ctx.emitted_start:
-            ctx.emitted_start = True
-            llm_payload = {
-                "config": self.llm_config.model_dump(),
-                "tools": [tool.model_dump() for tool in self.tools] if self.tools else None,
-                "model": self.model,
-                "blocks": [b.render() for b in self.blocks]
-            }
-            return Event(type="stream_start", span=self._name, payload=llm_payload, index=0)
-        elif ctx.exhausted:
-            return Event(type="stream_end", span=self._name, payload=ctx.accumulator, index=ctx.index)
-        else:
-            return Event(type="message_delta", span=self._name, payload=value, index=ctx.index)
+    # def __call__(self, blocks: BlockList, config: LlmConfig, tools: List[Type[BaseModel]] | None = None):
+    #     self.blocks = blocks
+    #     self.llm_config = config
+    #     self.tools = tools
+    #     return self
     
     
     
@@ -97,7 +87,7 @@ class LLM():
         return model_cls
     
     @classmethod
-    def _get_llm(cls, model: str | None = None) -> LLMStream:
+    def _get_llm(cls, model: str | None = None) -> Type[LLMStream]:
         """Get a registered model by name"""
         if model is None:
             if cls._default_model is None:
@@ -106,8 +96,7 @@ class LLM():
         if model not in cls._model_registry:
             raise KeyError(f"Model {model} is not registered")        
         llm_cls = cls._model_registry[model]
-        llm = llm_cls()
-        return llm
+        return llm_cls
 
     def __call__(
         self,        
