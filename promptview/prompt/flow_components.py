@@ -30,7 +30,6 @@ class BaseFbpComponent:
         other._gen = self
         return other
     
-    
     def __aiter__(self):
         return self
     
@@ -49,6 +48,7 @@ class Stream(BaseFbpComponent):
             self._index += 1
             return await self._gen.__anext__()
         except StopAsyncIteration:
+            self._index -= 1
             raise StopAsyncIteration
 
     async def asend(self, value):
@@ -179,6 +179,8 @@ class StreamController:
           
           
           
+
+
           
           
           
@@ -214,9 +216,10 @@ class PipeController:
                     continue
                 elif isinstance(value, PipeController):
                     pipe = value
+                    res = None
                     async for res in pipe:
                         yield res
-                    value = await gen.asend(pipe.current)
+                    value = await gen.asend(res.payload if res else None)
                     continue
                 else:
                     value = await gen.asend(None)
@@ -224,18 +227,3 @@ class PipeController:
         except StopAsyncIteration:
             yield StreamEvent(type="span_end", name=self._gen_func.__name__, payload=value)
             
-            
-            # yield StreamEvent(type="span_value", name=self._gen_func.__name__, payload=value)
-        # yield StreamEvent(type="span_end", name=self._gen_func.__name__)j
-    # async def __aiter__(self):
-    #     yield StreamEvent(type="span_start", name=self._gen_func.__name__)
-    #     gen = self._gen_func()
-    #     async for value in gen:
-    #         if isinstance(value, StreamController):
-    #             async for chunk in value:
-    #                 yield chunk
-    #                 print(chunk)
-    #             value.acc
-    #             continue
-    #         yield StreamEvent(type="span_value", name=self._gen_func.__name__, payload=value)
-    #     yield StreamEvent(type="span_end", name=self._gen_func.__name__)

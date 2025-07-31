@@ -313,6 +313,7 @@ class Block(BaseBlock):
         """
         super().__init__(**kwargs)
         self.content: ContentType = content
+    
         
             
     @property
@@ -450,6 +451,13 @@ class Block(BaseBlock):
         self.ihstack(other)
         return self
     
+    def __eq__(self, other: object):
+        if isinstance(other, str):
+            return self.content == other
+        elif isinstance(other, Block):
+            return self.content == other.content
+        else:
+            return False
     
     
     @classmethod
