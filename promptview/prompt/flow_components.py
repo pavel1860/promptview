@@ -4,7 +4,9 @@ from queue import SimpleQueue
 
 import xml
 from promptview.block.block7 import Block, BlockList
+from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
 from promptview.prompt.parser import SaxStreamParser, StreamEvent
+from promptview.utils.function_utils import call_function
 
 
 
@@ -39,6 +41,12 @@ class BaseFbpComponent:
 
 class Stream(BaseFbpComponent):
     _index = 0
+    
+    @property
+    def gen(self):
+        if self._gen is None:
+            raise ValueError("Stream is not initialized")
+        return self._gen
 
     def __aiter__(self):
         return self
@@ -46,7 +54,7 @@ class Stream(BaseFbpComponent):
     async def __anext__(self):
         try:
             self._index += 1
-            return await self._gen.__anext__()
+            return await self.gen.__anext__()
         except StopAsyncIteration:
             self._index -= 1
             raise StopAsyncIteration
@@ -54,13 +62,13 @@ class Stream(BaseFbpComponent):
     async def asend(self, value):
         print(f"Intercepted asend({value})")
         # Optionally modify the value before sending
-        return await self._gen.asend(value)
+        return await self.gen.asend(value)
 
     async def athrow(self, typ, val=None, tb=None):
-        return await self._gen.athrow(typ, val, tb)
+        return await self.gen.athrow(typ, val, tb)
 
     async def aclose(self):
-        return await self._gen.aclose()
+        return await self.gen.aclose()
     
 
 class Parser(BaseFbpComponent):  
@@ -189,20 +197,26 @@ class StreamController:
 class PipeController:
     
     
-    def __init__(self, gen_func):
+    def __init__(self, gen_func, args = (), kwargs = {}):
         self._gen_func = gen_func
-        self._stack = []
+        self._args = args
+        self._kwargs = kwargs
+        # self.gen = gen_func
+        # self._stack = []
         
-    @property
-    def current(self):
-        if not self._stack:
-            raise ValueError("No current generator")
-        return self._stack[-1]
+    # @property
+    # def current(self):
+    #     if not self._stack:
+    #         raise ValueError("No current generator")
+    #     return self._stack[-1]
     
     
     async def __aiter__(self):
-        yield StreamEvent(type="span_start", name=self._gen_func.__name__)
-        gen = self._gen_func()
+        # bound = await resolve_dependencies(self._gen_func, self._args, self._kwargs)
+        # gen = self._gen_func(*bound.args, **bound.kwargs)
+        bound, kwargs = await resolve_dependencies_kwargs(self._gen_func, self._args, self._kwargs)
+        gen = self._gen_func(*bound.args, **bound.kwargs)
+        yield StreamEvent(type="span_start", name=gen.__name__, attrs=kwargs )        
         value = await gen.asend(None)
         try:      
             while True:
@@ -227,3 +241,7 @@ class PipeController:
         except StopAsyncIteration:
             yield StreamEvent(type="span_end", name=self._gen_func.__name__, payload=value)
             
+
+
+
+
