@@ -1,8 +1,9 @@
 import asyncio
+from functools import wraps
 import json
 from queue import SimpleQueue
 
-from typing import Any
+from typing import Any, AsyncGenerator, Callable, Iterable, ParamSpec, Protocol, Self, TypeVar
 import xml
 from promptview.block.block7 import Block, BlockList
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
@@ -21,6 +22,7 @@ class BaseFbpComponent:
         self._did_yield = False
         self._did_end = False
         self._did_error = False
+        self._last_value = None
         
         
     @property
@@ -32,6 +34,9 @@ class BaseFbpComponent:
     @property
     def name(self):
         return self.gen.__name__
+    
+    def get_response(self):
+        return self._last_value
     
     def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
         raise NotImplementedError(f"Flow generator ({self.__class__.__name__}) does not implement on_start_event")
@@ -99,6 +104,7 @@ class BaseFbpComponent:
             if not self._did_start:
                 await self.start_generator()
             value = await self.gen.__anext__()
+            self._last_value = value
             if not self._did_yield:
                 self._did_yield = True
             await self.post_next(value)
@@ -117,6 +123,7 @@ class BaseFbpComponent:
             await self.on_start(value)
             self._did_start = True
         value = await self.gen.asend(value)
+        self._last_value = value
         await self.post_next(value)
         return value
 
@@ -233,6 +240,19 @@ class Accumulator(BaseFbpComponent):
     #         return res
     #     except StopAsyncIteration:
     #         raise StopAsyncIteration
+    
+    
+CHUNK = TypeVar("CHUNK")
+
+class SupportsExtend(Protocol[CHUNK]):
+    def extend(self, iterable: Iterable[CHUNK], /) -> None: ...
+    def append(self, item: CHUNK, /) -> None: ...
+    def __iter__(self) -> Iterable[CHUNK]: ...
+
+RESPONSE_ACC = TypeVar("RESPONSE_ACC", bound="SupportsExtend[Any]")
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 
 class StreamController(BaseFbpComponent):
@@ -243,7 +263,7 @@ class StreamController(BaseFbpComponent):
         self._flow = None
         self._stream = None
         self._output_format = output_format
-        self._acc_factory = acc_factory or BlockList
+        self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
         self._kwargs = kwargs
         self._args = args
 
@@ -253,6 +273,9 @@ class StreamController(BaseFbpComponent):
         if self._acc is None:
             raise ValueError("StreamController is not initialized")
         return self._acc.result
+    
+    def get_response(self):
+        return self.acc
     
     @property
     def name(self):
@@ -313,6 +336,22 @@ class StreamController(BaseFbpComponent):
     async def stream(self, *args, **kwargs):
         raise NotImplementedError("StreamController is not streamable")
         yield
+        
+    @classmethod
+    def decorator_factory(cls) -> Callable[[], Callable[[Callable[P, AsyncGenerator[CHUNK, None]]], Callable[P, Self]]]:
+        def decorator_wrapper(
+            # accumulator: SupportsExtend[CHUNK] | Callable[[], SupportsExtend[CHUNK]]
+        ) -> Callable[[Callable[P, AsyncGenerator[CHUNK, None]]], Callable[P, Self]]:
+            def decorator(
+                func: Callable[P, AsyncGenerator[Any, Any]]
+            ) -> Callable[P, Self]:
+                @wraps(func)
+                def wrapper(*args: P.args, **kwargs: P.kwargs) -> Self:            
+                    return cls(gen_func=func, args=args, kwargs=kwargs)
+                return wrapper
+            return decorator
+        return decorator_wrapper
+        
 
 
 
@@ -379,7 +418,18 @@ class PipeController(BaseFbpComponent):
         except StopAsyncIteration:
             yield StreamEvent(type="span_end", name=self._gen_func.__name__, payload=value)
             
-
+    @classmethod
+    def decorator_factory(cls) -> Callable[[], Callable[[Callable[P, AsyncGenerator[CHUNK, None]]], Callable[P, Self]]]:
+        def component_decorator(
+            # accumulator: SupportsExtend[CHUNK] | Callable[[], SupportsExtend[CHUNK]]
+        ) -> Callable[[Callable[P, AsyncGenerator[CHUNK | StreamController, None]]], Callable[P, Self]]:
+            def decorator(func: Callable[P, AsyncGenerator[CHUNK | StreamController, None]]) -> Callable[P, Self]:
+                @wraps(func)
+                def wrapper(*args: P.args, **kwargs: P.kwargs) -> Self:
+                    return cls(gen_func=func, args=args, kwargs=kwargs)
+                return wrapper
+            return decorator
+        return component_decorator
 
 
 
@@ -389,6 +439,7 @@ class FlowRunner:
         self.last_value: Any = None
         self._output_events = False
         self._error_to_raise = None
+        self._last_gen = None
         
         
     @property
@@ -398,15 +449,35 @@ class FlowRunner:
             # raise ValueError("Stack is empty")
         return self.stack[-1]
     
+    @property
+    def should_output_events(self):
+        if self._output_events:
+            return True
+        return False
+    
     def push(self, value: BaseFbpComponent):
         self.stack.append(value)
         
     def pop(self):
-        return self.stack.pop()
+        gen = self.stack.pop()
+        self._last_gen = gen
+        return gen
     
     
     def __aiter__(self):
         return self
+    
+    def _get_response(self):
+        if self._last_gen:
+            res = self._last_gen.get_response()
+            self._last_gen = None
+            return res
+        else:
+            last_yield = self.current._last_value
+            if last_yield:
+                return last_yield    
+        return None
+    
     
     
     
@@ -424,13 +495,12 @@ class FlowRunner:
                 gen = self.current            
                 if not gen._did_start:
                     await gen.start_generator()
-                    if not self._output_events:
+                    if not self.should_output_events:
                         continue
                     return gen.on_start_event()
-                # elif gen._did_end:
-                #     self.pop()                
-                #     return gen.on_stop_event()            
-                value = await gen.asend(None)            
+
+                response = self._get_response()
+                value = await gen.asend(response)
                                 
                 if isinstance(value, StreamController):
                     self.push(value)
@@ -438,17 +508,17 @@ class FlowRunner:
                     self.push(value)
                 else:
                     self.last_value = value
-                    if not self._output_events:
+                    if not self.should_output_events:
                         return value
                     return gen.on_value_event(value)
             except StopAsyncIteration:
                 gen = self.pop()
-                if not self._output_events:
+                if not self.should_output_events:
                     continue
                 return gen.on_stop_event(None)
             except Exception as e:
                 gen = self.pop()
-                if not self._output_events:
+                if not self.should_output_events:
                     raise e
                 self._error_to_raise = e
                 return gen.on_error_event(e)
@@ -459,3 +529,8 @@ class FlowRunner:
     def stream_events(self):
         self._output_events = True
         return self
+    
+    
+    
+    
+

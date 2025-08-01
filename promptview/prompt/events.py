@@ -29,29 +29,6 @@ class EventParams(TypedDict, total=False):
 
 
 
-# class Event:
-#     __slots__ = [
-#         "type",
-#         "span",
-#         "timestamp",
-#         "payload",
-#         "error",
-#         "index",
-#         "request_id",
-#     ]
-#     def __init__(
-#         self, 
-#         type: EventType,
-#         payload: Any,        
-#         span: str | None = None,        
-#         **kwargs: Unpack[EventParams]):
-#         self.type = type
-#         self.span = span
-#         self.payload = payload
-#         self.timestamp: int | None = kwargs.get("timestamp")
-#         self.error: str | None = kwargs.get("error")
-#         self.index: int | None = kwargs.get("index")
-#         self.request_id: str | None = kwargs.get("request_id")
 @dataclass
 class StreamEvent:
     type: str

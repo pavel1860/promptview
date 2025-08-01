@@ -11,7 +11,7 @@ from .types import ToolChoice, ErrorMessage
 from .utils.completion_parsing import PromptParsingException
 
 LLM.register(OpenAiLLM, default_model="gpt-4o")
-LLM.register(FakeLLM, default_model="pirate_stream.json")
+# LLM.register(FakeLLM, default_model="pirate_stream.json")
 
 
 
