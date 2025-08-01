@@ -11,7 +11,7 @@ from promptview.context.execution_context import ExecutionContext
 from promptview.llms.llm2 import LLMStream, LlmConfig
 from openai.types.chat import ChatCompletionMessageParam
 
-from promptview.prompt.events import Event
+
 from promptview.utils.model_utils import schema_to_function
 
 

@@ -3,9 +3,7 @@ import inspect
 from typing import Any, AsyncGenerator, Callable, Iterable, Literal, ParamSpec, Protocol, Union, AsyncIterator, Optional, Generic
 from typing_extensions import TypeVar
 
-from promptview.prompt.events import Event
 from promptview.prompt.flow_components import PipeController, StreamController
-from promptview.prompt.injector import InjectableFunction, resolve_dependencies
 
 
 
@@ -33,7 +31,7 @@ def stream(
     ) -> Callable[P, StreamController]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> StreamController:            
-            return StreamController(gen_func=lambda: func(*args, **kwargs))
+            return StreamController(gen_func=func, args=args, kwargs=kwargs)
         return wrapper
     return decorator
 

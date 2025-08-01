@@ -2,7 +2,7 @@ from functools import wraps
 import inspect
 from typing import (Any, AsyncGenerator, Callable, Dict, Generic, Type, TypeVar, ParamSpec)
 
-from promptview.prompt.events import Event
+from promptview.prompt.events import StreamEvent
 
 
 
@@ -114,19 +114,19 @@ class StreamController(Generic[P, STREAM_EVENT, STREAM_RESPONSE]):
     
 
     
-    def emit_event(self, payload: STREAM_EVENT | Event, index: int) -> Event:        
+    def emit_event(self, payload: STREAM_EVENT | StreamEvent, index: int) -> StreamEvent:        
         if index == 0:           
-            event = Event(type="stream_start", payload=payload, index=index)
+            event = StreamEvent(type="stream_start", payload=payload, index=index)
         elif self._did_stop:
-            event = Event(type="stream_end", payload=payload, index=index)
+            event = StreamEvent(type="stream_end", payload=payload, index=index)
         else:
-            event = Event(type="message_delta", payload=payload, index=index)
+            event = StreamEvent(type="message_delta", payload=payload, index=index)
         return event
     
     
     # async def stream(self) -> AsyncGenerator[STREAM_EVENT, None]:
     
-    async def stream(self) -> AsyncGenerator[Event, None]:        
+    async def stream(self) -> AsyncGenerator[StreamEvent, None]:        
         await self.start()        
         response = None
         prev_event = None

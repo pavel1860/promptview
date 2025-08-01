@@ -3,7 +3,7 @@ import inspect
 from typing import Any, AsyncGenerator, Callable, Iterable, Literal, ParamSpec, Protocol, Union, AsyncIterator, Optional, Generic
 from typing_extensions import TypeVar
 
-from promptview.prompt.events import Event
+from promptview.prompt.events import StreamEvent
 
 
 
@@ -67,7 +67,7 @@ class GeneratorFrame(Generic[CHUNK]):
     def filter_mode(self) -> StreamFilter:
         return self.controller._filter_mode
     
-    def to_event(self, value: CHUNK) -> Event:
+    def to_event(self, value: CHUNK) -> StreamEvent:
         return self.controller.to_event(self, value)
         
     def _init_accumulator(self, acc) -> Any:
@@ -264,29 +264,29 @@ class StreamController(Generic[P, CHUNK]):
         self._output_mode = output_mode
         return self
     
-    def to_event(self, ctx: GeneratorFrame, value: CHUNK) -> Event:
+    def to_event(self, ctx: GeneratorFrame, value: CHUNK) -> StreamEvent:
         if not ctx.emitted_start:
             ctx.emitted_start = True
-            return Event(type="stream_start", span=self._name, payload=None, index=0)
+            return StreamEvent(type="stream_start", name=self._name, payload=None, index=0)
         elif ctx.exhausted:
-            return Event(type="stream_end", span=self._name, payload=ctx.accumulator, index=ctx.index)
+            return StreamEvent(type="stream_end", name=self._name, payload=ctx.accumulator, index=ctx.index)
         else:
-            return Event(type="message_delta", span=self._name, payload=value, index=ctx.index)
+            return StreamEvent(type="message_delta", name=self._name, payload=value, index=ctx.index)
         
         
 
     async def stream_events(self, filter_mode: StreamFilter = "all"):
         self._filter_mode = filter_mode
         self._output_mode = "events"
-        event = Event(type="stream_start", span=self._name, payload=None, index=0)
+        event = StreamEvent(type="stream_start", name=self._name, payload=None, index=0)
         yield event
 
         async for event in self:
-            if not isinstance(event, Event):
-                event = Event(type="message_delta", span=self._name, payload=event, index=self.current.index)
+            if not isinstance(event, StreamEvent):
+                event = StreamEvent(type="message_delta", name=self._name, payload=event, index=self.current.index)
             yield event
 
-        event = Event(type="stream_end", span=self._name, payload=self.current.accumulator, index=self.current.index)
+        event = StreamEvent(type="stream_end", name=self._name, payload=self.current.accumulator, index=self.current.index)
         yield event
 
 

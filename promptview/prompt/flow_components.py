@@ -5,7 +5,8 @@ from queue import SimpleQueue
 import xml
 from promptview.block.block7 import Block, BlockList
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
-from promptview.prompt.parser import SaxStreamParser, StreamEvent
+from promptview.prompt.parser import SaxStreamParser
+from promptview.prompt.events import StreamEvent
 from promptview.utils.function_utils import call_function
 
 
@@ -151,13 +152,14 @@ class Accumulator(BaseFbpComponent):
 
 class StreamController:
     
-    def __init__(self, gen_func=None, output_format=None, acc_factory=None):
+    def __init__(self, gen_func=None, output_format=None, acc_factory=None, args=(), kwargs={}):
         self._gen_func = gen_func or self.stream
         self._flow = None
         self._stream = None
         self._output_format = output_format
         self._acc_factory = acc_factory or BlockList
-        
+        self._kwargs = kwargs
+        self._args = args
         
     @property
     def acc(self):
@@ -172,34 +174,27 @@ class StreamController:
         return self._stream._index
         
     async def __aiter__(self): 
-        self._stream = Stream(self._gen_func())
+        self._stream = Stream(self._gen_func(*self._args, **self._kwargs))
         self._acc = Accumulator(self._acc_factory())
         flow = self._stream | self._acc 
         if self._output_format:
             flow |= Parser()
 
-        yield StreamEvent(type="stream_start")
+        yield StreamEvent(type="stream_start", name=self._gen_func.__name__)
         async for chunk in flow:
             if not isinstance(chunk, StreamEvent):
                 yield StreamEvent(type="stream_delta", name=self._gen_func.__name__, payload=chunk)
             else:
                 yield chunk
-        yield StreamEvent(type="stream_end")
-          
-          
-     
+        yield StreamEvent(type="stream_end", name=self._gen_func.__name__)
+
+
     async def stream(self, *args, **kwargs):
         raise NotImplementedError("StreamController is not streamable")
         yield
-             
-          
 
 
-          
-          
-          
-          
-          
+
 class PipeController:
     
     
@@ -234,8 +229,8 @@ class PipeController:
                     value = await gen.asend(res.payload if res else None)
                     continue
                 else:
-                    value = await gen.asend(None)
                     yield StreamEvent(type="span_value", name=self._gen_func.__name__, payload=value)
+                    value = await gen.asend(value)                    
         except StopAsyncIteration:
             yield StreamEvent(type="span_end", name=self._gen_func.__name__, payload=value)
             

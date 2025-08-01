@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from promptview.block.block7 import Block
 from promptview.prompt.depends import DependsContainer, resolve_dependency
-from promptview.prompt.events import Event
+from promptview.prompt.events import StreamEvent
 from promptview.prompt.stream2 import GeneratorFrame, StreamController, SupportsExtend, CHUNK
 from uuid import uuid4
 # Assuming AsyncStreamWrapper, DependsContainer, and resolve_dependency are available
@@ -27,7 +27,7 @@ class Span:
         
     def start(self):
         self.start_time = time.time()
-        self.events.append(Event(type="span_start", payload=self.dump_start(), index=0))
+        self.events.append(StreamEvent(type="span_start", payload=self.dump_start(), index=0))
         
     def end(self, output: Any = None):
         self.end_time = time.time()
@@ -35,7 +35,7 @@ class Span:
             raise ValueError("Span not started")
         self.duration = self.end_time - self.start_time
         self.output = output
-        self.events.append(Event(type="span_end", payload=self.dump_end(), index=0))
+        self.events.append(StreamEvent(type="span_end", payload=self.dump_end(), index=0))
         
     def error(self, error: Exception):
         self.error = error
@@ -129,14 +129,14 @@ class Component(StreamController):
         return GeneratorFrame(self, gen, self.accumulator_factory)
     
     
-    def to_event(self, ctx: GeneratorFrame, value: Any) -> Event:
+    def to_event(self, ctx: GeneratorFrame, value: Any) -> StreamEvent:
         if not ctx.emitted_start:
             ctx.emitted_start = True
-            return Event(type="span_start", span=self._name, payload=None, index=0)
+            return StreamEvent(type="span_start", name=self._name, payload=None, index=0)
         elif ctx.exhausted:
-            return Event(type="span_end", span=self._name, payload=ctx.accumulator, index=ctx.index)
+            return StreamEvent(type="span_end", name=self._name, payload=ctx.accumulator, index=ctx.index)
         else:
-            return Event(type="span_delta", span=self._name, payload=value, index=ctx.index)
+            return StreamEvent(type="span_delta", name=self._name, payload=value, index=ctx.index)
 
 
     # async def _init_stream(self):

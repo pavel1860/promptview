@@ -4,17 +4,17 @@ from typing import AsyncGenerator
 from queue import SimpleQueue
 
 from promptview.block.block import Block
+from promptview.prompt.events import StreamEvent
 
 
 
-
-@dataclass
-class StreamEvent:
-    type: str
-    name: str | None = None
-    attrs: dict | None = None
-    depth: int = 0
-    payload: str | None = None
+# @dataclass
+# class StreamEvent:
+#     type: str
+#     name: str | None = None
+#     attrs: dict | None = None
+#     depth: int = 0
+#     payload: str | None = None
 
 
 class SaxStreamParser(xml.sax.ContentHandler):

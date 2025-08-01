@@ -1,6 +1,7 @@
 
 
 
+from dataclasses import dataclass
 import json
 from typing import Any, Literal, TypedDict, Unpack
 from pydantic import BaseModel, Field
@@ -28,31 +29,44 @@ class EventParams(TypedDict, total=False):
 
 
 
-class Event:
-    __slots__ = [
-        "type",
-        "span",
-        "timestamp",
-        "payload",
-        "error",
-        "index",
-        "request_id",
-    ]
-    def __init__(
-        self, 
-        type: EventType,
-        payload: Any,        
-        span: str | None = None,        
-        **kwargs: Unpack[EventParams]):
-        self.type = type
-        self.span = span
-        self.payload = payload
-        self.timestamp: int | None = kwargs.get("timestamp")
-        self.error: str | None = kwargs.get("error")
-        self.index: int | None = kwargs.get("index")
-        self.request_id: str | None = kwargs.get("request_id")
+# class Event:
+#     __slots__ = [
+#         "type",
+#         "span",
+#         "timestamp",
+#         "payload",
+#         "error",
+#         "index",
+#         "request_id",
+#     ]
+#     def __init__(
+#         self, 
+#         type: EventType,
+#         payload: Any,        
+#         span: str | None = None,        
+#         **kwargs: Unpack[EventParams]):
+#         self.type = type
+#         self.span = span
+#         self.payload = payload
+#         self.timestamp: int | None = kwargs.get("timestamp")
+#         self.error: str | None = kwargs.get("error")
+#         self.index: int | None = kwargs.get("index")
+#         self.request_id: str | None = kwargs.get("request_id")
+@dataclass
+class StreamEvent:
+    type: str
+    name: str | None = None
+    attrs: dict | None = None
+    depth: int = 0
+    payload: Any | None = None    
+    timestamp: int | None = None
+    error: str | None = None
+    index: int | None = None
+    request_id: str | None = None
         
     def payload_to_dict(self):
+        if self.payload is None:
+            return None
         if hasattr(self.payload, "model_dump"):
             return self.payload.model_dump()
         elif hasattr(self.payload, "to_dict"):
@@ -67,15 +81,28 @@ class Event:
             return obj.isoformat()
         if isinstance(obj, dt.date):
             return obj.isoformat()
+        if isinstance(obj, uuid.UUID):
+            return str(obj)
+        if hasattr(obj, "model_dump"):
+            return obj.model_dump()
+        if hasattr(obj, "dict"):
+            return obj.dict()
+        if hasattr(obj, "to_dict"):
+            return obj.to_dict()
+        if hasattr(obj, "__dict__"):
+            return obj.__dict__
+        return str(obj)  # Last-resort fallback
+
         # Add more types if needed
         raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
         
     def to_json(self):
-        payload = self.payload_to_dict()
-        
+        payload = self.payload_to_dict()        
         dump = {
             "type": self.type,
-            "span": self.span,
+            "name": self.name,
+            "attrs": self.attrs,
+            "depth": self.depth,
             "payload": payload,
             "index": self.index,
             "request_id": self.request_id,
@@ -92,7 +119,7 @@ class Event:
         return self.to_json() + "\n"
     
     def __repr__(self):
-        return f"Event(type={self.type}, span={self.span}, payload={self.payload}, index={self.index}, request_id={self.request_id})"
+        return f"Event(type={self.type}, name={self.name}, attrs={self.attrs}, depth={self.depth}, payload={self.payload}, index={self.index}, request_id={self.request_id})"
     
     
 
@@ -176,14 +203,14 @@ class ErrorEvent(BaseEvent):
 
 
 # -- Union: All Stream Events --
-StreamEvent = Union[
-    StreamStart,
-    MessageDelta,
-    StreamEnd,
-    ToolCallEvent,
-    StateUpdate,
-    AgentResponse,
-    LogEvent,
-    TraceEvent,
-    ErrorEvent,
-]
+# StreamEvent = Union[
+#     StreamStart,
+#     MessageDelta,
+#     StreamEnd,
+#     ToolCallEvent,
+#     StateUpdate,
+#     AgentResponse,
+#     LogEvent,
+#     TraceEvent,
+#     ErrorEvent,
+# ]

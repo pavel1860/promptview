@@ -474,6 +474,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         if len(exclude) > 0:
             kwargs["exclude"] = exclude
         res = super().model_dump(*args, **kwargs)
+        res["_type"] = self.__class__.__name__
         return res
     
                 
