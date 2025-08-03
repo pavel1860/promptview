@@ -51,7 +51,7 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
     
     if "record" not in exclude_routes:
         @router.get("/record/{record_id}")
-        async def get_artifact(record_id: int):
+        async def get_artifact(record_id: int | UUID):
             """Get a specific artifact by ID"""
             artifact = await model.get(record_id)
             if not artifact:
@@ -84,7 +84,7 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
     if "update" not in exclude_routes:
         @router.put("/update/{model_id}")
         async def update_model(
-            model_id: int,
+            model_id: int | UUID,
             request: Request,
             ctx: CTX_MODEL = Depends(get_context)
         ):

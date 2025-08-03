@@ -13,12 +13,17 @@ CURR_CONTEXT = contextvars.ContextVar("curr_context")
 class ExecutionContext:
     
     
-    def __init__(self, span_name: str | None = None, request_id: str | None = None):
+    def __init__(
+        self, 
+        span_name: str | None = None, 
+        request_id: str | None = None,
+        manager_phone_number: str | None = None,
+    ):
         self.tracer_run = None
         self.parent_ctx = None
         self.span_name = span_name
         self.request_id = request_id
-    
+        self.manager_phone_number = manager_phone_number
     
     @property
     def tracer(self):

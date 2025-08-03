@@ -21,7 +21,7 @@ EventType = LlmStreamType | MessageType | SpanEventType | Any
 
 
 class EventParams(TypedDict, total=False):
-    timestamp: int | None
+    created_at: dt.datetime | None
     error: str | None
     index: int | None
     request_id: str | None
@@ -36,7 +36,7 @@ class StreamEvent:
     attrs: dict | None = None
     depth: int = 0
     payload: Any | None = None    
-    timestamp: int | None = None
+    created_at: dt.datetime | None = None
     error: str | None = None
     index: int | None = None
     request_id: str | None = None
@@ -87,8 +87,8 @@ class StreamEvent:
         if self.error:
             dump["error"] = self.error
             
-        if self.timestamp:
-            dump["timestamp"] = self.timestamp
+        if self.created_at:
+            dump["created_at"] = self.created_at
             
         return json.dumps(dump, default=self._json_default)
     

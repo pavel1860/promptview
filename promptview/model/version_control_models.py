@@ -77,66 +77,14 @@ class Turn(Model):
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now, is_default_temporal=True)
     ended_at: dt.datetime | None = ModelField(default=None)
     index: int = ModelField()
-    # test_case_id: int | None = ModelField(default=None, foreign_key=True)
-    # is_test: bool = ModelField(default=False)
-    # is_test_definition: bool = ModelField(default=False)
-    # test_turns: Relation[TestTurn] = RelationField(foreign_key="turn_id")
     status: TurnStatus = ModelField(default=TurnStatus.STAGED)
     message: str | None = ModelField(default=None)
     branch_id: int = ModelField(foreign_key=True)
     trace_id: str | None = ModelField(default=None)
     forked_branches: Relation["Branch"] = RelationField(foreign_key="forked_from_turn_id")
+    metadata: dict | None = ModelField(default=None)
     _auto_commit: bool = True
-    
-    # def model_post_init(self, __context): 
-        
-    
-    # @classmethod
-    # async def start(cls, branch: "Branch | int | None" = None) -> "Turn":
-    #     branch_id = 1
-    #     if branch is None:
-    #         branch = Branch.current(throw_error=False)
-    #         if branch is not None:
-    #             branch_id = branch.id
-    #     elif isinstance(branch, int):
-    #         branch_id = branch
-    #     elif isinstance(branch, Branch):
-    #         branch_id = branch.id
-    #     else:
-    #         raise VersioningError("Invalid branch")
-    #     turn = await cls(branch_id=branch_id).save()        
-    #     return turn
-    
-    # def __enter__(self):
-    #     raise NotImplementedError("Turns should be used with async context manager")
-    
-    # def __exit__(self, exc_type, exc_value, traceback):
-    #     raise NotImplementedError("Turns should be used with async context manager")
-    
-    
-    # async def __aenter__(self):
-    #     # self._ctx_token = CURR_TURN.set(self)
-    #     self.get_namespace().set_ctx(self)
-    #     return self
-    
-    # async def __aexit__(self, exc_type, exc_value, traceback):
-    #     if self._ctx_token is not None:
-    #         CURR_TURN.reset(self._ctx_token)
-    #     if exc_type is not None:
-    #         await self.revert()
-    #     elif self._auto_commit:
-    #         await self.commit()
-    
-    # @classmethod
-    # def current(cls, throw_error: bool = True):
-    #     try:
-    #         turn = CURR_TURN.get()
-    #     except LookupError:
-    #         if throw_error:
-    #             raise
-    #         else:
-    #             return None
-    #     return turn
+
     
     @classmethod
     def list_cte(cls, branch_id: int | None = None, status: TurnStatus | None = None):
@@ -160,14 +108,14 @@ class Turn(Model):
     async def commit(self):
         self.ended_at = dt.datetime.now()   
         self.status = TurnStatus.COMMITTED
-        await self.save()
+        return await self.save()
     
     
     async def revert(self, error_message: str | None = None):
         self.ended_at = dt.datetime.now()   
         self.status = TurnStatus.REVERTED
         self.message = error_message
-        await self.save()
+        return await self.save()
         
     async def __aenter__(self):
         ns = self.get_namespace()
@@ -178,35 +126,21 @@ class Turn(Model):
         if exc_type is not None:
             await self.revert(f"{exc_type.__name__}: {exc_value}")
         else:
-            await self.commit()
+            if self._auto_commit:
+                await self.commit()
+            else:
+                await self.save()
         
-    # instantiation methods
-    # @classmethod
-    # def start(cls, branch: "Branch | int | None" = None, **kwargs) -> TurnContext:
-    #     branch = Branch.current()
-    #     if branch is None:
-    #         raise VersioningError("Branch is required")
-    #     ns = cls.get_namespace()
-    #     fields = ns.iter_fields(keys=False, is_optional=False, exclude={"created_at", "index", "status", "branch_id"})
-    #     for field in fields:
-    #         if field.is_foreign_key:
-    #             value = ns.get_foreign_key_ctx_value(field)
-    #             if not field.validate_value(value):
-    #                 raise VersioningError(f"Foreign key field {field.name} is required")
-    #             kwargs[field.name] = value
-    #         else:
-    #             raise VersioningError(f"missing required field {field.name} for turn")
-            
-    #     return TurnContext(branch=branch, init_params=kwargs)
     
     @classmethod
     @contextcallable
-    async def start(cls, branch: "Branch | int | None" = None, **kwargs) -> Self:
+    async def start(cls, branch: "Branch | int | None" = None, auto_commit: bool = True, **kwargs) -> Self:
         branch = Branch.current()
         if branch is None:
             raise VersioningError("Branch is required")        
         ns = cls.get_namespace()
-        fields = ns.iter_fields(keys=False, is_optional=False, default=False, exclude={"created_at", "index", "status", "branch_id"})
+        # fields = ns.iter_fields(keys=False, is_optional=False, default=False, exclude={"created_at", "index", "status", "branch_id"})
+        fields = ns.iter_fields(keys=False, default=False, exclude={"created_at", "index", "status", "branch_id"})
         for field in fields:
             if field.is_foreign_key:
                 value = ns.get_foreign_key_ctx_value(field)
@@ -214,8 +148,12 @@ class Turn(Model):
                     raise VersioningError(f"Foreign key field {field.name} is required")
                 kwargs[field.name] = value
             else:
-                raise VersioningError(f"missing required field {field.name} for turn")
+                if field.name in kwargs:
+                    kwargs[field.name] = field.serialize(kwargs[field.name])
+                elif not field.is_optional:
+                    raise VersioningError(f"missing required field {field.name} for turn")
         turn = await branch.add_turn(**kwargs)
+        turn._auto_commit = auto_commit
         return turn
     
     @classmethod
