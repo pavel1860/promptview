@@ -6,7 +6,7 @@
 import re
 from typing import Literal
 
-from promptview.model.postgres.sql.joins import Join
+from promptview.model.postgres.sql.joins import InnerJoin, Join
 from promptview.model.postgres.sql.expressions import Function, Coalesce, Eq, Expression, Neq, Gt, Gte, Lt, Lte, OrderBy, Value, WhereClause, json_build_object, param, In
 
 class Table:
@@ -73,6 +73,10 @@ JoinType = Literal["LEFT", "RIGHT", "INNER"]
 
 
 
+        
+        
+
+
 
 class SelectQuery:
     def __init__(self):
@@ -90,6 +94,7 @@ class SelectQuery:
         self.alias = None
         self.ctes = []  
         self.recursive = False  # <-
+        self._is_subquery = False
     
     
     def copy_query(self, exclude: set[str] = set()):
@@ -247,6 +252,40 @@ class SelectQuery:
         except Exception as e:
             print(e)
             raise
+        
+
+
+
+
+class NestedSubquery:
+    def __init__(
+        self, 
+        query: SelectQuery, 
+        alias: str, 
+        primary_col: Column,
+        foreign_col: Column,
+        junction_col: tuple[Column, Column] | None = None,
+        # type: Literal["one_to_one", "one_to_many", "many_to_many"],
+        
+    ):
+        self.query = query
+        self.alias = alias
+        # self.type = type
+        self.primary_col = primary_col
+        self.foreign_col = foreign_col
+        self.junction_col = junction_col
+        
+    def get_where_clause(self):
+        return Eq(self.primary_col, self.foreign_col)
+    
+    
+    
+    def get_join(self):
+        if self.junction_col:
+            return Join(self.foreign_col.table, Eq(self.foreign_col, self.junction_col[1]))
+        else:
+            return Join(self.primary_col.table, self.get_where_clause())
+
 
 class Subquery:
     def __init__(self, query: SelectQuery, alias: str):

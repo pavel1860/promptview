@@ -14,7 +14,8 @@ from promptview.model.postgres.sql.queries import Column, DeleteQuery, InsertQue
 
 
     
-
+def tab(text, indent_level=1):
+    return textwrap.indent(text, " " * indent_level)
 
 
 
@@ -121,7 +122,10 @@ class Compiler:
         
         elif isinstance(expr, Coalesce):
             args = ", ".join(self.compile_expr(v) for v in expr.values)
-            compiled = f"COALESCE({args})"
+            # compiled = f"COALESCE({args})"
+            # if expr.alias:
+            #     compiled += f" AS {expr.alias}"
+            compiled = f"COALESCE(\n{tab(args)}\n)"
             if expr.alias:
                 compiled += f" AS {expr.alias}"
             return compiled
@@ -129,13 +133,19 @@ class Compiler:
         elif isinstance(expr, SelectQuery):
             # Compile subquery and inline it (only the SQL part, not the parameters)
             subquery_sql, _ = self.compile(expr)
-            return f"({subquery_sql})"
+            return f"(\n{tab(subquery_sql)}\n)"
 
         elif isinstance(expr, Function):
-            args = ", ".join(self.compile_expr(arg) for arg in expr.args)
+            # args = ", ".join(self.compile_expr(arg) for arg in expr.args)
+            # args = ", \n ".join(self.compile_expr(arg) for arg in expr.args)
+            comp_args = [self.compile_expr(arg) for arg in expr.args]
+            if len(comp_args) % 2 == 0:
+                args = ", \n".join([f"{comp_args[i]}, {comp_args[i+1]}" for i in range(0, len(comp_args) - 1, 2)])
+            else:
+                args = ", ".join(comp_args)
             if expr.distinct:
                 args = f"DISTINCT {args}"
-            compiled = f"{expr.name}({args})"
+            compiled = f"{expr.name}(\n{tab(args)}\n)"
             if expr.filter_where:
                 compiled += f" FILTER (WHERE {self.compile_expr(expr.filter_where)})"
             if expr.order_by:
@@ -165,7 +175,8 @@ class Compiler:
         if isinstance(table, Subquery):
             sub_sql, _ = self.compile(table.query)  # compile inner query
             return f"({sub_sql}) AS {table.alias}"
-        
+        if isinstance(table, SelectQuery) and table._is_subquery:
+            return f"({self._compile_select(table)}) AS {table.alias}"
         if hasattr(table, "name") and hasattr(table, "alias"):
             return f"{table.name}" + (f" AS {table.alias}" if table.alias else "")
 
@@ -175,7 +186,7 @@ class Compiler:
     def _compile_select(self, q: SelectQuery):
         if not q.columns:
             raise ValueError("Select query has no columns")
-        sql = "SELECT "
+        sql = "SELECT \n"
         
         if q.distinct_on:
             distinct_on_exprs = ", ".join(self.compile_expr(col) for col in q.distinct_on)
@@ -183,7 +194,7 @@ class Compiler:
         elif q.distinct:
             sql += "DISTINCT "
             
-        sql += ", ".join(self.compile_expr(col) for col in q.columns or ['*'])
+        sql += tab(", \n".join(self.compile_expr(col) for col in q.columns or ['*']))
 
         sql += f"\nFROM {self.compile_table(q.from_table)}"
 
