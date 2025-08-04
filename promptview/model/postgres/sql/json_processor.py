@@ -78,15 +78,10 @@ class Preprocessor:
                 json_pairs.append(col)
                 
         json_obj = Function("jsonb_build_object", *json_pairs)
+                    
+        json_obj = self._query_to_json(query, json_obj, joins=joins, wrap_in_array=wrap_in_array)
+        return Coalesce(json_obj, Value("[]", inline=True))
         
-        if wrap_in_array:            
-            json_obj = self._query_to_json(query, json_obj, joins=joins, wrap_in_array=True)
-            return Coalesce(json_obj, Value("[]", inline=True))
-        else:
-            group_by = []
-            if depth == 0:
-                group_by = [Column("id", query.from_table)]
-            return self._query_to_json(query, json_obj, group_by=group_by, joins=joins)
 
     def process_query(self, query: SelectQuery) -> SelectQuery | Expression:
         query = deepcopy(query)
