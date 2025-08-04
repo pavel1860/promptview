@@ -25,6 +25,9 @@ class PgFieldInfo(BaseFieldInfo):
         dimension: Optional[int] = None,
         is_key: bool = False,
         sql_type: Optional[str] = None,  # Allow override
+        index: bool = False,
+        on_delete: str = "CASCADE",
+        on_update: str = "CASCADE",
     ):
         super().__init__(
             name=name,
@@ -36,6 +39,9 @@ class PgFieldInfo(BaseFieldInfo):
             is_vector=is_vector,
             dimension=dimension,
             is_key=is_key,
+            index=index,
+            on_delete=on_delete,
+            on_update=on_update,
         )
 
         self.sql_type = sql_type or self._resolve_sql_type()

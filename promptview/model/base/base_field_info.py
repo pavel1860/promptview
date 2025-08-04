@@ -16,6 +16,9 @@ class BaseFieldInfo:
         is_vector: bool = False,
         dimension: Optional[int] = None,
         is_key: bool = False,
+        index: bool = False,
+        on_delete: str = "CASCADE",
+        on_update: str = "CASCADE",
     ):
         self.name = name
         self.field_type = field_type
@@ -26,6 +29,9 @@ class BaseFieldInfo:
         self.is_vector = is_vector
         self.dimension = dimension
         self.is_key = is_key or is_primary_key
+        self.index = index
+        self.on_delete = on_delete
+        self.on_update = on_update
 
         # For key fields (uuid or int)
         if self.is_key:
