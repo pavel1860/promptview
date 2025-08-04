@@ -53,7 +53,7 @@ class QdrantNamespace(BaseNamespace[Model, QdrantFieldInfo]):
             collection_name=self.name
         )
 
-        async def insert(self, data: dict[str, Any]) -> dict[str, Any]:
+    async def insert(self, data: dict[str, Any]) -> dict[str, Any]:
         namespace = self
         client = QdrantConnectionManager.get_client()
         collection_name = namespace.name
