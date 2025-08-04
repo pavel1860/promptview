@@ -107,6 +107,29 @@ def join_as_subquery(query, rel, parent_table):
         print(e)
         raise
 
+
+
+def include_junction_table(
+    query_set: "SelectQuerySet", 
+    rel: NSManyToManyRelationInfo, 
+    join_type: JoinType = "LEFT", 
+    alias: str | None = None
+):
+    j_ns = rel.junction_namespace
+    target_table = query_set.from_table
+    junction_table = Table(j_ns.table_name, alias=alias)
+    query_set.query.from_table = junction_table
+    query_set.query.join(
+        target_table, 
+        Eq(
+            Column(rel.foreign_key, target_table), 
+            Column(rel.junction_keys[1], junction_table)
+        ),
+        join_type
+    )
+    nested_query = join_as_subquery(query_set.query, rel, query_set.from_table)    
+    nested_query.values[0].where(Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, query_set.from_table)))
+    return nested_query
  
 class SelectQuerySet(Generic[MODEL]):
     
@@ -326,15 +349,6 @@ class SelectQuerySet(Generic[MODEL]):
             )
             nested_query = join_as_subquery(query_set.query, rel, self.from_table)    
             nested_query.values[0].where(Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table)))
-            # nested_query.values[0].where &= Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table))
-            # self.query.join(
-            #     query_set.from_table, 
-            #     Eq(
-            #         Column(rel.junction_keys[1], junction_table), 
-            #         Column(rel.foreign_key, query_set.from_table)
-            #     ),
-            #     join_type
-            # )
         else:
             self.query.join(
                 query_set.from_table, 

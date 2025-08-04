@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Callable, Generic, List, Type, TypeVar, Any, g
 from pydantic_core import core_schema
 from pydantic import GetCoreSchemaHandler
 
+from .base_namespace import NSManyToManyRelationInfo
+
 
 
 
@@ -66,8 +68,15 @@ class Relation(Generic[FOREIGN_MODEL], list):
     def query(self) -> "SelectQuerySet[FOREIGN_MODEL]":
         if self._relation is None:
             raise ValueError("Relation is not set")
-        where_dict = {self._relation.foreign_key: self.primary_id}
-        return self._relation.foreign_cls.query().where(**where_dict).order_by("created_at")
+        
+        if isinstance(self._relation, NSManyToManyRelationInfo):
+            foreign_cls = self._relation.foreign_cls
+            junction_cls = self._relation.junction_cls
+            where_clouse = {self._relation.junction_primary_key: self.primary_id}
+            return foreign_cls.query().include(junction_cls.query().where(**where_clouse))
+        else: 
+            where_dict = {self._relation.foreign_key: self.primary_id}
+            return self._relation.foreign_cls.query().where(**where_dict).order_by("created_at")
     
     # @classmethod
     # def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
