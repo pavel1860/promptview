@@ -31,9 +31,14 @@ class Preprocessor:
         query: SelectQuery, 
         json_obj: Expression, 
         group_by: list[Column] = [],
-        joins: list[Join] = []
+        joins: list[Join] = [],
+        wrap_in_array: bool = False
     ):
         compiled = SelectQuery()
+        if query.order_by:
+            json_obj.order_by = query.order_by
+        if wrap_in_array:
+            json_obj = Function("json_agg", json_obj)
         compiled.select(json_obj)
         compiled.from_table = query.from_table
         compiled.where = query.where
@@ -41,7 +46,7 @@ class Preprocessor:
         # if parent_query:
             # compiled.where.and_(Eq(Column(foreign_key, parent_table), Column(primary_key, query.from_table)))
         compiled.joins = query.joins + joins
-        compiled.order_by = query.order_by
+        # compiled.order_by = query.order_by
         compiled.group_by = query.group_by + group_by
         compiled.limit = query.limit
         compiled.offset = query.offset
@@ -73,9 +78,9 @@ class Preprocessor:
                 json_pairs.append(col)
                 
         json_obj = Function("jsonb_build_object", *json_pairs)
-        json_agg = Function("json_agg", json_obj)
+        
         if wrap_in_array:            
-            json_obj = self._query_to_json(query, json_agg, joins=joins)
+            json_obj = self._query_to_json(query, json_obj, joins=joins, wrap_in_array=True)
             return Coalesce(json_obj, Value("[]", inline=True))
         else:
             group_by = []
