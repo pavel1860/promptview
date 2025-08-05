@@ -1,3 +1,4 @@
+import json
 from typing import Any, Callable, Generic, List, Type
 from typing_extensions import TypeVar
 from promptview.model3.model3 import Model
@@ -72,17 +73,35 @@ class PgSelectQuerySet(Generic[MODEL]):
         rel = self.namespace.get_relation_by_type(target)
         if not rel:
             raise ValueError(f"No relation to {target.__name__}")
+
         target_ns = rel.foreign_cls.get_namespace()
-        nested = Column(
-            rel.name,
-            NestedSubquery(
-                SelectQuery().from_(Table(target_ns.name)),
+        target_table = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
+
+        # Build a query with all fields from target model
+        subq = SelectQuery().from_(target_table)
+        subq.select(*[Column(f.name, target_table) for f in target_ns.iter_fields()])
+
+        if rel.is_many_to_many:
+            # TODO: handle M2M
+            pass
+        else:
+            nested = Column(
                 rel.name,
-                Column(rel.primary_key, self.from_table),
-                Column(rel.foreign_key, Table(target_ns.name))
+                NestedSubquery(
+                    subq,
+                    rel.name,
+                    Column(rel.primary_key, self.from_table),
+                    Column(rel.foreign_key, target_table)
+                )
             )
-        )
-        self.query.columns.append(nested)
+            nested.alias = rel.name
+            self.query.columns.append(nested)
+
+        # # If not already grouped, group by our PK
+        # if not self.query.group_by:
+        #     pk = self.namespace.primary_key.name
+        #     self.query.group_by = [Column(pk, self.from_table)]
+
         return self
 
     def order_by(self, *fields: str):
@@ -100,6 +119,35 @@ class PgSelectQuerySet(Generic[MODEL]):
         self.query.limit_(n)
         return self
     
+    def parse_row(self, row: dict[str, Any]) -> MODEL:
+        # Convert scalar columns first
+        data = dict(row)
+
+        # Process relations
+        for rel_name, rel in self.namespace._relations.items():
+            if rel_name not in data:
+                continue
+            val = data[rel_name]
+            if val is None:
+                continue
+
+            # If Postgres returned JSONB as string, load it
+            if isinstance(val, str):
+                try:
+                    val = json.loads(val)
+                except json.JSONDecodeError:
+                    pass  # leave as-is
+
+            # Convert to related model(s)
+            if isinstance(val, list):
+                val = [rel.foreign_cls(**item) if isinstance(item, dict) else item for item in val]
+            elif isinstance(val, dict):
+                val = rel.foreign_cls(**val)
+
+            data[rel_name] = val
+
+        return self.model_class(**data)
+    
     def render(self) -> tuple[str, list[Any]]:
         compiler = Compiler()
         processor = Preprocessor()
@@ -113,4 +161,4 @@ class PgSelectQuerySet(Generic[MODEL]):
         compiled = processor.process_query(self.query)
         sql, params = compiler.compile(compiled)
         rows = await PGConnectionManager.fetch(sql, *params)
-        return [self.model_class(**row) for row in rows]
+        return [self.parse_row(dict(row)) for row in rows]
