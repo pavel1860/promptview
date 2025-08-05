@@ -19,7 +19,7 @@ class Model(BaseModel, metaclass=ModelMeta):
 
     @classmethod
     def get_namespace(cls):
-        from promptview.model.namespace_manager import NamespaceManager
+        from promptview.model.namespace_manager2 import NamespaceManager
         return NamespaceManager.get_namespace(cls.get_namespace_name())
 
     @classmethod

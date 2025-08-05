@@ -1,11 +1,13 @@
 # model/relation_parser.py
 
-from typing import Type, Dict, Any
+from typing import TYPE_CHECKING, Type, Dict, Any
 from pydantic.fields import FieldInfo
 from promptview.model.base.base_namespace import BaseNamespace
-from promptview.model.model3 import Model
 from promptview.model.base.base_field_info import BaseFieldInfo
 from typing import get_origin, get_args
+
+if TYPE_CHECKING:
+    from promptview.model.model3 import Model
 
 def get_relation_extras(field_info: FieldInfo) -> Dict[str, Any]:
     extra_json = field_info.json_schema_extra
@@ -14,7 +16,7 @@ def get_relation_extras(field_info: FieldInfo) -> Dict[str, Any]:
     return {}
 
 class RelationParser:
-    def __init__(self, model_cls: Type, namespace: BaseNamespace[Model, BaseFieldInfo]):
+    def __init__(self, model_cls: Type, namespace: BaseNamespace["Model", BaseFieldInfo]):
         self.model_cls = model_cls
         self.namespace = namespace
         self.relations: Dict[str, Any] = {}

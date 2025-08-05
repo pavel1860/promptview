@@ -27,6 +27,11 @@ class BaseNamespace(Generic[MODEL, FIELD]):
 
     def get_field(self, name: str) -> FIELD:
         return self._fields[name]
+    
+    def make_field_info(self, **kwargs) -> FIELD:
+        """Factory method to create backend-specific FieldInfo."""
+        raise NotImplementedError
+
 
     def iter_fields(self):
         return self._fields.values()

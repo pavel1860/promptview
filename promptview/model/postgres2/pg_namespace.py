@@ -66,7 +66,8 @@ class PgNamespace(BaseNamespace[Model, PgFieldInfo]):
     def __repr__(self):
         return f"<PgNamespace {self.name} fields={[f.name for f in self.iter_fields()]}>"
 
-
+    def make_field_info(self, **kwargs) -> PgFieldInfo:
+        return PgFieldInfo(**kwargs)
 
     # async def insert(self, data: dict[str, Any]) -> dict[str, Any]:
     #     fields = []
@@ -241,10 +242,21 @@ class PgNamespace(BaseNamespace[Model, PgFieldInfo]):
                 
         for field in self.iter_fields():
             if field.is_foreign_key:
+                constraint_name = f"{self.name}_{field.name}_fkey"
+
+                check_sql = """
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = $1
+                """
+                exists = await PGConnectionManager.fetch_one(check_sql, constraint_name)
+                if exists:
+                    continue  # skip adding the FK, it's already there
+
                 ref_table = self.foreign_key_table_for(field)
                 sql = f'''
                     ALTER TABLE "{self.name}"
-                    ADD CONSTRAINT "{self.name}_{field.name}_fkey"
+                    ADD CONSTRAINT "{constraint_name}"
                     FOREIGN KEY ("{field.name}")
                     REFERENCES "{ref_table}" ("id")
                     ON DELETE {field.on_delete}

@@ -52,6 +52,9 @@ class QdrantNamespace(BaseNamespace[Model, QdrantFieldInfo]):
         await client.delete_collection(
             collection_name=self.name
         )
+        
+    def make_field_info(self, **kwargs) -> QdrantFieldInfo:
+        return QdrantFieldInfo(**kwargs)
 
     async def insert(self, data: dict[str, Any]) -> dict[str, Any]:
         namespace = self
