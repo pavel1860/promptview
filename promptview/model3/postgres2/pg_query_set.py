@@ -1,15 +1,32 @@
+from functools import reduce
 import json
-from typing import Any, Callable, Generic, List, Type
+from operator import and_
+from typing import Any, Callable, Generic, List, Self, Type
 from typing_extensions import TypeVar
 from promptview.model3.model3 import Model
 from promptview.model3.relation_info import RelationInfo
 from promptview.model.postgres.sql.queries import SelectQuery, Table, Column, NestedSubquery, Subquery
-from promptview.model.postgres.sql.expressions import Eq, param, OrderBy
+from promptview.model.postgres.sql.expressions import Eq, Expression, param, OrderBy
 from promptview.model.postgres.sql.compiler import Compiler
 from promptview.model.postgres.sql.json_processor import Preprocessor
 from promptview.utils.db_connections import PGConnectionManager
 
 MODEL = TypeVar("MODEL", bound=Model)
+
+
+class QueryProxy:
+    """
+    Proxy for building column expressions from a model.
+    Allows lambda m: m.id > 5 style filters.
+    """
+    def __init__(self, model_class, table):
+        self.model_class = model_class
+        self.table = table
+
+    def __getattr__(self, field_name):
+        return Column(field_name, self.table)
+    
+    
 
 class PgSelectQuerySet(Generic[MODEL]):
     def __init__(self, model_class: Type[MODEL], query: SelectQuery | None = None, alias: str | None = None):
@@ -43,10 +60,48 @@ class PgSelectQuerySet(Generic[MODEL]):
         self.query.select(*cols)
         return self
 
-    def where(self, **kwargs):
+    # def where(self, **kwargs):
+    #     for field, value in kwargs.items():
+    #         self.query.where.and_(Eq(Column(field, self.from_table), param(value)))
+    #     return self
+    # def where(self, condition=None, **kwargs):
+    def where(
+        self,
+        condition: Callable[[MODEL], bool] | None = None,
+        # condition: Callable[[QueryProxy], Expression] | Expression | None = None,
+        **kwargs: Any
+    ) -> Self:
+        """
+        Add a WHERE clause to the query.
+        condition: callable taking a QueryProxy or direct Expression
+        kwargs: field=value pairs, ANDed together
+        """
+        expressions = []
+
+        # Callable condition: lambda m: m.id > 5
+        if condition is not None:
+            if callable(condition):
+                proxy = QueryProxy(self.model_class, self.from_table)
+                expr = condition(proxy)
+            else:
+                expr = condition  # Already an Expression
+            expressions.append(expr)
+
+        # kwargs: field=value
         for field, value in kwargs.items():
-            self.query.where.and_(Eq(Column(field, self.from_table), param(value)))
+            col = Column(field, self.from_table)
+            expressions.append(Eq(col, param(value)))
+
+        # Merge with AND if multiple
+        if expressions:
+            expr = reduce(and_, expressions)
+            self.query.where &= expr
+
         return self
+
+    def filter(self, condition=None, **kwargs):
+        """Alias for .where()"""
+        return self.where(condition, **kwargs)
 
     def join(self, target: Type[Model], join_type: str = "LEFT"):
         rel = self.namespace.get_relation_by_type(target)
@@ -162,3 +217,12 @@ class PgSelectQuerySet(Generic[MODEL]):
         sql, params = compiler.compile(compiled)
         rows = await PGConnectionManager.fetch(sql, *params)
         return [self.parse_row(dict(row)) for row in rows]
+
+
+
+
+
+
+
+def select(model_class: Type[MODEL]) -> "PgSelectQuerySet[MODEL]":
+    return PgSelectQuerySet(model_class).select("*")
