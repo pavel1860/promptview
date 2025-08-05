@@ -15,7 +15,8 @@ class RelationInfo:
         on_delete: str = "CASCADE",
         on_update: str = "CASCADE",
         is_one_to_one: bool = False,
-        relation_model: Optional[Type["Model"]] = None
+        relation_model: Optional[Type["Model"]] = None,
+        junction_keys: Optional[list[str]] = None
     ):
         self.name = name
         self.primary_key = primary_key
@@ -29,7 +30,8 @@ class RelationInfo:
         self.on_update = on_update
         self.is_one_to_one = is_one_to_one
         self.relation_model = relation_model
-
+        self.junction_keys = junction_keys or []
+        
     @property
     def foreign_cls(self) -> Type["Model"]:
         if self._foreign_cls_resolved is None:

@@ -60,11 +60,7 @@ class PgSelectQuerySet(Generic[MODEL]):
         self.query.select(*cols)
         return self
 
-    # def where(self, **kwargs):
-    #     for field, value in kwargs.items():
-    #         self.query.where.and_(Eq(Column(field, self.from_table), param(value)))
-    #     return self
-    # def where(self, condition=None, **kwargs):
+
     def where(
         self,
         condition: Callable[[MODEL], bool] | None = None,
