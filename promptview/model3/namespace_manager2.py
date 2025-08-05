@@ -69,3 +69,11 @@ class NamespaceManager:
                 else:
                     await ns.drop_namespace(dry_run=False)
         return sql_statements
+
+
+
+    @classmethod
+    def drop_all_tables(cls):
+        from promptview.model.postgres.builder import SQLBuilder
+        SQLBuilder.drop_all_tables()
+        

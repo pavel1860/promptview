@@ -32,11 +32,15 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
         
         
 
-
     @property
     def primary_key(self) -> PgFieldInfo:
         if self._primary_key is None:
-            raise ValueError(f"No primary key defined for namespace '{self.name}'")
+            for field in self.iter_fields():
+                if field.is_primary_key:
+                    self._primary_key = field
+                    break
+            else:
+                raise ValueError(f"No primary key defined for namespace '{self.name}'")
         return self._primary_key
 
     def __repr__(self):
