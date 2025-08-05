@@ -13,22 +13,34 @@ class ModelMeta(ModelMetaclass, type):
     - Handles registration of fields, relations, and vectors.
     - Sets up backend namespaces and model attributes.
     """
-    def __new__(cls, name: str, bases: tuple, dct: dict[str, Any]):
-        # 1. Skip processing if this is a base model
+    def __new__(cls, name, bases, dct):
+        # Skip processing for base/abstract models
         if dct.get("_is_base", False):
             return super().__new__(cls, name, bases, dct)
 
-        # 2. Determine database type and namespace name
+
+        # Resolve database type and namespace name
         db_type = dct.get("_db_type", "postgres")
         model_name = name
         namespace_name = dct.get("_namespace_name") or cls._default_namespace_name(model_name, db_type)
-        
-        # ✅ If model already registered, skip parsing and just return the class
-        existing_ns = NamespaceManager.get_namespace_or_none(namespace_name, db_type)
-        if existing_ns and existing_ns._model_cls:
-            return super().__new__(cls, name, bases, dct)
 
-        # 3. Build or get the backend-specific namespace
+        # Check if namespace already exists
+        existing_ns = NamespaceManager.get_namespace_or_none(namespace_name, db_type)
+
+        # Always create the new model class object
+        cls_obj = super().__new__(cls, name, bases, dct)
+
+        if existing_ns and getattr(existing_ns, "_model_cls", None):
+            # Namespace already set up → just link this new class to it
+            existing_ns.set_model_class(cls_obj)
+            NamespaceManager.register_model_namespace(cls_obj, existing_ns)
+            cls_obj._namespace_name = namespace_name
+            cls_obj._is_versioned = dct.get("_is_versioned", False)
+            cls_obj._field_extras = {}
+            cls_obj._relations = {}
+            return cls_obj
+
+        # Otherwise → build the namespace and parse everything
         ns = NamespaceManager.build_namespace(
             model_name=namespace_name,
             db_type=db_type,
@@ -39,35 +51,32 @@ class ModelMeta(ModelMetaclass, type):
             repo_namespace=dct.get("_repo", None)
         )
 
-        # 4. Build the actual model class (inherits Pydantic + this metaclass)
-        cls_obj = super().__new__(cls, name, bases, dct)
-
-        # 5. Parse scalar fields (non-relation, non-vector)
+        from promptview.model.field_parser import FieldParser
         field_parser = FieldParser(
             model_cls=cls_obj,
             model_name=model_name,
             db_type=db_type,
             namespace=ns,
-            reserved_fields=set()  # optionally provide reserved words here
+            reserved_fields=set()
         )
         field_parser.parse()
 
-        # 6. Parse relation fields
+        from promptview.model.relation_parser import RelationParser
         relation_parser = RelationParser(cls_obj, ns)
         relation_parser.parse()
 
-        # 7. VectorParser could go here if used
-        # VectorParser(cls_obj, ns).parse()
-
-        # 8. Finalize namespace registration
+        # Finalize namespace registration
         ns.set_model_class(cls_obj)
-        NamespaceManager.register_model_namespace(cls_obj, ns)  # ✅ REQUIRED
+        NamespaceManager.register_model_namespace(cls_obj, ns)
+
         cls_obj._namespace_name = namespace_name
         cls_obj._is_versioned = dct.get("_is_versioned", False)
         cls_obj._field_extras = getattr(field_parser, "field_extras", {})
         cls_obj._relations = getattr(relation_parser, "relations", {})
 
         return cls_obj
+
+
     
     @staticmethod
     def _default_namespace_name(model_cls_name: str, db_type: str) -> str:

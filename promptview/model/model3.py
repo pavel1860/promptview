@@ -15,7 +15,12 @@ class Model(BaseModel, metaclass=ModelMeta):
 
     @classmethod
     def get_namespace_name(cls) -> str:
-        return cls._namespace_name
+        """Get the namespace name for this model."""
+        # In Pydantic's PrivateAttr, the value is stored on the class as a plain attribute
+        val = getattr(cls, "_namespace_name", None)
+        if isinstance(val, str):
+            return val
+        raise ValueError(f"Namespace name not set for {cls.__name__}")
 
     @classmethod
     def get_namespace(cls):
