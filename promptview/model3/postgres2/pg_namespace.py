@@ -163,9 +163,12 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
         result = await PGConnectionManager.fetch_one(sql, id)
         return dict(result) if result else None
 
-    def foreign_key_table_for(self, field: PgFieldInfo) -> str:
-        # naive convention-based resolution, e.g. conv_id → "conversations"
+    def foreign_key_table_for(self, field):
+        foreign_cls = getattr(field, "foreign_cls", None)
+        if foreign_cls:
+            return foreign_cls.get_namespace().name
         return field.name.removesuffix("_id") + "s"
+
 
     
     async def create_namespace(self, dry_run: bool = False) -> str | None:

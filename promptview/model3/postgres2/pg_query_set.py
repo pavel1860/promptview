@@ -109,11 +109,20 @@ class PgSelectQuerySet(Generic[MODEL]):
         if rel.is_many_to_many:
             junction_ns = rel.relation_model.get_namespace()
             jt = Table(junction_ns.name, alias=self._gen_alias(junction_ns.name))
-            self.query.join(jt, Eq(Column(rel.primary_key, self.from_table),
-                                   Column(rel.primary_key, jt)), join_type)
+
+            # First key connects primary model → junction
+            self.query.join(
+                jt,
+                Eq(Column(rel.junction_keys[0], jt), Column(rel.primary_key, self.from_table)),
+                join_type
+            )
+            # Second key connects junction → target model
             tt = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
-            self.query.join(tt, Eq(Column(rel.foreign_key, tt),
-                                   Column(rel.foreign_key, jt)), join_type)
+            self.query.join(
+                tt,
+                Eq(Column(rel.junction_keys[1], jt), Column(rel.foreign_key, tt)),
+                join_type
+            )
         else:
             tt = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
             self.query.join(tt, Eq(Column(rel.foreign_key, tt),

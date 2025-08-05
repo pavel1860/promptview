@@ -61,6 +61,5 @@ class FieldParser:
             index=extra.get("index", False),
             on_delete=extra.get("on_delete", "CASCADE"),
             on_update=extra.get("on_update", "CASCADE"),
-            junction_keys=extra.get("junction_keys", None)
         )
         self.namespace.add_field(field_obj)
