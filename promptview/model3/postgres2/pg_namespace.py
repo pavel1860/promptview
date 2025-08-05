@@ -54,24 +54,24 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
 
     async def insert(self, data: dict[str, Any]) -> dict[str, Any]:
         # 1. Handle relation fields...
-        for rel_name, relation in self._relations.items():
-            if rel_name not in data or data[rel_name] is None:
-                continue
-            value = data[rel_name]
-            if relation.is_one_to_one and isinstance(value, dict):
-                related_ns = relation.foreign_cls.get_namespace()
-                related_obj = await related_ns.insert(value)
-                data[rel_name] = related_obj[related_ns.primary_key.name]
-            elif relation.is_many_to_many and isinstance(value, list):
-                related_ns = relation.foreign_cls.get_namespace()
-                keys = []
-                for v in value:
-                    if isinstance(v, dict):
-                        rel_obj = await related_ns.insert(v)
-                        keys.append(rel_obj[related_ns.primary_key.name])
-                    else:
-                        keys.append(v)
-                data[rel_name] = keys
+        # for rel_name, relation in self._relations.items():
+        #     if rel_name not in data or data[rel_name] is None:
+        #         continue
+        #     value = data[rel_name]
+        #     if relation.is_one_to_one and isinstance(value, dict):
+        #         related_ns = relation.foreign_cls.get_namespace()
+        #         related_obj = await related_ns.insert(value)
+        #         data[rel_name] = related_obj[related_ns.primary_key.name]
+        #     elif relation.is_many_to_many and isinstance(value, list):
+        #         related_ns = relation.foreign_cls.get_namespace()
+        #         keys = []
+        #         for v in value:
+        #             if isinstance(v, dict):
+        #                 rel_obj = await related_ns.insert(v)
+        #                 keys.append(rel_obj[related_ns.primary_key.name])
+        #             else:
+        #                 keys.append(v)
+        #         data[rel_name] = keys
 
         # 2. Usual insert logic
         fields = []

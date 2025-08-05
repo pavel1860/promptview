@@ -14,14 +14,14 @@ class Preprocessor:
     def process_nested_subquery(self, subquery: NestedSubquery, depth: int, parent_query: SelectQuery) -> tuple[SelectQuery | Expression, list[Join]]:
         joins = []
         query = deepcopy(subquery.query)
-        
+        wrap_in_array = subquery.type != "one_to_one"
         if subquery.junction_col:
             query.from_table = subquery.junction_col[1].table
             query.joins.append(subquery.get_join())
             query.where &= Eq(subquery.primary_col, subquery.junction_col[0])
         else:
             query.where.and_(subquery.get_where_clause())
-        query = self.process(query, depth=depth+1, parent_query=parent_query, wrap_in_array=True)
+        query = self.process(query, depth=depth+1, parent_query=parent_query, wrap_in_array=wrap_in_array)
         
         
         return query, joins

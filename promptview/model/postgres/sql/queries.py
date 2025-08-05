@@ -265,12 +265,12 @@ class NestedSubquery:
         primary_col: Column,
         foreign_col: Column,
         junction_col: tuple[Column, Column] | None = None,
-        # type: Literal["one_to_one", "one_to_many", "many_to_many"],
+        type: Literal["one_to_one", "one_to_many", "many_to_many"] | None = None,
         
     ):
         self.query = query
         self.alias = alias
-        # self.type = type
+        self.type = type
         self.primary_col = primary_col
         self.foreign_col = foreign_col
         self.junction_col = junction_col

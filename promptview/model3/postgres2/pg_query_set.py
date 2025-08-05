@@ -165,7 +165,8 @@ class PgSelectQuerySet(Generic[MODEL]):
                     subq,
                     rel.name,
                     Column(self.namespace.primary_key.name, self.from_table),
-                    Column(rel.junction_keys[0], jt)
+                    Column(rel.junction_keys[0], jt),
+                    type=rel.type
                 )
             )
             nested.alias = rel.name
@@ -178,7 +179,8 @@ class PgSelectQuerySet(Generic[MODEL]):
                     subq,
                     rel.name,
                     Column(rel.primary_key, self.from_table),
-                    Column(rel.foreign_key, target_table)
+                    Column(rel.foreign_key, target_table),
+                    type=rel.type
                 )
             )
             nested.alias = rel.name

@@ -32,46 +32,61 @@ class RelationParser:
             if not extra.get("is_relation", False):
                 continue
 
+            # --- 1) Unwrap Optional[T] / T | None ---
             annotation = field_info.annotation
+
+            # Unwrap Optional[T] or T | None
+            origin = get_origin(annotation)
+            args = get_args(annotation)
+            if origin is Union and type(None) in args:
+                extra["is_optional"] = True
+                annotation = next(a for a in args if a is not type(None))
+            elif len(args) > 1 and type(None) in args:
+                extra["is_optional"] = True
+                annotation = next(a for a in args if a is not type(None))
+
+            # Now detect if it's a list
             origin = get_origin(annotation)
             args = get_args(annotation)
             is_list = origin in (list, List)
-
-            # The related model is always the element type for List[T] or direct type T
             related_cls = args[0] if is_list and args else annotation
-            junction_model = extra.get("junction_model")  # For M:N
 
-            # --- Create the RelationInfo ---
+            junction_model = extra.get("junction_model")
+            junction_keys = extra.get("junction_keys")
+
+            # --- 3) Create the RelationInfo ---
             rel_info = self.namespace.add_relation(
                 name=extra.get("name") or field_name,
                 primary_key=extra.get("primary_key", "id"),
                 foreign_key=extra.get("foreign_key", "id"),
-                foreign_cls=related_cls,  # Actual target model (may be forward ref)
+                foreign_cls=related_cls,  # May be forward ref
                 on_delete=extra.get("on_delete", "CASCADE"),
                 on_update=extra.get("on_update", "CASCADE"),
                 is_one_to_one=not is_list,
                 relation_model=junction_model,
-                junction_keys=extra.get("junction_keys")
+                junction_keys=junction_keys
             )
             self.relations[field_name] = rel_info
 
-            # --- Attach reverse FK metadata ---
-            if junction_model and extra.get("junction_keys"):
-                # Many-to-Many: attach to junction model FKs
+            # --- 4) Set reverse FK metadata ---
+            if junction_model and junction_keys:
+                # Many-to-Many
                 junction_ns = junction_model.get_namespace()
-                keys = extra["junction_keys"]
-
-                if len(keys) >= 2:
+                if len(junction_keys) >= 2:
                     # First key → current model
-                    if keys[0] in junction_ns._fields:
-                        setattr(junction_ns._fields[keys[0]], "foreign_cls", self.model_cls)
-                    # Second key → related (target) model
-                    if keys[1] in junction_ns._fields:
-                        setattr(junction_ns._fields[keys[1]], "foreign_cls", related_cls)
-
+                    if junction_keys[0] in junction_ns._fields:
+                        setattr(junction_ns._fields[junction_keys[0]], "foreign_cls", self.model_cls)
+                    # Second key → related model
+                    if junction_keys[1] in junction_ns._fields:
+                        setattr(junction_ns._fields[junction_keys[1]], "foreign_cls", related_cls)
             else:
-                # One-to-One or One-to-Many: attach to FK field in the referencing model
+                # One-to-One or One-to-Many
                 fk_name = extra.get("foreign_key", "id")
-                ns = self.model_cls.get_namespace()
-                if fk_name in ns._fields:
-                    setattr(ns._fields[fk_name], "foreign_cls", related_cls)
+                # The FK belongs to the related model, not self.model_cls
+                try:
+                    fk_ns = related_cls.get_namespace()
+                except Exception:
+                    # related_cls might be a ForwardRef or str; skip for now
+                    fk_ns = None
+                if fk_ns and fk_name in fk_ns._fields:
+                    setattr(fk_ns._fields[fk_name], "foreign_cls", self.model_cls)

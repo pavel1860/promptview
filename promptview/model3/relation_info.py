@@ -1,5 +1,5 @@
 # promptview/model/base/relation_info.py
-from typing import TYPE_CHECKING, Any, Optional, Type, ForwardRef
+from typing import TYPE_CHECKING, Any, Literal, Optional, Type, ForwardRef
 
 if TYPE_CHECKING:
     from promptview.model3.model3 import Model
@@ -19,6 +19,10 @@ class RelationInfo:
         junction_keys: Optional[list[str]] = None
     ):
         self.name = name
+        if primary_key is None:
+            raise ValueError(f"primary_key is required for relation {name}")
+        if foreign_key is None:
+            raise ValueError(f"foreign_key is required for relation {name}")
         self.primary_key = primary_key
         self.foreign_key = foreign_key
         self.primary_cls = primary_cls
@@ -43,6 +47,16 @@ class RelationInfo:
     @property
     def is_many_to_many(self) -> bool:
         return self.relation_model is not None
+    
+    @property
+    def type(self) -> Literal["one_to_one", "one_to_many", "many_to_many"]:
+        if self.is_many_to_many:
+            return "many_to_many"
+        elif self.is_one_to_one:
+            return "one_to_one"
+        else:
+            return "one_to_many"
+    
 
     def resolve_foreign_cls(self, globalns: dict[str, Any]):
         from typing import ForwardRef
