@@ -90,3 +90,41 @@ class RelationParser:
                     fk_ns = None
                 if fk_ns and fk_name in fk_ns._fields:
                     setattr(fk_ns._fields[fk_name], "foreign_cls", self.model_cls)
+                    
+                    
+                    
+                    
+            # try:
+            #     reverse_ns = related_cls.get_namespace()
+            # except Exception:
+            #     reverse_ns = None
+
+            # if reverse_ns:
+            #     reverse_name = extra.get("reverse_name") or f"{self.model_cls.__name__.lower()}s"
+            #     if reverse_name not in reverse_ns._relations:
+            #         if junction_model and junction_keys:
+            #             # Reverse M:N
+            #             reverse_ns.add_relation(
+            #                 name=reverse_name,
+            #                 primary_key=extra.get("foreign_key", "id"),
+            #                 foreign_key=extra.get("primary_key", "id"),
+            #                 foreign_cls=self.model_cls,
+            #                 on_delete=extra.get("on_delete", "CASCADE"),
+            #                 on_update=extra.get("on_update", "CASCADE"),
+            #                 is_one_to_one=False,
+            #                 relation_model=junction_model,
+            #                 junction_keys=[junction_keys[1], junction_keys[0]],
+            #                 is_reverse=True
+            #             )
+            #         else:
+            #             # Reverse direct relation
+            #             reverse_ns.add_relation(
+            #                 name=reverse_name,
+            #                 primary_key=extra.get("foreign_key", "id"),
+            #                 foreign_key=extra.get("primary_key", "id"),
+            #                 foreign_cls=self.model_cls,
+            #                 on_delete=extra.get("on_delete", "CASCADE"),
+            #                 on_update=extra.get("on_update", "CASCADE"),
+            #                 is_one_to_one=not is_list,
+            #                 is_reverse=True
+            #             )

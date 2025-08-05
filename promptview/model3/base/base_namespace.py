@@ -66,7 +66,8 @@ class BaseNamespace(Generic[MODEL, FIELD]):
         on_update: str = "CASCADE",
         is_one_to_one: bool = False,
         relation_model: Optional[Type[MODEL]] = None,
-        junction_keys: Optional[list[str]] = None
+        junction_keys: Optional[list[str]] = None,
+        is_reverse: bool = False
     ) -> RelationInfo:
         if not self._model_cls:
             raise ValueError("Model class must be set before adding a relation")
@@ -82,7 +83,8 @@ class BaseNamespace(Generic[MODEL, FIELD]):
             on_update=on_update,
             is_one_to_one=is_one_to_one,
             relation_model=relation_model,
-            junction_keys=junction_keys
+            junction_keys=junction_keys,
+            is_reverse=is_reverse
         )
         self._relations[name] = rel_info
         return rel_info

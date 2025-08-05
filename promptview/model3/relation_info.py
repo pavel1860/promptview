@@ -16,7 +16,8 @@ class RelationInfo:
         on_update: str = "CASCADE",
         is_one_to_one: bool = False,
         relation_model: Optional[Type["Model"]] = None,
-        junction_keys: Optional[list[str]] = None
+        junction_keys: Optional[list[str]] = None,
+        is_reverse: bool = False
     ):
         self.name = name
         if primary_key is None:
@@ -35,6 +36,7 @@ class RelationInfo:
         self.is_one_to_one = is_one_to_one
         self.relation_model = relation_model
         self.junction_keys = junction_keys or []
+        self.is_reverse = is_reverse
         
     @property
     def foreign_cls(self) -> Type["Model"]:
