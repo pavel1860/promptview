@@ -46,16 +46,20 @@ class NamespaceManager:
             raise ValueError(f"Namespace for model {model_cls} not found.")
         return ns
 
-    # @classmethod
-    # def finalize(cls):
-    #     """Run any pending parsers after all models are loaded."""
-    #     for ns in cls._registry.values():
-    #         if hasattr(ns, "_pending_field_parser"):
-    #             ns._pending_field_parser.parse()
-    #             del ns._pending_field_parser
-    #         if hasattr(ns, "_pending_relation_parser"):
-    #             ns._pending_relation_parser.parse()
-    #             del ns._pending_relation_parser
+
+    @classmethod
+    async def initialize_all(cls):
+        # 1️⃣ Create all tables first
+        for ns in cls._registry.values():
+            if hasattr(ns, "create_namespace"):
+                await ns.create_namespace()
+
+        # 2️⃣ Then add all foreign keys
+        for ns in cls._registry.values():
+            if hasattr(ns, "add_foreign_keys"):
+                await ns.add_foreign_keys()
+
+    
     @classmethod
     def finalize(cls):
         """Run any pending parsers after all models are loaded, and resolve relations."""

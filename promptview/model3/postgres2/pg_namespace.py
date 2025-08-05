@@ -172,9 +172,9 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
 
     
     async def create_namespace(self, dry_run: bool = False) -> str | None:
+        """Creates the table and indexes but no foreign keys."""
         cols = []
         for field in self.iter_fields():
-            # Use SERIAL or IDENTITY for int primary key
             if field.is_primary_key:
                 if field.field_type == int:
                     col_def = f'"{field.name}" SERIAL PRIMARY KEY'
@@ -194,38 +194,36 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
                 index_name = f"{self.name}_{field.name}_idx"
                 sql = f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{self.name}" ("{field.name}");'
                 await PGConnectionManager.execute(sql)
-        # Add foreign key constraints
-        for field in self.iter_fields():
-            if field.is_foreign_key:
-                constraint_name = f"{self.name}_{field.name}_fkey"
-
-                check_sql = """
-                SELECT 1
-                FROM pg_constraint
-                WHERE conname = $1
-                """
-                exists = await PGConnectionManager.fetch_one(check_sql, constraint_name)
-                if exists:
-                    continue  # skip adding the FK, it's already there
-
-                ref_table = self.foreign_key_table_for(field)
-                sql = f'''
-                    ALTER TABLE "{self.name}"
-                    ADD CONSTRAINT "{constraint_name}"
-                    FOREIGN KEY ("{field.name}")
-                    REFERENCES "{ref_table}" ("id")
-                    ON DELETE {field.on_delete}
-                    ON UPDATE {field.on_update};
-                '''
-                await PGConnectionManager.execute(sql)
-                        
-        # Junctions
-        for rel in self._relations.values():
-            if rel.relation_model:
-                junction_ns = rel.relation_model.get_namespace()
-                await junction_ns.create_namespace(dry_run=dry_run)
-
         return None
+
+
+    async def add_foreign_keys(self, dry_run: bool = False) -> list[str]:
+        """Adds all foreign key constraints after all tables exist."""
+        sql_statements = []
+        for field in self.iter_fields():
+            if not field.is_foreign_key:
+                continue
+            constraint_name = f"{self.name}_{field.name}_fkey"
+            check_sql = """
+            SELECT 1 FROM pg_constraint WHERE conname = $1
+            """
+            exists = await PGConnectionManager.fetch_one(check_sql, constraint_name)
+            if exists:
+                continue
+            ref_table = self.foreign_key_table_for(field)
+            sql = f'''
+                ALTER TABLE "{self.name}"
+                ADD CONSTRAINT "{constraint_name}"
+                FOREIGN KEY ("{field.name}")
+                REFERENCES "{ref_table}" ("id")
+                ON DELETE {field.on_delete}
+                ON UPDATE {field.on_update};
+            '''
+            if dry_run:
+                sql_statements.append(sql)
+            else:
+                await PGConnectionManager.execute(sql)
+        return sql_statements
 
     
     async def drop_namespace(self, dry_run: bool = False) -> str | None:

@@ -142,8 +142,35 @@ class PgSelectQuerySet(Generic[MODEL]):
         subq.select(*[Column(f.name, target_table) for f in target_ns.iter_fields()])
 
         if rel.is_many_to_many:
-            # TODO: handle M2M
-            pass
+            junction_ns = rel.relation_model.get_namespace()
+            target_ns = rel.foreign_cls.get_namespace()
+
+            jt = Table(junction_ns.name, alias=self._gen_alias(junction_ns.name))
+            tt = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
+
+            # Subquery: select all target model rows linked through junction
+            subq = SelectQuery().from_(tt)
+            subq.select(*[Column(f.name, tt) for f in target_ns.iter_fields()])
+
+            # Join target to junction
+            subq.join(
+                jt,
+                Eq(Column(rel.junction_keys[1], jt), Column(target_ns.primary_key.name, tt))
+            )
+
+            # Filter by matching current model's PK in junction table
+            nested = Column(
+                rel.name,
+                NestedSubquery(
+                    subq,
+                    rel.name,
+                    Column(self.namespace.primary_key.name, self.from_table),
+                    Column(rel.junction_keys[0], jt)
+                )
+            )
+            nested.alias = rel.name
+            self.query.columns.append(nested)
+
         else:
             nested = Column(
                 rel.name,
