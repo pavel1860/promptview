@@ -1,6 +1,6 @@
 from typing import Any, Type
 from pydantic._internal._model_construction import ModelMetaclass
-from promptview.model.namespace_manager2 import NamespaceManager
+from .namespace_manager2 import NamespaceManager
 
 class ModelMeta(ModelMetaclass, type):
     """
@@ -43,8 +43,8 @@ class ModelMeta(ModelMetaclass, type):
         )
 
         # Attach parsers for deferred execution
-        from promptview.model.field_parser import FieldParser
-        from promptview.model.relation_parser import RelationParser
+        from promptview.model3.field_parser import FieldParser
+        from promptview.model3.relation_parser import RelationParser
 
         field_parser = FieldParser(
             model_cls=cls_obj,

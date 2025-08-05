@@ -1,14 +1,20 @@
 # pg_namespace.py
 
-from typing import Any, Optional, Type
+from typing import TYPE_CHECKING, Any, Optional, Type
 
 from promptview.utils.db_connections import PGConnectionManager
 from ..base.base_namespace import BaseNamespace
 from .pg_field_info import PgFieldInfo
-from ..model import Model  # Assuming all models inherit from this base
 from .pg_relation import PgRelation
 
-class PgNamespace(BaseNamespace[Model, PgFieldInfo]):
+
+if TYPE_CHECKING:
+    from promptview.model3.model3 import Model
+
+
+
+
+class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
     
     def __init__(self, name: str, *fields: PgFieldInfo):
         super().__init__(name, db_type="postgres")

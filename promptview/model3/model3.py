@@ -1,7 +1,7 @@
 from pydantic import BaseModel, PrivateAttr
 from typing import Any, Type, Self
 
-from promptview.model.model_meta import ModelMeta
+from .model_meta import ModelMeta
 
 class Model(BaseModel, metaclass=ModelMeta):
     """Base class for all ORM models."""
@@ -24,7 +24,7 @@ class Model(BaseModel, metaclass=ModelMeta):
 
     @classmethod
     def get_namespace(cls):
-        from promptview.model.namespace_manager2 import NamespaceManager
+        from promptview.model3.namespace_manager2 import NamespaceManager
         return NamespaceManager.get_namespace(cls.get_namespace_name())
 
     @classmethod

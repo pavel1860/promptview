@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING, Any, Optional, Type, ForwardRef
 
 if TYPE_CHECKING:
-    from promptview.model.model3 import Model
+    from promptview.model3.model3 import Model
 
 class RelationInfo:
     def __init__(

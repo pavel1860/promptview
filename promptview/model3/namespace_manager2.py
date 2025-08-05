@@ -1,7 +1,7 @@
 import sys
 from typing import Any, Dict, Type, Optional
-from promptview.model.postgres2.pg_namespace import PgNamespace
-from promptview.model.qdrant2.qdrant_namespace import QdrantNamespace
+from promptview.model3.postgres2.pg_namespace import PgNamespace
+from promptview.model3.qdrant2.qdrant_namespace import QdrantNamespace
 
 _extensions_registry = set()
 

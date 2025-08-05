@@ -1,11 +1,15 @@
 # neo4j_namespace.py
 
+
 from ..base.base_namespace import BaseNamespace
 from .neo4j_field_info import Neo4jFieldInfo
-from ..model import Model
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-class Neo4jNamespace(BaseNamespace[Model, Neo4jFieldInfo]):
+
+if TYPE_CHECKING:
+    from promptview.model3.model3 import Model
+
+class Neo4jNamespace(BaseNamespace["Model", Neo4jFieldInfo]):
     def __init__(self, name: str, *fields: Neo4jFieldInfo):
         super().__init__(name, db_type="neo4j")
         self._primary_key: Optional[Neo4jFieldInfo] = None

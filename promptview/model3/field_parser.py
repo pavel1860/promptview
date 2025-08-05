@@ -2,15 +2,11 @@
 
 from typing import TYPE_CHECKING, Type, Any, Dict
 from pydantic.fields import FieldInfo
-
-from promptview.model.namespace_manager import NamespaceManager
-from promptview.model.base.base_namespace import BaseNamespace
-from promptview.model.base.base_field_info import BaseFieldInfo
 from promptview.model.util import unpack_extra
-from promptview.utils.string_utils import camel_to_snake
+
 
 if TYPE_CHECKING:
-    from promptview.model.model3 import Model
+    from promptview.model3.model3 import Model
 
 def get_field_extras(field_info: FieldInfo) -> Dict[str, Any]:
     """Extract extra metadata from a Pydantic FieldInfo."""

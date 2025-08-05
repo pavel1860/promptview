@@ -1,13 +1,13 @@
 from typing import TYPE_CHECKING, Type, Dict, Any, get_origin, get_args, List
 from pydantic.fields import FieldInfo
-from promptview.model.base.base_namespace import BaseNamespace
-from promptview.model.base.base_field_info import BaseFieldInfo
+from .base.base_namespace import BaseNamespace
+from .base.base_field_info import BaseFieldInfo
 
 
 
 if TYPE_CHECKING:
-    from promptview.model.relation_info import RelationInfo
-    from promptview.model.model3 import Model
+    from promptview.model3.relation_info import RelationInfo
+    from promptview.model3.model3 import Model
 
 
     
@@ -27,8 +27,8 @@ class RelationParser:
         self.relations: "Dict[str, RelationInfo]" = {}
 
     def parse(self):
-        from promptview.model.model3 import Model
-        from promptview.model.relation_model import RelationModel
+        from promptview.model3.model3 import Model
+        from promptview.model3.relation_model import RelationModel
 
         for field_name, field_info in self.model_cls.model_fields.items():
             if not isinstance(field_info, FieldInfo):

@@ -1,15 +1,18 @@
-from typing import Any, List, Optional, Union, Type
+from typing import TYPE_CHECKING, Any, List, Optional, Union, Type
 import uuid
 
-from promptview.model.model import Model
-from promptview.model.base.base_namespace import BaseNamespace
-from promptview.model.qdrant2.qdrant_field_info import QdrantFieldInfo
+
+
+
+from ..base.base_namespace import BaseNamespace
+from ..qdrant2.qdrant_field_info import QdrantFieldInfo
 from promptview.model.qdrant.connection import QdrantConnectionManager
 
 from qdrant_client.http.models import PointStruct, PointVectors, VectorParams, Distance, Filter
-from qdrant_client.models import WriteOrdering
+if TYPE_CHECKING:
+    from promptview.model3.model3 import Model
 
-class QdrantNamespace(BaseNamespace[Model, QdrantFieldInfo]):
+class QdrantNamespace(BaseNamespace["Model", QdrantFieldInfo]):
     def __init__(self, name: str, *fields: QdrantFieldInfo):
         super().__init__(name, db_type="qdrant")
         self._pk_field: Optional[QdrantFieldInfo] = None
