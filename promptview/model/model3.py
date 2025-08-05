@@ -65,3 +65,10 @@ class Model(BaseModel, metaclass=ModelMeta):
         return getattr(self, ns.primary_key.name)
 
     # ... add query(), add(), add_rel(), fetch(), etc. as needed ...
+
+
+
+
+
+
+

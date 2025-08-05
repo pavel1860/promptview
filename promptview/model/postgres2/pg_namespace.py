@@ -13,7 +13,6 @@ class PgNamespace(BaseNamespace[Model, PgFieldInfo]):
     def __init__(self, name: str, *fields: PgFieldInfo):
         super().__init__(name, db_type="postgres")
         self._primary_key: Optional[PgFieldInfo] = None
-        self._relations: dict[str, PgRelation] = {}
         for field in fields:
             self._register_field(field)
 
@@ -26,36 +25,7 @@ class PgNamespace(BaseNamespace[Model, PgFieldInfo]):
         self.add_field(field)
         
         
-    def add_relation(
-        self,
-        name: str,
-        primary_key: str,
-        foreign_key: str,
-        foreign_cls: Type,
-        on_delete: str = "CASCADE",
-        on_update: str = "CASCADE",
-        is_one_to_one: bool = False,
-        is_many_to_many: bool = False,
-        junction_cls: Optional[Type] = None,
-        junction_keys: Optional[list[str]] = None,
-    ) -> PgRelation:
-        rel = PgRelation(
-            name=name,
-            primary_key=primary_key,
-            foreign_key=foreign_key,
-            foreign_cls=foreign_cls,
-            on_delete=on_delete,
-            on_update=on_update,
-            is_one_to_one=is_one_to_one,
-            is_many_to_many=is_many_to_many,
-            junction_cls=junction_cls,
-            junction_keys=junction_keys,
-        )
-        self._relations[name] = rel
-        return rel
 
-    def get_relation(self, name: str) -> Optional[PgRelation]:
-        return self._relations.get(name)
 
     @property
     def primary_key(self) -> PgFieldInfo:
@@ -69,47 +39,18 @@ class PgNamespace(BaseNamespace[Model, PgFieldInfo]):
     def make_field_info(self, **kwargs) -> PgFieldInfo:
         return PgFieldInfo(**kwargs)
 
-    # async def insert(self, data: dict[str, Any]) -> dict[str, Any]:
-    #     fields = []
-    #     placeholders = []
-    #     values = []
 
-    #     for idx, field in enumerate(self.iter_fields(), start=1):
-    #         value = data.get(field.name, field.default)
-
-    #         if value is None:
-    #             if not field.is_optional and not field.is_primary_key:
-    #                 raise ValueError(f"Missing required field: {field.name}")
-    #         serialized = field.serialize(value)
-    #         fields.append(f'"{field.name}"')
-    #         placeholders.append(field.get_placeholder(idx))
-    #         values.append(serialized)
-
-    #     sql = f"""
-    #     INSERT INTO "{self.name}" ({", ".join(fields)})
-    #     VALUES ({", ".join(placeholders)})
-    #     RETURNING *;
-    #     """
-
-    #     result = await PGConnectionManager.fetch_one(sql, *values)
-    #     if not result:
-    #         raise RuntimeError("Insert failed, no row returned")
-    #     return dict(result)
-    
-    # In pg_namespace.py
 
     async def insert(self, data: dict[str, Any]) -> dict[str, Any]:
-        # 1. Handle relation fields: if present and is dict/list, insert related model(s)
+        # 1. Handle relation fields...
         for rel_name, relation in self._relations.items():
             if rel_name not in data or data[rel_name] is None:
                 continue
             value = data[rel_name]
-            # Support for one-to-one or many-to-one
             if relation.is_one_to_one and isinstance(value, dict):
                 related_ns = relation.foreign_cls.get_namespace()
                 related_obj = await related_ns.insert(value)
                 data[rel_name] = related_obj[related_ns.primary_key.name]
-            # Support for many-to-many (list of dicts)
             elif relation.is_many_to_many and isinstance(value, list):
                 related_ns = relation.foreign_cls.get_namespace()
                 keys = []
@@ -118,9 +59,8 @@ class PgNamespace(BaseNamespace[Model, PgFieldInfo]):
                         rel_obj = await related_ns.insert(v)
                         keys.append(rel_obj[related_ns.primary_key.name])
                     else:
-                        keys.append(v)  # Already an ID
+                        keys.append(v)
                 data[rel_name] = keys
-            # else: treat as ID already present
 
         # 2. Usual insert logic
         fields = []
@@ -130,10 +70,8 @@ class PgNamespace(BaseNamespace[Model, PgFieldInfo]):
 
         for field in self.iter_fields():
             value = data.get(field.name, field.default)
-            # NEW: Skip PK if value is None (let PG assign)
             if field.is_primary_key and value is None:
                 continue
-
             if value is None:
                 if not field.is_optional and not field.is_primary_key:
                     raise ValueError(f"Missing required field: {field.name}")
@@ -143,14 +81,17 @@ class PgNamespace(BaseNamespace[Model, PgFieldInfo]):
             values.append(serialized)
             param_idx += 1
 
+        if not fields:
+            sql = f'INSERT INTO "{self.name}" DEFAULT VALUES RETURNING *;'
+            result = await PGConnectionManager.fetch_one(sql)
+        else:
+            sql = f"""
+            INSERT INTO "{self.name}" ({", ".join(fields)})
+            VALUES ({", ".join(placeholders)})
+            RETURNING *;
+            """
+            result = await PGConnectionManager.fetch_one(sql, *values)
 
-        sql = f"""
-        INSERT INTO "{self.name}" ({", ".join(fields)})
-        VALUES ({", ".join(placeholders)})
-        RETURNING *;
-        """
-
-        result = await PGConnectionManager.fetch_one(sql, *values)
         if not result:
             raise RuntimeError("Insert failed, no row returned")
         return dict(result)
@@ -239,7 +180,7 @@ class PgNamespace(BaseNamespace[Model, PgFieldInfo]):
                 index_name = f"{self.name}_{field.name}_idx"
                 sql = f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{self.name}" ("{field.name}");'
                 await PGConnectionManager.execute(sql)
-                
+        # Add foreign key constraints
         for field in self.iter_fields():
             if field.is_foreign_key:
                 constraint_name = f"{self.name}_{field.name}_fkey"
@@ -263,6 +204,12 @@ class PgNamespace(BaseNamespace[Model, PgFieldInfo]):
                     ON UPDATE {field.on_update};
                 '''
                 await PGConnectionManager.execute(sql)
+                        
+        # Junctions
+        for rel in self._relations.values():
+            if rel.relation_model:
+                junction_ns = rel.relation_model.get_namespace()
+                await junction_ns.create_namespace(dry_run=dry_run)
 
         return None
 
