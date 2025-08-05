@@ -46,9 +46,19 @@ class NamespaceManager:
             raise ValueError(f"Namespace for model {model_cls} not found.")
         return ns
 
+    # @classmethod
+    # def finalize(cls):
+    #     """Run any pending parsers after all models are loaded."""
+    #     for ns in cls._registry.values():
+    #         if hasattr(ns, "_pending_field_parser"):
+    #             ns._pending_field_parser.parse()
+    #             del ns._pending_field_parser
+    #         if hasattr(ns, "_pending_relation_parser"):
+    #             ns._pending_relation_parser.parse()
+    #             del ns._pending_relation_parser
     @classmethod
     def finalize(cls):
-        """Run any pending parsers after all models are loaded."""
+        """Run any pending parsers after all models are loaded, and resolve relations."""
         for ns in cls._registry.values():
             if hasattr(ns, "_pending_field_parser"):
                 ns._pending_field_parser.parse()
@@ -56,6 +66,19 @@ class NamespaceManager:
             if hasattr(ns, "_pending_relation_parser"):
                 ns._pending_relation_parser.parse()
                 del ns._pending_relation_parser
+
+        # NEW: Resolve foreign class forward refs
+        globalns = {}
+        for model_cls in cls._model_to_namespace.keys():
+            globalns[model_cls.__name__] = model_cls
+
+        for ns in cls._registry.values():
+            for rel in ns._relations.values():
+                try:
+                    rel.resolve_foreign_cls(globalns)
+                except Exception as e:
+                    raise RuntimeError(f"Failed to resolve relation {rel.name} in {ns.name}: {e}")
+
 
     @classmethod
     async def drop_all_namespaces(cls, dry_run: bool = False) -> list[str]:

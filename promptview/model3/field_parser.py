@@ -30,8 +30,8 @@ class FieldParser:
             self.field_extras[field_name] = extra
 
             # Skip relations & vectors here
-            if not extra.get("is_model_field", False):
-                continue
+            # if not extra.get("is_model_field", False):
+            #     continue
             if extra.get("is_relation", False) or extra.get("is_vector", False):
                 continue
 

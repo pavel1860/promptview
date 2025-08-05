@@ -64,7 +64,9 @@ class Model(BaseModel, metaclass=ModelMeta):
         ns = self.get_namespace()
         return getattr(self, ns.primary_key.name)
 
-    # ... add query(), add(), add_rel(), fetch(), etc. as needed ...
+    @classmethod
+    def query(cls):
+        return cls.get_namespace().query()
 
 
 

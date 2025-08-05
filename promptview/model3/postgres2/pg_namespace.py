@@ -10,6 +10,7 @@ from .pg_relation import PgRelation
 
 if TYPE_CHECKING:
     from promptview.model3.model3 import Model
+    from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
 
 
 
@@ -231,3 +232,8 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
         await PGConnectionManager.execute(sql)
         return None
 
+
+    
+    def query(self) -> "PgSelectQuerySet[Model]":
+        from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+        return PgSelectQuerySet(self._model_cls)

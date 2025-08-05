@@ -136,3 +136,7 @@ class BaseNamespace(Generic[MODEL, FIELD]):
     # -------------------------
     def __repr__(self):
         return f"<BaseNamespace {self.name}>"
+
+    
+    def query(self) -> Any:
+        raise NotImplementedError("Querying is not supported for this backend.")
