@@ -5,10 +5,10 @@ from typing import Any, Callable, Generator, Generic, List, Self, Type
 from typing_extensions import TypeVar
 from promptview.model3.model3 import Model
 from promptview.model3.relation_info import RelationInfo
-from promptview.model.postgres.sql.queries import SelectQuery, Table, Column, NestedSubquery, Subquery
-from promptview.model.postgres.sql.expressions import Eq, Expression, param, OrderBy
-from promptview.model.postgres.sql.compiler import Compiler
-from promptview.model.postgres.sql.json_processor import Preprocessor
+from ..sql.queries import SelectQuery, Table, Column, NestedSubquery, Subquery
+from ..sql.expressions import Eq, Expression, param, OrderBy
+from ..sql.compiler import Compiler
+from ..sql.json_processor import Preprocessor
 from promptview.utils.db_connections import PGConnectionManager
 
 MODEL = TypeVar("MODEL", bound=Model)
