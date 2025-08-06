@@ -4,7 +4,7 @@ from enum import Enum
 import inspect
 from typing import TYPE_CHECKING, Literal, Type, Any, Dict, Union, get_args, get_origin
 from pydantic.fields import FieldInfo
-from promptview.model.util import unpack_extra
+from promptview.model3.util import unpack_extra
 
 
 if TYPE_CHECKING:

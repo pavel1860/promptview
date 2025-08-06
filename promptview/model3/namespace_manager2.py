@@ -1,7 +1,8 @@
 import sys
-from typing import Any, Dict, Type, Optional
+from typing import Any, Dict, ForwardRef, Type, Optional, get_args, get_origin, List, Union
 from promptview.model3.postgres2.pg_namespace import PgNamespace
 from promptview.model3.qdrant2.qdrant_namespace import QdrantNamespace
+from promptview.model3.util import resolve_annotation
 
 _extensions_registry = set()
 
@@ -61,9 +62,39 @@ class NamespaceManager:
                 await ns.add_foreign_keys()
 
     
+    # @classmethod
+    # def finalize(cls):
+    #     """Run any pending parsers after all models are loaded, and resolve relations."""
+    #     for ns in cls._registry.values():
+    #         if hasattr(ns, "_pending_field_parser"):
+    #             ns._pending_field_parser.parse()
+    #             del ns._pending_field_parser
+    #         if hasattr(ns, "_pending_relation_parser"):
+    #             ns._pending_relation_parser.parse()
+    #             del ns._pending_relation_parser
+
+    #     # NEW: Resolve foreign class forward refs
+    #     globalns = {}
+    #     for model_cls in cls._model_to_namespace.keys():
+    #         globalns[model_cls.__name__] = model_cls
+
+    #     for ns in cls._registry.values():
+    #         for rel in ns._relations.values():
+    #             try:
+    #                 rel.resolve_foreign_cls(globalns)
+    #             except Exception as e:
+    #                 raise RuntimeError(f"Failed to resolve relation {rel.name} in {ns.name}: {e}")
     @classmethod
     def finalize(cls):
-        """Run any pending parsers after all models are loaded, and resolve relations."""
+        # 1. Build globalns
+        globalns = {model_cls.__name__: model_cls for model_cls in cls._model_to_namespace.keys()}
+
+        # 2. Resolve forward refs on all models before parsing
+        for model_cls in list(globalns.values()):
+            for field_name, field in model_cls.model_fields.items():
+                field.annotation = resolve_annotation(field.annotation, globalns)
+
+        # 3. Now run all parsers with resolved annotations
         for ns in cls._registry.values():
             if hasattr(ns, "_pending_field_parser"):
                 ns._pending_field_parser.parse()
@@ -71,18 +102,6 @@ class NamespaceManager:
             if hasattr(ns, "_pending_relation_parser"):
                 ns._pending_relation_parser.parse()
                 del ns._pending_relation_parser
-
-        # NEW: Resolve foreign class forward refs
-        globalns = {}
-        for model_cls in cls._model_to_namespace.keys():
-            globalns[model_cls.__name__] = model_cls
-
-        for ns in cls._registry.values():
-            for rel in ns._relations.values():
-                try:
-                    rel.resolve_foreign_cls(globalns)
-                except Exception as e:
-                    raise RuntimeError(f"Failed to resolve relation {rel.name} in {ns.name}: {e}")
 
 
     @classmethod
