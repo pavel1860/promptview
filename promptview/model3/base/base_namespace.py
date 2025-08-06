@@ -25,6 +25,7 @@ class BaseNamespace(Generic[MODEL, FIELD]):
         # Pending parsers for deferred execution
         self._pending_field_parser: Optional["FieldParser"] = None
         self._pending_relation_parser: Optional["RelationParser"] = None
+        self._default_order_field = None
 
     # -------------------------
     # Model class binding
@@ -42,6 +43,8 @@ class BaseNamespace(Generic[MODEL, FIELD]):
             if self._primary_key_field:
                 raise ValueError(f"Primary key already defined: {self._primary_key_field.name}")
             self._primary_key_field = field
+        if field.order_by:
+            self._default_order_field = field
         self._fields[field.name] = field
         
     @property
@@ -49,6 +52,12 @@ class BaseNamespace(Generic[MODEL, FIELD]):
         if self._primary_key_field is None:
             raise ValueError(f"No primary key defined for namespace '{self.name}'")
         return self._primary_key_field.name
+    
+    @property
+    def default_order_field(self) -> str:
+        if self._default_order_field is None:
+            raise ValueError(f"No default order field defined for namespace '{self.name}'")
+        return self._default_order_field.name
 
     def get_field(self, name: str) -> FIELD:
         return self._fields[name]

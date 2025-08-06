@@ -1,7 +1,7 @@
 from functools import reduce
 import json
 from operator import and_
-from typing import Any, Callable, Generic, List, Self, Type
+from typing import Any, Callable, Generator, Generic, List, Self, Type
 from typing_extensions import TypeVar
 from promptview.model3.model3 import Model
 from promptview.model3.relation_info import RelationInfo
@@ -25,7 +25,25 @@ class QueryProxy:
 
     def __getattr__(self, field_name):
         return Column(field_name, self.table)
-    
+
+
+T_co = TypeVar("T_co", covariant=True)
+
+class QuerySetSingleAdapter(Generic[T_co]):
+    def __init__(self, queryset: "PgSelectQuerySet[T_co]"):
+        self.queryset = queryset
+
+    def __await__(self) -> Generator[Any, None, T_co]:
+        async def await_query():
+            results = await self.queryset.execute()
+            if results:
+                return results[0]
+            return None
+            # raise ValueError("No results found")
+            # return None
+            # raise DoesNotExist(self.queryset.model)
+        return await_query().__await__()  
+  
     
 
 class PgSelectQuerySet(Generic[MODEL]):
@@ -51,6 +69,9 @@ class PgSelectQuerySet(Generic[MODEL]):
     @property
     def from_table(self):
         return self.query.from_table
+    
+    def __await__(self):
+        return self.execute().__await__()
 
     def select(self, *fields: str):
         if len(fields) == 1 and fields[0] == "*":
@@ -219,7 +240,7 @@ class PgSelectQuerySet(Generic[MODEL]):
 
         return self
 
-    def order_by(self, *fields: str):
+    def order_by(self, *fields: str) -> "PgSelectQuerySet[MODEL]":
         orderings = []
         for field in fields:
             direction = "ASC"
@@ -230,8 +251,49 @@ class PgSelectQuerySet(Generic[MODEL]):
         self.query.order_by_(*orderings)
         return self
 
-    def limit(self, n: int):
+    def limit(self, n: int) -> "PgSelectQuerySet[MODEL]":
         self.query.limit_(n)
+        return self
+    
+    def offset(self, n: int) -> "PgSelectQuerySet[MODEL]":
+        """Skip the first `n` rows."""
+        self.query.offset_(n)
+        return self
+    
+    def distinct_on(self, *fields: str) -> "PgSelectQuerySet[MODEL]":
+        """
+        Postgres-specific DISTINCT ON.
+        Keeps only the first row of each set of rows where the given columns are equal.
+        """
+        self.query.distinct_on_(*[Column(f, self.from_table) for f in fields])
+        return self
+    
+    def first(self) -> "QuerySetSingleAdapter[MODEL]":
+        """Return only the first record."""
+        self.order_by(self.namespace.default_order_field)
+        self.limit(1)
+        return QuerySetSingleAdapter(self)
+
+    def last(self) -> "QuerySetSingleAdapter[MODEL]":
+        """Return only the last record."""
+        self.order_by("-" + self.namespace.default_order_field)
+        self.limit(1)
+        return QuerySetSingleAdapter(self)
+
+    def head(self, n: int) -> "PgSelectQuerySet[MODEL]":
+        """
+        Return the first `n` rows ordered by the model's default temporal field.
+        """
+        self.order_by(self.namespace.default_order_field)
+        self.limit(n)
+        return self
+
+    def tail(self, n: int) -> "PgSelectQuerySet[MODEL]":
+        """
+        Return the last `n` rows ordered by the model's default temporal field.
+        """
+        self.order_by("-" + self.namespace.default_order_field)
+        self.limit(n)
         return self
     
     def parse_row(self, row: dict[str, Any]) -> MODEL:

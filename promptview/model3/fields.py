@@ -23,7 +23,7 @@ def ModelField(
     foreign_key: bool = False,
     index: Optional[str] = None,
     default_factory: Callable[[], Any] | None = _Unset,
-    is_default_temporal: bool = False,
+    order_by: bool = False,
     db_type: str | None = None,
     description: str | None = _Unset,
 ) -> Any:
@@ -31,7 +31,7 @@ def ModelField(
     # Create extra metadata for the field
     extra = {}
     extra["is_model_field"] = True
-    extra["is_default_temporal"] = is_default_temporal
+    extra["order_by"] = order_by
     extra["index"] = index    
     if db_type:
         extra["db_type"] = db_type
@@ -53,6 +53,7 @@ def KeyField(
     # *,
     default_factory: Callable[[], Any] | Callable[[dict[str, Any]], Any] | None = _Unset,
     primary_key: bool = False,
+    order_by: bool = False,
     type: Literal["int", "uuid"] = "int",
     description: str | None = _Unset,
     # **kwargs
@@ -64,6 +65,7 @@ def KeyField(
     extra["primary_key"] = primary_key
     extra["type"] = type
     extra["is_key"] = True
+    extra["order_by"] = order_by
     # if type == "uuid" and not primary_key:
         # return Field(default_factory=lambda: uuid.uuid4(), json_schema_extra=extra, description=description)
     # Create the field with the extra metadata

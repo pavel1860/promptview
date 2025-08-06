@@ -29,6 +29,7 @@ class PgFieldInfo(BaseFieldInfo):
         on_delete: str = "CASCADE",
         on_update: str = "CASCADE",
         enum_values: Optional[List[str]] = None,
+        order_by: bool = False,
     ):
         super().__init__(
             name=name,
@@ -44,6 +45,7 @@ class PgFieldInfo(BaseFieldInfo):
             on_delete=on_delete,
             on_update=on_update,
             enum_values=enum_values,
+            order_by=order_by,
         )
 
         self.sql_type = sql_type or self._resolve_sql_type()
@@ -55,26 +57,28 @@ class PgFieldInfo(BaseFieldInfo):
         return f"${index}"
 
     def _resolve_sql_type(self) -> str:
-        dt = self.data_type
+        py_type = self.data_type
         if self.is_vector:
             return f"VECTOR({self.dimension})"
         if getattr(self, "enum_values", None):
             return f"{self.name}_enum"  # enum type name from create_enum()
         if self.is_list:
-            if dt == int: return "INTEGER[]"
-            if dt == float: return "FLOAT[]"
-            if dt == str: return "TEXT[]"
-            if dt == bool: return "BOOLEAN[]"
-            if dt == uuid.UUID: return "UUID[]"
-        if dt == int: return "INTEGER"
-        if dt == float: return "FLOAT"
-        if dt == str: return "TEXT"
-        if dt == bool: return "BOOLEAN"
-        if dt == uuid.UUID: return "UUID"
-        if dt == dict: return "JSONB"
-        if inspect.isclass(dt) and issubclass(dt, BaseModel):
+            if py_type == int: return "INTEGER[]"
+            if py_type == float: return "FLOAT[]"
+            if py_type == str: return "TEXT[]"
+            if py_type == bool: return "BOOLEAN[]"
+            if py_type == uuid.UUID: return "UUID[]"
+        if py_type == int: return "INTEGER"
+        if py_type == float: return "FLOAT"
+        if py_type == str: return "TEXT"
+        if py_type == bool: return "BOOLEAN"
+        if py_type == uuid.UUID: return "UUID"
+        if py_type == dict: return "JSONB"
+        if py_type == dt.datetime: return "TIMESTAMP"
+        if py_type == dt.date: return "DATE"
+        if inspect.isclass(py_type) and issubclass(py_type, BaseModel):
             return "JSONB"
-        raise ValueError(f"Unsupported type: {dt}")
+        raise ValueError(f"Unsupported type: {py_type}")
 
     def serialize(self, value: Any) -> Any:
         """Serialize the value for the database"""
