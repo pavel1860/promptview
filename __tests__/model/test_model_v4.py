@@ -1,3 +1,4 @@
+from typing import List, Literal
 import pytest
 from promptview.model3.namespace_manager2 import NamespaceManager
 from promptview.model3.model3 import Model
