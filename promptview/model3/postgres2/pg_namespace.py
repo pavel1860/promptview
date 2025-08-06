@@ -160,6 +160,8 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
         foreign_cls = getattr(field, "foreign_cls", None)
         if foreign_cls:
             return foreign_cls.get_namespace().name
+        return None
+        # raise ValueError(f"No foreign class for field {field.name} in {self.name}")
         return field.name.removesuffix("_id") + "s"
 
 
@@ -221,6 +223,8 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
             if exists:
                 continue
             ref_table = self.foreign_key_table_for(field)
+            if ref_table is None:
+                continue
             sql = f'''
                 ALTER TABLE "{self.name}"
                 ADD CONSTRAINT "{constraint_name}"

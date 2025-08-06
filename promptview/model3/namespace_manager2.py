@@ -92,13 +92,19 @@ class NamespaceManager:
         # 2. Resolve forward refs on all models before parsing
         for model_cls in list(globalns.values()):
             for field_name, field in model_cls.model_fields.items():
-                field.annotation = resolve_annotation(field.annotation, globalns)
+                try:
+                    field.annotation = resolve_annotation(field.annotation, globalns)
+                except ValueError as e:
+                    e.add_note(f"Failed to resolve annotation for field {field_name} in {model_cls.__name__}")
+                    raise e
 
         # 3. Now run all parsers with resolved annotations
         for ns in cls._registry.values():
             if hasattr(ns, "_pending_field_parser"):
                 ns._pending_field_parser.parse()
                 del ns._pending_field_parser
+                
+        for ns in cls._registry.values():       
             if hasattr(ns, "_pending_relation_parser"):
                 ns._pending_relation_parser.parse()
                 del ns._pending_relation_parser
