@@ -19,6 +19,7 @@ class BaseFieldInfo:
         index: bool = False,
         on_delete: str = "CASCADE",
         on_update: str = "CASCADE",
+        enum_values: Optional[List[str]] = None,
     ):
         self.name = name
         self.field_type = field_type
@@ -32,7 +33,7 @@ class BaseFieldInfo:
         self.index = index
         self.on_delete = on_delete
         self.on_update = on_update
-
+        self.enum_values = enum_values
         # For key fields (uuid or int)
         if self.is_key:
             self.key_type = "uuid" if field_type is uuid.UUID else "int"

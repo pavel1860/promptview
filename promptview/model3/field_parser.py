@@ -1,6 +1,8 @@
 # model/field_parser.py
 
-from typing import TYPE_CHECKING, Type, Any, Dict, Union, get_args, get_origin
+from enum import Enum
+import inspect
+from typing import TYPE_CHECKING, Literal, Type, Any, Dict, Union, get_args, get_origin
 from pydantic.fields import FieldInfo
 from promptview.model.util import unpack_extra
 
@@ -23,6 +25,18 @@ class FieldParser:
         self.namespace = namespace
         self.reserved_fields = reserved_fields or set()
         self.field_extras = {}
+        
+        
+    @classmethod
+    def parse_enum(cls, field_type: type[Any]) -> tuple[bool, list[Any] | None, bool]:
+        """Detect enum/Literal fields.
+        Returns: (is_enum, values, is_literal)
+        """
+        if get_origin(field_type) is Literal:
+            return True, list(get_args(field_type)), True
+        if inspect.isclass(field_type) and issubclass(field_type, Enum):
+            return True, [e.value for e in field_type], False
+        return False, None, False
 
     def parse(self):
         for field_name, field_info in self.model_cls.model_fields.items():
@@ -50,6 +64,7 @@ class FieldParser:
 
     def _register_scalar_field(self, field_name, field_type, field_info, extra):
         # Build backend-specific FieldInfo via namespace
+        is_enum, enum_values, is_literal = self.parse_enum(field_type)
         field_obj = self.namespace.make_field_info(
             name=field_name,
             field_type=field_type,
@@ -61,5 +76,6 @@ class FieldParser:
             index=extra.get("index", False),
             on_delete=extra.get("on_delete", "CASCADE"),
             on_update=extra.get("on_update", "CASCADE"),
+            enum_values=enum_values if is_enum else None
         )
         self.namespace.add_field(field_obj)

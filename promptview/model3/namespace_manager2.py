@@ -102,6 +102,7 @@ class NamespaceManager:
 
     @classmethod
     def drop_all_tables(cls):
-        from promptview.model.postgres.builder import SQLBuilder
+        from promptview.model.postgres.builder import SQLBuilder        
         SQLBuilder.drop_all_tables()
+        SQLBuilder.drop_enum_types()
         

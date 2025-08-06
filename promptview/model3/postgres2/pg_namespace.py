@@ -37,6 +37,10 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
         return f"<PgNamespace {self.name} fields={[f.name for f in self.iter_fields()]}>"
 
     def make_field_info(self, **kwargs) -> PgFieldInfo:
+        enum_values = kwargs.get("enum_values")
+        if enum_values and not kwargs.get("sql_type"):
+            # consistent enum type name
+            kwargs["sql_type"] = f"{self.name}_{kwargs['name']}_enum"
         return PgFieldInfo(**kwargs)
 
 
@@ -162,6 +166,10 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
     
     async def create_namespace(self, dry_run: bool = False) -> str | None:
         """Creates the table and indexes but no foreign keys."""
+        # Create Postgres enums first
+        for field in self.iter_fields():
+            if getattr(field, "enum_values", None):
+                await self.create_enum(field.sql_type, field.enum_values)
         cols = []
         for field in self.iter_fields():
             if field.is_primary_key:
@@ -184,6 +192,19 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
                 sql = f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{self.name}" ("{field.name}");'
                 await PGConnectionManager.execute(sql)
         return None
+    
+    
+    async def create_enum(self, enum_name: str, enum_values: list[str]):
+        enum_clause = ", ".join([f"'{v}'" for v in enum_values])
+        query = f"""
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = '{enum_name}') THEN
+                    CREATE TYPE {enum_name} AS ENUM ({enum_clause});
+                END IF;
+            END $$;
+        """
+        await PGConnectionManager.execute(query)
 
 
     async def add_foreign_keys(self, dry_run: bool = False) -> list[str]:

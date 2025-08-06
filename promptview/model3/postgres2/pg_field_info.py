@@ -28,6 +28,7 @@ class PgFieldInfo(BaseFieldInfo):
         index: bool = False,
         on_delete: str = "CASCADE",
         on_update: str = "CASCADE",
+        enum_values: Optional[List[str]] = None,
     ):
         super().__init__(
             name=name,
@@ -42,6 +43,7 @@ class PgFieldInfo(BaseFieldInfo):
             index=index,
             on_delete=on_delete,
             on_update=on_update,
+            enum_values=enum_values,
         )
 
         self.sql_type = sql_type or self._resolve_sql_type()
@@ -56,6 +58,8 @@ class PgFieldInfo(BaseFieldInfo):
         dt = self.data_type
         if self.is_vector:
             return f"VECTOR({self.dimension})"
+        if getattr(self, "enum_values", None):
+            return f"{self.name}_enum"  # enum type name from create_enum()
         if self.is_list:
             if dt == int: return "INTEGER[]"
             if dt == float: return "FLOAT[]"
