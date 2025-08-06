@@ -129,42 +129,63 @@ class PgSelectQuerySet(Generic[MODEL]):
                                    Column(rel.primary_key, self.from_table)), join_type)
         return self
 
-    def include(self, target: Type[Model]):
-        rel = self.namespace.get_relation_by_type(target)
+    def include(self, target):
+        """
+        Eager-load a related model or a nested query set.
+
+        Supports:
+            .include(TargetModel)
+            .include(select(TargetModel).include(AnotherModel))
+        """
+        # --- 1) Determine the target model class ---
+        from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+
+        if isinstance(target, PgSelectQuerySet):
+            target_model_cls = target.model_class
+            subq = target.query  # use the query the caller already built
+        elif isinstance(target, type) and issubclass(target, Model):
+            target_model_cls = target
+            # build default SELECT * subquery
+            target_ns = target_model_cls.get_namespace()
+            target_table = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
+            subq = SelectQuery().from_(target_table)
+            subq.select(*[Column(f.name, target_table) for f in target_ns.iter_fields()])
+        else:
+            raise TypeError(
+                f".include() expects a Model subclass or PgSelectQuerySet, got {type(target)}"
+            )
+
+        # --- 2) Locate the relation info ---
+        rel = self.namespace.get_relation_by_type(target_model_cls)
         if not rel:
-            raise ValueError(f"No relation to {target.__name__}")
+            raise ValueError(f"No relation to {target_model_cls.__name__}")
 
-        target_ns = rel.foreign_cls.get_namespace()
-        target_table = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
+        target_ns = target_model_cls.get_namespace()
 
-        # Build a query with all fields from target model
-        subq = SelectQuery().from_(target_table)
-        subq.select(*[Column(f.name, target_table) for f in target_ns.iter_fields()])
-
+        # --- 3) Many-to-Many case ---
         if rel.is_many_to_many:
             junction_ns = rel.relation_model.get_namespace()
-            target_ns = rel.foreign_cls.get_namespace()
-
             jt = Table(junction_ns.name, alias=self._gen_alias(junction_ns.name))
             tt = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
 
-            # Subquery: select all target model rows linked through junction
-            subq = SelectQuery().from_(tt)
-            subq.select(*[Column(f.name, tt) for f in target_ns.iter_fields()])
+            # If the subquery was not provided by the user, create a basic one for M:N
+            if not isinstance(target, PgSelectQuerySet):
+                subq = SelectQuery().from_(tt)
+                subq.select(*[Column(f.name, tt) for f in target_ns.iter_fields()])
 
-            # Join target to junction
+            # Always join the junction table *inside* the subquery
             subq.join(
                 jt,
                 Eq(Column(rel.junction_keys[1], jt), Column(target_ns.primary_key, tt))
             )
 
-            # Filter by matching current model's PK in junction table
+            # Build NestedSubquery correlated on the outer PK and junction key[0]
             nested = Column(
                 rel.name,
                 NestedSubquery(
                     subq,
                     rel.name,
-                    Column(self.namespace.primary_key, self.from_table),
+                    Column(rel.primary_key, self.from_table),
                     Column(rel.junction_keys[0], jt),
                     type=rel.type
                 )
@@ -172,24 +193,29 @@ class PgSelectQuerySet(Generic[MODEL]):
             nested.alias = rel.name
             self.query.columns.append(nested)
 
+        # --- 4) One-to-One or One-to-Many case ---
         else:
+            target_table = None
+            if not isinstance(target, PgSelectQuerySet):
+                target_table = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
+                
+            if isinstance(target, PgSelectQuerySet):
+                foreign_col_table = target.from_table
+            else:
+                foreign_col_table = target_table or Table(target_ns.name)
+
             nested = Column(
                 rel.name,
                 NestedSubquery(
                     subq,
                     rel.name,
                     Column(rel.primary_key, self.from_table),
-                    Column(rel.foreign_key, target_table),
+                   Column(rel.foreign_key, foreign_col_table),
                     type=rel.type
                 )
             )
             nested.alias = rel.name
             self.query.columns.append(nested)
-
-        # # If not already grouped, group by our PK
-        # if not self.query.group_by:
-        #     pk = self.namespace.primary_key.name
-        #     self.query.group_by = [Column(pk, self.from_table)]
 
         return self
 
