@@ -96,7 +96,7 @@ class QdrantNamespace(BaseNamespace["Model", QdrantFieldInfo]):
         )
 
         dump.update(vector_payload)
-        dump.update({namespace.primary_key.name: point_id})
+        dump.update({namespace.primary_key: point_id})
         return dump
 
 
@@ -124,7 +124,7 @@ class QdrantNamespace(BaseNamespace["Model", QdrantFieldInfo]):
         client = QdrantConnectionManager.get_client()
         vecs = []
         for upd in updates:
-            pid = upd[self.primary_key.name]
+            pid = upd[self.primary_key]
             vdict = {f.name: upd[f.name] for f in self._vector_fields() if f.name in upd}
             if not vdict:
                 raise ValueError("No vector field in update")

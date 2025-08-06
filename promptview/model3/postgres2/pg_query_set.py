@@ -155,7 +155,7 @@ class PgSelectQuerySet(Generic[MODEL]):
             # Join target to junction
             subq.join(
                 jt,
-                Eq(Column(rel.junction_keys[1], jt), Column(target_ns.primary_key.name, tt))
+                Eq(Column(rel.junction_keys[1], jt), Column(target_ns.primary_key, tt))
             )
 
             # Filter by matching current model's PK in junction table
@@ -164,7 +164,7 @@ class PgSelectQuerySet(Generic[MODEL]):
                 NestedSubquery(
                     subq,
                     rel.name,
-                    Column(self.namespace.primary_key.name, self.from_table),
+                    Column(self.namespace.primary_key, self.from_table),
                     Column(rel.junction_keys[0], jt),
                     type=rel.type
                 )

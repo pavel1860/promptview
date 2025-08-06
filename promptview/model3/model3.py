@@ -62,7 +62,7 @@ class Model(BaseModel, metaclass=ModelMeta):
     @property
     def primary_id(self):
         ns = self.get_namespace()
-        return getattr(self, ns.primary_key.name)
+        return getattr(self, ns.primary_key)
 
     @classmethod
     def query(cls):

@@ -49,6 +49,7 @@ class NamespaceManager:
 
     @classmethod
     async def initialize_all(cls):
+        cls.finalize()
         # 1️⃣ Create all tables first
         for ns in cls._registry.values():
             if hasattr(ns, "create_namespace"):

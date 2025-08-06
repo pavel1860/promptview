@@ -19,7 +19,6 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
     
     def __init__(self, name: str, *fields: PgFieldInfo):
         super().__init__(name, db_type="postgres")
-        self._primary_key: Optional[PgFieldInfo] = None
         for field in fields:
             self._register_field(field)
 
@@ -33,16 +32,6 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
         
         
 
-    @property
-    def primary_key(self) -> PgFieldInfo:
-        if self._primary_key is None:
-            for field in self.iter_fields():
-                if field.is_primary_key:
-                    self._primary_key = field
-                    break
-            else:
-                raise ValueError(f"No primary key defined for namespace '{self.name}'")
-        return self._primary_key
 
     def __repr__(self):
         return f"<PgNamespace {self.name} fields={[f.name for f in self.iter_fields()]}>"

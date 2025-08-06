@@ -50,6 +50,9 @@ class RelationParser:
             args = get_args(annotation)
             is_list = origin in (list, List)
             related_cls = args[0] if is_list and args else annotation
+            if not isinstance(related_cls, Type) or not issubclass(related_cls, Model):
+                raise ValueError(f"Related class {related_cls} is not a subclass of Model")
+            rel_ns = related_cls.get_namespace()
 
             junction_model = extra.get("junction_model")
             junction_keys = extra.get("junction_keys")
@@ -57,8 +60,8 @@ class RelationParser:
             # --- 3) Create the RelationInfo ---
             rel_info = self.namespace.add_relation(
                 name=extra.get("name") or field_name,
-                primary_key=extra.get("primary_key", "id"),
-                foreign_key=extra.get("foreign_key", "id"),
+                primary_key=extra.get("primary_key") or self.namespace.primary_key,
+                foreign_key=extra.get("foreign_key") or rel_ns.primary_key,
                 foreign_cls=related_cls,  # May be forward ref
                 on_delete=extra.get("on_delete", "CASCADE"),
                 on_update=extra.get("on_update", "CASCADE"),

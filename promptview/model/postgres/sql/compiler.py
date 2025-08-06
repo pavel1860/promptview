@@ -82,6 +82,8 @@ class Compiler:
             if expr.value == "*":
                 return "*"
             elif expr.inline:
+                if expr.no_quote:
+                    return expr.value
                 return repr(expr.value)  # inline as string
             else:
                 return self.add_param(expr.value)

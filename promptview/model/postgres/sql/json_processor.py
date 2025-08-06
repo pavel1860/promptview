@@ -1,7 +1,7 @@
 from promptview.model.postgres.sql.queries import SelectQuery, NestedSubquery,  Table, Column, param
 from promptview.model.postgres.sql.compiler import Compiler
 from promptview.model.postgres.sql.joins import InnerJoin, LeftJoin, RightJoin, FullJoin
-from promptview.model.postgres.sql.expressions import Eq, Function, Coalesce, Value, Expression
+from promptview.model.postgres.sql.expressions import Eq, Function, Coalesce, Null, Value, Expression
 from promptview.model.postgres.sql.joins import Join
 from copy import deepcopy
 
@@ -80,7 +80,9 @@ class Preprocessor:
         json_obj = Function("jsonb_build_object", *json_pairs)
                     
         json_obj = self._query_to_json(query, json_obj, joins=joins, wrap_in_array=wrap_in_array)
-        return Coalesce(json_obj, Value("[]", inline=True))
+        
+        default_value = Value("[]", inline=True) if wrap_in_array else Null()
+        return Coalesce(json_obj, default_value)
         
 
     def process_query(self, query: SelectQuery) -> SelectQuery | Expression:

@@ -21,7 +21,7 @@ class BaseNamespace(Generic[MODEL, FIELD]):
         self._relations: dict[str, RelationInfo] = {}
         self._model_cls: Optional[Type[MODEL]] = None
         self._ctx_model = contextvars.ContextVar(f"{name}_ctx", default=None)
-
+        self._primary_key_field: Optional[FIELD] = None
         # Pending parsers for deferred execution
         self._pending_field_parser: Optional["FieldParser"] = None
         self._pending_relation_parser: Optional["RelationParser"] = None
@@ -38,7 +38,17 @@ class BaseNamespace(Generic[MODEL, FIELD]):
     def add_field(self, field: FIELD):
         if field.name in self._fields:
             raise ValueError(f"Field {field.name} already exists in {self.name}")
+        if field.is_primary_key:
+            if self._primary_key_field:
+                raise ValueError(f"Primary key already defined: {self._primary_key_field.name}")
+            self._primary_key_field = field
         self._fields[field.name] = field
+        
+    @property
+    def primary_key(self) -> str:
+        if self._primary_key_field is None:
+            raise ValueError(f"No primary key defined for namespace '{self.name}'")
+        return self._primary_key_field.name
 
     def get_field(self, name: str) -> FIELD:
         return self._fields[name]
