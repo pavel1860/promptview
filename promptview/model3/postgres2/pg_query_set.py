@@ -237,6 +237,15 @@ class PgSelectQuerySet(Generic[MODEL]):
 
         return self.model_class(**data)
     
+    
+    def print(self):
+        sql, params = self.render()
+        print("----- QUERY -----")
+        print(sql)
+        print("----- PARAMS -----")
+        print(params)
+        return self
+    
     def render(self) -> tuple[str, list[Any]]:
         compiler = Compiler()
         processor = Preprocessor()
