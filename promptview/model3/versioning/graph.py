@@ -1,6 +1,8 @@
 from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import List, Optional, Tuple
+
+from promptview.model3.versioning.backends.postgres import PostgresBranchManager, PostgresTurnManager
 from .models import Branch, Turn, TurnStatus
 from .managers import BranchManager, TurnManager
 
@@ -9,9 +11,9 @@ class VersionGraph:
     Unified view of branches and turns, regardless of backend.
     """
 
-    def __init__(self, branch_mgr: BranchManager, turn_mgr: TurnManager):
-        self.branch_mgr = branch_mgr
-        self.turn_mgr = turn_mgr
+    def __init__(self, branch_mgr: BranchManager | None = None, turn_mgr: TurnManager | None = None):
+        self.branch_mgr = branch_mgr or PostgresBranchManager()
+        self.turn_mgr = turn_mgr or PostgresTurnManager()
 
     async def branch_lineage(self, branch_id: int) -> List[Branch]:
         """

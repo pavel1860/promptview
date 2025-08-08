@@ -7,7 +7,7 @@ import re
 from typing import Literal
 
 from .joins import InnerJoin, Join
-from .expressions import Function, Coalesce, Eq, Expression, Neq, Gt, Gte, Lt, Lte, OrderBy, Value, WhereClause, json_build_object, param, In
+from .expressions import Function, Coalesce, Eq, Expression, Neq, Gt, Gte, Lt, Lte, OrderBy, RawSQL, Value, WhereClause, json_build_object, param, In
 
 class Table:
     def __init__(self, name, alias=None):
@@ -285,6 +285,34 @@ class NestedSubquery:
             return Join(self.foreign_col.table, Eq(self.foreign_col, self.junction_col[1]))
         else:
             return Join(self.primary_col.table, self.get_where_clause())
+
+
+class CTENode:
+    """
+    A first-class container for a named subquery (CTE).
+    - name: the CTE name (table-like identifier)
+    - query: SelectQuery or RawSQL that defines the CTE
+    - recursive: mark the CTE as recursive (Postgres)
+    - options: backend-specific knobs (kept generic; backend may ignore)
+    """
+    def __init__(
+        self,
+        name: str,
+        query: "SelectQuery | RawSQL",
+        *,
+        recursive: bool = False,
+        materialized: Literal["MATERIALIZED", "NOT MATERIALIZED"] | None = None,
+        depends_on: list[str] | None = None,
+    ):
+        self.name = name
+        self.query = query
+        self.recursive = recursive
+        self.materialized = materialized
+        self.depends_on = depends_on or []
+
+    def as_table(self, alias: str | None = None) -> "Table":
+        return Table(self.name, alias=alias)
+
 
 
 class Subquery:

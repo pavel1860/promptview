@@ -143,16 +143,14 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
 
     
     async def get(self, id: Any) -> dict[str, Any] | None:
-        pk_field = self.primary_key
-        sql = f'SELECT * FROM "{self.name}" WHERE "{pk_field.name}" = $1'
+        sql = f'SELECT * FROM "{self.name}" WHERE "{self.primary_key}" = $1'
         result = await PGConnectionManager.fetch_one(sql, id)
         return dict(result) if result else None
 
 
     
     async def delete(self, id: Any) -> dict[str, Any] | None:
-        pk_field = self.primary_key
-        sql = f'DELETE FROM "{self.name}" WHERE "{pk_field.name}" = $1 RETURNING *'
+        sql = f'DELETE FROM "{self.name}" WHERE "{self.primary_key}" = $1 RETURNING *'
         result = await PGConnectionManager.fetch_one(sql, id)
         return dict(result) if result else None
 

@@ -1,17 +1,59 @@
 from functools import reduce
 import json
 from operator import and_
-from typing import Any, Callable, Generator, Generic, List, Self, Type
+from typing import Any, Callable, Generator, Generic, List, OrderedDict, Self, Type, Union
 from typing_extensions import TypeVar
 from promptview.model3.model3 import Model
 from promptview.model3.relation_info import RelationInfo
-from ..sql.queries import SelectQuery, Table, Column, NestedSubquery, Subquery
-from ..sql.expressions import Eq, Expression, param, OrderBy
+from ..sql.queries import CTENode, SelectQuery, Table, Column, NestedSubquery, Subquery
+from ..sql.expressions import Eq, Expression, RawSQL, param, OrderBy
 from ..sql.compiler import Compiler
 from ..sql.json_processor import Preprocessor
 from promptview.utils.db_connections import PGConnectionManager
 
 MODEL = TypeVar("MODEL", bound=Model)
+
+
+
+class CTERegistry:
+    def __init__(self):
+        # name -> (query, recursive)
+        self._entries: "OrderedDict[str, tuple[Any, bool]]" = OrderedDict()
+        self.recursive: bool = False
+
+    def register_raw(self, name: str, query: Union[SelectQuery, RawSQL], *, recursive: bool = False, replace: bool = True):
+        if replace or name not in self._entries:
+            if name in self._entries:
+                del self._entries[name]
+            self._entries[name] = (query, recursive)
+        if recursive:
+            self.recursive = True
+
+    def register_node(self, node: "CTENode", *, replace: bool = True):
+        self.register_raw(node.name, node.query, recursive=node.recursive, replace=replace)
+
+    def merge(self, other: "CTERegistry"):
+        # last-writer-wins; preserve incoming order
+        for name, (query, rec) in other._entries.items():
+            self.register_raw(name, query, recursive=rec, replace=True)
+        if other.recursive:
+            self.recursive = True
+
+    def import_from_select_query(self, q: SelectQuery, *, clear_source: bool = True):
+        if q.ctes:
+            for name, sub in q.ctes:
+                # compiler expects name->query tuples; no 'recursive' per item in your current shape
+                self.register_raw(name, sub, recursive=q.recursive)
+        if clear_source:
+            q.ctes = []
+            q.recursive = False
+
+    def to_list(self) -> list[tuple[str, Any]]:
+        # drop the recursive flag per-item; Compiler already takes query.recursive
+        return [(name, tup[0]) for name, tup in self._entries.items()]
+
+
+
 
 
 class QueryProxy:
@@ -47,7 +89,13 @@ class QuerySetSingleAdapter(Generic[T_co]):
     
 
 class PgSelectQuerySet(Generic[MODEL]):
-    def __init__(self, model_class: Type[MODEL], query: SelectQuery | None = None, alias: str | None = None):
+    def __init__(
+        self, 
+        model_class: Type[MODEL], 
+        query: SelectQuery | None = None, 
+        alias: str | None = None, 
+        cte_registry: CTERegistry | None = None
+    ):
         self.model_class = model_class
         self.namespace = model_class.get_namespace()
         self.alias_lookup = {}
@@ -56,6 +104,7 @@ class PgSelectQuerySet(Generic[MODEL]):
         self.table_lookup = {str(table): table}
         # self.alias_lookup = {table.alias: self.namespace.name}
         self._params = []
+        self._cte_registry = cte_registry or CTERegistry()
 
     def _gen_alias(self, name: str) -> str:
         base = name[0].lower()
@@ -72,6 +121,60 @@ class PgSelectQuerySet(Generic[MODEL]):
     
     def __await__(self):
         return self.execute().__await__()
+    
+    
+    
+    def _adopt_registry_from(self, other):
+        # Merge if the other thing can carry CTEs
+        if isinstance(other, PgSelectQuerySet):
+            self._cte_registry.merge(other._cte_registry)
+            other._cte_registry = self._cte_registry
+        elif isinstance(other, SelectQuery):
+            self._cte_registry.import_from_select_query(other, clear_source=True)
+            
+    def use_cte(self, cte: CTENode, *, replace: bool = True) -> "PgSelectQuerySet[MODEL]":
+        # If cte.query is a SelectQuery with its own ctes, import them
+        if isinstance(cte.query, SelectQuery):
+            self._adopt_registry_from(cte.query)
+        self._cte_registry.register_node(cte, replace=replace)
+        return self
+
+    def join_cte(
+        self,
+        cte: CTENode,
+        local_col: str,
+        cte_col: str,
+        alias: str | None = None,
+        join_type: str = "LEFT",
+    ) -> "PgSelectQuerySet[MODEL]":
+        self.use_cte(cte)
+        t = cte.as_table(alias or self._gen_alias(cte.name))
+        self.query.join(
+            t,
+            Eq(Column(local_col, self.from_table), Column(cte_col, t)),
+            join_type
+        )
+        return self
+
+    def from_cte(self, cte: CTENode, alias: str | None = None) -> "PgSelectQuerySet[MODEL]":
+        self.use_cte(cte)
+        self.query.from_(cte.as_table(alias or self._gen_alias(cte.name)))
+        return self
+
+    # Keep your existing with_cte for raw pieces too
+    def with_cte(
+        self,
+        name: str,
+        query: Union[SelectQuery, "PgSelectQuerySet[Any]", RawSQL],
+        recursive: bool = False,
+        *,
+        replace: bool = True
+    ) -> "PgSelectQuerySet[MODEL]":
+        inner = query.query if isinstance(query, PgSelectQuerySet) else cast(Union[SelectQuery, RawSQL], query)
+        if isinstance(inner, SelectQuery):
+            self._adopt_registry_from(inner)
+        self._cte_registry.register_raw(name, inner, recursive=recursive, replace=replace)
+        return self
 
     def select(self, *fields: str):
         if len(fields) == 1 and fields[0] == "*":
@@ -335,6 +438,9 @@ class PgSelectQuerySet(Generic[MODEL]):
         return self
     
     def render(self) -> tuple[str, list[Any]]:
+        self.query.ctes = self._cte_registry.to_list()
+        self.query.recursive = self._cte_registry.recursive
+        # print(self.query.ctes)
         compiler = Compiler()
         processor = Preprocessor()
         compiled = processor.process_query(self.query)
@@ -342,6 +448,8 @@ class PgSelectQuerySet(Generic[MODEL]):
         return sql, params
 
     async def execute(self) -> List[MODEL]:
+        self.query.ctes = self._cte_registry.to_list()
+        self.query.recursive = self._cte_registry.recursive
         compiler = Compiler()
         processor = Preprocessor()
         compiled = processor.process_query(self.query)
@@ -356,4 +464,5 @@ class PgSelectQuerySet(Generic[MODEL]):
 
 
 def select(model_class: Type[MODEL]) -> "PgSelectQuerySet[MODEL]":
-    return PgSelectQuerySet(model_class).select("*")
+    return model_class.query().select("*")
+    # return PgSelectQuerySet(model_class).select("*")

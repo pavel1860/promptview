@@ -31,6 +31,26 @@ class Model(BaseModel, metaclass=ModelMeta):
     async def initialize(cls):
         """Create DB table/collection for this model."""
         await cls.get_namespace().create_namespace()
+        
+    def __enter__(self):
+        """Enter the context"""
+        ns = self.get_namespace()
+        self._ctx_token = ns.set_ctx(self)
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Exit the context"""
+        ns = self.get_namespace()
+        ns.set_ctx(None)
+        self._ctx_token = None
+        
+    @classmethod
+    def current(cls) -> Self:
+        return cls.get_namespace().get_ctx()
+    
+    @classmethod
+    def current_or_none(cls) -> Self | None:
+        return cls.get_namespace().get_ctx_or_none()
 
     @classmethod
     async def get(cls: Type[Self], id: Any) -> Self:
@@ -75,8 +95,9 @@ class Model(BaseModel, metaclass=ModelMeta):
         return getattr(self, ns.primary_key)
 
     @classmethod
-    def query(cls):
-        return cls.get_namespace().query()
+    def query(cls, *args, **kwargs):
+        from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+        return PgSelectQuerySet(cls)
 
 
 

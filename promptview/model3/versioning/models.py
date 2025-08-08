@@ -4,8 +4,10 @@ import datetime as dt
 import contextvars
 from typing import List, Type, TypeVar, Self, Any
 
+
 from promptview.model3.model3 import Model
-from promptview.model3.fields import KeyField, ModelField, RelationField  # your new ORM imports
+from promptview.model3.fields import KeyField, ModelField, RelationField
+from promptview.model3.sql.queries import CTENode, RawSQL
 
 # ContextVars for current branch/turn
 _curr_branch = contextvars.ContextVar("curr_branch", default=None)
@@ -34,13 +36,34 @@ class Branch(Model):
     turns: List["Turn"] = RelationField("Turn", foreign_key="branch_id")
     children: List["Branch"] = RelationField("Branch", foreign_key="forked_from_branch_id")
 
+        
+    
     @classmethod
-    def current(cls) -> "Branch | None":
-        return _curr_branch.get()
+    def recursive_cte(cls, branch_id: int) -> CTENode:
+        sql = f"""
+            SELECT
+                id,
+                name,
+                forked_from_index,
+                forked_from_branch_id,
+                current_index AS start_turn_index
+            FROM branches
+            WHERE id = {branch_id}
 
-    @classmethod
-    def set_current(cls, branch: "Branch"):
-        _curr_branch.set(branch)
+            UNION ALL
+
+            SELECT
+                b.id,
+                b.name,
+                b.forked_from_index,
+                b.forked_from_branch_id,
+                bh.forked_from_index AS start_turn_index
+            FROM branches b
+            JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id
+        """
+        return CTENode("branch_hierarchy", RawSQL(sql), recursive=True)
+    
+
 
 
 class Turn(Model):
@@ -56,13 +79,7 @@ class Turn(Model):
 
     forked_branches: List["Branch"] = RelationField("Branch", foreign_key="forked_from_turn_id")
 
-    @classmethod
-    def current(cls) -> "Turn | None":
-        return _curr_turn.get()
-
-    @classmethod
-    def set_current(cls, turn: "Turn"):
-        _curr_turn.set(turn)
+    
         
         
     async def commit(self):
@@ -78,6 +95,13 @@ class Turn(Model):
         if reason:
             self.message = reason
         return await self.save()
+    
+    @classmethod
+    def query(cls: Type[Self], branch: Branch | None = None, **kwargs):
+        from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+        branch_id = branch.id if branch else Branch.current().id
+        return PgSelectQuerySet(cls).use_cte(Branch.recursive_cte(branch_id))
+        
 
 
 class VersionedModel(Model):
@@ -103,6 +127,9 @@ class VersionedModel(Model):
         if turn is None:
             turn = Turn.current()
         return turn.id if isinstance(turn, Turn) else turn
+    
+    
+    
 
 
 class ArtifactModel(VersionedModel):
