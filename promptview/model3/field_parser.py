@@ -78,5 +78,6 @@ class FieldParser:
             on_update=extra.get("on_update", "CASCADE"),
             enum_values=enum_values if is_enum else None,
             order_by=extra.get("order_by", False),
+            foreign_cls=extra.get("foreign_cls", None),
         )
         self.namespace.add_field(field_obj)

@@ -122,7 +122,7 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
             index += 1
 
         # WHERE clause for primary key
-        pk_field = self.primary_key
+        pk_field = self.primary_key_field
         where_placeholder = f"${index}"
         set_clause = ", ".join(set_clauses)
         values.append(pk_field.serialize(id))

@@ -26,6 +26,7 @@ def ModelField(
     order_by: bool = False,
     db_type: str | None = None,
     description: str | None = _Unset,
+    foreign_cls: "Type[Model] | None" = None,
 ) -> Any:
     """Define a model field with ORM-specific metadata"""
     # Create extra metadata for the field
@@ -37,6 +38,11 @@ def ModelField(
         extra["db_type"] = db_type
     if foreign_key:
         extra["foreign_key"] = True
+        default = None
+    if foreign_cls:
+        if not foreign_key:
+            raise ValueError("foreign_key must be provided if foreign_cls is provided")
+        extra["foreign_cls"] = foreign_cls
         default = None
     # Create the field with the extra metadata
     params = {

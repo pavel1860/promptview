@@ -30,6 +30,7 @@ class PgFieldInfo(BaseFieldInfo):
         on_update: str = "CASCADE",
         enum_values: Optional[List[str]] = None,
         order_by: bool = False,
+        foreign_cls: Optional[Type] = None,
     ):
         super().__init__(
             name=name,
@@ -46,6 +47,7 @@ class PgFieldInfo(BaseFieldInfo):
             on_update=on_update,
             enum_values=enum_values,
             order_by=order_by,
+            foreign_cls=foreign_cls,
         )
 
         self.sql_type = sql_type or self._resolve_sql_type()

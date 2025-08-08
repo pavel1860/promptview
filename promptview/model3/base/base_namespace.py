@@ -49,9 +49,13 @@ class BaseNamespace(Generic[MODEL, FIELD]):
         
     @property
     def primary_key(self) -> str:
+        return self.primary_key_field.name
+    
+    @property
+    def primary_key_field(self) -> FIELD:
         if self._primary_key_field is None:
             raise ValueError(f"No primary key defined for namespace '{self.name}'")
-        return self._primary_key_field.name
+        return self._primary_key_field
     
     @property
     def default_order_field(self) -> str:
@@ -121,10 +125,17 @@ class BaseNamespace(Generic[MODEL, FIELD]):
     # Context handling
     # -------------------------
     def set_ctx(self, model: MODEL):
-        self._ctx_model.set(model)
+        return self._ctx_model.set(model)
 
     def get_ctx(self) -> Optional[MODEL]:
         return self._ctx_model.get()
+    
+        
+    def reset_ctx(self, token):
+        """
+        Restore the previous context model using the token from set_ctx().
+        """
+        self._ctx_model.reset(token)
 
     # -------------------------
     # Model instantiation

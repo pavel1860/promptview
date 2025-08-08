@@ -21,6 +21,7 @@ class BaseFieldInfo:
         on_update: str = "CASCADE",
         enum_values: Optional[List[str]] = None,
         order_by: bool = False,
+        foreign_cls: Optional[Type] = None,
     ):
         self.name = name
         self.field_type = field_type
@@ -36,6 +37,7 @@ class BaseFieldInfo:
         self.on_update = on_update
         self.enum_values = enum_values
         self.order_by = order_by
+        self.foreign_cls = foreign_cls
         # For key fields (uuid or int)
         if self.is_key:
             self.key_type = "uuid" if field_type is uuid.UUID else "int"

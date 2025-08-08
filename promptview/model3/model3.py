@@ -41,20 +41,30 @@ class Model(BaseModel, metaclass=ModelMeta):
 
     async def save(self, *args, **kwargs) -> Self:
         ns = self.get_namespace()
+        
+        pk_value = getattr(self, ns.primary_key, None)
+        
+        for field in ns.iter_fields():
+            if field.is_foreign_key and getattr(self, field.name) is None:
+                fk_cls = field.foreign_cls
+                if fk_cls:
+                    ctx_instance = fk_cls.get_namespace().get_ctx()
+                    if ctx_instance:
+                        setattr(self, field.name, ctx_instance.primary_id)
+
         dump = self.model_dump()
-        result = await ns.insert(dump)
+
+        if pk_value is None:
+            # Insert new record
+            result = await ns.insert(dump)
+        else:
+            # Update existing record
+            result = await ns.update(pk_value, dump)
+
         for key, value in result.items():
             setattr(self, key, value)
         return self
 
-    async def update(self, **kwargs) -> Self:
-        ns = self.get_namespace()
-        result = await ns.update(self.primary_id, kwargs)
-        if result is None:
-            raise ValueError(f"{self.__class__.__name__} with ID '{self.primary_id}' not found")
-        for key, value in result.items():
-            setattr(self, key, value)
-        return self
 
     async def delete(self):
         return await self.get_namespace().delete(self.primary_id)
