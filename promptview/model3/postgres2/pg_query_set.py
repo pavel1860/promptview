@@ -4,6 +4,7 @@ from operator import and_
 from typing import Any, Callable, Generator, Generic, List, OrderedDict, Self, Type, Union
 from typing_extensions import TypeVar
 from promptview.model3.model3 import Model
+from promptview.model3.postgres2.rowset import RowsetNode
 from promptview.model3.relation_info import RelationInfo
 from ..sql.queries import CTENode, SelectQuery, Table, Column, NestedSubquery, Subquery
 from ..sql.expressions import Eq, Expression, RawSQL, param, OrderBy
@@ -105,6 +106,8 @@ class PgSelectQuerySet(Generic[MODEL]):
         # self.alias_lookup = {table.alias: self.namespace.name}
         self._params = []
         self._cte_registry = cte_registry or CTERegistry()
+        self._rowsets: "OrderedDict[str, RowsetNode]" = OrderedDict()
+
 
     def _gen_alias(self, name: str) -> str:
         base = name[0].lower()
@@ -132,49 +135,138 @@ class PgSelectQuerySet(Generic[MODEL]):
         elif isinstance(other, SelectQuery):
             self._cte_registry.import_from_select_query(other, clear_source=True)
             
-    def use_cte(self, cte: CTENode, *, replace: bool = True) -> "PgSelectQuerySet[MODEL]":
-        # If cte.query is a SelectQuery with its own ctes, import them
-        if isinstance(cte.query, SelectQuery):
-            self._adopt_registry_from(cte.query)
-        self._cte_registry.register_node(cte, replace=replace)
+            
+    def use_rowset(self, node: RowsetNode) -> "PgSelectQuerySet[MODEL]":
+        existing = self._rowsets.get(node.name)
+        if existing and existing.query is not node.query:
+            # simple de-dupe rename
+            suffix = len(self._rowsets) + 1
+            node = RowsetNode(
+                f"{node.name}_{suffix}", node.query,
+                model=node.model, key=node.key,
+                recursive=node.recursive, materialized=node.materialized
+            )
+        self._rowsets[node.name] = node
         return self
 
-    def join_cte(
+    def apply_rowset(
         self,
-        cte: CTENode,
-        local_col: str,
-        cte_col: str,
-        alias: str | None = None,
-        join_type: str = "LEFT",
-    ) -> "PgSelectQuerySet[MODEL]":
-        self.use_cte(cte)
-        t = cte.as_table(alias or self._gen_alias(cte.name))
-        self.query.join(
-            t,
-            Eq(Column(local_col, self.from_table), Column(cte_col, t)),
-            join_type
-        )
-        return self
-
-    def from_cte(self, cte: CTENode, alias: str | None = None) -> "PgSelectQuerySet[MODEL]":
-        self.use_cte(cte)
-        self.query.from_(cte.as_table(alias or self._gen_alias(cte.name)))
-        return self
-
-    # Keep your existing with_cte for raw pieces too
-    def with_cte(
-        self,
-        name: str,
-        query: Union[SelectQuery, "PgSelectQuerySet[Any]", RawSQL],
-        recursive: bool = False,
+        node: RowsetNode,
         *,
-        replace: bool = True
+        alias: str | None = None,
+        join_type: str = "INNER",
+        local_col: str | None = None,
+        rowset_col: str | None = None,
+        mode: str | None = None,  # "join" | "exists" | "not_exists"
     ) -> "PgSelectQuerySet[MODEL]":
-        inner = query.query if isinstance(query, PgSelectQuerySet) else cast(Union[SelectQuery, RawSQL], query)
-        if isinstance(inner, SelectQuery):
-            self._adopt_registry_from(inner)
-        self._cte_registry.register_raw(name, inner, recursive=recursive, replace=replace)
+        self.use_rowset(node)
+        if mode in ("exists", "not_exists"):
+            cte_tbl = Table(node.name, alias or self._gen_alias(node.name))
+            lc, rc = (local_col, rowset_col) if (local_col and rowset_col) else self._infer_join_cols(node)
+            sub = (
+                SelectQuery()
+                .from_(cte_tbl)
+                .select(Function("COUNT", Column("*")))
+            )
+            sub.where.and_(Eq(Column(rc, cte_tbl), Column(lc, self.from_table)))
+            cond = Function("EXISTS", sub)
+            if mode == "not_exists":
+                cond = Not(cond)
+            self.query.where.and_(cond)
+            return self
+
+        # default: JOIN
+        cte_tbl = Table(node.name, alias or self._gen_alias(node.name))
+        lc, rc = (local_col, rowset_col) if (local_col and rowset_col) else self._infer_join_cols(node)
+        self.query.join(cte_tbl, Eq(Column(lc, self.from_table), Column(rc, cte_tbl)), join_type)
         return self
+
+    def _infer_join_cols(self, node: RowsetNode) -> tuple[str, str]:
+        ns = self.namespace
+        this_model = self.model_class
+        cte_key = node.key or "id"
+
+        # Case A: rowset is same model → join on our PK to rowset key
+        if node.model is this_model:
+            return (ns.primary_key, cte_key)
+
+        # Case B: this_model declares relation to node.model
+        # Meaning: the foreign (target) table has FK → this table PK
+        # Join: this.PK == rowset.<target_fk>
+        if node.model is not None:
+            rel = ns.get_relation_by_type(node.model)
+            if rel:
+                return (rel.primary_key, rel.foreign_key)  # (local_col, rowset_col)
+
+            # Case C: node.model declares relation to this_model (reverse)
+            # Meaning: THIS table has FK → node PK
+            # Join: this.<our_fk> == rowset.<node_pk_or_key>
+            rev = node.model.get_namespace().get_relation_by_type(this_model)
+            if rev:
+                # rev.foreign_key is the FK column name on THIS table
+                return (rev.foreign_key, cte_key)
+
+        raise ValueError(
+            f"Cannot infer join columns for rowset '{node.name}'. "
+            f"Provide local_col=... and rowset_col=..., or set node.model/key."
+        )
+        
+    def _merge_rowsets_from(self, other: "PgSelectQuerySet"):
+        for node in other._rowsets.values():
+            self.use_rowset(node)
+        # hoist legacy `query.ctes` too, if any:
+        for (name, q) in other.query.ctes:
+            self.use_rowset(RowsetNode(name, q))
+        other._rowsets.clear()
+        other.query.ctes.clear()
+
+    def _materialize_rowsets(self):
+        # if you add dependencies later, topo-sort here
+        for node in self._rowsets.values():
+            self.query.with_cte(node.name, node.query, recursive=node.recursive)
+        self._rowsets.clear()
+
+
+
+    # ---------- Back-compat aliases ----------
+    def use_cte(self, node_or_name, query=None, **kw):
+        node = node_or_name if isinstance(node_or_name, RowsetNode) else RowsetNode(node_or_name, query, **kw)
+        return self.use_rowset(node)
+
+    def apply_cte(self, node_or_name, query=None, alias: str | None = None, **kw):
+        # kw may contain alias/join_type/local_col/rowset_col/mode/model/key...
+        node = node_or_name if isinstance(node_or_name, RowsetNode) else RowsetNode(node_or_name, query, model=kw.pop("model", None), key=kw.pop("key", None))
+        return self.apply_rowset(node, alias=alias, **kw)
+
+    def join_cte(self, cte_name: str, on_left: str | None = None, on_right: str | None = None, alias: str | None = None, join_type: str = "LEFT"):
+        node = self._rowsets.get(cte_name)
+        if node and (on_left is None or on_right is None):
+            on_left, on_right = self._infer_join_cols(node)
+        tbl = Table(cte_name, alias or self._gen_alias(cte_name))
+        if on_left is None or on_right is None:
+            raise ValueError("join_cte needs on_left and on_right (or a typed node registered under that name).")
+        self.query.join(tbl, Eq(Column(on_left, self.from_table), Column(on_right, tbl)), join_type)
+        return self
+    
+    def _apply_exists(self, node: RowsetNode, *, mode: str, local_col: str | None, rowset_col: str | None, alias: str | None):
+        # Build WHERE EXISTS/NOT EXISTS (SELECT 1 FROM cte WHERE join_cond)
+        from ..sql.queries import SelectQuery
+        from ..sql.expressions import Function, Eq, Not
+
+        cte_tbl = Table(node.name, alias=alias or self._gen_alias(node.name))
+        local_col, rowset_col = (local_col, rowset_col) if (local_col and rowset_col) else self._infer_join_cols(node)
+
+        sub = SelectQuery().from_(cte_tbl).select(Function("COUNT", Column("*"))).where.and_(
+            Eq(Column(rowset_col, cte_tbl), Column(local_col, self.from_table))
+        )
+        cond = Function("EXISTS", sub)
+        if mode == "not_exists":
+            cond = Not(cond)
+        self.query.where.and_(cond)
+        return self
+
+            
+
 
     def select(self, *fields: str):
         if len(fields) == 1 and fields[0] == "*":
@@ -438,9 +530,10 @@ class PgSelectQuerySet(Generic[MODEL]):
         return self
     
     def render(self) -> tuple[str, list[Any]]:
-        self.query.ctes = self._cte_registry.to_list()
-        self.query.recursive = self._cte_registry.recursive
+        # self.query.ctes = self._cte_registry.to_list()
+        # self.query.recursive = self._cte_registry.recursive
         # print(self.query.ctes)
+        self._materialize_rowsets()
         compiler = Compiler()
         processor = Preprocessor()
         compiled = processor.process_query(self.query)
@@ -448,12 +541,7 @@ class PgSelectQuerySet(Generic[MODEL]):
         return sql, params
 
     async def execute(self) -> List[MODEL]:
-        self.query.ctes = self._cte_registry.to_list()
-        self.query.recursive = self._cte_registry.recursive
-        compiler = Compiler()
-        processor = Preprocessor()
-        compiled = processor.process_query(self.query)
-        sql, params = compiler.compile(compiled)
+        sql, params = self.render()
         rows = await PGConnectionManager.fetch(sql, *params)
         return [self.parse_row(dict(row)) for row in rows]
 
