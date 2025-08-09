@@ -170,6 +170,10 @@ class ProjectionNamespace:
         return self._selection.from_table
     
     @property
+    def namespace(self):
+        return self._selection.namespace
+    
+    @property
     def filter(self):
         return self._selection.filter
             
@@ -178,31 +182,46 @@ class ProjectionNamespace:
             self.project(field_name)
         return self
     
-    def project(self, field_name: str, alias: str | None = None):
-        field = self.fields.get(field_name, None)
-        if field is not None:
-            col = Column(field.name, self.from_table)
-            self.columns.append(col)
-            return self
-        relation = self.relations.get(field_name, None)
-        if relation is not None:
-            rel_sel = SelectionNamespace(relation.foreign_namespace, self._table_registry)
-            rel_sel.as_relation(self, relation)
-            proj_ns = ProjectionNamespace(rel_sel, self._table_registry).project_all()
-            col = Column(name='', table=proj_ns, alias=field_name)
+    def project(self, target: "str | ProjectionNamespace", alias: str | None = None):
+        if isinstance(target, str):
+            field = self.fields.get(target, None)
+            if field is not None:
+                col = Column(field.name, self.from_table)
+                self.columns.append(col)
+                return self
+            relation = self.relations.get(target, None)
+            if relation is not None:
+                rel_sel = SelectionNamespace(relation.foreign_namespace, self._table_registry)
+                rel_sel.as_relation(self, relation)
+                proj_ns = ProjectionNamespace(rel_sel, self._table_registry).project_all()
+                col = Column(name='', table=proj_ns, alias=target)
+                self.columns.append(col)
+                return self
+        elif isinstance(target, ProjectionNamespace):
+            relation = self.namespace.get_relation_for_namespace(target.namespace)
+            if not relation:
+                raise ValueError(f"Relation {target.namespace.name} not found in {self.namespace.name}")
+            target._selection.as_relation(self, relation)
+            col = Column(name='', table=target, alias=relation.name)
             self.columns.append(col)
             return self
             
         raise ValueError(f"Field {field} not found in {self._selection.namespace.name}")
     
-
+    
+        
     
     def to_json(self):        
         query = self._selection.build_query()
         json_pairs = []
         for col in self.columns:
-            if isinstance(col, Column):
+            if isinstance(col.table, Table):
                 json_pairs.append(Value(col.alias or col.name))
+                json_pairs.append(col)
+            elif isinstance(col.table, ProjectionNamespace):
+                col.table = col.table.to_json()
+                json_pairs.append(Value(col.alias or col.name))
+                col.alias = ''
                 json_pairs.append(col)
             else:
                 raise ValueError("ProjectionNamespace contains non-Column objects")
