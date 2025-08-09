@@ -40,7 +40,7 @@ class PostgresBranchManager:
             name,
             from_turn.index,
             from_turn.id,
-            from_turn.index + 1,
+            from_turn.index,
             from_turn.branch_id
         ]
         row = await PGConnectionManager.fetch_one(sql, *params)

@@ -120,6 +120,12 @@ class BaseNamespace(Generic[MODEL, FIELD]):
             if rel.foreign_cls == cls:
                 return rel
         return None
+    
+    def get_relation_to_namespace(self, namespace: "BaseNamespace") -> Optional[RelationInfo]:
+        for rel in self._relations.values():
+            if rel.foreign_cls == namespace._model_cls:
+                return rel
+        return None
 
     # -------------------------
     # Context handling

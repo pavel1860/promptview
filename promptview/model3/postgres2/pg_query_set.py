@@ -1,7 +1,7 @@
 from functools import reduce
 import json
 from operator import and_
-from typing import Any, Callable, Generator, Generic, List, OrderedDict, Self, Type, Union
+from typing import Any, Callable, Generator, Generic, List, Optional, OrderedDict, Self, Type, Union
 from typing_extensions import TypeVar
 from promptview.model3.model3 import Model
 from promptview.model3.postgres2.rowset import RowsetNode
@@ -136,116 +136,135 @@ class PgSelectQuerySet(Generic[MODEL]):
             self._cte_registry.import_from_select_query(other, clear_source=True)
             
             
-    def use_rowset(self, node: RowsetNode) -> "PgSelectQuerySet[MODEL]":
-        existing = self._rowsets.get(node.name)
-        if existing and existing.query is not node.query:
-            # simple de-dupe rename
-            suffix = len(self._rowsets) + 1
-            node = RowsetNode(
-                f"{node.name}_{suffix}", node.query,
-                model=node.model, key=node.key,
-                recursive=node.recursive, materialized=node.materialized
-            )
-        self._rowsets[node.name] = node
-        return self
+    def _hoist_ctes(self, q: SelectQuery):
+        """Lift inner CTEs to the outer query once."""
+        if not getattr(q, "ctes", None):
+            return
+        # Put child's CTEs before ours so child dependencies come first
+        self.query.ctes = q.ctes + self.query.ctes
+        if q.recursive:
+            self.query.recursive = True
+        q.ctes = []
+        q.recursive = False
 
-    def apply_rowset(
+    def _default_rowset_name(self, model: Optional[Type[Model]], q: SelectQuery) -> str:
+        if model is not None:
+            return f"{model.get_namespace().name}_rowset"
+        # fallback: use the source table name
+        base = str(q.from_table) if q.from_table else "rowset"
+        return f"{base}_rowset"
+
+    def _ensure_projection(self, q: SelectQuery):
+        # If nothing is selected, select all so downstream joins can reference columns
+        if not q.columns:
+            t = q.from_table
+            q.select(Column("*", t))
+
+    def _coerce_rowset(
         self,
-        node: RowsetNode,
+        node_or_query,
         *,
-        alias: str | None = None,
-        join_type: str = "INNER",
-        local_col: str | None = None,
-        rowset_col: str | None = None,
-        mode: str | None = None,  # "join" | "exists" | "not_exists"
-    ) -> "PgSelectQuerySet[MODEL]":
-        self.use_rowset(node)
-        if mode in ("exists", "not_exists"):
-            cte_tbl = Table(node.name, alias or self._gen_alias(node.name))
-            lc, rc = (local_col, rowset_col) if (local_col and rowset_col) else self._infer_join_cols(node)
-            sub = (
-                SelectQuery()
-                .from_(cte_tbl)
-                .select(Function("COUNT", Column("*")))
-            )
-            sub.where.and_(Eq(Column(rc, cte_tbl), Column(lc, self.from_table)))
-            cond = Function("EXISTS", sub)
-            if mode == "not_exists":
-                cond = Not(cond)
-            self.query.where.and_(cond)
-            return self
+        name: Optional[str] = None,
+        model: Optional[Type[Model]] = None,
+        key: Optional[str] = "id",
+        recursive: bool = False
+    ) -> RowsetNode:
+        # From our own PgSelectQuerySet
+        from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+        if isinstance(node_or_query, RowsetNode):
+            return node_or_query
 
-        # default: JOIN
-        cte_tbl = Table(node.name, alias or self._gen_alias(node.name))
-        lc, rc = (local_col, rowset_col) if (local_col and rowset_col) else self._infer_join_cols(node)
-        self.query.join(cte_tbl, Eq(Column(lc, self.from_table), Column(rc, cte_tbl)), join_type)
-        return self
+        if isinstance(node_or_query, PgSelectQuerySet):
+            q = node_or_query.query
+            self._hoist_ctes(q)
+            self._ensure_projection(q)
+            nm = name or self._default_rowset_name(getattr(node_or_query, "model_class", None), q)
+            mdl = model or getattr(node_or_query, "model_class", None)
+            return RowsetNode(name=nm, query=q, model=mdl, key=key, recursive=recursive)
+
+        if isinstance(node_or_query, SelectQuery):
+            q = node_or_query
+            self._hoist_ctes(q)
+            self._ensure_projection(q)
+            if not name:
+                raise ValueError("apply_cte(SelectQuery ...) requires name=...")
+            return RowsetNode(name=name, query=q, model=model, key=key, recursive=recursive)
+
+        if isinstance(node_or_query, RawSQL):
+            if not name:
+                raise ValueError("apply_cte(RawSQL ...) requires name=...")
+            return RowsetNode(name=name, query=node_or_query, model=model, key=key, recursive=recursive)
+
+        raise TypeError(f"Unsupported rowset type: {type(node_or_query)}")
 
     def _infer_join_cols(self, node: RowsetNode) -> tuple[str, str]:
+        """
+        Returns (local_col_on_this_table, col_on_rowset_cte).
+        Handles forward, reverse, and same-model joins.
+        """
         ns = self.namespace
         this_model = self.model_class
         cte_key = node.key or "id"
 
-        # Case A: rowset is same model → join on our PK to rowset key
+        # same model: this.pk == cte.key
         if node.model is this_model:
             return (ns.primary_key, cte_key)
 
-        # Case B: this_model declares relation to node.model
-        # Meaning: the foreign (target) table has FK → this table PK
-        # Join: this.PK == rowset.<target_fk>
         if node.model is not None:
+            # forward: this -> node.model (FK on node model to this PK)
             rel = ns.get_relation_by_type(node.model)
             if rel:
-                return (rel.primary_key, rel.foreign_key)  # (local_col, rowset_col)
+                return (rel.primary_key, rel.foreign_key)  # this.pk == cte.fk
 
-            # Case C: node.model declares relation to this_model (reverse)
-            # Meaning: THIS table has FK → node PK
-            # Join: this.<our_fk> == rowset.<node_pk_or_key>
+            # reverse: node.model -> this (FK on THIS table to node PK)
             rev = node.model.get_namespace().get_relation_by_type(this_model)
             if rev:
-                # rev.foreign_key is the FK column name on THIS table
-                return (rev.foreign_key, cte_key)
+                return (rev.foreign_key, cte_key)  # this.fk == cte.pk/key
 
         raise ValueError(
             f"Cannot infer join columns for rowset '{node.name}'. "
             f"Provide local_col=... and rowset_col=..., or set node.model/key."
         )
-        
-    def _merge_rowsets_from(self, other: "PgSelectQuerySet"):
-        for node in other._rowsets.values():
-            self.use_rowset(node)
-        # hoist legacy `query.ctes` too, if any:
-        for (name, q) in other.query.ctes:
-            self.use_rowset(RowsetNode(name, q))
-        other._rowsets.clear()
-        other.query.ctes.clear()
 
-    def _materialize_rowsets(self):
-        # if you add dependencies later, topo-sort here
-        for node in self._rowsets.values():
-            self.query.with_cte(node.name, node.query, recursive=node.recursive)
-        self._rowsets.clear()
+    def apply_cte(
+        self,
+        node_or_query,
+        *,
+        name: Optional[str] = None,
+        model: Optional[Type[Model]] = None,
+        key: Optional[str] = "id",
+        join: bool = True,
+        join_type: str = "INNER",
+        alias: Optional[str] = None,
+        local_col: Optional[str] = None,
+        rowset_col: Optional[str] = None,
+        recursive: bool = False
+    ) -> "PgSelectQuerySet[MODEL]":
+        """
+        Register a CTE (or raw rowset) and optionally join it to the current query.
+        - Accepts PgSelectQuerySet, SelectQuery, RawSQL, or RowsetNode.
+        - If join=True and columns not provided, tries to infer from relations.
+        """
+        node = self._coerce_rowset(
+            node_or_query, name=name, model=model, key=key, recursive=recursive
+        )
 
+        # Attach the CTE
+        self.query.with_cte(node.name, node.query, recursive=node.recursive)
 
+        # Optionally join it
+        if join:
+            if local_col and rowset_col:
+                left, right = local_col, rowset_col
+            else:
+                left, right = self._infer_join_cols(node)
+            cte_table = Table(node.name, alias=alias)
+            self.query.join(
+                cte_table,
+                Eq(Column(left, self.from_table), Column(right, cte_table)),
+                join_type
+            )
 
-    # ---------- Back-compat aliases ----------
-    def use_cte(self, node_or_name, query=None, **kw):
-        node = node_or_name if isinstance(node_or_name, RowsetNode) else RowsetNode(node_or_name, query, **kw)
-        return self.use_rowset(node)
-
-    def apply_cte(self, node_or_name, query=None, alias: str | None = None, **kw):
-        # kw may contain alias/join_type/local_col/rowset_col/mode/model/key...
-        node = node_or_name if isinstance(node_or_name, RowsetNode) else RowsetNode(node_or_name, query, model=kw.pop("model", None), key=kw.pop("key", None))
-        return self.apply_rowset(node, alias=alias, **kw)
-
-    def join_cte(self, cte_name: str, on_left: str | None = None, on_right: str | None = None, alias: str | None = None, join_type: str = "LEFT"):
-        node = self._rowsets.get(cte_name)
-        if node and (on_left is None or on_right is None):
-            on_left, on_right = self._infer_join_cols(node)
-        tbl = Table(cte_name, alias or self._gen_alias(cte_name))
-        if on_left is None or on_right is None:
-            raise ValueError("join_cte needs on_left and on_right (or a typed node registered under that name).")
-        self.query.join(tbl, Eq(Column(on_left, self.from_table), Column(on_right, tbl)), join_type)
         return self
     
     def _apply_exists(self, node: RowsetNode, *, mode: str, local_col: str | None, rowset_col: str | None, alias: str | None):
@@ -533,7 +552,7 @@ class PgSelectQuerySet(Generic[MODEL]):
         # self.query.ctes = self._cte_registry.to_list()
         # self.query.recursive = self._cte_registry.recursive
         # print(self.query.ctes)
-        self._materialize_rowsets()
+        # self._materialize_rowsets()
         compiler = Compiler()
         processor = Preprocessor()
         compiled = processor.process_query(self.query)
