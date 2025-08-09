@@ -1,8 +1,11 @@
 # promptview/model/base/relation_info.py
 from typing import TYPE_CHECKING, Any, Literal, Optional, Type, ForwardRef
 
+
+
 if TYPE_CHECKING:
     from promptview.model3.model3 import Model
+    from promptview.model3.base.base_namespace import BaseNamespace
 
 class RelationInfo:
     def __init__(
@@ -45,6 +48,14 @@ class RelationInfo:
                 f"Relation '{self.name}' target model not resolved yet"
             )
         return self._foreign_cls_resolved
+    
+    @property
+    def foreign_namespace(self) -> "BaseNamespace":
+        return self.foreign_cls.get_namespace()
+    
+    @property
+    def primary_namespace(self) -> "BaseNamespace":
+        return self.primary_cls.get_namespace()
 
     @property
     def is_many_to_many(self) -> bool:

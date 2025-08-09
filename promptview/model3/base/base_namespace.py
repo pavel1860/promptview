@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Any, Dict, Generic, Optional, Type, TypeVar
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Dict, Generic, Literal, Optional, Type, TypeVar
 import contextvars
 
 from .base_field_info import BaseFieldInfo
@@ -11,6 +12,22 @@ if TYPE_CHECKING:
 
 MODEL = TypeVar("MODEL", bound="Model")
 FIELD = TypeVar("FIELD", bound=BaseFieldInfo)
+
+
+
+
+@dataclass
+class RelationPlan:
+    name: str
+    kind: Literal["direct","m2m"]
+    rel_type: Literal["one_to_one","one_to_many","many_to_many"]
+    outer_pk: str
+    target_fk: str
+    target_table: str
+    target_pk: str
+    junction_table: Optional[str] = None
+    j_outer_key: Optional[str] = None
+    j_target_key: Optional[str] = None
 
 
 class BaseNamespace(Generic[MODEL, FIELD]):
@@ -121,7 +138,7 @@ class BaseNamespace(Generic[MODEL, FIELD]):
                 return rel
         return None
     
-    def get_relation_to_namespace(self, namespace: "BaseNamespace") -> Optional[RelationInfo]:
+    def get_relation_for_namespace(self, namespace: "BaseNamespace") -> Optional[RelationInfo]:
         for rel in self._relations.values():
             if rel.foreign_cls == namespace._model_cls:
                 return rel
@@ -170,6 +187,79 @@ class BaseNamespace(Generic[MODEL, FIELD]):
         if self._pending_relation_parser:
             self._pending_relation_parser.parse()
             self._pending_relation_parser = None
+            
+    def plan_relation(self, target_ns: "BaseNamespace") -> "RelationPlan":
+        rel = self.get_relation_for_namespace(target_ns)
+        if not rel:
+            raise ValueError(f"No relation between {self.name} and {target_ns.name}")
+
+        # normalize so OUTER uses its PK and TARGET exposes its FK
+        if rel.primary_cls == self._model_cls:
+            outer_pk, target_fk = rel.primary_key, rel.foreign_key
+        else:
+            outer_pk, target_fk = rel.foreign_key, rel.primary_key
+
+        if rel.is_many_to_many:
+            jns = rel.relation_model.get_namespace()
+            return RelationPlan(
+                name=rel.name,
+                kind="m2m",
+                rel_type="many_to_many",
+                outer_pk=outer_pk,
+                target_fk=rel.foreign_key,          # FK on target model
+                target_table=tgt_ns.name,
+                target_pk=tgt_ns.primary_key,
+                junction_table=jns.name,
+                j_outer_key=rel.junction_keys[0],   # junction -> OUTER
+                j_target_key=rel.junction_keys[1],  # junction -> TARGET
+            )
+
+        return RelationPlan(
+            name=rel.name,
+            kind="direct",
+            rel_type=("one_to_one" if rel.is_one_to_one else "one_to_many"),
+            outer_pk=outer_pk,
+            target_fk=target_fk,
+            target_table=tgt_ns.name,
+            target_pk=tgt_ns.primary_key,
+        )
+            
+    # def plan_relation(self, target_model: Type["Model"]) -> "RelationPlan":
+    #     tgt_ns = target_model.get_namespace()
+    #     rel = self.get_relation_by_type(target_model) or tgt_ns.get_relation_by_type(self._model_cls)
+    #     if not rel:
+    #         raise ValueError(f"No relation between {self.name} and {tgt_ns.name}")
+
+    #     # normalize so OUTER uses its PK and TARGET exposes its FK
+    #     if rel.primary_cls == self._model_cls:
+    #         outer_pk, target_fk = rel.primary_key, rel.foreign_key
+    #     else:
+    #         outer_pk, target_fk = rel.foreign_key, rel.primary_key
+
+    #     if rel.is_many_to_many:
+    #         jns = rel.relation_model.get_namespace()
+    #         return RelationPlan(
+    #             name=rel.name,
+    #             kind="m2m",
+    #             rel_type="many_to_many",
+    #             outer_pk=outer_pk,
+    #             target_fk=rel.foreign_key,          # FK on target model
+    #             target_table=tgt_ns.name,
+    #             target_pk=tgt_ns.primary_key,
+    #             junction_table=jns.name,
+    #             j_outer_key=rel.junction_keys[0],   # junction -> OUTER
+    #             j_target_key=rel.junction_keys[1],  # junction -> TARGET
+    #         )
+
+    #     return RelationPlan(
+    #         name=rel.name,
+    #         kind="direct",
+    #         rel_type=("one_to_one" if rel.is_one_to_one else "one_to_many"),
+    #         outer_pk=outer_pk,
+    #         target_fk=target_fk,
+    #         target_table=tgt_ns.name,
+    #         target_pk=tgt_ns.primary_key,
+    #     )
 
     # -------------------------
     # Debug
