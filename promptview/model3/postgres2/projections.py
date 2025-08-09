@@ -9,6 +9,7 @@ from promptview.model3.postgres2.pg_query_set import MODEL, QueryProxy
 from promptview.model3.relation_info import RelationInfo
 from promptview.model3.sql.compiler import Compiler
 from promptview.model3.sql.expressions import Coalesce, Null, Value, Function, Eq, WhereClause, param
+from promptview.model3.sql.joins import Join
 from promptview.model3.sql.queries import Column, SelectQuery, Table
 from promptview.model3.postgres2.pg_field_info import PgFieldInfo
 
@@ -68,13 +69,17 @@ class SelectionNamespace:
         self.offset = None
         self.relation = None
         self.group_by = []
+        self.joins = []
 
             
         # return self
     def as_relation(self, parent_proj: "ProjectionNamespace", relation: RelationInfo):
         self.relation = relation
         if relation.is_many_to_many:
-            raise ValueError("Many-to-many relations are not supported yet")
+            junction_ns = relation.relation_model.get_namespace()
+            jt = self._table_registry.get_ns_table(junction_ns)
+            self.joins.append(Join(jt, Eq(Column(relation.foreign_key, self.from_table), Column(relation.junction_keys[1], jt))))            
+            self.filter &= Eq(Column(relation.primary_key, parent_proj.from_table), Column(relation.junction_keys[0], jt))
         else:
             self.filter &= Eq(Column(relation.foreign_key, self.from_table), Column(relation.primary_key, parent_proj.from_table))
     
@@ -127,6 +132,7 @@ class SelectionNamespace:
         query.order_by = self.order_by
         query.limit = self.limit
         query.offset = self.offset
+        query.joins = self.joins
         return query
 
 
@@ -191,25 +197,6 @@ class ProjectionNamespace:
     
 
     
-    # def to_json(self, wrap_in_array: bool = False):
-        
-    #     query = SelectQuery().from_(self.from_table)
-    #     query.where = self.filter
-    #     json_pairs = []
-    #     for col in self.columns:
-    #         if isinstance(col, Column):
-    #             json_pairs.append(Value(col.alias or col.name))
-    #             json_pairs.append(col)
-    #         else:
-    #             raise ValueError("ProjectionNamespace contains non-Column objects")
-    #     json_obj = Function("jsonb_build_object", *json_pairs)
-    #     if self._selection.relation and not self._selection.relation.is_one_to_one:
-    #         json_obj = Function("json_agg", json_obj)
-    #         default_value = Value("[]", inline=True)
-    #     else:
-    #         default_value = Null()
-    #     query.select(json_obj)
-    #     return Coalesce(query, default_value)
     def to_json(self):        
         query = self._selection.build_query()
         json_pairs = []
