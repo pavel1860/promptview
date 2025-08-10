@@ -128,6 +128,13 @@ class BaseNamespace(Generic[MODEL, FIELD]):
         )
         self._relations[name] = rel_info
         return rel_info
+    
+    
+    def has_field(self, name: str) -> bool:
+        return name in self._fields
+    
+    def has_relation(self, name: str) -> bool:
+        return name in self._relations
 
     def get_relation(self, name: str) -> Optional[RelationInfo]:
         return self._relations.get(name)
@@ -223,47 +230,12 @@ class BaseNamespace(Generic[MODEL, FIELD]):
             target_table=tgt_ns.name,
             target_pk=tgt_ns.primary_key,
         )
+        
+        
+  
+    
+    
             
-    # def plan_relation(self, target_model: Type["Model"]) -> "RelationPlan":
-    #     tgt_ns = target_model.get_namespace()
-    #     rel = self.get_relation_by_type(target_model) or tgt_ns.get_relation_by_type(self._model_cls)
-    #     if not rel:
-    #         raise ValueError(f"No relation between {self.name} and {tgt_ns.name}")
-
-    #     # normalize so OUTER uses its PK and TARGET exposes its FK
-    #     if rel.primary_cls == self._model_cls:
-    #         outer_pk, target_fk = rel.primary_key, rel.foreign_key
-    #     else:
-    #         outer_pk, target_fk = rel.foreign_key, rel.primary_key
-
-    #     if rel.is_many_to_many:
-    #         jns = rel.relation_model.get_namespace()
-    #         return RelationPlan(
-    #             name=rel.name,
-    #             kind="m2m",
-    #             rel_type="many_to_many",
-    #             outer_pk=outer_pk,
-    #             target_fk=rel.foreign_key,          # FK on target model
-    #             target_table=tgt_ns.name,
-    #             target_pk=tgt_ns.primary_key,
-    #             junction_table=jns.name,
-    #             j_outer_key=rel.junction_keys[0],   # junction -> OUTER
-    #             j_target_key=rel.junction_keys[1],  # junction -> TARGET
-    #         )
-
-    #     return RelationPlan(
-    #         name=rel.name,
-    #         kind="direct",
-    #         rel_type=("one_to_one" if rel.is_one_to_one else "one_to_many"),
-    #         outer_pk=outer_pk,
-    #         target_fk=target_fk,
-    #         target_table=tgt_ns.name,
-    #         target_pk=tgt_ns.primary_key,
-    #     )
-
-    # -------------------------
-    # Debug
-    # -------------------------
     def __repr__(self):
         return f"<BaseNamespace {self.name}>"
 

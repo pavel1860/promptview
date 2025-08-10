@@ -1,13 +1,16 @@
+from dataclasses import dataclass
 from functools import reduce
 import json
 from operator import and_
 from typing import Any, Callable, Generator, Generic, List, Optional, OrderedDict, Self, Type, Union
 from typing_extensions import TypeVar
+from promptview.model3.base.base_namespace import BaseNamespace, RelationPlan
 from promptview.model3.model3 import Model
 from promptview.model3.postgres2.rowset import RowsetNode
 from promptview.model3.relation_info import RelationInfo
+from promptview.model3.sql.joins import Join
 from ..sql.queries import CTENode, SelectQuery, Table, Column, NestedSubquery, Subquery
-from ..sql.expressions import Eq, Expression, RawSQL, param, OrderBy
+from ..sql.expressions import Coalesce, Eq, Expression, RawSQL, WhereClause, param, OrderBy, Function, Value, Null
 from ..sql.compiler import Compiler
 from ..sql.json_processor import Preprocessor
 from promptview.utils.db_connections import PGConnectionManager
@@ -86,30 +89,78 @@ class QuerySetSingleAdapter(Generic[T_co]):
             # return None
             # raise DoesNotExist(self.queryset.model)
         return await_query().__await__()  
-  
+
+
+
+class OrderingSet:
     
+    
+    def __init__(self, namespace: BaseNamespace, from_table: Table):
+        self.namespace = namespace
+        self.from_table = from_table
+        self.order_by: list[OrderBy] = []
+        self.limit: int | None = None
+        self.offset: int | None = None
+        self.distinct_on: list[Column] | None = None
+        self.group_by: list[Column] = []
+    
+    
+    def infer_order_by(self, *fields: str):
+        for field in fields:
+            direction = "ASC"
+            if field.startswith("-"):
+                direction = "DESC"
+                field = field[1:]
+            self.order_by.append(OrderBy(Column(field, self.from_table), direction))
+        
 
-class PgSelectQuerySet(Generic[MODEL]):
-    def __init__(
-        self, 
-        model_class: Type[MODEL], 
-        query: SelectQuery | None = None, 
-        alias: str | None = None, 
-        cte_registry: CTERegistry | None = None
-    ):
-        self.model_class = model_class
-        self.namespace = model_class.get_namespace()
+    def self_group(self, field: str | None = None):
+        if field is None:
+            self.group_by += [Column(self.namespace.primary_key, self.from_table)]
+        else:
+            self.group_by += [Column(field, self.from_table)]
+        
+        
+class SelectionSet:
+    def __init__(self, namespace: BaseNamespace, from_table: Table):
+        self.namespace = namespace
+        self.from_table = from_table
+        self.expressions = []
+        self.clause = WhereClause()
+        
+    def select_condition(self, condition: Callable[[MODEL], bool]):        
+        if callable(condition):
+            proxy = QueryProxy(self.namespace._model_cls, self.from_table)
+            expr = condition(proxy)
+        else:
+            expr = condition  # Already an Expression
+        self.expressions.append(expr)
+        
+    def select(self, **kwargs):
+        for field, value in kwargs.items():
+            col = Column(field, self.from_table)
+            self.expressions.append(Eq(col, param(value)))
+            
+            
+    def relation(self, relation: RelationInfo):
+        self.clause &= Eq(Column(relation.primary_key, self.from_table), Column(relation.foreign_key, self.from_table))
+        
+            
+    def reduce(self):
+        if self.expressions:
+            expr = reduce(and_, self.expressions)
+            self.clause &= expr
+        return self.clause
+
+class TableRegistry:
+    
+    def __init__(self):
         self.alias_lookup = {}
-        table = Table(self.namespace.name, alias=alias or self._gen_alias(self.namespace.name))
-        self.query = query or SelectQuery().from_(table)
-        self.table_lookup = {str(table): table}
-        # self.alias_lookup = {table.alias: self.namespace.name}
-        self._params = []
-        self._cte_registry = cte_registry or CTERegistry()
-        self._rowsets: "OrderedDict[str, RowsetNode]" = OrderedDict()
-
-
-    def _gen_alias(self, name: str) -> str:
+        
+    def register(self, name: str, alias: str):
+        self.alias_lookup[name] = alias
+        
+    def gen_alias(self, name: str) -> str:
         base = name[0].lower()
         alias = base
         i = 1
@@ -117,10 +168,127 @@ class PgSelectQuerySet(Generic[MODEL]):
             alias = f"{base}{i}"
             i += 1
         return alias
+    
+    def confirm_alias(self, alias: str):
+        i = 1
+        while alias in self.alias_lookup:
+            alias = f"{alias}{i}"
+            i += 1
+        return alias
+    
+    def get_ns_table(self, namespace: BaseNamespace) -> Table:
+        if namespace.name in self.alias_lookup:
+            return Table(namespace.name, alias=self.alias_lookup[namespace.name])
+        else:
+            alias = self.gen_alias(namespace.name)
+            self.alias_lookup[namespace.name] = alias
+            return Table(namespace.name, alias=alias)
+    
+    def merge_registries(self, other: "TableRegistry"):
+        for name, alias in other.alias_lookup.items():
+            if name not in self.alias_lookup:
+                self.alias_lookup[name] = alias
+            else:
+                self.alias_lookup[name] = self.confirm_alias(alias)
 
+
+class ProjectionSet:
+    def __init__(self, namespace: BaseNamespace, from_table: Table):
+        self.namespace = namespace
+        self.from_table = from_table
+        self.columns = []
+        self.nest_columns = []
+        self.used_columns_set = set()
+        
     @property
-    def from_table(self):
-        return self.query.from_table
+    def is_empty(self):
+        return not self.columns and not self.nest_columns
+        
+    def nest(self, target: "PgSelectQuerySet") -> "PgSelectQuerySet":
+        self.nest_columns.append(target)
+        return target
+        
+    def __call__(self, *fields: str):
+        if len(fields) == 1 and fields[0] == "*":
+            cols = [Column(f.name, self.from_table) for f in self.namespace.iter_fields()]
+        else:
+            cols = [Column(f, self.from_table) for f in fields]
+        cols = [col for col in cols if col.name not in self.used_columns_set]
+        self.used_columns_set.update(col.name for col in cols)
+        self.columns.extend(cols)
+        return self
+        
+    def resulve_columns(self):        
+        columns = []       
+        for qs in self.nest_columns:
+            nested_query =qs.to_json_query()
+            columns.append(Column(
+                name=qs.alias,
+                table=nested_query,
+            ))
+        return self.columns + columns
+
+
+
+class JoinSet:
+    
+    def __init__(self):        
+        self._joins = []
+        
+    @property
+    def joins(self):
+        return [join for join, _ in self._joins if join is not None]
+    
+    @property
+    def relations(self):
+        return [relation for _, relation in self._joins]
+        
+    def append(self, relation: RelationInfo, join: Join | None = None):
+        self._joins.append((join, relation))
+    
+    def __getitem__(self, idx: int):
+        return self._joins[idx]
+    
+    def get_join(self, idx: int):
+        return self._joins[idx][0]
+    
+    def get_relation(self, idx: int):
+        return self._joins[idx][1]
+    
+    def __len__(self):
+        return len(self._joins)
+    
+    def __iter__(self):
+        return iter(self._joins)
+
+        
+       
+
+class PgSelectQuerySet(Generic[MODEL]):
+    def __init__(
+        self, 
+        model_class: Type[MODEL], 
+        query: SelectQuery | None = None, 
+        alias: str | None = None, 
+        cte_registry: CTERegistry | None = None,
+        table_registry: TableRegistry | None = None
+    ):
+        self.model_class = model_class
+        self.namespace = model_class.get_namespace()
+        self.table_registry = table_registry or TableRegistry()
+        # table = Table(self.namespace.name, alias=alias or self._gen_alias(self.namespace.name))
+        self.table = self.table_registry.get_ns_table(self.namespace)
+        self.selection_set = SelectionSet(self.namespace, self.table)
+        self.projection_set = ProjectionSet(self.namespace, self.table)
+        self.ordering_set = OrderingSet(self.namespace, self.table)
+        self.alias = alias
+        # self.query = query or SelectQuery().from_(self.table)
+        
+        self._cte_registry = cte_registry or CTERegistry()
+        self._rowsets: "OrderedDict[str, RowsetNode]" = OrderedDict()
+        self.join_set = JoinSet()
+
+
     
     def __await__(self):
         return self.execute().__await__()
@@ -284,15 +452,8 @@ class PgSelectQuerySet(Generic[MODEL]):
         self.query.where.and_(cond)
         return self
 
-            
-
-
     def select(self, *fields: str):
-        if len(fields) == 1 and fields[0] == "*":
-            cols = [Column(f.name, self.from_table) for f in self.namespace.iter_fields()]
-        else:
-            cols = [Column(f, self.from_table) for f in fields]
-        self.query.select(*cols)
+        self.projection_set(*fields)
         return self
 
 
@@ -307,171 +468,215 @@ class PgSelectQuerySet(Generic[MODEL]):
         condition: callable taking a QueryProxy or direct Expression
         kwargs: field=value pairs, ANDed together
         """
-        expressions = []
-
         # Callable condition: lambda m: m.id > 5
         if condition is not None:
-            if callable(condition):
-                proxy = QueryProxy(self.model_class, self.from_table)
-                expr = condition(proxy)
-            else:
-                expr = condition  # Already an Expression
-            expressions.append(expr)
-
+            self.selection_set.select_condition(condition)
         # kwargs: field=value
-        for field, value in kwargs.items():
-            col = Column(field, self.from_table)
-            expressions.append(Eq(col, param(value)))
-
-        # Merge with AND if multiple
-        if expressions:
-            expr = reduce(and_, expressions)
-            self.query.where &= expr
-
+        if kwargs:
+            self.selection_set.select(**kwargs)
         return self
 
     def filter(self, condition=None, **kwargs):
         """Alias for .where()"""
         return self.where(condition, **kwargs)
+    
+    def join(self, target: Type[Model]):
+        relation = self.namespace.get_relation_by_type(target)        
+        if relation.is_many_to_many:
+            junction_ns = relation.relation_model.get_namespace()
+            jt = self.table_registry.get_ns_table(junction_ns)
+            join = Join(jt, Eq(Column(relation.foreign_key, self.table), Column(relation.junction_keys[1], jt)))
+            self.join_set.append(relation, join)
+            self.selection_set.clause &= Eq(Column(relation.primary_key, self.table), Column(relation.junction_keys[0], jt))
+        else:
+            self.selection_set.clause &= Eq(Column(relation.foreign_key, self.table), Column(relation.primary_key, self.table))
+            self.join_set.append(relation)
+            
+            
+    
 
-    def join(self, target: Type[Model], join_type: str = "LEFT"):
-        rel = self.namespace.get_relation_by_type(target)
-        if not rel:
-            raise ValueError(f"No relation to {target.__name__}")
+    # def join2(self, target: Type[Model], join_type: str = "LEFT"):
+    #     rel = self.namespace.get_relation_by_type(target)
+    #     if not rel:
+    #         raise ValueError(f"No relation to {target.__name__}")
         
-        target_ns = rel.foreign_cls.get_namespace()
+    #     target_ns = rel.foreign_cls.get_namespace()
 
-        if rel.is_many_to_many:
-            junction_ns = rel.relation_model.get_namespace()
-            jt = Table(junction_ns.name, alias=self._gen_alias(junction_ns.name))
+    #     if rel.is_many_to_many:
+    #         junction_ns = rel.relation_model.get_namespace()
+    #         jt = Table(junction_ns.name, alias=self._gen_alias(junction_ns.name))
 
-            # First key connects primary model → junction
-            self.query.join(
-                jt,
-                Eq(Column(rel.junction_keys[0], jt), Column(rel.primary_key, self.from_table)),
-                join_type
-            )
-            # Second key connects junction → target model
-            tt = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
-            self.query.join(
-                tt,
-                Eq(Column(rel.junction_keys[1], jt), Column(rel.foreign_key, tt)),
-                join_type
-            )
-        else:
-            tt = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
-            self.query.join(tt, Eq(Column(rel.foreign_key, tt),
-                                   Column(rel.primary_key, self.from_table)), join_type)
-        return self
-
-    def include(self, target):
-        """
-        Eager-load a related model or a nested query set.
-
-        Supports:
-            .include(TargetModel)
-            .include(select(TargetModel).include(AnotherModel))
-        """
-        # --- 1) Determine the target model class ---
-        from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
-
+    #         # First key connects primary model → junction
+    #         self.query.join(
+    #             jt,
+    #             Eq(Column(rel.junction_keys[0], jt), Column(rel.primary_key, self.from_table)),
+    #             join_type
+    #         )
+    #         # Second key connects junction → target model
+    #         tt = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
+    #         self.query.join(
+    #             tt,
+    #             Eq(Column(rel.junction_keys[1], jt), Column(rel.foreign_key, tt)),
+    #             join_type
+    #         )
+    #     else:
+    #         tt = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
+    #         self.query.join(tt, Eq(Column(rel.foreign_key, tt),
+    #                                Column(rel.primary_key, self.from_table)), join_type)
+    #     return self
+    
+    def _get_qs_relation(self, query_set: "PgSelectQuerySet") -> RelationInfo:
+        rel = self.namespace.get_relation_by_type(query_set.model_class)
+        if rel is None:
+            raise ValueError(f"No relation to {query_set.model_class.__name__}")
+        return rel
+    
+    
+    def _resolve_query_set_target(self, target: "Type[Model] | PgSelectQuerySet"):
         if isinstance(target, PgSelectQuerySet):
-            target_model_cls = target.model_class
-            subq = target.query  # use the query the caller already built
+            self.table_registry.merge_registries(target.table_registry)
+            target.table_registry = self.table_registry
+            return target
         elif isinstance(target, type) and issubclass(target, Model):
-            target_model_cls = target
-            # build default SELECT * subquery
-            target_ns = target_model_cls.get_namespace()
-            target_table = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
-            subq = SelectQuery().from_(target_table)
-            subq.select(*[Column(f.name, target_table) for f in target_ns.iter_fields()])
+            return PgSelectQuerySet(target, table_registry=self.table_registry)
         else:
-            raise TypeError(
-                f".include() expects a Model subclass or PgSelectQuerySet, got {type(target)}"
-            )
+            raise ValueError(f"Invalid target: {target}")
 
-        # --- 2) Locate the relation info ---
-        rel = self.namespace.get_relation_by_type(target_model_cls)
-        if not rel:
-            raise ValueError(f"No relation to {target_model_cls.__name__}")
-
-        target_ns = target_model_cls.get_namespace()
-
-        # --- 3) Many-to-Many case ---
-        if rel.is_many_to_many:
-            junction_ns = rel.relation_model.get_namespace()
-            jt = Table(junction_ns.name, alias=self._gen_alias(junction_ns.name))
-            tt = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
-
-            # If the subquery was not provided by the user, create a basic one for M:N
-            if not isinstance(target, PgSelectQuerySet):
-                subq = SelectQuery().from_(tt)
-                subq.select(*[Column(f.name, tt) for f in target_ns.iter_fields()])
-
-            # Always join the junction table *inside* the subquery
-            subq.join(
-                jt,
-                Eq(Column(rel.junction_keys[1], jt), Column(target_ns.primary_key, tt))
-            )
-
-            # Build NestedSubquery correlated on the outer PK and junction key[0]
-            nested = Column(
-                rel.name,
-                NestedSubquery(
-                    subq,
-                    rel.name,
-                    Column(rel.primary_key, self.from_table),
-                    Column(rel.junction_keys[0], jt),
-                    type=rel.type
-                )
-            )
-            nested.alias = rel.name
-            self.query.columns.append(nested)
-
-        # --- 4) One-to-One or One-to-Many case ---
+    
+    def include(self, target: "Type[Model] | PgSelectQuerySet"):        
+        query_set = self._resolve_query_set_target(target)
+        relation = self._get_qs_relation(query_set)
+        query_set.alias = relation.name
+        query_set.select("*")
+        if relation.is_many_to_many:
+            if relation.relation_model is None:
+                raise ValueError(f"No relation model for {relation.name}")
+            jt = self.table_registry.get_ns_table(relation.relation_namespace)
+            join = Join(jt, Eq(Column(relation.junction_keys[1], jt), Column(relation.foreign_key, query_set.table)))
+            query_set.join_set.append(relation, join)
+            query_set.selection_set.clause &= Eq(Column(relation.primary_key, self.table), Column(relation.junction_keys[0], jt))
         else:
-            target_table = None
-            if not isinstance(target, PgSelectQuerySet):
-                target_table = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
-                
-            if isinstance(target, PgSelectQuerySet):
-                foreign_col_table = target.from_table
-            else:
-                foreign_col_table = target_table or Table(target_ns.name)
-
-            nested = Column(
-                rel.name,
-                NestedSubquery(
-                    subq,
-                    rel.name,
-                    Column(rel.primary_key, self.from_table),
-                   Column(rel.foreign_key, foreign_col_table),
-                    type=rel.type
-                )
-            )
-            nested.alias = rel.name
-            self.query.columns.append(nested)
-
+            query_set.selection_set.clause &= Eq(Column(relation.foreign_key, query_set.table), Column(relation.primary_key, self.table))
+            query_set.join_set.append(relation)
+        
+        self.projection_set.nest(query_set)
         return self
+            
+        
+      
+
+    # def include2(self, target):
+    #     """
+    #     Eager-load a related model or a nested query set.
+
+    #     Supports:
+    #         .include(TargetModel)
+    #         .include(select(TargetModel).include(AnotherModel))
+    #     """
+    #     # --- 1) Determine the target model class ---
+    #     from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+
+    #     if isinstance(target, PgSelectQuerySet):
+    #         target_model_cls = target.model_class
+    #         subq = target.query  # use the query the caller already built
+    #     elif isinstance(target, type) and issubclass(target, Model):
+    #         target_model_cls = target
+    #         # build default SELECT * subquery
+    #         target_ns = target_model_cls.get_namespace()
+    #         target_table = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
+    #         subq = SelectQuery().from_(target_table)
+    #         subq.select(*[Column(f.name, target_table) for f in target_ns.iter_fields()])
+    #     else:
+    #         raise TypeError(
+    #             f".include() expects a Model subclass or PgSelectQuerySet, got {type(target)}"
+    #         )
+
+    #     # --- 2) Locate the relation info ---
+    #     rel = self.namespace.get_relation_by_type(target_model_cls)
+    #     if not rel:
+    #         raise ValueError(f"No relation to {target_model_cls.__name__}")
+
+    #     target_ns = target_model_cls.get_namespace()
+
+    #     # --- 3) Many-to-Many case ---
+    #     if rel.is_many_to_many:
+    #         junction_ns = rel.relation_model.get_namespace()
+    #         jt = Table(junction_ns.name, alias=self._gen_alias(junction_ns.name))
+    #         tt = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
+
+    #         # If the subquery was not provided by the user, create a basic one for M:N
+    #         if not isinstance(target, PgSelectQuerySet):
+    #             subq = SelectQuery().from_(tt)
+    #             subq.select(*[Column(f.name, tt) for f in target_ns.iter_fields()])
+
+    #         # Always join the junction table *inside* the subquery
+    #         subq.join(
+    #             jt,
+    #             Eq(Column(rel.junction_keys[1], jt), Column(target_ns.primary_key, tt))
+    #         )
+
+    #         # Build NestedSubquery correlated on the outer PK and junction key[0]
+    #         nested = Column(
+    #             rel.name,
+    #             NestedSubquery(
+    #                 subq,
+    #                 rel.name,
+    #                 Column(rel.primary_key, self.from_table),
+    #                 Column(rel.junction_keys[0], jt),
+    #                 type=rel.type
+    #             )
+    #         )
+    #         nested.alias = rel.name
+    #         self.query.columns.append(nested)
+
+    #     # --- 4) One-to-One or One-to-Many case ---
+    #     else:
+    #         target_table = None
+    #         if not isinstance(target, PgSelectQuerySet):
+    #             target_table = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
+                
+    #         if isinstance(target, PgSelectQuerySet):
+    #             foreign_col_table = target.from_table
+    #         else:
+    #             foreign_col_table = target_table or Table(target_ns.name)
+
+    #         nested = Column(
+    #             rel.name,
+    #             NestedSubquery(
+    #                 subq,
+    #                 rel.name,
+    #                 Column(rel.primary_key, self.from_table),
+    #                Column(rel.foreign_key, foreign_col_table),
+    #                 type=rel.type
+    #             )
+    #         )
+    #         nested.alias = rel.name
+    #         self.query.columns.append(nested)
+
+    #     return self
+
+    # def order_by2(self, *fields: str) -> "PgSelectQuerySet[MODEL]":
+    #     orderings = []
+    #     for field in fields:
+    #         direction = "ASC"
+    #         if field.startswith("-"):
+    #             direction = "DESC"
+    #             field = field[1:]
+    #         orderings.append(OrderBy(Column(field, self.from_table), direction))
+    #     self.query.order_by_(*orderings)
+    #     return self
 
     def order_by(self, *fields: str) -> "PgSelectQuerySet[MODEL]":
-        orderings = []
-        for field in fields:
-            direction = "ASC"
-            if field.startswith("-"):
-                direction = "DESC"
-                field = field[1:]
-            orderings.append(OrderBy(Column(field, self.from_table), direction))
-        self.query.order_by_(*orderings)
+        self.ordering_set.infer_order_by(*fields)
         return self
-
+    
     def limit(self, n: int) -> "PgSelectQuerySet[MODEL]":
-        self.query.limit_(n)
+        self.ordering_set.limit = n
         return self
     
     def offset(self, n: int) -> "PgSelectQuerySet[MODEL]":
         """Skip the first `n` rows."""
-        self.query.offset_(n)
+        self.ordering_set.offset = n
         return self
     
     def distinct_on(self, *fields: str) -> "PgSelectQuerySet[MODEL]":
@@ -479,7 +684,7 @@ class PgSelectQuerySet(Generic[MODEL]):
         Postgres-specific DISTINCT ON.
         Keeps only the first row of each set of rows where the given columns are equal.
         """
-        self.query.distinct_on_(*[Column(f, self.from_table) for f in fields])
+        self.ordering_set.distinct_on = [Column(f, self.from_table) for f in fields]
         return self
     
     def first(self) -> "QuerySetSingleAdapter[MODEL]":
@@ -548,15 +753,68 @@ class PgSelectQuerySet(Generic[MODEL]):
         print(params)
         return self
     
+    
+    def build_query(
+        self, 
+        include_columns: bool = True,
+        self_group: bool = True
+    ):
+        if self.projection_set.is_empty:
+            raise ValueError(f"No columns selected for query {self.model_class.__name__}. Use .select() to select columns.")
+        query = SelectQuery().from_(self.table)
+        query.where = self.selection_set.reduce()
+        if self.projection_set.nest_columns and self_group:
+            self.ordering_set.self_group()
+        query.group_by = self.ordering_set.group_by
+        query.order_by = self.ordering_set.order_by
+        query.limit = self.ordering_set.limit
+        query.offset = self.ordering_set.offset
+        query.joins = self.join_set.joins
+        if include_columns:
+            query.columns = self.projection_set.resulve_columns()
+        return query
+    
+    
+    
+    def to_json_query(self):
+        print("jsonify", self.alias)
+        query = self.build_query(include_columns=False, self_group=False)
+        json_pairs = []
+        for col in self.projection_set.columns:
+            json_pairs.append(Value(col.alias or col.name))
+            json_pairs.append(col)
+        
+        for qs in self.projection_set.nest_columns:
+            nested_query = qs.to_json_query()
+            json_pairs.append(Value(qs.alias))
+            json_pairs.append(nested_query)
+            
+        json_obj = Function("jsonb_build_object", *json_pairs)
+        
+        if len(self.join_set):
+            join, relation = self.join_set[0]
+            if relation is not None and not relation.is_one_to_one:
+                json_obj = Function("json_agg", json_obj)
+                default_value = Value("[]", inline=True)
+            else:
+                default_value = Null()
+                
+            query.select(json_obj)
+            return Coalesce(query, default_value)
+        else:
+            raise ValueError("No joins found")
+        
+        
+        
+
+        
+    
     def render(self) -> tuple[str, list[Any]]:
-        # self.query.ctes = self._cte_registry.to_list()
-        # self.query.recursive = self._cte_registry.recursive
-        # print(self.query.ctes)
-        # self._materialize_rowsets()
+        query = self.build_query()        
         compiler = Compiler()
-        processor = Preprocessor()
-        compiled = processor.process_query(self.query)
-        sql, params = compiler.compile(compiled)
+        # processor = Preprocessor()
+        # compiled = processor.process_query(query)
+        sql, params = compiler.compile(query)
         return sql, params
 
     async def execute(self) -> List[MODEL]:

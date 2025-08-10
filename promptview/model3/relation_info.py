@@ -56,6 +56,12 @@ class RelationInfo:
     @property
     def primary_namespace(self) -> "BaseNamespace":
         return self.primary_cls.get_namespace()
+    
+    @property
+    def relation_namespace(self) -> "BaseNamespace":
+        if self.relation_model is None:
+            raise ValueError(f"No relation model for {self.name}")
+        return self.relation_model.get_namespace()
 
     @property
     def is_many_to_many(self) -> bool:
