@@ -51,11 +51,21 @@ class CTERegistry:
         if cte_qs.recursive:
             self.recursive = True
         return cte_set
+    
+    def register_cte_set(self, cte_set: "CteSet"):
+        self._entries[cte_set.name] = cte_set
+        if cte_set.recursive:
+            self.recursive = True
+        return cte_set
+    
+    def clear(self):
+        self._entries.clear()
+        self.recursive = False
 
     def merge(self, other: "CTERegistry"):
         # last-writer-wins; preserve incoming order
         for name, cte_qs in other._entries.items():
-            self.register(cte_qs, name)
+            self.register_cte_set(cte_qs)
         if other.recursive:
             self.recursive = True
             
@@ -431,9 +441,9 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         q.ctes = []
         q.recursive = False
         
-    def use_cte(self, cte: "PgSelectQuerySet[Model]", name: str | None = None, alias: str | None = None, on: tuple[str, str] | None = None):
+    def use_cte(self, cte, name: str | None = None, alias: str | None = None, on: tuple[str, str] | None = None):
         query_set = self._resolve_query_set_target(cte)
-        cte_set = self._cte_registry.register(query_set, name, alias=alias)
+        cte_set = self._cte_registry.register(query_set, name, alias=alias)        
         self.join(cte_set, on=on)
         return self
 
@@ -625,35 +635,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             
     
 
-    # def join2(self, target: Type[Model], join_type: str = "LEFT"):
-    #     rel = self.namespace.get_relation_by_type(target)
-    #     if not rel:
-    #         raise ValueError(f"No relation to {target.__name__}")
-        
-    #     target_ns = rel.foreign_cls.get_namespace()
 
-    #     if rel.is_many_to_many:
-    #         junction_ns = rel.relation_model.get_namespace()
-    #         jt = Table(junction_ns.name, alias=self._gen_alias(junction_ns.name))
-
-    #         # First key connects primary model → junction
-    #         self.query.join(
-    #             jt,
-    #             Eq(Column(rel.junction_keys[0], jt), Column(rel.primary_key, self.from_table)),
-    #             join_type
-    #         )
-    #         # Second key connects junction → target model
-    #         tt = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
-    #         self.query.join(
-    #             tt,
-    #             Eq(Column(rel.junction_keys[1], jt), Column(rel.foreign_key, tt)),
-    #             join_type
-    #         )
-    #     else:
-    #         tt = Table(target_ns.name, alias=self._gen_alias(target_ns.name))
-    #         self.query.join(tt, Eq(Column(rel.foreign_key, tt),
-    #                                Column(rel.primary_key, self.from_table)), join_type)
-    #     return self
     
     def _get_qs_relation(self, query_set: "PgSelectQuerySet", on: tuple[str, str] | None = None) -> RelationInfo:        
         rel = self.namespace.get_relation_by_type(query_set.model_class)
@@ -674,11 +656,13 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             self.table_registry.merge_registries(target.table_registry)
             target.table_registry = self.table_registry
             self._cte_registry.merge(target._cte_registry)
-            target._cte_registry = self._cte_registry
+            target._cte_registry.clear()
+            # target._cte_registry = self._cte_registry
             return target
         elif isinstance(target, CteSet):
             self.table_registry.merge_registries(target.table_registry)
-            target.table_registry = self.table_registry
+            # target._cte_registry.clear()
+            # target.table_registry = self.table_registry
             return target
         elif isinstance(target, type) and issubclass(target, Model):
             return PgSelectQuerySet(target, table_registry=self.table_registry, cte_registry=self._cte_registry)

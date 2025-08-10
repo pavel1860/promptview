@@ -128,7 +128,7 @@ class VersionedModel(Model):
     _is_base = True
     branch_id: int = ModelField(foreign_key=True, foreign_cls=Branch)
     turn_id: int = ModelField(foreign_key=True, foreign_cls=Turn)
-    turn: Turn | None = RelationField("Turn", foreign_key="id")
+    turn: Turn | None = RelationField("Turn", primary_key="turn_id", foreign_key="id")
     branch: Branch | None = RelationField("Branch", foreign_key="id")
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
     updated_at: dt.datetime | None = ModelField(default=None)
@@ -154,8 +154,10 @@ class VersionedModel(Model):
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
         return (
             PgSelectQuerySet(cls) \
-            .apply_cte(
-                Turn.query().where(status=TurnStatus.COMMITTED)                
+            .use_cte(
+                Turn.query().select("*").where(status=TurnStatus.COMMITTED),
+                name="committed_turns",
+                alias="ct",
             )
         )
     
