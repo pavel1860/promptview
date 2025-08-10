@@ -194,7 +194,26 @@ class BaseNamespace(Generic[MODEL, FIELD]):
         if self._pending_relation_parser:
             self._pending_relation_parser.parse()
             self._pending_relation_parser = None
-            
+    
+    def build_temp_relation(self, name: str, target_ns: "BaseNamespace", on: tuple[str, str]) -> RelationInfo:
+        if not self._model_cls:
+            raise ValueError("Model class not set")
+        if not target_ns._model_cls:
+            raise ValueError("Target model class not set")
+        rel = RelationInfo(
+            name=name,
+            primary_key=on[0],
+            foreign_key=on[1],
+            primary_cls=self._model_cls,
+            foreign_cls=target_ns._model_cls,
+            on_delete="CASCADE",
+            on_update="CASCADE",
+            is_one_to_one=False,
+            relation_model=None,
+            junction_keys=None,
+        )
+        return rel
+    
     def plan_relation(self, target_ns: "BaseNamespace") -> "RelationPlan":
         rel = self.get_relation_for_namespace(target_ns)
         if not rel:

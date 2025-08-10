@@ -7,6 +7,7 @@ from typing import List, Type, TypeVar, Self, Any
 
 from promptview.model3.model3 import Model
 from promptview.model3.fields import KeyField, ModelField, RelationField
+from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
 from promptview.model3.postgres2.rowset import RowsetNode
 from promptview.model3.sql.queries import CTENode, RawSQL
 from promptview.model3.sql.expressions import RawValue
@@ -41,7 +42,7 @@ class Branch(Model):
         
     
     @classmethod
-    def recursive_cte(cls, branch_id: int) -> RowsetNode["Branch"]:
+    def recursive_query(cls, branch_id: int) -> PgSelectQuerySet["Branch"]:
         sql = f"""
             SELECT
                 id,
@@ -63,7 +64,14 @@ class Branch(Model):
             FROM branches b
             JOIN branch_hierarchy bh ON b.id = bh.forked_from_branch_id
         """
-        return RowsetNode("branch_hierarchy", RawSQL(sql), model=Branch, key="id", recursive=True)
+        return PgSelectQuerySet(Branch, alias="branch_hierarchy", recursive=True).raw_sql(sql, [
+            "id", 
+            "name", 
+            "forked_from_index", 
+            "forked_from_branch_id", 
+            ("current_index", "start_turn_index")
+        ])
+        # return RowsetNode("branch_hierarchy", RawSQL(sql), model=Branch, key="id", recursive=True)
 
     
 
@@ -103,10 +111,12 @@ class Turn(Model):
     def query(cls: Type[Self], branch: Branch | None = None, **kwargs):
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
         branch_id = branch.id if branch else Branch.current().id
+        branch_cte = Branch.recursive_query(branch_id)
         return (
             PgSelectQuerySet(cls) \
-            .apply_cte(Branch.recursive_cte(branch_id), alias="bh")    
-            .where(lambda t: (t.index <= RawValue("bh.start_turn_index")))
+            .use_cte(branch_cte, name="branch_hierarchy", alias="bh", on=("branch_id", "id"))    
+            # .where(lambda t: (t.index <= RawValue("bh.start_turn_index")))
+            .where(lambda t: (t.index <= branch_cte.get_field("start_turn_index")))
         )
     
         

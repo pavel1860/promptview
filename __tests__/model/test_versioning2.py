@@ -147,7 +147,7 @@ async with graph.branch_context(new_branch):
 
 # %%
 # await select(Branch).apply_rowset(Branch.recursive_cte(1)).print()
-q = select(Branch).apply_rowset(Branch.recursive_cte(1)).print()
+q = select(Branch).apply_rowset(Branch.recursive_query(1)).print()
 q._cte_registry._entries
 # select(Message).query.columns
 # %%
