@@ -112,11 +112,11 @@ class NamespaceManager:
         for ns in cls._registry.values():
             for name, rel in ns._relations.items():
                 rev_rel = rel.foreign_namespace.get_relation_for_namespace(ns)
-                if rev_rel is not None:
+                if rev_rel is not None and ns != rel.foreign_namespace:
                     if rev_rel.primary_key != rel.foreign_key:
-                        raise ValueError(f"Primary key {rev_rel.primary_key} of {rev_rel.name} does not match foreign key {rel.foreign_key} of {rel.name}")
+                        raise ValueError(f"Primary key '{rev_rel.primary_key}' of '{rev_rel.name}' does not match foreign key '{rel.foreign_key}' of '{rel.name}'")
                     if rev_rel.foreign_key != rel.primary_key:
-                        raise ValueError(f"Foreign key {rev_rel.foreign_key} of {rev_rel.name} does not match primary key {rel.primary_key} of {rel.name}")
+                        raise ValueError(f"Foreign key '{rev_rel.foreign_key}' of '{rev_rel.name}' does not match primary key '{rel.primary_key}' of '{rel.name}'")
 
 
     @classmethod
