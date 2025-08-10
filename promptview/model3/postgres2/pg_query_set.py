@@ -43,11 +43,11 @@ class CTERegistry:
     def __iter__(self):
         return iter(self._entries.items())
     
-    def register(self, cte_qs: "PgSelectQuerySet", name: str | None = None) -> "CteSet":
-        if cte_qs.alias is None and name is None:
+    def register(self, cte_qs: "PgSelectQuerySet", name: str | None = None, alias: str | None = None) -> "CteSet":
+        if name is None:
             raise ValueError("CTE must have an alias")
-        cte_set = CteSet(cte_qs, name=name or cte_qs.alias)
-        self._entries[name or cte_qs.alias] = cte_set
+        cte_set = CteSet(cte_qs, name=name, alias=alias or cte_qs.alias)
+        self._entries[name] = cte_set
         if cte_qs.recursive:
             self.recursive = True
         return cte_set
@@ -191,7 +191,22 @@ class TableRegistry:
             i += 1
         return alias
     
-    def get_ns_table(self, namespace: BaseNamespace, table_name: str | None = None) -> Table:
+    def register_ns(self, namespace: BaseNamespace, table_name: str | None = None, alias: str | None = None):        
+        table_name = table_name or namespace.name
+        if alias:
+            if alias in self.alias_lookup:
+                raise ValueError(f"Alias {alias} for namespace {namespace.name} already in use by {self.alias_lookup[alias]}")
+            self.alias_lookup[table_name] = alias
+            return Table(table_name, alias=self.alias_lookup[table_name])
+        # if table_name in self.alias_lookup:
+            # return Table(table_name, alias=self.alias_lookup[table_name])
+        else:
+            alias = self.gen_alias(table_name)
+            self.alias_lookup[table_name] = alias
+            return Table(table_name, alias=alias)
+        
+    
+    def get_ns_table(self, namespace: BaseNamespace, table_name: str | None = None, alias: str | None = None) -> Table:        
         table_name = table_name or namespace.name
         if table_name in self.alias_lookup:
             return Table(table_name, alias=self.alias_lookup[table_name])
@@ -312,16 +327,26 @@ class JoinSet:
 
 class QuerySet(Generic[MODEL]):
     
-    def __init__(self, model_class: Type[MODEL], table_registry: TableRegistry | None = None, table_name: str | None = None):
+    def __init__(
+        self, 
+        model_class: Type[MODEL], 
+        table_registry: TableRegistry | None = None, 
+        table_name: str | None = None,
+        alias: str | None = None
+    ):
         self.model_class = model_class
         self.namespace = model_class.get_namespace()
         self.table_registry = table_registry or TableRegistry()
-        self.table = self.table_registry.get_ns_table(self.namespace, table_name)
+        # self.table = self.table_registry.get_ns_table(self.namespace, table_name)
+        self.table = self.table_registry.register_ns(self.namespace, table_name, alias=alias)
         self.projection_set = ProjectionSet(self.namespace, self.table)        
     
     def build_query(self):
         raise NotImplementedError("Subclasses must implement build_query")
     
+    @property
+    def alias(self):
+        return self.table.alias
     
     def get_field(self, name):
         return self.projection_set[name]   
@@ -332,9 +357,10 @@ class CteSet(QuerySet[MODEL]):
         self, 
         query_set: "PgSelectQuerySet[MODEL]", 
         name: str, 
+        alias: str | None = None,
         recursive: bool | None = None,        
     ):
-        super().__init__(query_set.model_class, query_set.table_registry, table_name=name)
+        super().__init__(query_set.model_class, query_set.table_registry, table_name=name, alias=alias)
         self.projection_set.copy(query_set.projection_set, self.table)
         self.query_set = query_set
         self.name = name
@@ -354,7 +380,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         table_registry: TableRegistry | None = None,
         recursive: bool = False
     ):
-        super().__init__(model_class, table_registry)
+        super().__init__(model_class, table_registry, alias=alias)
         # self.model_class = model_class
         # self.namespace = model_class.get_namespace()
         # self.table_registry = table_registry or TableRegistry()
@@ -364,7 +390,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         self.selection_set = SelectionSet(self.namespace, self.table)
         
         self.ordering_set = OrderingSet(self.namespace, self.table)
-        self.alias = alias
+        # self.alias = alias
         self._raw_sql = None
         # self.query = query or SelectQuery().from_(self.table)
         self.recursive = recursive
@@ -407,7 +433,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         
     def use_cte(self, cte: "PgSelectQuerySet[Model]", name: str | None = None, alias: str | None = None, on: tuple[str, str] | None = None):
         query_set = self._resolve_query_set_target(cte)
-        cte_set = self._cte_registry.register(query_set, name)
+        cte_set = self._cte_registry.register(query_set, name, alias=alias)
         self.join(cte_set, on=on)
         return self
 
@@ -663,7 +689,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
     def include(self, target: "Type[Model] | PgSelectQuerySet"):        
         query_set = self._resolve_query_set_target(target)
         relation = self._get_qs_relation(query_set)
-        query_set.alias = relation.name
+        # query_set.alias = relation.name
         query_set.select("*")
         if relation.is_many_to_many:
             if relation.relation_model is None:

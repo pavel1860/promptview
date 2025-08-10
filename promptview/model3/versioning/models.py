@@ -112,11 +112,12 @@ class Turn(Model):
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
         branch_id = branch.id if branch else Branch.current().id
         branch_cte = Branch.recursive_query(branch_id)
+        col = branch_cte.get_field("start_turn_index")
         return (
             PgSelectQuerySet(cls) \
             .use_cte(branch_cte, name="branch_hierarchy", alias="bh", on=("branch_id", "id"))    
-            # .where(lambda t: (t.index <= RawValue("bh.start_turn_index")))
-            .where(lambda t: (t.index <= branch_cte.get_field("start_turn_index")))
+            .where(lambda t: (t.index <= RawValue("bh.start_turn_index")))
+            # .where(lambda t: (t.index <= branch_cte.get_field("start_turn_index")))
         )
     
         
