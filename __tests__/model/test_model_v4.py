@@ -77,6 +77,7 @@ async def test_one_to_many(setup_db):
 @pytest.mark.asyncio
 async def test_many_to_many(setup_db):
     class Participant(RelationModel):
+        id: int = KeyField(primary_key=True)
         user_id: int = ModelField(foreign_key=True)
         conv_id: int = ModelField(foreign_key=True)
 

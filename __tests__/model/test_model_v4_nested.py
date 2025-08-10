@@ -21,6 +21,7 @@ class Message(Model):
     turn_id: int = ModelField(foreign_key=True)
     turn: "Turn | None" = RelationField(
         foreign_key="id",
+        primary_key="turn_id",
     )
 
 
@@ -35,6 +36,7 @@ class Turn(Model):
 
 
 class Participant(RelationModel):
+    id: int = KeyField(primary_key=True)
     user_id: int = ModelField(foreign_key=True)
     conv_id: int = ModelField(foreign_key=True)
 
