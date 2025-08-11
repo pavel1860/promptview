@@ -1,7 +1,25 @@
 from pydantic import BaseModel, PrivateAttr
-from typing import Any, Type, Self
+from typing import TYPE_CHECKING, Any, Type, Self, TypeVar, Generic, runtime_checkable, Protocol
+
+
 
 from .model_meta import ModelMeta
+if TYPE_CHECKING:
+    from .postgres2.pg_query_set import PgSelectQuerySet
+    from promptview.model3.base.base_namespace import BaseNamespace
+
+MODEL = TypeVar("MODEL", bound="Model", covariant=True)
+JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
+
+@runtime_checkable
+class Modelable(Protocol, Generic[MODEL]):
+    def to_model(self) -> MODEL:
+        ...
+        
+    @classmethod
+    def query(cls) -> "PgSelectQuerySet[MODEL]":
+        ...
+
 
 class Model(BaseModel, metaclass=ModelMeta):
     """Base class for all ORM models."""
@@ -23,7 +41,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         raise ValueError(f"Namespace name not set for {cls.__name__}")
 
     @classmethod
-    def get_namespace(cls):
+    def get_namespace(cls) -> "BaseNamespace":
         from promptview.model3.namespace_manager2 import NamespaceManager
         return NamespaceManager.get_namespace(cls.get_namespace_name())
 
@@ -59,6 +77,7 @@ class Model(BaseModel, metaclass=ModelMeta):
             raise ValueError(f"{cls.__name__} with ID '{id}' not found")
         return cls(**data)
 
+
     async def save(self, *args, **kwargs) -> Self:
         ns = self.get_namespace()
         
@@ -84,6 +103,31 @@ class Model(BaseModel, metaclass=ModelMeta):
         for key, value in result.items():
             setattr(self, key, value)
         return self
+    
+    async def add(self, model: MODEL | Modelable[MODEL], **kwargs) -> MODEL:
+        """Add a model instance to the database"""
+        ns = self.get_namespace()
+        if isinstance(model, Modelable):
+            model = model.to_model()
+        relation = ns.get_relation_by_type(model.__class__)
+        if not relation:
+            raise ValueError(f"Relation model not found for type: {model.__class__.__name__}")
+        if relation.is_many_to_many:
+            result = await model.save()
+            junction = relation.create_junction(
+                primary_key=self.primary_id, 
+                foreign_key=result.primary_id, 
+                **kwargs
+            )
+            junction = await junction.save()
+        else:
+            key = getattr(self, relation.primary_key)
+            setattr(model, relation.foreign_key, key)
+            result = await model.save()
+        field = getattr(self, relation.name)
+        if field is not None:
+            field.append(result)
+        return result
 
 
     async def delete(self):

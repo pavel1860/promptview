@@ -91,3 +91,15 @@ class RelationInfo:
             self._foreign_cls_resolved = raw
         else:
             raise ValueError(f"Cannot resolve foreign_cls for relation '{self.name}'")
+
+    
+    
+    def create_junction(self, primary_key, foreign_key, **kwargs) -> "Model":
+        if not self.is_many_to_many or not self.relation_model:
+            raise ValueError(f"Cannot create junction for non-many-to-many relation '{self.name}'")
+        kwargs.update({
+            self.junction_keys[0]: primary_key,
+            self.junction_keys[1]: foreign_key,
+        })
+        return self.relation_model(**kwargs)
+        
