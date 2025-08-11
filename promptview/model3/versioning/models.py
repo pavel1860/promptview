@@ -1,8 +1,9 @@
+from contextlib import asynccontextmanager
 import enum
 import uuid
 import datetime as dt
 import contextvars
-from typing import List, Type, TypeVar, Self, Any
+from typing import AsyncGenerator, Callable, List, Type, TypeVar, Self, Any
 
 
 from promptview.model3.model3 import Model
@@ -11,6 +12,7 @@ from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
 from promptview.model3.postgres2.rowset import RowsetNode
 from promptview.model3.sql.queries import CTENode, RawSQL
 from promptview.model3.sql.expressions import RawValue
+from promptview.utils.db_connections import PGConnectionManager
 
 # ContextVars for current branch/turn
 _curr_branch = contextvars.ContextVar("curr_branch", default=None)
@@ -38,8 +40,85 @@ class Branch(Model):
 
     turns: List["Turn"] = RelationField("Turn", foreign_key="branch_id")
     children: List["Branch"] = RelationField("Branch", foreign_key="forked_from_branch_id")
+    
+    async def fork_branch(self, turn: "Turn", name: str | None = None):
+        branch = await Branch(
+            forked_from_index=turn.index,
+            forked_from_turn_id=turn.id,
+            current_index=turn.index + 1,
+            forked_from_branch_id=self.id,
+            name=name,
+        ).save()
+        return branch
+    
+    
+    @asynccontextmanager
+    async def fork(self, turn: "Turn", name: str | None = None) -> AsyncGenerator["Branch", None]:
+        branch = await self.fork_branch(turn, name)
+        try:
+            with branch as b:
+                yield b
+        except Exception as e:
+            # await turn.revert()
+            raise e
+        
+        
+    
+    @asynccontextmanager  
+    async def start_turn(
+        self, 
+        message: str | None = None, 
+        status: TurnStatus = TurnStatus.STAGED,
+        **kwargs
+    ) -> AsyncGenerator["Turn", None]:
+        turn = await self.create_turn(message, status, **kwargs)
+        try:
+            with turn as t:
+                yield t
+        except Exception as e:
+            await turn.revert(str(e))
+            raise e
+        finally:
+            await turn.commit()
+    
+
+    async def create_turn(self, message: str | None = None, status: TurnStatus = TurnStatus.STAGED, **kwargs):
+        query = f"""
+            WITH updated_branch AS (
+                UPDATE branches
+                SET current_index = current_index + 1
+                WHERE id = $1
+                RETURNING id, current_index
+            ),
+            new_turn AS (
+                INSERT INTO turns (branch_id, index, created_at, status{"".join([", " + k for k in kwargs.keys()])})
+                SELECT id, current_index - 1, current_timestamp, $2{"".join([", $" + str(i) for i in range(3, len(kwargs) + 3)])}
+                FROM updated_branch
+                RETURNING *
+            )
+            SELECT * FROM new_turn;
+        """   
+
+        if not self.id:
+            raise ValueError("Branch ID is not set")
+        
+        turn_ns = Turn.get_namespace()
+        row = await PGConnectionManager.fetch(query, self.id, status.value, *[kwargs[k] for k in kwargs.keys()])
+        
+        
+        # row = await PGConnectionManager.fetch_one(sql, self.id, status.value, message, metadata)
+        if not row:
+            raise ValueError("Failed to create turn")
+        return Turn(**row[0])
+        
 
         
+        
+
+        # finally:
+            # await turn.commit()
+        
+
     
     @classmethod
     def recursive_query(cls, branch_id: int) -> PgSelectQuerySet["Branch"]:
