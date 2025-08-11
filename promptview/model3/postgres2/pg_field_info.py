@@ -3,6 +3,9 @@
 import inspect
 
 from pydantic import BaseModel
+
+from promptview.model3.base.base_namespace import Serializable
+from promptview.utils.model_utils import make_json_serializable
 from ..base.base_field_info import BaseFieldInfo
 from typing import Any, List, Optional, Type
 import uuid
@@ -80,6 +83,8 @@ class PgFieldInfo(BaseFieldInfo):
         if py_type == dt.date: return "DATE"
         if inspect.isclass(py_type) and issubclass(py_type, BaseModel):
             return "JSONB"
+        if get_origin(py_type) is dict:
+            return "JSONB"
         raise ValueError(f"Unsupported type: {py_type}")
 
     def serialize(self, value: Any) -> Any:
@@ -108,9 +113,20 @@ class PgFieldInfo(BaseFieldInfo):
                 return json.dumps(make_json_serializable(value))
 
         return value
+    
 
 
     def deserialize(self, value: Any) -> Any:
         if self.field_type == uuid.UUID and isinstance(value, str):
             return uuid.UUID(value)
+        elif self.field_type == dict:
+            if isinstance(value, str):
+                value = json.loads(value)
+        elif issubclass(self.field_type, BaseModel):
+            if isinstance(value, str):
+                value = json.loads(value)
+            value = self.field_type.model_validate(value)
+            
+        
+    
         return value

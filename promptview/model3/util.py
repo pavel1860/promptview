@@ -47,6 +47,7 @@ def resolve_annotation(ann, globalns):
     
         # If it's NoneType outside a Union — treat as Any or raise
     if ann is type(None):
+        return ann
         # You can choose to raise here if this shouldn't happen
         raise ValueError("Annotation resolved to NoneType without optional context")
         # Or: return Any

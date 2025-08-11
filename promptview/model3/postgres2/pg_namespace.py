@@ -1,5 +1,6 @@
 # pg_namespace.py
 
+import json
 from typing import TYPE_CHECKING, Any, Optional, Type
 
 from promptview.utils.db_connections import PGConnectionManager
@@ -44,6 +45,18 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
         return PgFieldInfo(**kwargs)
 
 
+    
+    
+    def deserialize(self, data: dict[str, Any]) -> dict[str, Any]:
+        for field in self.iter_fields():
+            value = data.get(field.name, field.default)
+            data[field.name] = field.deserialize(value)
+            
+        for rel_name, rel in self._relations.items():
+            value = data.get(rel_name, None)
+            if type(value) == str:
+                value = json.loads(value)
+        return data
 
     async def insert(self, data: dict[str, Any]) -> dict[str, Any]:
         # 1. Handle relation fields...
@@ -98,7 +111,8 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
 
         if not result:
             raise RuntimeError("Insert failed, no row returned")
-        return dict(result)
+        # return dict(result)
+        return self.deserialize(dict(result))
 
     
     

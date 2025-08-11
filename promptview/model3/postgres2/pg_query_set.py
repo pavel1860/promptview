@@ -590,27 +590,29 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         data = dict(row)
 
         # Process relations
-        for rel_name, rel in self.namespace._relations.items():
-            if rel_name not in data:
-                continue
-            val = data[rel_name]
-            if val is None:
-                continue
+        # for rel_name, rel in self.namespace._relations.items():
+        #     if rel_name not in data:
+        #         continue
+        #     val = data[rel_name]
+        #     if val is None:
+        #         continue
 
-            # If Postgres returned JSONB as string, load it
-            if isinstance(val, str):
-                try:
-                    val = json.loads(val)
-                except json.JSONDecodeError:
-                    pass  # leave as-is
+        #     # If Postgres returned JSONB as string, load it
+        #     if isinstance(val, str):
+        #         try:
+        #             val = json.loads(val)
+        #         except json.JSONDecodeError:
+        #             pass  # leave as-is
 
-            # Convert to related model(s)
-            if isinstance(val, list):
-                val = [rel.foreign_cls(**item) if isinstance(item, dict) else item for item in val]
-            elif isinstance(val, dict):
-                val = rel.foreign_cls(**val)
+        #     # Convert to related model(s)
+        #     if isinstance(val, list):
+        #         val = [rel.foreign_cls(**item) if isinstance(item, dict) else item for item in val]
+        #     elif isinstance(val, dict):
+        #         val = rel.foreign_cls(**val)
 
-            data[rel_name] = val
+        #     data[rel_name] = val
+        
+        data = self.namespace.deserialize(data)
 
         return self.model_class(**data)
     

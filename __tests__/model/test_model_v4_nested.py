@@ -19,13 +19,13 @@ class Message(Model):
     content: str = ModelField()
     role: Literal["user", "assistant"] = ModelField()
     turn_id: int = ModelField(foreign_key=True)
-    turn: "Turn | None" = RelationField(
+    turn: "TestTurn | None" = RelationField(
         foreign_key="id",
         primary_key="turn_id",
     )
 
 
-class Turn(Model):
+class TestTurn(Model):
     id: int = KeyField(primary_key=True)
     index: int | None = ModelField(default=None)
     user_id: int = ModelField(foreign_key=True)
@@ -50,7 +50,7 @@ class Conversation(Model):
         junction_keys=["conv_id", "user_id"],
         junction_model=Participant
     )
-    turns: List[Turn] = RelationField(
+    turns: List[TestTurn] = RelationField(
         foreign_key="conv_id",
     )
 
@@ -87,12 +87,12 @@ async def test_conversation_relations(setup_db):
     await Participant(user_id=user1.id, conv_id=conv1.id).save()
 
     # First turn with messages
-    turn11 = await Turn(index=1, user_id=user1.id, conv_id=conv1.id).save()
+    turn11 = await TestTurn(index=1, user_id=user1.id, conv_id=conv1.id).save()
     await Message(content="hello", role="user", turn_id=turn11.id).save()
     await Message(content="world", role="assistant", turn_id=turn11.id).save()
 
     # Second turn with messages
-    turn12 = await Turn(index=2, user_id=user1.id, conv_id=conv1.id).save()
+    turn12 = await TestTurn(index=2, user_id=user1.id, conv_id=conv1.id).save()
     await Message(content="who are you?", role="user", turn_id=turn12.id).save()
     await Message(content="I'm an Agent", role="assistant", turn_id=turn12.id).save()
 
@@ -100,7 +100,7 @@ async def test_conversation_relations(setup_db):
     # 1) Conversation -> Turn -> Message
     # -------------------------
     convs = await select(Conversation).include(
-        select(Turn).include(Message)
+        select(TestTurn).include(Message)
     ).execute()
 
     assert len(convs) == 1
@@ -112,7 +112,7 @@ async def test_conversation_relations(setup_db):
     # 2) User -> Conversation -> Turn (no messages)
     # -------------------------
     users = await select(User).include(
-        select(Conversation).include(Turn)
+        select(Conversation).include(TestTurn)
     ).execute()
 
     assert len(users) == 1
@@ -126,7 +126,7 @@ async def test_conversation_relations(setup_db):
     # -------------------------
     users = await select(User).include(
         select(Conversation).include(
-            select(Turn).include(Message)
+            select(TestTurn).include(Message)
         )
     ).execute()
 

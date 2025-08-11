@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, Generic, Literal, Optional, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Dict, Generic, Literal, Optional, Self, Type, TypeVar, runtime_checkable, Protocol
 import contextvars
 
 from .base_field_info import BaseFieldInfo
@@ -14,6 +14,13 @@ MODEL = TypeVar("MODEL", bound="Model")
 FIELD = TypeVar("FIELD", bound=BaseFieldInfo)
 
 
+@runtime_checkable
+class Serializable(Protocol):
+    def serialize(self) -> dict[str, Any]:
+        ...
+
+    def deserialize(self, data: dict[str, Any]) -> Self:
+        ...
 
 
 @dataclass
