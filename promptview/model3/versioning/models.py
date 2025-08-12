@@ -157,6 +157,7 @@ class Branch(Model):
 
 
 class Turn(Model):
+    # _is_base: bool = True
     id: int = KeyField(primary_key=True)
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
     ended_at: dt.datetime | None = ModelField(default=None)
@@ -187,17 +188,27 @@ class Turn(Model):
         return await self.save()
     
     @classmethod
-    def query(cls: Type[Self], branch: Branch | None = None, **kwargs):
+    def versioned_query(
+        cls: Type[Self], 
+        fields: list[str] | None = None, 
+        branch: Branch | None = None, 
+        **kwargs
+    ) -> "PgSelectQuerySet[Self]":
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
         branch_id = branch.id if branch else Branch.current().id
         branch_cte = Branch.recursive_query(branch_id)
         col = branch_cte.get_field("start_turn_index")
-        return (
+        query = (
             PgSelectQuerySet(cls) \
             .use_cte(branch_cte, name="branch_hierarchy", alias="bh", on=("branch_id", "id"))    
             .where(lambda t: (t.index <= RawValue("bh.start_turn_index")))
             # .where(lambda t: (t.index <= branch_cte.get_field("start_turn_index")))
         )
+        return cls.query_extra(query, **kwargs)
+    
+    @classmethod    
+    def query_extra(cls: Type[Self], query: "PgSelectQuerySet[Self]", **kwargs) -> "PgSelectQuerySet[Self]":
+        return query
     
         
 
@@ -209,9 +220,7 @@ class VersionedModel(Model):
     turn_id: int = ModelField(foreign_key=True, foreign_cls=Turn)
     turn: Turn | None = RelationField("Turn", primary_key="turn_id", foreign_key="id")
     branch: Branch | None = RelationField("Branch", foreign_key="id")
-    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
-    updated_at: dt.datetime | None = ModelField(default=None)
-    deleted_at: dt.datetime | None = ModelField(default=None)
+    
 
     async def save(self, *, branch: Branch | int | None = None, turn: Turn | int | None = None):
         self.branch_id = self._resolve_branch_id(branch)
@@ -234,7 +243,7 @@ class VersionedModel(Model):
         return (
             PgSelectQuerySet(cls) \
             .use_cte(
-                Turn.query().select("*").where(status=TurnStatus.COMMITTED),
+                Turn.versioned_query().select("*").where(status=TurnStatus.COMMITTED),
                 name="committed_turns",
                 alias="ct",
             )

@@ -241,7 +241,7 @@ class ProjectionSet:
         self.namespace = namespace
         self.from_table = from_table
         self.columns = []
-        self.nest_columns = []
+        self.nest_columns: list[tuple["PgSelectQuerySet", str]] = []
         self.used_columns_set = set()
         
     @property
@@ -266,6 +266,16 @@ class ProjectionSet:
         self.columns.append(col)
         self.used_columns_set.add(col.name)
         return col
+    
+    def iter_fields(self):
+        for col in self.columns:
+            field = self.namespace.get_field(col.name)
+            yield col.alias_or_name, field
+            
+    def iter_relations(self):
+        for qs, name in self.nest_columns:
+            relation = qs.namespace.get_relation(name)
+            yield name, relation
     
     def __getitem__(self, name: str):
         for col in self.columns:
@@ -456,7 +466,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         """Alias for .where()"""
         return self.where(condition, **kwargs)
     
-    def join(self, target: "Type[Model] | QuerySet", on: tuple[str, str] | None = None):
+    def join(self, target: "Type[Model] | QuerySet", on: tuple[str, str] | None = None, nest_as: str | None = None):
         query_set = self._resolve_query_set_target(target)
         relation = self._get_qs_relation(query_set, on=on)
         
@@ -475,6 +485,8 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             # self.selection_set.clause &= Eq(Column(relation.foreign_key, query_set.table), Column(relation.primary_key, self.table))
             join = Join(query_set.table, Eq(Column(relation.foreign_key, query_set.table), Column(relation.primary_key, self.table)))
             self.join_set.append(relation, join)
+        if nest_as:
+            self.projection_set.nest(query_set, nest_as)
         return self
             
             
@@ -586,36 +598,6 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         self.limit(n)
         return self
     
-    def parse_row(self, row: dict[str, Any]) -> MODEL:
-        # Convert scalar columns first
-        data = dict(row)
-
-        # Process relations
-        # for rel_name, rel in self.namespace._relations.items():
-        #     if rel_name not in data:
-        #         continue
-        #     val = data[rel_name]
-        #     if val is None:
-        #         continue
-
-        #     # If Postgres returned JSONB as string, load it
-        #     if isinstance(val, str):
-        #         try:
-        #             val = json.loads(val)
-        #         except json.JSONDecodeError:
-        #             pass  # leave as-is
-
-        #     # Convert to related model(s)
-        #     if isinstance(val, list):
-        #         val = [rel.foreign_cls(**item) if isinstance(item, dict) else item for item in val]
-        #     elif isinstance(val, dict):
-        #         val = rel.foreign_cls(**val)
-
-        #     data[rel_name] = val
-        
-        data = self.namespace.deserialize(data)
-
-        return self.model_class(**data)
     
     
     def print(self):
@@ -686,12 +668,48 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             query.select(json_obj)
             return Coalesce(query, default_value)
         else:
+            json_obj = Function("json_agg", json_obj)
+            return json_obj
             raise ValueError("No joins found")
-        
-        
-        
+    
+    
+    def parse_row(self, row: dict[str, Any]) -> MODEL:
+        # Convert scalar columns first
+        data = dict(row)        
+        data = self.namespace.deserialize(data)
 
-        
+        return self.model_class(**data)
+  
+    
+    def parse_json_row(self, row: dict[str, Any]) -> MODEL:
+        data = dict(row)
+        data = self.namespace.deserialize(data, with_rels=False)
+        for nest_qs, nest_col in self.projection_set.nest_columns:
+            value = data.get(nest_col, None)
+            if value is None:
+                raise ValueError(f"No value for {nest_col} but it was requested")
+            if isinstance(value, str):
+                value = json.loads(value)
+            data[nest_col] = value
+        return data
+
+
+    def deserialize_row(self, row):
+        data = dict(row)
+        for name, field in self.projection_set.iter_fields():
+            value = data.get(name, None)
+            if value is None and not field.is_optional:
+                raise ValueError(f"No value for field '{name}' but it was requested")
+            data[name] = field.deserialize(value)
+        for nest_qs, name in self.projection_set.nest_columns:
+            value = data.get(name, None)
+            if value is None:
+                raise ValueError(f"No value for field '{name}' but it was requested")
+            if isinstance(value, str):
+                value = json.loads(value)
+            data[name] = value
+        return data
+            
     
     def render(self) -> tuple[str, list[Any]]:
         query = self.build_query()        
@@ -700,6 +718,14 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         # compiled = processor.process_query(query)
         sql, params = compiler.compile(query)
         return sql, params
+    
+    async def json(self):
+        return await self.execute_json()
+    
+    async def execute_json(self):   
+        sql, params = self.render()
+        rows = await PGConnectionManager.fetch(sql, *params)
+        return [self.deserialize_row(row) for row in rows]
 
     async def execute(self) -> List[MODEL]:
         sql, params = self.render()

@@ -36,6 +36,11 @@ class Column:
         self.table = table
         self.alias = alias
         
+    @property
+    def alias_or_name(self) -> str:
+        return self.alias or self.name
+    
+        
     def __str__(self):
         prefix = f"{str(self.table)}." if self.table else ""
         base = f"{prefix}{self.name}"

@@ -21,15 +21,15 @@ class ModelMeta(ModelMetaclass, type):
         cls_obj = super().__new__(cls, name, bases, dct)
 
         # Check if namespace exists
-        existing_ns = NamespaceManager.get_namespace_or_none(namespace_name, db_type)
-        if existing_ns and getattr(existing_ns, "_model_cls", None):
-            existing_ns.set_model_class(cls_obj)
-            NamespaceManager.register_model_namespace(cls_obj, existing_ns)
-            cls_obj._namespace_name = namespace_name
-            cls_obj._is_versioned = dct.get("_is_versioned", False)
-            cls_obj._field_extras = {}
-            cls_obj._relations = {}
-            return cls_obj
+        # existing_ns = NamespaceManager.get_namespace_or_none(namespace_name, db_type)
+        # if existing_ns and getattr(existing_ns, "_model_cls", None):
+        #     existing_ns.set_model_class(cls_obj)
+        #     NamespaceManager.register_model_namespace(cls_obj, existing_ns)
+        #     cls_obj._namespace_name = namespace_name
+        #     cls_obj._is_versioned = dct.get("_is_versioned", False)
+        #     cls_obj._field_extras = {}
+        #     cls_obj._relations = {}
+        #     return cls_obj
 
         # Otherwise → build namespace
         ns = NamespaceManager.build_namespace(

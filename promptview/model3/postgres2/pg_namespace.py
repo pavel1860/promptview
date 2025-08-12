@@ -52,15 +52,20 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
 
     
     
-    def deserialize(self, data: dict[str, Any]) -> dict[str, Any]:
+    def deserialize(self, data: dict[str, Any], with_rels: bool = True) -> dict[str, Any]:
         for field in self.iter_fields():
             value = data.get(field.name, field.default)
             data[field.name] = field.deserialize(value)
-            
+        
+        if not with_rels:
+            return data
         for rel_name, rel in self._relations.items():
+            if rel_name not in data:
+                continue
             value = data.get(rel_name, None)
             if type(value) == str:
                 value = json.loads(value)
+            data[rel_name] = value
         return data
 
     async def insert(self, data: dict[str, Any]) -> dict[str, Any]:
