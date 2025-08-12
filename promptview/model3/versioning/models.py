@@ -166,7 +166,7 @@ class Turn(Model):
     id: int = KeyField(primary_key=True)
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
     ended_at: dt.datetime | None = ModelField(default=None)
-    index: int = ModelField()
+    index: int = ModelField(order_by=True)
     status: TurnStatus = ModelField(default=TurnStatus.STAGED)
     message: str | None = ModelField(default=None)
     branch_id: int = ModelField(foreign_key=True)

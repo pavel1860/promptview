@@ -127,6 +127,9 @@ class PgFieldInfo(BaseFieldInfo):
         elif issubclass(self.data_type, BaseModel):
             if isinstance(value, str):
                 value = json.loads(value)
-            value = self.data_type.model_validate(value)
+            if self.is_list:
+                value = [self.data_type.model_validate(v) for v in value]
+            else:
+                value = self.data_type.model_validate(value)
     
         return value

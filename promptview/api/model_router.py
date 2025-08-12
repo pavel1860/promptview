@@ -7,10 +7,10 @@ from pydantic import BaseModel
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
 from promptview.context.model_context import CtxRequest, ModelCtx
-from promptview.model.postgres.query_url_params import parse_query_params
-from promptview.model.query_filters import QueryFilter, QueryListType
-from promptview.api.utils import build_model_context_parser, get_head, query_filters, unpack_int_env_header, Head
+from promptview.model3.query_url_params import parse_query_params, QueryListType
 from promptview.model3 import Model, TurnStatus
+from promptview.api.utils import build_model_context_parser, get_head, query_filters, unpack_int_env_header, Head
+
 
 
 MODEL = TypeVar("MODEL", bound=Model)

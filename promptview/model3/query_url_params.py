@@ -1,10 +1,33 @@
 import datetime as dt
-from typing import Any, List, Type
+from typing import Any, List, Literal, Type, Union
 
 from promptview.model3.sql.queries import Column, Table
 from promptview.model3.sql.expressions import Eq, Gte, Lte, Gt, Lt, And, Neq, param
 
 
+
+# Define the comparison operators
+ComparisonOperator = Literal["==", "!=", ">", "<", ">=", "<="]
+
+# Define the logical operators that can connect conditions
+LogicalOperator = Literal["and", "or"]
+
+# Define a single condition as a 3-element list: [field_name, operator, value]
+# Using List instead of Tuple for easier compatibility with the examples
+Condition = List[Any]  # [str, ComparisonOperator, Any]
+
+# Define a query element which can be either a condition or a logical operator
+QueryElement = Union[Condition, LogicalOperator]
+
+# Define a simple query with just one condition
+SimpleQuery = List[Condition]
+
+# Define a complex query with multiple conditions connected by logical operators
+# This is a list of elements that alternates between conditions and logical operators
+ComplexQuery = List[QueryElement]
+
+# The general query type that can be either simple or complex
+QueryListType = Union[SimpleQuery, ComplexQuery]
 
 
 
