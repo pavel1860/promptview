@@ -82,7 +82,7 @@ class Branch(Model):
             await turn.commit()
     
 
-    async def create_turn(self, message: str | None = None, status: TurnStatus = TurnStatus.STAGED, **kwargs):
+    async def create_turn(self, message: str | None = None, status: TurnStatus = TurnStatus.STAGED, auto_commit: bool = True, **kwargs):
         query = f"""
             WITH updated_branch AS (
                 UPDATE branches
@@ -109,8 +109,13 @@ class Branch(Model):
         # row = await PGConnectionManager.fetch_one(sql, self.id, status.value, message, metadata)
         if not row:
             raise ValueError("Failed to create turn")
-        return Turn(**row[0])
-        
+        if turn_ns._model_cls is None:
+            raise ValueError("Turn namespace is not initialized")
+        # turn = Turn(**row[0])
+        turn = turn_ns._model_cls(**row[0])
+        turn.branch_id = self.id
+        turn._auto_commit = auto_commit
+        return turn
 
         
         
@@ -167,6 +172,7 @@ class Turn(Model):
     branch_id: int = ModelField(foreign_key=True)
     trace_id: str | None = ModelField(default=None)
     metadata: dict | None = ModelField(default=None)
+    _auto_commit: bool = True
 
     # forked_branches: List["Branch"] = RelationField("Branch", foreign_key="forked_from_turn_id")
 
@@ -188,6 +194,15 @@ class Turn(Model):
         return await self.save()
     
     @classmethod
+    def _resolve_branch_id(cls, branch: Branch | None = None) -> int:
+        if branch is not None:
+            return branch.id
+        curr_branch = Branch.current()
+        if curr_branch is None:
+            raise ValueError("No branch in context for a versioned query and no branch was provided.")
+        return curr_branch.id
+    
+    @classmethod
     def versioned_query(
         cls: Type[Self], 
         fields: list[str] | None = None, 
@@ -195,7 +210,7 @@ class Turn(Model):
         **kwargs
     ) -> "PgSelectQuerySet[Self]":
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
-        branch_id = branch.id if branch else Branch.current().id
+        branch_id = cls._resolve_branch_id(branch)
         branch_cte = Branch.recursive_query(branch_id)
         col = branch_cte.get_field("start_turn_index")
         query = (
@@ -223,8 +238,10 @@ class VersionedModel(Model):
     
 
     async def save(self, *, branch: Branch | int | None = None, turn: Turn | int | None = None):
-        self.branch_id = self._resolve_branch_id(branch)
-        self.turn_id = self._resolve_turn_id(turn)
+        if self.branch_id is None:
+            self.branch_id = self._resolve_branch_id(branch)
+        if self.turn_id is None:
+            self.turn_id = self._resolve_turn_id(turn)
         return await super().save()
 
     def _resolve_branch_id(self, branch):

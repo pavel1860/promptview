@@ -89,7 +89,6 @@ class PgFieldInfo(BaseFieldInfo):
 
     def serialize(self, value: Any) -> Any:
         """Serialize the value for the database"""
-
         if value is None:
             return self.default
 
@@ -117,16 +116,17 @@ class PgFieldInfo(BaseFieldInfo):
 
 
     def deserialize(self, value: Any) -> Any:
-        if self.field_type == uuid.UUID and isinstance(value, str):
+        if value is None:
+            if not self.is_optional:
+                raise ValueError(f"Field {self.name} is not optional and value is None")
+        elif self.data_type == uuid.UUID and isinstance(value, str):
             return uuid.UUID(value)
-        elif self.field_type == dict:
+        elif self.data_type == dict:
             if isinstance(value, str):
                 value = json.loads(value)
-        elif issubclass(self.field_type, BaseModel):
+        elif issubclass(self.data_type, BaseModel):
             if isinstance(value, str):
                 value = json.loads(value)
-            value = self.field_type.model_validate(value)
-            
-        
+            value = self.data_type.model_validate(value)
     
         return value

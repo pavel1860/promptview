@@ -490,7 +490,13 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         return self
             
             
-    
+    def agg(self, name: str, target: "Type[Model] | QuerySet", on: tuple[str, str] | None = None):
+        query_set = self._resolve_query_set_target(target)
+        relation = self._get_qs_relation(query_set, on=on)
+        query_set.selection_set.clause &= Eq(Column(relation.foreign_key, query_set.table), Column(relation.primary_key, self.table))
+        self.projection_set.nest(query_set, name)
+        return self
+        
 
 
     
@@ -669,7 +675,13 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             return Coalesce(query, default_value)
         else:
             json_obj = Function("json_agg", json_obj)
+            query.select(json_obj)
+            default_value = Value("[]", inline=True)
+            return Coalesce(query, default_value)
             return json_obj
+        # else:
+        #     json_obj = Function("json_agg", json_obj)
+        #     return json_obj
             raise ValueError("No joins found")
     
     

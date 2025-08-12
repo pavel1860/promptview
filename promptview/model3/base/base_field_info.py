@@ -44,9 +44,13 @@ class BaseFieldInfo:
         if self.is_key:
             self.key_type = "uuid" if field_type is uuid.UUID else "int"
 
+        origin = get_origin(field_type)
         # Detect list fields
-        self.is_list = get_origin(field_type) in (list, List)
-        self.data_type = get_args(field_type)[0] if self.is_list else field_type
+        self.is_list = origin in (list, List)
+        if origin == dict:
+            self.data_type = dict
+        else:
+            self.data_type = get_args(field_type)[0] if self.is_list else field_type
         self.is_temporal = self.data_type is type and issubclass(self.data_type, (dt.datetime, dt.date, dt.time))
 
     def serialize(self, value: Any) -> Any:

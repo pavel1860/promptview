@@ -23,7 +23,7 @@ class AuthModel(Model):
     is_guest: bool = ModelField(default=True)
     guest_token: UUID | None = ModelField(None)
     is_admin: bool = ModelField(default=False)
-    created_at: datetime = ModelField(default_factory=datetime.now)
+    created_at: datetime = ModelField(default_factory=datetime.now, order_by=True)
 
     
     
