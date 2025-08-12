@@ -43,7 +43,7 @@ class Message(ArtifactModel):
 
 
 class Turn(BaseTurn):
-    user_id: int = ModelField(foreign_key=True)
+    user_id: int | None = ModelField(foreign_key=True)
     messages: Relation[Message] = RelationField(foreign_key="turn_id")
     posts: Relation[Post] = RelationField(foreign_key="turn_id")
     likes: Relation[Like] = RelationField(foreign_key="turn_id")

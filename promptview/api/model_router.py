@@ -7,12 +7,11 @@ from pydantic import BaseModel
 from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
 from promptview.context.model_context import CtxRequest, ModelCtx
-from promptview.model.postgres.query_url_params import parse_query_params
-from promptview.model.query_filters import QueryFilter, QueryListType
+from promptview.model3.query_url_params import parse_query_params, QueryListType
+from promptview.model3 import Model, TurnStatus
 from promptview.api.utils import build_model_context_parser, get_head, query_filters, unpack_int_env_header, Head
-from promptview.model.model import Model
-from promptview.model import Context
-from promptview.model.version_control_models import TurnStatus
+
+
 
 MODEL = TypeVar("MODEL", bound=Model)
 CTX_MODEL = TypeVar("CTX_MODEL", bound=BaseModel)
@@ -51,7 +50,7 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
     
     if "record" not in exclude_routes:
         @router.get("/record/{record_id}")
-        async def get_artifact(record_id: int):
+        async def get_artifact(record_id: int | UUID):
             """Get a specific artifact by ID"""
             artifact = await model.get(record_id)
             if not artifact:
@@ -84,7 +83,7 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
     if "update" not in exclude_routes:
         @router.put("/update/{model_id}")
         async def update_model(
-            model_id: int,
+            model_id: int | UUID,
             request: Request,
             ctx: CTX_MODEL = Depends(get_context)
         ):

@@ -6,15 +6,14 @@ from typing_extensions import TypeVar
 
 
 from pydantic import BaseModel
-from promptview.model import Model, ModelField
-from promptview.model.fields import KeyField
+from promptview.model3 import Model, ModelField
+from promptview.model3.fields import KeyField
 from promptview.utils.db_connections import PGConnectionManager
 
 
 
 
 from uuid import UUID
-from promptview.model.model import Model
 
 
 class AuthModel(Model):
@@ -24,7 +23,7 @@ class AuthModel(Model):
     is_guest: bool = ModelField(default=True)
     guest_token: UUID | None = ModelField(None)
     is_admin: bool = ModelField(default=False)
-    created_at: datetime = ModelField(default_factory=datetime.now)
+    created_at: datetime = ModelField(default_factory=datetime.now, order_by=True)
 
     
     

@@ -94,7 +94,7 @@ class Message(Model):
         else:
             raise ValueError("Invalid role")
         return Block(
-            content=self.content,
+            self.content,
             role=self.role,
             tags=tags,
             id=self.platform_id,
@@ -122,8 +122,8 @@ class User(AuthModel):
 @pytest_asyncio.fixture()
 async def seeded_database(clean_database):
     
-    try:
-    
+    # try:
+        # Namespaces are already created by clean_database fixture
         await NamespaceManager.create_all_namespaces()
 
         data = {}
@@ -167,8 +167,8 @@ async def seeded_database(clean_database):
             "p2_comment2": p2_comment2,
             "p2c2_like1": p2c2_like1,
         }
-    finally:
-        NamespaceManager.drop_all_namespaces()
+    # finally:
+        # NamespaceManager.drop_all_namespaces()
 
 
 

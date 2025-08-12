@@ -284,7 +284,7 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL]):
     on_update: str
     namespace: "Namespace"
     _primary_cls: Type[MODEL] | None = None
-    
+    is_one_to_one: bool = False
     def __init__(
         self, 
         namespace: "Namespace",
@@ -296,6 +296,7 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL]):
         junction_cls: Type[JUNCTION_MODEL] | None = None,        
         on_delete: str = "CASCADE", 
         on_update: str = "CASCADE",        
+        is_one_to_one: bool = False,
     ):
         self.name = name
         self.primary_key = primary_key
@@ -307,6 +308,7 @@ class NSRelationInfo(Generic[MODEL, FOREIGN_MODEL, JUNCTION_MODEL]):
         self.on_update = on_update
         self.namespace = namespace
         self._primary_cls = None
+        self.is_one_to_one = is_one_to_one
         
     @property
     def primary_cls(self) -> Type[MODEL]:
@@ -862,8 +864,10 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
                     continue
             yield field
             
-    def iter_relations(self) -> Iterator[NSRelationInfo]:
+    def iter_relations(self, is_one_to_one: bool | None = None) -> Iterator[NSRelationInfo]:
         for relation in self._relations.values():
+            if is_one_to_one is not None and relation.is_one_to_one != is_one_to_one:
+                continue
             yield relation
             
     def get_field_names(self) -> list[str]:
@@ -937,6 +941,7 @@ class Namespace(Generic[MODEL, FIELD_INFO]):
         junction_keys: list[str] | None = None,       
         on_delete: str = "CASCADE",
         on_update: str = "CASCADE",
+        is_one_to_one: bool = False,
     ):
         """
         Add a relation to the namespace.

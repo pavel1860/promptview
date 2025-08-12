@@ -1,18 +1,20 @@
-from typing import List, Literal
+from typing import TYPE_CHECKING, List, Literal
 from uuid import UUID
 from pydantic import BaseModel, Field
 from promptview.model import NamespaceManager
 from promptview.model.relation import Relation
 # from promptview.testing import TestCase, TestRun, TestTurn, TestInputs
-from promptview.model import Branch, Turn as TurnBase
+# from promptview.model import Branch, Turn as TurnBase
 
 from datetime import datetime
 from promptview.model.fields import KeyField, ModelField, RelationField
-from promptview.model.version_control_models import Turn, TurnModel
+# from promptview.model.version_control_models import Turn, TurnModel
 
 
 from promptview.model import Model, ModelField
-
+from promptview.model.version_control_models import EvaluatorConfig
+# if TYPE_CHECKING:
+from promptview.model.version_control_models import Branch, Turn, TestTurn
 
 
 class Evaluation(Model):
@@ -63,9 +65,9 @@ class TestRun(Model):
         
     
 
-class EvaluatorConfig(BaseModel):
-    name: str = Field(default="")
-    metadata: dict = Field(default={})
+# class EvaluatorConfig(BaseModel):
+#     name: str = Field(default="")
+#     metadata: dict = Field(default={})
     
     
 class TurnEvaluator(BaseModel):
@@ -79,13 +81,15 @@ class TestCaseEvaluators(BaseModel):
     evaluators: dict[int, TurnEvaluator] = Field(default={})
     
     
-    def add(self, turn: Turn | int, evaluators: List[EvaluatorConfig]):
+    def add(self, turn: "Turn | int", evaluators: List[EvaluatorConfig]):
+        from promptview.model import Turn
         if isinstance(turn, Turn):
             self.evaluators[turn.id] = TurnEvaluator(turn_id=turn.id, evaluators=evaluators)
         else:
             self.evaluators[turn] = TurnEvaluator(turn_id=turn, evaluators=evaluators)
             
-    def get(self, turn: Turn | int) -> TurnEvaluator:
+    def get(self, turn: "Turn | int") -> TurnEvaluator:
+        from promptview.model import Turn
         if isinstance(turn, Turn):
             return self.evaluators[turn.id]
         else:
@@ -101,7 +105,18 @@ class TestCaseEvaluators(BaseModel):
 #     description: str = ModelField(default="")
     
 
-
+# class TestTurn(Model):
+#     id: int = KeyField(primary_key=True)
+#     created_at: datetime = ModelField(default_factory=datetime.now, is_default_temporal=True)
+#     updated_at: datetime = ModelField(default_factory=datetime.now)
+#     test_case_id: int = ModelField(default=None, foreign_key=True)
+#     turn_id: int = ModelField(default=None, foreign_key=True)
+#     evaluators: List[EvaluatorConfig] = ModelField(default=[])
+#     turns: Relation["Turn"] = RelationField(
+#         primary_key="turn_id", 
+#         foreign_key="id", 
+#         create_foreign_key=False
+#     )
 
 
 
@@ -115,11 +130,11 @@ class TestCase(Model):
     updated_at: datetime = ModelField(default_factory=datetime.now)
     title: str = ModelField(default="")
     description: str = ModelField(default="")
-    evaluators: TestCaseEvaluators = ModelField(default_factory=TestCaseEvaluators)
+    # evaluators: TestCaseEvaluators = ModelField(default_factory=TestCaseEvaluators)
     branch_id: int = ModelField(default=1, foreign_key=True, description="the branch this test case belongs to")
     # start_turn_id: int = ModelField(foreign_key=True, description="the turn this test case will start from")
     # end_turn_id: int = ModelField(foreign_key=True, description="the turn this test case will end at")
     # limit: int = ModelField(description="the number of turns to test")
+    test_turns: Relation[TestTurn] = RelationField(foreign_key="test_case_id")
     user_id: UUID = ModelField(description="the user this test case belongs to")
     test_runs: Relation[TestRun] = RelationField(foreign_key="test_case_id")
-    turns: Relation[Turn] = RelationField(foreign_key="test_case_id")

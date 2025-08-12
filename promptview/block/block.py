@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, Concatenate, ContextManager, Ge
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
 from promptview.block.style import InlineStyle, BlockStyle, style_manager
+from promptview.block.util import BlockRole, LlmUsage, ToolCall
 from promptview.utils.model_utils import schema_to_ts
 if TYPE_CHECKING:
     from promptview.model.block_model import BlockModel
@@ -53,43 +54,6 @@ class ContextStack:
 
 
 
-BlockRole = Literal["assistant", "user", "system", "tool"]
-
-class LlmUsage(BaseModel):
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
-
-
-class ToolCall(BaseModel):
-    id: str
-    name: str
-    tool: dict | BaseModel
-    extra: dict
-    
-    def __init__(self, id: str, name: str, tool: dict | BaseModel, extra: dict | None = None):
-        super().__init__(id=id, name=name, tool=tool, extra=extra or {})
-        self.tool = tool
-    
-    @property
-    def type(self):
-        return type(self.tool)
-    
-    def __repr__(self) -> str:
-        return f"ToolCall(id='{self.id}', name='{self.name}', tool={self.tool.__class__.__name__})"
-    
-    def to_json(self):
-        return self.tool.model_dump_json() if isinstance(self.tool, BaseModel) else json.dumps(self.tool)
-
-    def model_dump(self, *args, **kwargs):
-        dump = super().model_dump(*args, **kwargs)
-        if isinstance(self.tool, BaseModel):
-            dump["tool"] = self.tool.model_dump(*args, **kwargs)
-        elif isinstance(self.tool, dict):
-            dump["tool"] = self.tool
-        else:
-            raise ValueError(f"Tool is not a BaseModel or dict: {type(self.tool)}")
-        return dump
 
 MAP_RET = TypeVar("MAP_RET")
 

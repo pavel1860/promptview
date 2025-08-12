@@ -146,6 +146,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         junction_keys: list[str] | None = None,
         on_delete: str = "CASCADE",
         on_update: str = "CASCADE",
+        is_one_to_one: bool = False,
     ) -> NSRelationInfo:
         """
         Add a relation to the namespace.
@@ -170,6 +171,7 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                 junction_keys=junction_keys,
                 on_delete=on_delete,
                 on_update=on_update,
+                is_one_to_one=is_one_to_one,
             )
         else:
             relation_info = NSManyToManyRelationInfo(
@@ -257,6 +259,8 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                 if relation_info.primary_key == "artifact_id":
                     # can't enforce foreign key constraint on artifact_id because it's not a single record
                     continue
+                if relation_info.is_one_to_one:
+                    continue
                 
                     # SQLBuilder.create_foreign_key(
                     #     table_name=self.table_name,
@@ -325,7 +329,10 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
         """Pack the record for the database"""
         rec = {}
         for relation in self.iter_relations():
-            rec[relation.name] = Relation(relation=relation)
+            if relation.is_one_to_one:
+                rec[relation.name] = None
+            else:
+                rec[relation.name] = Relation(relation=relation)
         
         for key, value in record.items():
             key = key.strip('"').strip("'")
@@ -341,7 +348,10 @@ class PostgresNamespace(Namespace[MODEL, PgFieldInfo]):
                     relation_info = self.get_relation(key)
                     if not relation_info:
                         raise ValueError(f"Unknown key: {key}")
-                    rec[key] = Relation(relation_info.deserialize(value), relation=relation_info)
+                    if relation_info.is_one_to_one:
+                        rec[key] = value
+                    else:
+                        rec[key] = Relation(relation_info.deserialize(value), relation=relation_info)
                 else:
                     raise ValueError(f"Unknown key: {key}")
         return rec

@@ -8,10 +8,11 @@ from promptview.model.base_namespace import NSManyToManyRelationInfo, Namespace,
 from promptview.model.postgres.fields_query import PgFieldInfo
 # from promptview.model2.query_filters import QueryProxy
 from promptview.model.postgres.sql.helpers import NestedQuery
+from promptview.model.postgres.sql.json_processor import Preprocessor
 from promptview.utils.db_connections import PGConnectionManager
 
 
-from promptview.model.postgres.sql.queries import JoinType, SelectQuery, Table, Column, Subquery
+from promptview.model.postgres.sql.queries import JoinType, NestedSubquery, SelectQuery, Table, Column, Subquery
 from promptview.model.postgres.sql.expressions import Eq, Expression, IsNull, Not, RawSQL, Value, Function, Coalesce, Gt, json_build_object, param, OrderBy
 from promptview.model.postgres.sql.compiler import Compiler
 from functools import reduce
@@ -107,6 +108,29 @@ def join_as_subquery(query, rel, parent_table):
         print(e)
         raise
 
+
+
+def include_junction_table(
+    query_set: "SelectQuerySet", 
+    rel: NSManyToManyRelationInfo, 
+    join_type: JoinType = "LEFT", 
+    alias: str | None = None
+):
+    j_ns = rel.junction_namespace
+    target_table = query_set.from_table
+    junction_table = Table(j_ns.table_name, alias=alias)
+    query_set.query.from_table = junction_table
+    query_set.query.join(
+        target_table, 
+        Eq(
+            Column(rel.foreign_key, target_table), 
+            Column(rel.junction_keys[1], junction_table)
+        ),
+        join_type
+    )
+    nested_query = join_as_subquery(query_set.query, rel, query_set.from_table)    
+    nested_query.values[0].where(Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, query_set.from_table)))
+    return nested_query
  
 class SelectQuerySet(Generic[MODEL]):
     
@@ -168,7 +192,9 @@ class SelectQuerySet(Generic[MODEL]):
     def select(self, *fields: str) -> "SelectQuerySet[MODEL]":
                 
         if len(fields) == 1 and fields[0] == "*":
-            self.query.select(*[Column(f.name, self.from_table) for f in self.model_class.iter_fields()])
+            columns = [Column(f.name, self.from_table) for f in self.model_class.iter_fields()]
+            # o2o_columns = [Column(f.name, self.from_table) for f in self.namespace.iter_relations(is_one_to_one=True)]
+            self.query.select(*columns)
         else:
             self.query.select(*[Column(f, self.from_table) for f in fields])
         return self
@@ -324,15 +350,6 @@ class SelectQuerySet(Generic[MODEL]):
             )
             nested_query = join_as_subquery(query_set.query, rel, self.from_table)    
             nested_query.values[0].where(Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table)))
-            # nested_query.values[0].where &= Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table))
-            # self.query.join(
-            #     query_set.from_table, 
-            #     Eq(
-            #         Column(rel.junction_keys[1], junction_table), 
-            #         Column(rel.foreign_key, query_set.from_table)
-            #     ),
-            #     join_type
-            # )
         else:
             self.query.join(
                 query_set.from_table, 
@@ -366,29 +383,50 @@ class SelectQuerySet(Generic[MODEL]):
             raise ValueError("No relation found")
         if query_set.query.ctes:
             query_set = self._merge_ctes(query_set)
-        if isinstance(rel, NSManyToManyRelationInfo):            
-            raise NotImplementedError("Many to many relations are not supported yet")
-            # j_ns = rel.junction_namespace
-            # j_alias=self._set_alias(j_ns.table_name)
-            # target_table = query_set.from_table
-            # junction_table = Table(j_ns.table_name, alias=j_alias)
-            # query_set.query.from_table = junction_table
-            # query_set.query.join(
-            #     target_table, 
-            #     Eq(
-            #         Column(rel.foreign_key, target_table), 
-            #         Column(rel.junction_keys[1], junction_table)
-            #     ),
-            #     join_type
-            # )
-            # nested_query = join_as_subquery(query_set.query, rel, self.from_table)    
-            # nested_query.values[0].where &= Eq(Column(rel.junction_keys[0], junction_table), Column(rel.primary_key, self.from_table))
+        if isinstance(rel, NSManyToManyRelationInfo): 
+            j_ns = rel.junction_namespace
+            j_alias=self._set_alias(j_ns.table_name)
+            junction_table = Table(j_ns.table_name, alias=j_alias)           
+            nested_query = Column(
+                rel.name,
+                NestedSubquery(
+                    query_set.query,
+                    rel.name,
+                    Column(rel.primary_key, self.from_table),
+                    Column(rel.foreign_key, query_set.from_table),
+                    (Column(rel.junction_keys[0], junction_table), Column(rel.junction_keys[1], junction_table))
+                )
+            )
         else:
-            nested_query = query_set.query.as_subquery(self.from_table, rel.primary_key, rel.foreign_key)    
+            nested_query = Column(
+                rel.name,
+                NestedSubquery(
+                    query_set.query,
+                    rel.name,
+                    Column(rel.primary_key, self.from_table),
+                    Column(rel.foreign_key, query_set.from_table)
+                )
+            )
+            # if rel.is_one_to_one:
+            #     nested_query = query_set.query.as_subquery(self.from_table, rel.primary_key, rel.foreign_key)    
+            # else:
+            #     nested_query = query_set.query.as_list_subquery(self.from_table, rel.primary_key, rel.foreign_key)    
         nested_query.alias = rel.name
         self.query.columns.append(nested_query)
         return self
-        
+    
+    def reversed(self, target: "SelectQuerySet | Type[Model]", primary_key: str, foreign_key: str) -> "SelectQuerySet[MODEL]":
+        """
+        Reverse the relation of the current query set.
+        """
+        query_set = self._get_query_set(target)        
+        self.query.join(
+            query_set.from_table,
+            Eq(Column(primary_key, self.from_table), Column(foreign_key, query_set.from_table)),
+            "LEFT"
+        )
+        self.query.columns.append(Column("test", self.from_table))
+        return self
       
     def from_subquery(self, query_set: "SelectQuerySet"):
         if query_set.ctes:
@@ -456,7 +494,9 @@ class SelectQuerySet(Generic[MODEL]):
 
     def render(self) -> str:
         compiler = Compiler()
-        sql, params = compiler.compile(self.query)
+        processor = Preprocessor()
+        compiled = processor.process_query(self.query)
+        sql, params = compiler.compile(compiled)
         self._params = params
         return sql
     
@@ -471,7 +511,9 @@ class SelectQuerySet(Generic[MODEL]):
     async def execute(self) -> List[MODEL]:
         # sql = self.render()        
         compiler = Compiler()
-        sql, params = compiler.compile(self.query)
+        processor = Preprocessor()
+        compiled = processor.process_query(self.query)
+        sql, params = compiler.compile(compiled)
         results = await self.execute_sql(sql, *params)
         return [self.parse(row) for row in results]
         # return [self.model_class(**self.namespace.pack_record(dict(row))) for row in results]

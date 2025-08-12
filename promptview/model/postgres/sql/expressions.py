@@ -25,9 +25,19 @@ class RawValue(Expression):
 
 
 class Value(Expression):
-    def __init__(self, value, inline=True):
+    def __init__(self, value, inline=True, no_quote=False):
         self.value = value
         self.inline = inline
+        self.no_quote = no_quote
+        
+        
+class Null(Value):
+    def __init__(self):
+        self.value = "NULL"
+        self.inline = True
+        self.no_quote = True
+        
+        
         
         
 def param(value):
@@ -171,6 +181,9 @@ class WhereClause:
         else:
             self.condition = Not(self.condition)
         return self
+    
+    def isin(self, values: list):
+        return In(self.condition, values)
         
     def __and__(self, other: Expression):
         return self.and_(other)

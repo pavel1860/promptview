@@ -42,31 +42,32 @@ class AddCtxMiddleware(BaseHTTPMiddleware):
             content_type.startswith("multipart/form-data")
             
     async def dispatch(self, request: Request, call_next):
-        ctx = None
-        ctx_str = request.query_params.get("ctx")
-        if ctx_str is not None:
-            ctx = json.loads(ctx_str)
-        request.state.ctx = ctx
-        filters = request.query_params.get("filter")
-        if filters:
-            request.state.filters = filters
-        list_params = request.query_params.get("list")
-        if list_params:
-            list_params = json.loads(list_params)
-            request.state.list = {
-                "offset": list_params.get("offset"), 
-                "limit": list_params.get("limit")
-            }
-        message = None
-        config = None
-        if self.is_form_request(request):
-            form = await request.form()
-            message = form.get("message")            
-            message = json.loads(message) if message else None
-            config = form.get("config") 
-            config = json.loads(config) if config else None
-        request.state.message = message
-        request.state.config = config
+        if request.url.path.startswith("/api"):            
+            ctx = None
+            ctx_str = request.query_params.get("ctx")
+            if ctx_str is not None:
+                ctx = json.loads(ctx_str)
+            request.state.ctx = ctx
+            filters = request.query_params.get("filter")
+            if filters:
+                request.state.filters = filters
+            list_params = request.query_params.get("list")
+            if list_params:
+                list_params = json.loads(list_params)
+                request.state.list = {
+                    "offset": list_params.get("offset"), 
+                    "limit": list_params.get("limit")
+                }
+            message = None
+            config = None
+            if self.is_form_request(request):
+                form = await request.form()
+                message = form.get("message")            
+                message = json.loads(message) if message else None
+                config = form.get("config") 
+                config = json.loads(config) if config else None
+            request.state.message = message
+            request.state.config = config
         
         response = await call_next(request)
         return response
