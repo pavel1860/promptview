@@ -189,7 +189,8 @@ class TableRegistry:
         base = name[0].lower()
         alias = base
         i = 1
-        while alias in self.alias_lookup:
+        aliases = set(self.alias_lookup.values())
+        while alias in aliases:
             alias = f"{base}{i}"
             i += 1
         return alias
