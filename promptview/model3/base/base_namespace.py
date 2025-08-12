@@ -56,6 +56,10 @@ class BaseNamespace(Generic[MODEL, FIELD]):
     # -------------------------
     def set_model_class(self, model_cls: Type[MODEL]):
         self._model_cls = model_cls
+        
+    @classmethod
+    async def install_extensions(cls):
+        raise NotImplementedError("Install extensions is not supported for this backend.")
 
     # -------------------------
     # Field management

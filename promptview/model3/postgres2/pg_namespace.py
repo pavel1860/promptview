@@ -2,6 +2,7 @@
 
 import json
 from typing import TYPE_CHECKING, Any, Optional, Type
+import uuid
 
 from promptview.utils.db_connections import PGConnectionManager
 from ..base.base_namespace import BaseNamespace
@@ -30,9 +31,13 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
             self._primary_key = field
 
         self.add_field(field)
-        
-        
-
+    
+    @classmethod
+    async def install_extensions(cls):
+        sql = """
+        CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+        """
+        await PGConnectionManager.execute(sql)
 
     def __repr__(self):
         return f"<PgNamespace {self.name} fields={[f.name for f in self.iter_fields()]}>"
@@ -189,6 +194,8 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
             if field.is_primary_key:
                 if field.field_type == int:
                     col_def = f'"{field.name}" SERIAL PRIMARY KEY'
+                elif field.field_type == uuid.UUID:
+                    col_def = f'"{field.name}" UUID PRIMARY KEY DEFAULT uuid_generate_v4()'
                 else:
                     col_def = f'"{field.name}" {field.sql_type} PRIMARY KEY'
             else:
@@ -248,7 +255,10 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
             if dry_run:
                 sql_statements.append(sql)
             else:
-                await PGConnectionManager.execute(sql)
+                try:
+                    await PGConnectionManager.execute(sql)
+                except Exception as e:
+                    raise e
         return sql_statements
 
     

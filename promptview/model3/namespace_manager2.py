@@ -50,6 +50,7 @@ class NamespaceManager:
 
     @classmethod
     async def initialize_all(cls):
+        await PgNamespace.install_extensions()
         cls.finalize()
         # 1️⃣ Create all tables first
         for ns in cls._registry.values():

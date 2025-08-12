@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from .postgres2.pg_query_set import PgSelectQuerySet
     from promptview.model3.base.base_namespace import BaseNamespace
 
-MODEL = TypeVar("MODEL", bound="Model", covariant=True)
+MODEL = TypeVar("MODEL", bound="Model")
 JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
 
 @runtime_checkable
@@ -76,6 +76,14 @@ class Model(BaseModel, metaclass=ModelMeta):
         if not data:
             raise ValueError(f"{cls.__name__} with ID '{id}' not found")
         return cls(**data)
+    
+    
+    @classmethod
+    async def get_or_none(cls: Type[Self], id: Any) -> Self | None:
+        data = await cls.get_namespace().get(id)
+        if not data:
+            return None
+        return cls(**data)
 
 
     async def save(self, *args, **kwargs) -> Self:
@@ -139,9 +147,11 @@ class Model(BaseModel, metaclass=ModelMeta):
         return getattr(self, ns.primary_key)
 
     @classmethod
-    def query(cls, *args, **kwargs):
+    def query(cls: Type[Self], fields: list[str] | None = None, **kwargs) -> "PgSelectQuerySet[Self]":
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
-        return PgSelectQuerySet(cls)
+        if not fields:
+            return PgSelectQuerySet(cls).select("*")
+        return PgSelectQuerySet(cls).select(*fields)
 
 
 

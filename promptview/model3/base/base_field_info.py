@@ -2,7 +2,7 @@
 
 from typing import Any, List, Type, Optional, get_args, get_origin
 import uuid
-
+import datetime as dt
 class BaseFieldInfo:
     def __init__(
         self,
@@ -36,8 +36,10 @@ class BaseFieldInfo:
         self.on_delete = on_delete
         self.on_update = on_update
         self.enum_values = enum_values
+        self.is_enum = enum_values is not None
         self.order_by = order_by
         self.foreign_cls = foreign_cls
+        
         # For key fields (uuid or int)
         if self.is_key:
             self.key_type = "uuid" if field_type is uuid.UUID else "int"
@@ -45,6 +47,7 @@ class BaseFieldInfo:
         # Detect list fields
         self.is_list = get_origin(field_type) in (list, List)
         self.data_type = get_args(field_type)[0] if self.is_list else field_type
+        self.is_temporal = self.data_type is type and issubclass(self.data_type, (dt.datetime, dt.date, dt.time))
 
     def serialize(self, value: Any) -> Any:
         return value

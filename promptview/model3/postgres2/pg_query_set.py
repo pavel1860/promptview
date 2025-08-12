@@ -475,6 +475,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             # self.selection_set.clause &= Eq(Column(relation.foreign_key, query_set.table), Column(relation.primary_key, self.table))
             join = Join(query_set.table, Eq(Column(relation.foreign_key, query_set.table), Column(relation.primary_key, self.table)))
             self.join_set.append(relation, join)
+        return self
             
             
     

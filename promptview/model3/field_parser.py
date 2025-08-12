@@ -41,6 +41,8 @@ class FieldParser:
     def parse(self):
         for field_name, field_info in self.model_cls.model_fields.items():
             extra = unpack_extra(field_info)
+            if not extra.get("is_model_field", False):
+                continue
 
             # Detect Optional[T] or T | None
             annotation = field_info.annotation
