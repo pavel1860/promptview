@@ -1,5 +1,5 @@
 from collections import UserList
-from typing import TYPE_CHECKING, Any, Generic, List, Protocol, Set, TypeVar, TypedDict, Unpack
+from typing import TYPE_CHECKING, Any, Callable, Generic, List, Protocol, Set, Type, TypeVar, TypedDict, Unpack
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
 from promptview.block.types import ContentType
@@ -458,6 +458,7 @@ class Block(BaseBlock):
             return self.content == other.content
         else:
             return False
+        
     
     
     @classmethod
@@ -482,7 +483,8 @@ class Block(BaseBlock):
             return v.model_dump()
         else:
             raise ValueError(f"Invalid block: {v}")
-        
+    
+
         
     def to_model(self) -> "BlockModel":
         from promptview.model.block_model import BlockModel
@@ -652,6 +654,17 @@ class BlockContext(BaseBlock):
         root_logprob = self.root.logprob or 0
         return logprob + root_logprob
        
+    def field(self, name: str, type: Type):
+        block = FieldBlock(name, type)
+        self.append_child(block)
+        return block
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+    
             
             
     # def __call__(self, content: ContentType | BaseBlock | list[str] | None = None) -> Block:
@@ -718,6 +731,25 @@ class BlockContext(BaseBlock):
         return self
     
     
+    def get(self, tag: str):
+        tag = tag.lower()
+        for child in self.children:
+            if child.tags and tag in child.tags:
+                return child
+            elif isinstance(child, BlockContext):
+                return child.get(tag)
+        return None
+
+    def get_field(self):
+        for child in self.children:
+            if isinstance(child, FieldBlock):
+                return child
+            elif isinstance(child, BlockContext):
+                for b in child.root:
+                    if isinstance(b, FieldBlock):
+                        return b
+        return None
+    
     def model_dump(self):
         dump = super().model_dump()
         # dump = self.base_model_dump()
@@ -753,6 +785,125 @@ class BlockContext(BaseBlock):
             return v.model_dump()
         else:
             raise ValueError(f"Invalid block list: {v}")
+        
+        
+        
+    def reduce_tree(self, is_target: Callable[[BaseBlock], bool], clone_target_node) -> "ResponseContext":
+        """Return a forest containing only target-type nodes, attached under their
+        nearest target-type ancestor from the original tree."""
+        dummy_children: List[BaseBlock] = []
+        stack: List[BlockContext] = []  # stack of cloned target nodes
+        
+        
+
+        def dfs(u: BlockContext):
+            created = None
+            if is_target(u):
+                created = clone_target_node(u)
+                if stack:
+                    stack[-1].children.append(created)
+                else:
+                    dummy_children.append(created)
+                stack.append(created)
+
+            if isinstance(u, BlockContext):
+                for child in u.children:
+                    dfs(child)
+                    
+            if created is not None:
+                stack.pop()
+
+        dfs(self)
+        if not dummy_children:
+            raise ValueError("No target nodes found")
+        return dummy_children[0]
+        
+
+
+
+
+class FieldBlock(Block):
+    
+    def __init__(self, name: str, type: Type):
+        super().__init__(name, tags=[name], style="xml")
+        self.type = type
+        self.name = name
+        
+        
+    # def __enter__(self):
+    #     parent = self.parent
+    #     block = self if self.content is not None else None
+    #     ctx = FieldContext(
+    #         block,
+    #         role=self.role,
+    #         attrs=self.attrs,
+    #         tags=self.tags,
+    #         depth=self.depth,
+    #         parent=parent,
+    #         run_id=self.run_id,
+    #         model=self.model,
+    #         tool_calls=self.tool_calls,
+    #         usage=self.usage,
+    #         id=self.id,
+    #         db_id=self.db_id,
+    #         styles=self.styles,
+    #         sep=self.sep,
+    #         vsep=self.vsep,
+    #         wrap=self.wrap,
+    #         vwrap=self.vwrap,
+    #     )
+    #     self.parent = ctx
+    #     if isinstance(parent, BlockContext):
+    #         parent.children.pop()
+    #         parent.append_child(ctx)
+    #     return ctx
+
+
+
+
+class FieldContext(BlockContext):
+    pass
+
+
+
+class ResponseContext(BlockContext):
+    
+    def __init__(self, schema: FieldBlock, children: BlockList | None = None, **kwargs: Unpack[BlockParams]):
+        super().__init__(children=children, tags=[schema.name], **kwargs)
+        self.schema = schema
+    
+    @property
+    def name(self) -> str:
+        return self.schema.name
+
+
+class ResponseBlock(Block):
+    
+    def __init__(self, schema: FieldBlock):
+        self.schema = schema
+        super().__init__(role="assistant", tags=[schema.name])
+        
+        
+
+
+class SchemaBlock(Block):
+      
+    def __init__(self, name: str = "schema"):
+        super().__init__(tags=[name])
+
+
+
+
+    
+    # def __
+    
+# class ResponseBlock(Block):
+    
+#     def __init__(self, content: str):
+#         self.
+    
+    
+#     def append(self, content: str):
 
 
 class BlockPrompt:

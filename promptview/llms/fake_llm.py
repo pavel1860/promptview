@@ -22,8 +22,8 @@ class FakeLLM(LLMStream):
     models = ["pirate_stream.json", "pirate_xml_reasoning_stream.json"]
     
     
-    def __init__(self):
-        super().__init__()
+    def __init__(self, blocks: BlockList, config: LlmConfig):
+        super().__init__(blocks, config)
         self.client = openai.AsyncClient(api_key=os.getenv("OPENAI_API_KEY"))
     
     def to_message(self, content: str, role: str, tool_calls: List[ToolCall] | None = None, tool_call_id: str | None = None, name: str | None = None) -> ChatCompletionMessageParam:

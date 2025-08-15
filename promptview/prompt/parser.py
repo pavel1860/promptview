@@ -3,18 +3,9 @@ import xml.sax
 from typing import AsyncGenerator
 from queue import SimpleQueue
 
-from promptview.block.block import Block
+from promptview.block.block import Block, BlockContext
 from promptview.prompt.events import StreamEvent
 
-
-
-# @dataclass
-# class StreamEvent:
-#     type: str
-#     name: str | None = None
-#     attrs: dict | None = None
-#     depth: int = 0
-#     payload: str | None = None
 
 
 class SaxStreamParser(xml.sax.ContentHandler):
@@ -23,7 +14,13 @@ class SaxStreamParser(xml.sax.ContentHandler):
     end_tag: str = 'tag_end'
     text_tag: str = 'chunk'
     
-    def __init__(self, queue: SimpleQueue, start_tag: str | None = None, end_tag: str | None = None, text_tag: str | None = None):
+    def __init__(
+        self, 
+        queue: SimpleQueue, 
+        start_tag: str | None = None, 
+        end_tag: str | None = None, 
+        text_tag: str | None = None,
+    ):
         self.start_tag = start_tag or self.start_tag
         self.end_tag = end_tag or self.end_tag
         self.text_tag = text_tag or self.text_tag
@@ -33,6 +30,47 @@ class SaxStreamParser(xml.sax.ContentHandler):
         self.current_tag = None
 
     def startElement(self, name, attrs):
+        print("parser>>", name, attrs)
+        text = self.flush_buffer()
+        self.queue.put(StreamEvent(type=self.start_tag, name=name, attrs=dict(attrs), depth=self.depth, payload=text))
+        self.current_tag = name
+        self.buffer = []
+        self.depth += 1
+
+    def characters(self, content):
+        self.buffer.append(content)
+        self.queue.put(StreamEvent(type=self.text_tag, name = self.current_tag, payload=content, depth=self.depth))        
+
+    def endElement(self, name):
+        text = self.flush_buffer()
+        self.depth -= 1
+        self.queue.put(StreamEvent(type=self.end_tag, name=name, payload=text, depth=self.depth))
+
+    def flush_buffer(self):
+        text = ''.join(self.buffer).strip()
+        if text:
+            return text
+        self.buffer = []
+        
+
+
+
+
+class SaxBlockParser(xml.sax.ContentHandler):
+    def __init__(self, output_format: str):        
+        self.queue = SimpleQueue()
+        self.start_tag = "tag_start"
+        self.end_tag = "tag_end"
+        self.text_tag = "chunk"
+        self.parser = xml.sax.make_parser()
+        self.parser.setFeature(xml.sax.handler.feature_external_ges, False)        
+        self.parser.setContentHandler(self)
+        self._schema = output_format
+        
+    
+    
+    def startElement(self, name, attrs):
+        print("parser>>", name, attrs)
         text = self.flush_buffer()
         self.queue.put(StreamEvent(type=self.start_tag, name=name, attrs=dict(attrs), depth=self.depth, payload=text))
         self.current_tag = name
@@ -54,8 +92,7 @@ class SaxStreamParser(xml.sax.ContentHandler):
             return text
         self.buffer = []
         
-        
-        
+
         
         
         

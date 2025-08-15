@@ -160,18 +160,20 @@ class Stream(BaseFbpComponent):
 
     
 
-class Parser(BaseFbpComponent):  
-    def __init__(self, gen=None) -> None:
+class Parser(BaseFbpComponent):
+      
+    def __init__(self, response_schema, gen=None) -> None:
         super().__init__(gen)
         self.start_tag = "tag_start"
         self.end_tag = "tag_end"
         self.text_tag = "chunk"                
-        self.queue = SimpleQueue()        
+        self.queue = SimpleQueue()
+        self.response_schema = response_schema
         self.handler = SaxStreamParser(
             self.queue, 
             self.start_tag, 
             self.end_tag, 
-            self.text_tag
+            self.text_tag,
         )
         self.parser = xml.sax.make_parser()
         self.parser.setFeature(xml.sax.handler.feature_external_ges, False)        
@@ -190,8 +192,12 @@ class Parser(BaseFbpComponent):
             return event
         elif event.type == self.text_tag:
             if self.block_stack:
-                block = self.block_stack.pop() 
-                event.payload = block                                   
+                block = self.block_stack.pop()                 
+                event.payload = block
+                if self.handler.current_tag:
+                    field = self.response_schema.get(self.handler.current_tag)
+                    if field:
+                        field.append_child(block)                         
             return event
         else:
             raise ValueError(f"Unexpected event: {event}")
@@ -201,15 +207,16 @@ class Parser(BaseFbpComponent):
         if isinstance(value, Block):
             self.block_stack.append(value)
             value = value.content
-        # print(">>", value)
         self.parser.feed(value)
     
-    async def __anext__(self):
+        
+        
+    async def asend(self, value: Any = None):
         for i in range(20):
             if not self.queue.empty():
                 return self.advance()
             else:
-                value = await self._gen.__anext__()
+                value = await self.gen.asend(value)
                 self.feed(value)
         else:
             raise StopAsyncIteration
@@ -257,12 +264,12 @@ T = TypeVar("T")
 
 class StreamController(BaseFbpComponent):
     
-    def __init__(self, gen_func=None, output_format=None, acc_factory=None, args=(), kwargs={}):
+    def __init__(self, gen_func=None, response_schema=None, acc_factory=None, args=(), kwargs={}):
         super().__init__(None)
         self._gen_func = gen_func or self.stream
         self._flow = None
         self._stream = None
-        self._output_format = output_format
+        self._response_schema = response_schema
         self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
         self._kwargs = kwargs
         self._args = args
@@ -294,8 +301,8 @@ class StreamController(BaseFbpComponent):
         self._stream = Stream(self._gen_func(*self._args, **self._kwargs))
         self._acc = Accumulator(self._acc_factory())
         self._flow = self._stream | self._acc 
-        if self._output_format:
-            self._flow |= Parser()
+        if self._response_schema:
+            self._flow |= Parser(response_schema=self._response_schema)
         self._gen = self._flow
     
     
@@ -317,20 +324,6 @@ class StreamController(BaseFbpComponent):
     def stream_events(self):
         return FlowRunner(self).stream_events()
     
-    async def __aiter__3(self): 
-        self._stream = Stream(self._gen_func(*self._args, **self._kwargs))
-        self._acc = Accumulator(self._acc_factory())
-        flow = self._stream | self._acc 
-        if self._output_format:
-            flow |= Parser()
-
-        yield StreamEvent(type="stream_start", name=self._gen_func.__name__)
-        async for chunk in flow:
-            if not isinstance(chunk, StreamEvent):
-                yield StreamEvent(type="stream_delta", name=self._gen_func.__name__, payload=chunk)
-            else:
-                yield chunk
-        yield StreamEvent(type="stream_end", name=self._gen_func.__name__)
 
 
     async def stream(self, *args, **kwargs):
