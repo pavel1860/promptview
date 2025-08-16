@@ -1,4 +1,6 @@
 from collections import UserList
+import json
+import textwrap
 from typing import TYPE_CHECKING, Any, Callable, Generic, List, Protocol, Set, Type, TypeVar, TypedDict, Unpack
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
@@ -933,10 +935,36 @@ class ResponseContext(BlockContext):
     def __init__(self, schema: FieldBlock, children: BlockList | None = None, **kwargs: Unpack[BlockParams]):
         super().__init__(children=children, tags=[schema.name], **kwargs)
         self.schema = schema
+        self._value = None
     
     @property
     def name(self) -> str:
         return self.schema.name
+    
+    def _cast(self, content: str):
+        if self.schema.type == str:
+            return content
+        elif self.schema.type == int:
+            return int(content)
+        elif self.schema.type == float:
+            return float(content)
+        elif self.schema.type == bool:
+            return bool(content)
+        elif self.schema.type == list:
+            return content.split(",")
+        elif self.schema.type == dict:
+            return json.loads(content)
+    
+    def commit(self):
+        content = self.children.render()
+        content = content.strip()
+        content = textwrap.dedent(content)
+        self._value = self._cast(content)
+        return self
+    
+    @property
+    def value(self):
+        return self._value
     
     
     def __repr__(self) -> str:

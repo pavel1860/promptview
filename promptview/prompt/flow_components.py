@@ -7,9 +7,11 @@ from typing import Any, AsyncGenerator, Callable, Iterable, ParamSpec, Protocol,
 import xml
 from promptview.block.block7 import Block, BlockList
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
-from promptview.prompt.parser import SaxStreamParser
+from promptview.prompt.parser import BlockBuffer, SaxStreamParser
 from promptview.prompt.events import StreamEvent
 from promptview.utils.function_utils import call_function
+from lxml import etree
+
 
 if TYPE_CHECKING:
     from promptview.block import BlockSchema, BlockContext
@@ -140,13 +142,28 @@ class BaseFbpComponent:
 class Stream(BaseFbpComponent):
     _index = 0
     
+    
+    def __init__(self, gen: AsyncGenerator, name: str = "stream"):
+        super().__init__(gen)
+        self._name = name
+        self._save_stream_dir: str | None = None
+    
 
     def __aiter__(self):
         return self
     
+    def save_stream(self, filepath: str):
+        self._save_stream_dir = filepath        
+    
     
     async def pre_next(self):
         self._index += 1
+        
+    async def post_next(self, value: Any = None):
+        if self._save_stream_dir:
+            with open(self._save_stream_dir, "a") as f:
+                f.write(json.dumps(value.model_dump()) + "\n")
+        return value
         
     async def on_stop(self):
         self._index -= 1
@@ -160,6 +177,7 @@ class Stream(BaseFbpComponent):
     #         raise StopAsyncIteration
 
 
+            
     
 
 class Parser(BaseFbpComponent):
@@ -169,66 +187,81 @@ class Parser(BaseFbpComponent):
         self.start_tag = "tag_start"
         self.end_tag = "tag_end"
         self.text_tag = "chunk"                
-        self.queue = SimpleQueue()
         self.response_schema = response_schema
-        self.response = response_schema.reduce_tree()
-        self.handler = SaxStreamParser(
-            self.queue, 
-            self.start_tag, 
-            self.end_tag, 
-            self.text_tag,
-        )
-        self.parser = xml.sax.make_parser()
-        self.parser.setFeature(xml.sax.handler.feature_external_ges, False)        
-        self.parser.setContentHandler(self.handler)
-        self.block_stack = []
+        self.response = response_schema.reduce_tree()        
+        self.parser2 = etree.XMLPullParser(events=("start", "end"))
+        self.queue = SimpleQueue()
+        self.block_list = []
+        self._stream_started = False
+        self._safety_tag = "stream_start"
+        
 
     def __aiter__(self):
         return self
     
-    def advance(self):
-        event = self.queue.get() 
-        # print("<<", event.type, event.payload)       
-        if event.type == self.start_tag:
-            self.block_stack = []
-            return event
-        elif event.type == self.end_tag:
-            self.block_stack = []
-            return event
-        elif event.type == self.text_tag:
-            if self.block_stack:
-                block = self.block_stack.pop()                 
-                event.payload = block
-                if self.handler.current_tag:
-                    field = self.response.get(self.handler.current_tag)
-                    if field:
-                        field += block
-            return event
-        else:
-            raise ValueError(f"Unexpected event: {event}")
-    
-    
-    def feed(self, value):
-        if isinstance(value, Block):
-            self.block_stack.append(value)
-            value = value.content
-        try:
-            self.parser.feed(value)
-        except Exception as e:
-            print(f"Error parsing value: {value}")
-            raise e
-    
-        
         
     async def asend(self, value: Any = None):
-        for i in range(20):
+        for i in range(2000):
+            if not self._stream_started:
+                self.parser2.feed(f'<{self._safety_tag}>')
+                self._stream_started = True
+            value = await self.gen.asend(value)
+            self.block_list.append(value)
+            self.parser2.feed(value.content)
+            
+            for event, element in self.parser2.read_events():
+                if element.tag == self._safety_tag:
+                    continue
+                if event == 'start':
+                    for block in self.block_list:
+                        field = self.response.get(element.tag)
+                        if field:
+                            field.append_root(block)
+                        self.queue.put(
+                            StreamEvent(
+                                type=self.start_tag, 
+                                name=element.tag, 
+                                attrs=dict(element.attrib), 
+                                depth=0, 
+                                payload=block
+                            ))
+                    self.block_list=[]
+                    
+                elif event == 'end':
+                    is_end_event = False
+                    for block in self.block_list:
+                        if "</" in block.content:
+                            is_end_event = True                        
+                        if not is_end_event:
+                            field = self.response.get(element.tag)
+                            if field:
+                                field += block
+                            self.queue.put(
+                                StreamEvent(
+                                    type=self.text_tag, 
+                                    name=element.tag, 
+                                    depth=0, 
+                                    payload=block
+                                ))
+                        else:
+                            self.queue.put(
+                                StreamEvent(
+                                    type=self.end_tag, 
+                                    name=element.tag, 
+                                    depth=0, 
+                                    payload=block
+                                ))
+                    else:
+                        field = self.response.get(element.tag)
+                        if field:
+                            field.commit()
+                    self.block_list=[]
+                    
             if not self.queue.empty():
-                return self.advance()
-            else:
-                value = await self.gen.asend(value)
-                self.feed(value)
+                return self.queue.get()
         else:
             raise StopAsyncIteration
+        
 
     
 
@@ -276,12 +309,14 @@ class StreamController(BaseFbpComponent):
     def __init__(self, gen: AsyncGenerator, name:str = "stream",response_schema=None, acc_factory=None):
         super().__init__(None)
         self._name = name
-        self._gen = Stream(gen)
+        self._stream = Stream(gen)
+        self._gen = self._stream
         self._acc = Accumulator(BlockList(style="stream"))
         self._gen |= self._acc
         self._response_schema = response_schema
         # self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
         self._parser = None
+
 
         
     @property
@@ -302,6 +337,11 @@ class StreamController(BaseFbpComponent):
             raise ValueError("StreamController is not initialized")
         self._parser = Parser(response_schema=block_schema)
         self._gen |= self._parser        
+        return self
+    
+    def save(self, name: str, dir: str | None = None):
+        path = f"{dir}/{name}.jsonl" if dir else f"{name}.jsonl"
+        self._stream.save_stream(path)
         return self
     
     @property

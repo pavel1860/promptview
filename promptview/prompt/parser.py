@@ -1,12 +1,41 @@
 from dataclasses import dataclass
 import xml.sax
-from typing import AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 from queue import SimpleQueue
 
-from promptview.block.block import Block, BlockContext
+
 from promptview.prompt.events import StreamEvent
+from promptview.block import Block, BlockContext
+# if TYPE_CHECKING:
+    
 
 
+class BlockBuffer:
+    
+    def __init__(self):
+        self.buffer = []
+        self.queue = SimpleQueue()
+        
+    def add(self, block: "Block"):
+        # print("adding block:", f"'{block.content}'")
+        self.buffer.append(block)
+        
+    def get(self):
+        return self.queue.get()
+    
+    
+    def empty(self):
+        return self.queue.empty()
+        
+        
+    def flush(self, tag: str, depth: int, name: str, attrs: dict[str, Any] | None = None):
+        for block in self.buffer:
+            # print("flushing block:", tag, name, block.content)
+            self.queue.put((tag, depth, name, attrs, block))
+        self.buffer = []
+
+    def to_str(self):
+        return ", ".join([f"[{block.content}]" for block in self.buffer])
 
 class SaxStreamParser(xml.sax.ContentHandler):
             
@@ -16,7 +45,7 @@ class SaxStreamParser(xml.sax.ContentHandler):
     
     def __init__(
         self, 
-        queue: SimpleQueue, 
+        block_buffer: BlockBuffer,
         start_tag: str | None = None, 
         end_tag: str | None = None, 
         text_tag: str | None = None,
@@ -24,34 +53,82 @@ class SaxStreamParser(xml.sax.ContentHandler):
         self.start_tag = start_tag or self.start_tag
         self.end_tag = end_tag or self.end_tag
         self.text_tag = text_tag or self.text_tag
-        self.queue = queue
+        self.block_buffer = block_buffer
         self.buffer = []
         self.depth = 0
         self.current_tag = None
 
     def startElement(self, name, attrs):
-        print("parser>>", name, attrs)
+        print("parser start##", name, self.buffer, "buffer:", self.block_buffer.to_str())
         text = self.flush_buffer()
-        self.queue.put(StreamEvent(type=self.start_tag, name=name, attrs=dict(attrs), depth=self.depth, payload=text))
+        self.block_buffer.flush(self.start_tag, self.depth, name, dict(attrs))
+        # self.queue.put(StreamEvent(type=self.start_tag, name=name, attrs=dict(attrs), depth=self.depth, payload=text))
         self.current_tag = name
         self.buffer = []
         self.depth += 1
 
     def characters(self, content):
+        print("parser text##", f"'{content}' =>", self.buffer, "buffer:", self.block_buffer.to_str())
+        self.block_buffer.flush(self.text_tag, self.depth, self.current_tag)
         self.buffer.append(content)
-        self.queue.put(StreamEvent(type=self.text_tag, name = self.current_tag, payload=content, depth=self.depth))        
+        # self.queue.put(StreamEvent(type=self.text_tag, name = self.current_tag, payload=content, depth=self.depth))        
 
     def endElement(self, name):
+        print("parser end##", name, self.buffer, "buffer:", self.block_buffer.to_str())
         text = self.flush_buffer()
+        self.block_buffer.flush(self.end_tag, self.depth, name)
         self.depth -= 1
-        self.queue.put(StreamEvent(type=self.end_tag, name=name, payload=text, depth=self.depth))
+        # self.queue.put(StreamEvent(type=self.end_tag, name=name, payload=text, depth=self.depth))
 
     def flush_buffer(self):
+        # print("flushing buffer", self.buffer)
         text = ''.join(self.buffer).strip()
+        # print("flushing buffer:", f"'{text}'")
+        self.buffer = []
         if text:
             return text
-        self.buffer = []
+        # self.buffer = []
         
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -145,7 +222,7 @@ class StreamParser:
     async def __anext__(self):
         return await self._chunk_iter.__anext__()
     
-    def preprocess(self, chunk: Block):
+    def preprocess(self, chunk: "Block"):
         return chunk.content
     
     def postprocess(self, event: StreamEvent):
