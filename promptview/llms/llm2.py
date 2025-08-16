@@ -1,3 +1,4 @@
+from functools import wraps
 from typing import Any, AsyncGenerator, Dict, List, Literal, Type, Unpack
 from pydantic import BaseModel, Field
 
@@ -45,33 +46,57 @@ class LLMStream(StreamController):
         self.model = model
         
         
-    async def stream(self) -> AsyncGenerator[Any, None]:
+
+    
+def llm_stream(method):
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        # If "config" not passed, inject from self.model_config
+        if "config" not in kwargs:
+            kwargs["config"] = getattr(self, "config", None)
+        gen = method(self, *args, **kwargs)
+        return StreamController(gen=gen, name=method.__name__)
+    return wrapper  
+
+    
+ 
+class BaseLLM: 
+    config: LlmConfig   
+    default_model: str
+    models: List[str]
+    
+    
+    def __init__(self, config: LlmConfig | None = None):        
+        self.config = config or LlmConfig(model=self.default_model )
+    
+    @llm_stream
+    async def stream(
+        self,
+        blocks: BlockList,
+        config: LlmConfig,
+        tools: List[Type[BaseModel]] | None = None
+    ) -> AsyncGenerator[Any, None]:
+        """
+        This method is used to stream the response from the LLM.
+        """
         pass
         yield
-    
+        
     
 
-    # def __call__(self, blocks: BlockList, config: LlmConfig, tools: List[Type[BaseModel]] | None = None):
-    #     self.blocks = blocks
-    #     self.llm_config = config
-    #     self.tools = tools
-    #     return self
-    
-    
-    
-    
-    
+
+
     
     
 class LLM():
     
-    _model_registry: Dict[str, Type[LLMStream]] = {}
+    _model_registry: Dict[str, Type[BaseLLM]] = {}
     _default_model: str | None = None
         
     
     
     @classmethod
-    def register(cls, model_cls: Type[LLMStream], default_model: str | None = None) -> Type[LLMStream]:
+    def register(cls, model_cls: Type[BaseLLM], default_model: str | None = None) -> Type[BaseLLM]:
         """Decorator to register a new LLM model implementation"""
         if model_cls.__name__ in cls._model_registry:
             raise ValueError(f"Model {model_cls.__name__} is already registered")
@@ -82,7 +107,7 @@ class LLM():
         return model_cls
     
     @classmethod
-    def _get_llm(cls, model: str | None = None) -> Type[LLMStream]:
+    def _get_llm(cls, model: str | None = None) -> Type[BaseLLM]:
         """Get a registered model by name"""
         if model is None:
             if cls._default_model is None:

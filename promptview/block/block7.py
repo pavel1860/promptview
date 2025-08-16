@@ -765,7 +765,7 @@ class BlockContext(BaseBlock):
     
     def response_schema(self, name: str | None = None):
         name = name or "response_schema"
-        block = SchemaBlock(name=name)
+        block = BlockSchema(name=name)
         self.append_child(block)
         return block
     
@@ -776,7 +776,9 @@ class BlockContext(BaseBlock):
             if child.tags and tag in child.tags:
                 return child
             elif isinstance(child, BlockContext):
-                return child.get(tag)
+                block = child.get(tag)
+                if block:
+                    return block
         return None
 
     def get_field(self):
@@ -827,13 +829,30 @@ class BlockContext(BaseBlock):
         
         
         
-    def reduce_tree(self, is_target: Callable[[BaseBlock], bool], clone_target_node) -> "ResponseContext":
+    def reduce_tree(self, is_target: Callable[[BaseBlock], bool] | None = None, clone_target_node = None) -> "ResponseContext":
         """Return a forest containing only target-type nodes, attached under their
         nearest target-type ancestor from the original tree."""
         dummy_children: List[BaseBlock] = []
         stack: List[BlockContext] = []  # stack of cloned target nodes
         
+        def _clone_target_node(n: BlockContext) -> ResponseContext:
+            # Copy only what you need; children will be filled during reduction.
+            for b in n.root:
+                if isinstance(b, FieldBlock):
+                    return ResponseContext(b)
+            raise ValueError("No field block found")
         
+        def _is_target(node: BaseBlock) -> bool:
+            if isinstance(node, FieldBlock):
+                return True
+            elif isinstance(node, BlockContext):
+                for b in node.root:
+                    if isinstance(b, FieldBlock):
+                        return True
+            return False
+        
+        is_target = is_target or _is_target
+        clone_target_node = clone_target_node or _clone_target_node
 
         def dfs(u: BlockContext):
             created = None
@@ -857,7 +876,11 @@ class BlockContext(BaseBlock):
             raise ValueError("No target nodes found")
         return dummy_children[0]
         
-
+    def __repr__(self) -> str:
+        root = self.root.render() if self.root else ''
+        tags = ','.join(self.tags) if self.tags else ''
+        tags = f"[{tags}] " if tags else ''
+        return f"BlockContext({tags}root={root}, children={self.children})"
 
 
 
@@ -914,6 +937,16 @@ class ResponseContext(BlockContext):
     @property
     def name(self) -> str:
         return self.schema.name
+    
+    
+    def __repr__(self) -> str:
+        root = self.root.render() if self.root else ''
+        tags = ','.join(self.tags) if self.tags else ''
+        tags = f"[{tags}] " if tags else ''
+        return f"ResponseContext({tags}root={root}, children={self.children})"
+    
+    
+    
 
 
 class ResponseBlock(Block):
@@ -923,9 +956,9 @@ class ResponseBlock(Block):
         super().__init__(role="assistant", tags=[schema.name])
         
         
+    
 
-
-class SchemaBlock(Block):
+class BlockSchema(Block):
       
     def __init__(self, name: str = "schema"):
         super().__init__(tags=[name])

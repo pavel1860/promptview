@@ -7,24 +7,20 @@ from pydantic import BaseModel
 from promptview.block.block7 import Block, BlockList, Chunk
 from promptview.block.util import LLMEvent, ToolCall
 from promptview.context.execution_context import ExecutionContext
-from promptview.llms.llm2 import LLMStream, LlmConfig
+from promptview.llms.llm2 import BaseLLM, LLMStream, LlmConfig, llm_stream
 from openai.types.chat import ChatCompletionMessageParam
-
-
 from promptview.utils.model_utils import schema_to_function
 
 
 
-class OpenAiLLM(LLMStream):
-    name: str = "OpenAiLLM"    
-    # client: OpenAiLlmClient = Field(default_factory=OpenAiLlmClient)
-    # client: openai.AsyncClient = Field(default_factory=lambda: openai.AsyncClient(api_key=os.getenv("OPENAI_API_KEY")))
-    model: str | None = "gpt-4o"
+class OpenAiLLM(BaseLLM):
+    name: str = "OpenAiLLM"
+    default_model: str= "gpt-4o"
     models = ["gpt-4o", "gpt-4o-mini"]
+    client: openai.AsyncClient
     
-    
-    def __init__(self, blocks: BlockList, config: LlmConfig, tools: List[Type[BaseModel]] | None = None, model: str | None = None):
-        super().__init__(blocks, config, tools, model)
+    def __init__(self, config: LlmConfig | None = None):
+        super().__init__(config)
         self.client = openai.AsyncClient(api_key=os.getenv("OPENAI_API_KEY"))
     
     def to_message(self, content: str, role: str, tool_calls: List[ToolCall] | None = None, tool_call_id: str | None = None, name: str | None = None) -> ChatCompletionMessageParam:
@@ -54,27 +50,30 @@ class OpenAiLLM(LLMStream):
         schema = schema_to_function(tool)
         return schema
     
-    async def stream(self):
+    @llm_stream
+    async def stream(
+        self, 
+        blocks: BlockList,
+        config: LlmConfig,
+        tools: List[Type[BaseModel]] | None = None
+    ):
         
-        response_schema = self.blocks.get("response_schema")
-        if response_schema:
-            self._response_schema = response_schema
             
         messages = [
             self.to_message(b.render(), role=b.role or "user", tool_calls=b.tool_calls, tool_call_id=b.id)
-            for b in self.blocks
+            for b in blocks
         ]
         llm_tools = None
         tool_choice = None
-        if self.tools:
-            llm_tools = [self.to_tool(tool) for tool in self.tools]        
-            tool_choice = self.llm_config.tool_choice
+        if tools:
+            llm_tools = [self.to_tool(tool) for tool in tools]        
+            tool_choice = config.tool_choice
 
         # try:       
         res_stream = await self.client.chat.completions.create(
                 messages=messages,
                 tools=llm_tools,
-                model=self.llm_config.model,
+                model=config.model,
                 tool_choice=tool_choice,
                 stream=True,
                 logprobs=True,                
@@ -93,7 +92,7 @@ class OpenAiLLM(LLMStream):
                         logprob = 0  
                 except:
                     raise ValueError("No logprobs")        
-                blk_chunk = Block(content, logprob=logprob)
+                blk_chunk = Block(content, logprob=logprob, sep="")
                 yield blk_chunk
                     
                     

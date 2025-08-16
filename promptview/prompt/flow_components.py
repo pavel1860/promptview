@@ -3,7 +3,7 @@ from functools import wraps
 import json
 from queue import SimpleQueue
 
-from typing import Any, AsyncGenerator, Callable, Iterable, ParamSpec, Protocol, Self, TypeVar
+from typing import Any, AsyncGenerator, Callable, Iterable, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING
 import xml
 from promptview.block.block7 import Block, BlockList
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
@@ -11,6 +11,8 @@ from promptview.prompt.parser import SaxStreamParser
 from promptview.prompt.events import StreamEvent
 from promptview.utils.function_utils import call_function
 
+if TYPE_CHECKING:
+    from promptview.block import BlockSchema, BlockContext
 
 
 
@@ -162,13 +164,14 @@ class Stream(BaseFbpComponent):
 
 class Parser(BaseFbpComponent):
       
-    def __init__(self, response_schema, gen=None) -> None:
+    def __init__(self, response_schema: "BlockContext", gen=None) -> None:
         super().__init__(gen)
         self.start_tag = "tag_start"
         self.end_tag = "tag_end"
         self.text_tag = "chunk"                
         self.queue = SimpleQueue()
         self.response_schema = response_schema
+        self.response = response_schema.reduce_tree()
         self.handler = SaxStreamParser(
             self.queue, 
             self.start_tag, 
@@ -187,15 +190,17 @@ class Parser(BaseFbpComponent):
         event = self.queue.get() 
         # print("<<", event.type, event.payload)       
         if event.type == self.start_tag:
+            self.block_stack = []
             return event
         elif event.type == self.end_tag:
+            self.block_stack = []
             return event
         elif event.type == self.text_tag:
             if self.block_stack:
                 block = self.block_stack.pop()                 
                 event.payload = block
                 if self.handler.current_tag:
-                    field = self.response_schema.get(self.handler.current_tag)
+                    field = self.response.get(self.handler.current_tag)
                     if field:
                         field += block
             return event
@@ -207,7 +212,11 @@ class Parser(BaseFbpComponent):
         if isinstance(value, Block):
             self.block_stack.append(value)
             value = value.content
-        self.parser.feed(value)
+        try:
+            self.parser.feed(value)
+        except Exception as e:
+            print(f"Error parsing value: {value}")
+            raise e
     
         
         
@@ -264,15 +273,14 @@ T = TypeVar("T")
 
 class StreamController(BaseFbpComponent):
     
-    def __init__(self, gen_func=None, response_schema=None, acc_factory=None, args=(), kwargs={}):
+    def __init__(self, gen: AsyncGenerator, name:str = "stream",response_schema=None, acc_factory=None):
         super().__init__(None)
-        self._gen_func = gen_func or self.stream
-        self._flow = None
-        self._stream = None
+        self._name = name
+        self._gen = Stream(gen)
+        self._acc = Accumulator(BlockList(style="stream"))
+        self._gen |= self._acc
         self._response_schema = response_schema
-        self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
-        self._kwargs = kwargs
-        self._args = args
+        # self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
         self._parser = None
 
         
@@ -284,12 +292,21 @@ class StreamController(BaseFbpComponent):
     
     def get_response(self):
         if self._parser:
-            return self._parser.response_schema
+            return self._parser.response
         # return self.acc
+        
+    def parse(self, block_schema: "BlockSchema") -> Self:
+        if self._parser is not None:
+            raise ValueError("Parser already initialized")
+        if self._gen is None:
+            raise ValueError("StreamController is not initialized")
+        self._parser = Parser(response_schema=block_schema)
+        self._gen |= self._parser        
+        return self
     
     @property
     def name(self):
-        return self._gen_func.__name__
+        return self._name
     
     # async def asend(self, value: Any = None):
     #     return await self._stream.__anext__()
@@ -300,27 +317,27 @@ class StreamController(BaseFbpComponent):
             raise ValueError("StreamController is not initialized")
         return self._stream._index
     
-    async def on_start(self, value: Any = None):
-        self._stream = Stream(self._gen_func(*self._args, **self._kwargs))
-        self._acc = Accumulator(self._acc_factory())
-        self._flow = self._stream | self._acc 
-        if self._response_schema:
-            self._parser =Parser(response_schema=self._response_schema)
-            self._flow |= self._parser
-        self._gen = self._flow
+    # async def on_start(self, value: Any = None):
+        # self._stream = Stream(self._gen)
+        # self._acc = Accumulator(self._acc_factory())
+        # self._flow = self._stream | self._acc 
+        # if self._response_schema:
+            # self._parser =Parser(response_schema=self._response_schema)
+            # self._flow |= self._parser
+        # self._gen = self._flow
     
     
     def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
-        return StreamEvent(type="stream_start", name=self._gen_func.__name__)
+        return StreamEvent(type="stream_start", name=self._name)
     
     def on_value_event(self, payload: Any = None):
-        return StreamEvent(type="stream_delta", name=self._gen_func.__name__, payload=payload)
+        return StreamEvent(type="stream_delta", name=self._name, payload=payload)
     
     def on_stop_event(self, payload: Any = None):
-        return StreamEvent(type="stream_end", name=self._gen_func.__name__)
+        return StreamEvent(type="stream_end", name=self._name)
     
     def on_error_event(self, error: Exception):
-        return StreamEvent(type="stream_error", name=self._gen_func.__name__, payload=error)
+        return StreamEvent(type="stream_error", name=self._name, payload=error)
         
     def __aiter__(self):
         return FlowRunner(self)
@@ -344,11 +361,18 @@ class StreamController(BaseFbpComponent):
             ) -> Callable[P, Self]:
                 @wraps(func)
                 def wrapper(*args: P.args, **kwargs: P.kwargs) -> Self:            
-                    return cls(gen_func=func, args=args, kwargs=kwargs)
+                    return cls(gen=func(*args, **kwargs), name=func.__name__)
                 return wrapper
             return decorator
         return decorator_wrapper
-        
+
+
+
+# def streamable(func: Callable[P, AsyncGenerator[CHUNK, None]]) -> Callable[P, StreamController]:
+#     @wraps(func)
+#     def wrapper(*args: P.args, **kwargs: P.kwargs) -> StreamController:
+#         return StreamController(gen_func=func, args=args, kwargs=kwargs)
+#     return wrapper
 
 
 
