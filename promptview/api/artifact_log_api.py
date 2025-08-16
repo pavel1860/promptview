@@ -7,8 +7,8 @@ from promptview.auth.dependencies import get_auth_user
 from promptview.auth.user_manager import AuthModel
 from pydantic import BaseModel
 # from promptview.model2.versioning import ArtifactLog, Branch, Partition, Turn, TurnStatus
-from promptview.model.namespace_manager import NamespaceManager
-from promptview.model.version_control_models import Turn, Branch
+from promptview.model3 import NamespaceManager, Turn, Branch
+
 
 
 
@@ -106,20 +106,28 @@ async def create_partition(payload: CreatePartitionPayload, user: AuthModel = De
 #     return branch.turns
 
 
-@router.get("/turns/{branch_id}/partition/{partition_id}", response_model=List[Turn])
+@router.get("/turns/{branch_id}/partition/{partition_id}")
 async def get_branch_turns(branch_id: int, partition_id: UUID):    
     turn_ns = NamespaceManager.get_namespace("turns")
-    turns = await turn_ns.query().where(branch_id=branch_id,partition_id=partition_id).tail(20)
-    return reversed(turns)
+    turns = await turn_ns.query() \
+        .select("*") \
+        .where(branch_id=branch_id,partition_id=partition_id) \
+        .agg("forked_branches", Branch.query(["id"]), on=("id", "forked_from_turn_id")) \
+        .tail(20).json()
+    return list(reversed(turns))
 
 
 
 @router.post("/turns/update/{turn_id}")
 async def update_turn(turn_id: int, request: Request):
+    # body = await request.json()    
+    # turn = await Turn.query().where(id=turn_id).last()
+    # turn = await turn.update(**body)
+    # return turn
     body = await request.json()    
-    turn = await Turn.query().where(id=turn_id).last()
-    turn = await turn.update(**body)
-    return turn
+    ns = Turn.get_namespace()
+    res = await ns.update(turn_id, body)
+    return res
 
 @router.get("/heads")
 async def get_head_list():    
