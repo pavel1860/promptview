@@ -55,6 +55,11 @@ class OpenAiLLM(LLMStream):
         return schema
     
     async def stream(self):
+        
+        response_schema = self.blocks.get("response_schema")
+        if response_schema:
+            self._response_schema = response_schema
+            
         messages = [
             self.to_message(b.render(), role=b.role or "user", tool_calls=b.tool_calls, tool_call_id=b.id)
             for b in self.blocks

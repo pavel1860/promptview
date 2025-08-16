@@ -197,7 +197,7 @@ class Parser(BaseFbpComponent):
                 if self.handler.current_tag:
                     field = self.response_schema.get(self.handler.current_tag)
                     if field:
-                        field.append_child(block)                         
+                        field += block
             return event
         else:
             raise ValueError(f"Unexpected event: {event}")
@@ -273,6 +273,7 @@ class StreamController(BaseFbpComponent):
         self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
         self._kwargs = kwargs
         self._args = args
+        self._parser = None
 
         
     @property
@@ -282,7 +283,9 @@ class StreamController(BaseFbpComponent):
         return self._acc.result
     
     def get_response(self):
-        return self.acc
+        if self._parser:
+            return self._parser.response_schema
+        # return self.acc
     
     @property
     def name(self):
@@ -302,7 +305,8 @@ class StreamController(BaseFbpComponent):
         self._acc = Accumulator(self._acc_factory())
         self._flow = self._stream | self._acc 
         if self._response_schema:
-            self._flow |= Parser(response_schema=self._response_schema)
+            self._parser =Parser(response_schema=self._response_schema)
+            self._flow |= self._parser
         self._gen = self._flow
     
     

@@ -197,6 +197,10 @@ class BaseBlock:
         self.db_id: str | None = kwargs.get("db_id")
         self._logprob: float | None = kwargs.get("logprob")
         
+    # @property
+    # def is_end_of_line(self) -> bool:
+    #     return self.sep == "\n"
+        
     @property
     def logprob(self) -> float | None:
         return self._logprob
@@ -299,7 +303,8 @@ class Block(BaseBlock):
     
     __slots__ = [
         "content",
-        "children",        
+        "children",
+        "is_end_of_line",
     ]
     
     
@@ -312,7 +317,19 @@ class Block(BaseBlock):
         Basic component of prompt building. 
         """
         super().__init__(**kwargs)
+        self.is_end_of_line = False
+        if kwargs.get("is_end_of_line"):
+            self.is_end_of_line = kwargs.get("is_end_of_line")        
+        else:
+            #! if content is a string, check if it ends with a newline
+            if type(content) is str:
+                if content.endswith("\n"):
+                    content = content[:-1]            
+                    self.sep = "\n"
+                    self.is_end_of_line = True
+        
         self.content: ContentType = content
+        
     
         
             
@@ -573,6 +590,14 @@ class BlockList(UserList[Block], BaseBlock):
             )
         )
         
+    def get(self, tag: str):
+        for block in self:
+            if block.tags and tag in block.tags:
+                return block
+            elif isinstance(block, BlockContext):
+                return block.get(tag)
+        return None
+        
     @staticmethod
     def _validate(v: Any) -> Any:
         if isinstance(v, BlockList):
@@ -633,7 +658,7 @@ class BlockContext(BaseBlock):
             #     self.children.styles.append("list-col")
             # else:
             #     self.children.styles = ["list-col"]
-        self.styles = ["list-col"] + (self.styles or [])
+        # self.styles = ["list-col"] + (self.styles or [])
         # if root:
             # root.parent = self
     @classmethod
@@ -695,7 +720,7 @@ class BlockContext(BaseBlock):
             other = Block(other)        
             self.append_root(other)
         elif isinstance(other, Block):
-            self.append_child(other)
+            self.append_child(other, as_line=True)
         elif isinstance(other, tuple):
             for c in other:
                 if isinstance(c, ContentType):
@@ -718,9 +743,16 @@ class BlockContext(BaseBlock):
     
     
     
-    def append_child(self, child: Block):
+    def append_child(self, child: Block, as_line: bool = False):
         child.parent = self
-        self.children.append(child)
+        if as_line:
+            if not self.children or not isinstance(self.children[-1], BlockList):
+                self.children.append(BlockList([]))
+            self.children[-1].append(child)
+            if child.is_end_of_line:
+                self.children.append(BlockList([]))
+        else:
+            self.children.append(child)        
         return self
     
     def append_root(self, content: ContentType | Block):
@@ -729,6 +761,13 @@ class BlockContext(BaseBlock):
         content.parent = self
         self.root.append(content)
         return self
+    
+    
+    def response_schema(self, name: str | None = None):
+        name = name or "response_schema"
+        block = SchemaBlock(name=name)
+        self.append_child(block)
+        return block
     
     
     def get(self, tag: str):
