@@ -3,14 +3,18 @@ from functools import wraps
 import json
 from queue import SimpleQueue
 
-from typing import Any, AsyncGenerator, Callable, Iterable, ParamSpec, Protocol, Self, TypeVar
+from typing import Any, AsyncGenerator, Callable, Iterable, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING
 import xml
-from promptview.block.block7 import Block, BlockList
+from promptview.block.block7 import Block, BlockList, ResponseContext
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
-from promptview.prompt.parser import SaxStreamParser
+from promptview.prompt.parser import BlockBuffer, SaxStreamParser
 from promptview.prompt.events import StreamEvent
 from promptview.utils.function_utils import call_function
+from lxml import etree
 
+
+if TYPE_CHECKING:
+    from promptview.block import BlockSchema, BlockContext
 
 
 
@@ -138,13 +142,28 @@ class BaseFbpComponent:
 class Stream(BaseFbpComponent):
     _index = 0
     
+    
+    def __init__(self, gen: AsyncGenerator, name: str = "stream"):
+        super().__init__(gen)
+        self._name = name
+        self._save_stream_dir: str | None = None
+    
 
     def __aiter__(self):
         return self
     
+    def save_stream(self, filepath: str):
+        self._save_stream_dir = filepath        
+    
     
     async def pre_next(self):
         self._index += 1
+        
+    async def post_next(self, value: Any = None):
+        if self._save_stream_dir:
+            with open(self._save_stream_dir, "a") as f:
+                f.write(json.dumps(value.model_dump()) + "\n")
+        return value
         
     async def on_stop(self):
         self._index -= 1
@@ -158,61 +177,131 @@ class Stream(BaseFbpComponent):
     #         raise StopAsyncIteration
 
 
+            
     
 
-class Parser(BaseFbpComponent):  
-    def __init__(self, gen=None) -> None:
+class Parser(BaseFbpComponent):
+      
+    def __init__(self, response_schema: "BlockContext", gen=None) -> None:
         super().__init__(gen)
         self.start_tag = "tag_start"
         self.end_tag = "tag_end"
         self.text_tag = "chunk"                
-        self.queue = SimpleQueue()        
-        self.handler = SaxStreamParser(
-            self.queue, 
-            self.start_tag, 
-            self.end_tag, 
-            self.text_tag
-        )
-        self.parser = xml.sax.make_parser()
-        self.parser.setFeature(xml.sax.handler.feature_external_ges, False)        
-        self.parser.setContentHandler(self.handler)
-        self.block_stack = []
+        self.response_schema = response_schema
+        self._safety_tag = "stream_start"        
+        self.response = response_schema.reduce_tree()        
+        self.parser2 = etree.XMLPullParser(events=("start", "end"))
+        self.queue = SimpleQueue()
+        self.block_list = []
+        self._stream_started = False
+        self._detected_tag = False
+        
+        self._tag_stack = []
+        
 
     def __aiter__(self):
         return self
     
-    def advance(self):
-        event = self.queue.get() 
-        # print("<<", event.type, event.payload)       
-        if event.type == self.start_tag:
-            return event
-        elif event.type == self.end_tag:
-            return event
-        elif event.type == self.text_tag:
-            if self.block_stack:
-                block = self.block_stack.pop() 
-                event.payload = block                                   
-            return event
-        else:
-            raise ValueError(f"Unexpected event: {event}")
+    def _push_tag(self, tag: str):
+        self._tag_stack.append(tag)
     
+    def _pop_tag(self):
+        return self._tag_stack.pop()
     
-    def feed(self, value):
-        if isinstance(value, Block):
-            self.block_stack.append(value)
-            value = value.content
-        # print(">>", value)
-        self.parser.feed(value)
+    @property
+    def current_tag(self):
+        if not self._tag_stack:
+            return None
+        return self._tag_stack[-1]
     
-    async def __anext__(self):
-        for i in range(20):
+        
+    async def asend(self, value: Any = None):
+        for i in range(20):            
+            if not self._stream_started:
+                self.parser2.feed(f'<{self._safety_tag}>')
+                self._stream_started = True                
             if not self.queue.empty():
-                return self.advance()
-            else:
-                value = await self._gen.__anext__()
-                self.feed(value)
+                return self.queue.get()
+            value = await self.gen.asend(value) 
+            print(value)           
+            self.block_list.append(value)
+            self.parser2.feed(value.content)
+            
+            if "<" in value.content:
+                self._detected_tag = True
+            
+            
+            if self.current_tag and not self._detected_tag:
+                value.tags += [self.current_tag, self.text_tag]
+                if field := self.response.get(self.current_tag):
+                    field += value
+                    
+                self.queue.put(value)
+                # self.queue.put(
+                #     StreamEvent(
+                #         type=self.text_tag, 
+                #         name=self.current_tag, 
+                #         depth=0, 
+                #         # payload=self.block_list.pop()
+                #         payload=value
+                #     ))
+                    
+                
+
+            
+            for event, element in self.parser2.read_events():
+                if element.tag == self._safety_tag:
+                    continue
+                if event == 'start':
+                    self._push_tag(element.tag)
+                    if field := self.response.get(element.tag):
+                        for block in self.block_list:
+                            field.append_root(block)
+                        field.set_attributes(dict(element.attrib))
+                        field.tags += [self.start_tag]
+                        self.queue.put(field)
+                        # self.queue.put(
+                        #     StreamEvent(
+                        #         type=self.start_tag, 
+                        #         name=element.tag, 
+                        #         attrs=field.attrs, 
+                        #         depth=0, 
+                        #         payload=field
+                        #     ))
+                    else:
+                        raise ValueError(f"Field {element.tag} not found in response schema")
+                    self.block_list=[]
+                    self._detected_tag = False                    
+                elif event == 'end':
+                    self._pop_tag()
+                    is_end_event = False
+                    block_list = BlockList(tags=[self.end_tag])
+                    for block in self.block_list:
+                        if "</" in block.content:
+                            is_end_event = True                        
+                        if is_end_event:
+                            block_list.append(block)
+                        # self.queue.put(
+                        #     StreamEvent(
+                        #         type=self.end_tag, 
+                        #         name=element.tag, 
+                        #         depth=0, 
+                        #         payload=block_list
+                        #     ))
+                    else:
+                        self.queue.put(block_list)
+                        if field := self.response.get(element.tag):
+                            field.postfix = block_list
+                            field.commit()
+                    self.block_list=[]
+                    self._detected_tag = False
+                
+                    
+            if not self.queue.empty():
+                return self.queue.get()
         else:
             raise StopAsyncIteration
+        
 
     
 
@@ -257,15 +346,17 @@ T = TypeVar("T")
 
 class StreamController(BaseFbpComponent):
     
-    def __init__(self, gen_func=None, output_format=None, acc_factory=None, args=(), kwargs={}):
+    def __init__(self, gen: AsyncGenerator, name:str = "stream",response_schema=None, acc_factory=None):
         super().__init__(None)
-        self._gen_func = gen_func or self.stream
-        self._flow = None
-        self._stream = None
-        self._output_format = output_format
-        self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
-        self._kwargs = kwargs
-        self._args = args
+        self._name = name
+        self._stream = Stream(gen)
+        self._gen = self._stream
+        self._acc = Accumulator(BlockList(style="stream"))
+        self._gen |= self._acc
+        self._response_schema = response_schema
+        # self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
+        self._parser = None
+
 
         
     @property
@@ -275,11 +366,44 @@ class StreamController(BaseFbpComponent):
         return self._acc.result
     
     def get_response(self):
-        return self.acc
+        if self._parser:
+            return self._parser.response
+        # return self.acc
+        
+    def parse(self, block_schema: "BlockSchema") -> Self:
+        if self._parser is not None:
+            raise ValueError("Parser already initialized")
+        if self._gen is None:
+            raise ValueError("StreamController is not initialized")
+        self._parser = Parser(response_schema=block_schema)
+        self._gen |= self._parser        
+        return self
+    
+    def save(self, name: str, dir: str | None = None):
+        path = f"{dir}/{name}.jsonl" if dir else f"{name}.jsonl"
+        self._stream.save_stream(path)
+        return self
+    
+    def load(self, name: str, dir: str | None = None, delay: float = 0.07):
+        import asyncio
+        path = f"{dir}/{name}.jsonl" if dir else f"{name}.jsonl"
+        
+        async def load_stream():
+            with open(path, "r") as f:
+                for line in f:
+                    await asyncio.sleep(delay)
+                    j = json.loads(line)
+                    block = Block.model_validate(j)
+                    yield block
+                    
+        self._gen = Stream(load_stream())
+        return self
+    
+                
     
     @property
     def name(self):
-        return self._gen_func.__name__
+        return self._name
     
     # async def asend(self, value: Any = None):
     #     return await self._stream.__anext__()
@@ -290,26 +414,31 @@ class StreamController(BaseFbpComponent):
             raise ValueError("StreamController is not initialized")
         return self._stream._index
     
-    async def on_start(self, value: Any = None):
-        self._stream = Stream(self._gen_func(*self._args, **self._kwargs))
-        self._acc = Accumulator(self._acc_factory())
-        self._flow = self._stream | self._acc 
-        if self._output_format:
-            self._flow |= Parser()
-        self._gen = self._flow
+    # async def on_start(self, value: Any = None):
+        # self._stream = Stream(self._gen)
+        # self._acc = Accumulator(self._acc_factory())
+        # self._flow = self._stream | self._acc 
+        # if self._response_schema:
+            # self._parser =Parser(response_schema=self._response_schema)
+            # self._flow |= self._parser
+        # self._gen = self._flow
     
     
     def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
-        return StreamEvent(type="stream_start", name=self._gen_func.__name__)
+        return StreamEvent(type="stream_start", name=self._name)
     
     def on_value_event(self, payload: Any = None):
-        return StreamEvent(type="stream_delta", name=self._gen_func.__name__, payload=payload)
+        # if isinstance(payload, ResponseContext):
+        #     return StreamEvent(type="stream_delta_field_start", name=self._name, payload=payload)
+        # elif isinstance(payload, BlockList):
+        #     return StreamEvent(type="stream_delta_field_end", name=self._name, payload=payload)
+        return StreamEvent(type="stream_delta", name=self._name, payload=payload)
     
     def on_stop_event(self, payload: Any = None):
-        return StreamEvent(type="stream_end", name=self._gen_func.__name__)
+        return StreamEvent(type="stream_end", name=self._name)
     
     def on_error_event(self, error: Exception):
-        return StreamEvent(type="stream_error", name=self._gen_func.__name__, payload=error)
+        return StreamEvent(type="stream_error", name=self._name, payload=error)
         
     def __aiter__(self):
         return FlowRunner(self)
@@ -317,20 +446,6 @@ class StreamController(BaseFbpComponent):
     def stream_events(self):
         return FlowRunner(self).stream_events()
     
-    async def __aiter__3(self): 
-        self._stream = Stream(self._gen_func(*self._args, **self._kwargs))
-        self._acc = Accumulator(self._acc_factory())
-        flow = self._stream | self._acc 
-        if self._output_format:
-            flow |= Parser()
-
-        yield StreamEvent(type="stream_start", name=self._gen_func.__name__)
-        async for chunk in flow:
-            if not isinstance(chunk, StreamEvent):
-                yield StreamEvent(type="stream_delta", name=self._gen_func.__name__, payload=chunk)
-            else:
-                yield chunk
-        yield StreamEvent(type="stream_end", name=self._gen_func.__name__)
 
 
     async def stream(self, *args, **kwargs):
@@ -347,11 +462,18 @@ class StreamController(BaseFbpComponent):
             ) -> Callable[P, Self]:
                 @wraps(func)
                 def wrapper(*args: P.args, **kwargs: P.kwargs) -> Self:            
-                    return cls(gen_func=func, args=args, kwargs=kwargs)
+                    return cls(gen=func(*args, **kwargs), name=func.__name__)
                 return wrapper
             return decorator
         return decorator_wrapper
-        
+
+
+
+# def streamable(func: Callable[P, AsyncGenerator[CHUNK, None]]) -> Callable[P, StreamController]:
+#     @wraps(func)
+#     def wrapper(*args: P.args, **kwargs: P.kwargs) -> StreamController:
+#         return StreamController(gen_func=func, args=args, kwargs=kwargs)
+#     return wrapper
 
 
 
@@ -479,7 +601,10 @@ class FlowRunner:
         return None
     
     
-    
+    def _try_to_gen_event(self, func: Callable[[], Any], value: Any):
+        if isinstance(value, StreamEvent):
+            return value
+        return func(value)
     
 
     async def __anext__(self):
@@ -510,6 +635,7 @@ class FlowRunner:
                     self.last_value = value
                     if not self.should_output_events:
                         return value
+                    # return self._try_to_gen_event(gen.on_value_event, value)
                     return gen.on_value_event(value)
             except StopAsyncIteration:
                 gen = self.pop()

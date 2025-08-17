@@ -1,5 +1,9 @@
 from collections import UserList
-from typing import TYPE_CHECKING, Any, Generic, List, Protocol, Set, TypeVar, TypedDict, Unpack
+import copy
+import json
+import textwrap
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Generic, List, Protocol, Set, Type, TypeVar, TypedDict, Unpack
+import annotated_types
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
 from promptview.block.types import ContentType
@@ -14,53 +18,6 @@ if TYPE_CHECKING:
 
 CHUNK_TYPE = TypeVar("CHUNK_TYPE", str, int, float, bool, None)
 
-class Chunk:
-    
-    __slots__ = [
-        "content",
-        "logprob",
-    ]
-    
-    def __init__(self, content: ContentType, logprob: float = 0):
-        self.content: ContentType = content 
-        self.logprob: float = logprob
-        
-    def merge(self, other: "Chunk") -> "ChunkList":
-        return ChunkList([self, other])
-    
-    def rmerge(self, other: "Chunk") -> "ChunkList":
-        return ChunkList([other, self])
-    
-    def __add__(self, other: "Chunk") -> "ChunkList":
-        return self.merge(other)
-    
-    def __radd__(self, other: "Chunk") -> "ChunkList":
-        return self.rmerge(other)
-    
-    def __str__(self) -> str:
-        return str(self.content)
-    
-    def __repr__(self) -> str:
-        return f"Chunk({self.content}: {self.logprob})"
-    
-    
-        
-        
-
-
-class ChunkList(list[Chunk]):
-    
-    def __init__(self, chunks: list[Chunk]):
-        super().__init__(chunks)
-         
-    
-    @property
-    def logprob(self) -> float:
-        return sum(chunk.logprob for chunk in self)
-    
-    
-    def __repr__(self) -> str:
-        return f"ChunkList({[chunk.content for chunk in self]}: {self.logprob})"
 
 
 
@@ -107,11 +64,6 @@ def children_to_blocklist(children: list["Block"] | tuple["Block", ...] | None) 
         return children
     return BlockList(list(children))
 
-def to_chunk(content: ContentType | Chunk) -> Chunk:
-    if isinstance(content, Chunk):
-        return content
-    return Chunk(content)
-
 
 def parse_style(style: str | List[str] | None) -> List[str]:
     if isinstance(style, str):
@@ -131,7 +83,7 @@ class BlockParams(TypedDict, total=False):
     vsep: str
     wrap: tuple[str, str] | None
     vwrap: tuple[str, str] | None
-    attrs: dict | None
+    attrs: dict[str, "str | FieldAttrBlock"] | None
     depth: int
     parent: "BaseBlock | None"
     run_id: str | None
@@ -149,6 +101,13 @@ def all_slots(cls):
         if '__slots__' in base.__dict__:
             slots.extend(base.__slots__)
     return slots
+
+
+
+def get_attrs(attrs: dict[str, "str | FieldAttrBlock"] | None) -> "dict[str, FieldAttrBlock]":
+    if attrs is None:
+        return {}
+    return {k: v if isinstance(v, FieldAttrBlock) else FieldAttrBlock(name=k, description=v) for k, v in attrs.items()}
 
 class BaseBlock:
     
@@ -174,7 +133,7 @@ class BaseBlock:
     
     def __init__(self, **kwargs: Unpack[BlockParams]):        
         self.role: str | None = kwargs.get("role")
-        self.tags: list[str] | None = kwargs.get("tags")
+        self.tags: list[str] = kwargs.get("tags", [])
         if kwargs.get("styles"):
             self.styles = kwargs.get("styles")
         else:
@@ -184,9 +143,8 @@ class BaseBlock:
         self.vsep: str = kwargs.get("vsep", "\n")
         self.wrap: tuple[str, str] | None = kwargs.get("wrap")
         self.vwrap: tuple[str, str] | None = kwargs.get("vwrap")
-        self.attrs: dict | None = kwargs.get("attrs")
-        
-        self.attrs: dict | None = kwargs.get("attrs")
+        # self.attrs: dict[str, FieldAttr] | None = kwargs.get("attrs")
+        self.attrs: dict[str, FieldAttrBlock] = get_attrs(kwargs.get("attrs", {}))
         self.depth: int = kwargs.get("depth", 0)
         self.parent: "BaseBlock | None" = kwargs.get("parent")
         self.run_id: str | None = kwargs.get("run_id")
@@ -196,6 +154,10 @@ class BaseBlock:
         self.id: str | None = kwargs.get("id")
         self.db_id: str | None = kwargs.get("db_id")
         self._logprob: float | None = kwargs.get("logprob")
+        
+    # @property
+    # def is_end_of_line(self) -> bool:
+    #     return self.sep == "\n"
         
     @property
     def logprob(self) -> float | None:
@@ -268,7 +230,7 @@ class Block(BaseBlock):
     - Designed for dynamic, programmatic prompt generation
 
     Args:
-        *chunks: Content pieces (str, int, float, bool, None, or Chunk)
+        *chunks: Content pieces (str, int, float, bool, None)
         children: Optional list of child Blocks
         role: Optional string indicating the role (e.g., "user", "assistant")
         tags: Optional list of tags for organization or filtering
@@ -299,7 +261,8 @@ class Block(BaseBlock):
     
     __slots__ = [
         "content",
-        "children",        
+        "children",
+        "is_end_of_line",
     ]
     
     
@@ -312,7 +275,19 @@ class Block(BaseBlock):
         Basic component of prompt building. 
         """
         super().__init__(**kwargs)
+        self.is_end_of_line = False
+        if kwargs.get("is_end_of_line"):
+            self.is_end_of_line = kwargs.get("is_end_of_line")        
+        else:
+            #! if content is a string, check if it ends with a newline
+            if type(content) is str:
+                if content.endswith("\n"):
+                    content = content[:-1]            
+                    self.sep = "\n"
+                    self.is_end_of_line = True
+        
         self.content: ContentType = content
+        
     
         
             
@@ -458,6 +433,7 @@ class Block(BaseBlock):
             return self.content == other.content
         else:
             return False
+        
     
     
     @classmethod
@@ -482,7 +458,8 @@ class Block(BaseBlock):
             return v.model_dump()
         else:
             raise ValueError(f"Invalid block: {v}")
-        
+    
+
         
     def to_model(self) -> "BlockModel":
         from promptview.model.block_model import BlockModel
@@ -571,6 +548,14 @@ class BlockList(UserList[Block], BaseBlock):
             )
         )
         
+    def get(self, tag: str):
+        for block in self:
+            if block.tags and tag in block.tags:
+                return block
+            elif isinstance(block, BlockContext):
+                return block.get(tag)
+        return None
+        
     @staticmethod
     def _validate(v: Any) -> Any:
         if isinstance(v, BlockList):
@@ -631,7 +616,7 @@ class BlockContext(BaseBlock):
             #     self.children.styles.append("list-col")
             # else:
             #     self.children.styles = ["list-col"]
-        self.styles = ["list-col"] + (self.styles or [])
+        # self.styles = ["list-col"] + (self.styles or [])
         # if root:
             # root.parent = self
     @classmethod
@@ -652,6 +637,41 @@ class BlockContext(BaseBlock):
         root_logprob = self.root.logprob or 0
         return logprob + root_logprob
        
+    def field(self, name: str, type: Type, attrs: dict[str, str] | None = None) -> "FieldBlock":
+        block = FieldBlock(name, type, attrs=attrs)
+        self.append_child(block)
+        return block
+    
+    def attr(
+        self, 
+        name: str,
+        type: Type, 
+        description: str,
+        gt: int | float | None = None,
+        lt: int | float | None = None,
+        ge: int | float | None = None,
+        le: int | float | None = None,
+    ) -> "None":
+        if gt is not None: annotated_types.Gt(gt)
+        if lt is not None: annotated_types.Lt(lt)
+        if ge is not None: annotated_types.Ge(ge)
+        if le is not None: annotated_types.Le(le)
+        self.attrs[name] = FieldAttrBlock(
+            name=name,
+            type=type,
+            description=description,
+            gt=gt,
+            lt=lt,
+            ge=ge,
+            le=le,
+        )
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+    
             
             
     # def __call__(self, content: ContentType | BaseBlock | list[str] | None = None) -> Block:
@@ -682,7 +702,7 @@ class BlockContext(BaseBlock):
             other = Block(other)        
             self.append_root(other)
         elif isinstance(other, Block):
-            self.append_child(other)
+            self.append_child(other, as_line=True)
         elif isinstance(other, tuple):
             for c in other:
                 if isinstance(c, ContentType):
@@ -705,9 +725,16 @@ class BlockContext(BaseBlock):
     
     
     
-    def append_child(self, child: Block):
+    def append_child(self, child: Block, as_line: bool = False):
         child.parent = self
-        self.children.append(child)
+        if as_line:
+            if not self.children or not isinstance(self.children[-1], BlockList):
+                self.children.append(BlockList([]))
+            self.children[-1].append(child)
+            if child.is_end_of_line:
+                self.children.append(BlockList([]))
+        else:
+            self.children.append(child)        
         return self
     
     def append_root(self, content: ContentType | Block):
@@ -717,6 +744,34 @@ class BlockContext(BaseBlock):
         self.root.append(content)
         return self
     
+    
+    def response_schema(self, name: str | None = None):
+        name = name or "response_schema"
+        block = BlockSchema(name=name)
+        self.append_child(block)
+        return block
+    
+    
+    def get(self, tag: str):
+        tag = tag.lower()
+        for child in self.children:
+            if child.tags and tag in child.tags:
+                return child
+            elif isinstance(child, BlockContext):
+                block = child.get(tag)
+                if block:
+                    return block
+        return None
+
+    def get_field(self):
+        for child in self.children:
+            if isinstance(child, FieldBlock):
+                return child
+            elif isinstance(child, BlockContext):
+                for b in child.root:
+                    if isinstance(b, FieldBlock):
+                        return b
+        return None
     
     def model_dump(self):
         dump = super().model_dump()
@@ -753,168 +808,259 @@ class BlockContext(BaseBlock):
             return v.model_dump()
         else:
             raise ValueError(f"Invalid block list: {v}")
+        
+        
+        
+    def reduce_tree(self, is_target: Callable[[BaseBlock], bool] | None = None, clone_target_node = None) -> "ResponseContext":
+        """Return a forest containing only target-type nodes, attached under their
+        nearest target-type ancestor from the original tree."""
+        dummy_children: List[BaseBlock] = []
+        stack: List[BlockContext] = []  # stack of cloned target nodes
+        
+        def _clone_target_node(n: BlockContext) -> ResponseContext:
+            # Copy only what you need; children will be filled during reduction.
+            for b in n.root:
+                if isinstance(b, FieldBlock):
+                    f = copy.deepcopy(b)
+                    f.attrs = copy.deepcopy(n.attrs)
+                    return ResponseContext(f)
+            raise ValueError("No field block found")
+        
+        def _is_target(node: BaseBlock) -> bool:
+            if isinstance(node, FieldBlock):
+                return True
+            elif isinstance(node, BlockContext):
+                for b in node.root:
+                    if isinstance(b, FieldBlock):
+                        return True
+            return False
+        
+        is_target = is_target or _is_target
+        clone_target_node = clone_target_node or _clone_target_node
+
+        def dfs(u: BlockContext):
+            created = None
+            if is_target(u):
+                created = clone_target_node(u)
+                if stack:
+                    stack[-1].children.append(created)
+                else:
+                    dummy_children.append(created)
+                stack.append(created)
+
+            if isinstance(u, BlockContext):
+                for child in u.children:
+                    dfs(child)
+                    
+            if created is not None:
+                stack.pop()
+
+        dfs(self)
+        if not dummy_children:
+            raise ValueError("No target nodes found")
+        res = BlockContext(children=BlockList(dummy_children))
+        return res
+        
+    def __repr__(self) -> str:
+        root = self.root.render() if self.root else ''
+        tags = ','.join(self.tags) if self.tags else ''
+        tags = f"[{tags}] " if tags else ''
+        return f"BlockContext({tags}root={root}, children={self.children})"
 
 
-class BlockPrompt:
+def FieldAttr(
+    type: Type,
+    description: str,
+    name: str | None = None,
+    gt: annotated_types.Gt | None = None,
+    lt: annotated_types.Lt | None = None,
+    ge: annotated_types.Ge | None = None,
+    le: annotated_types.Le | None = None,
+):
+    return FieldAttrBlock(
+        name=name,
+        type=type,
+        description=description,
+        gt=gt,
+        lt=lt,
+        ge=ge,
+        le=le,
+    )
+
+
+class FieldAttrBlock:
+    name: str
+    type: Type
+    description: str
+    gt: annotated_types.Gt | None = None
+    lt: annotated_types.Lt | None = None
+    ge: annotated_types.Ge | None = None
+    le: annotated_types.Le | None = None
     
-    def __init__(self):
-        self.ctx = ContextStack()
-        self._root = BlockList()        
-        
-        
-        
-    @property
-    def last(self) -> Block:
-        if self.ctx.top.children:
-            target = self.ctx.top.children[-1]
-        else:
-            target =self.ctx.top
-        return target
-    
-    @property
-    def top(self) -> Block:
-        return self.ctx.top
-    
-    @property
-    def root(self) -> Block:
-        return self.ctx.root
-    
-    @property
-    def content(self) -> ChunkList:
-        return self.ctx.top.content
-    
-    @property
-    def children(self) -> BlockList:
-        return self.ctx.top.children
-    
-    
-    def build_block(
+    def __init__(
         self, 
-        content: ContentType | Chunk, 
-        children: list[Block] | None = None
-    ) -> Block:    
-        return Block(
-            *content,
-            children=children,
-            role=self.ctx.top.role,
-            tags=self.ctx.top.tags,
-        )
+        name: str, 
+        type: Type, 
+        description: str, 
+        gt: annotated_types.Gt | None = None, 
+        lt: annotated_types.Lt | None = None, 
+        ge: annotated_types.Ge | None = None, 
+        le: annotated_types.Le | None = None
+    ):
+        self.name = name
+        self.type = type
+        self.description = description
+        self.gt = gt
+        self.lt = lt
+        self.ge = ge
+        self.le = le
         
+        
+    def parse(self, content: str):
+        content = content.strip()
+        content = textwrap.dedent(content)
+        if self.type == int:
+            return int(content)
+        elif self.type == float:
+            return float(content)
+        elif self.type == bool:
+            return bool(content)
+        elif self.type == str:
+            return content
+        elif self.type == list:
+            return content.split(",")
+        elif self.type == dict:
+            return json.loads(content)
+        else:
+            raise ValueError(f"Invalid type: {self.type}")
+
+
+class FieldBlock(Block):
+    
+    def __init__(self, name: str, type: Type, attrs: dict[str, str | FieldAttrBlock] | None = None):
+        super().__init__(name, tags=[name], style="xml", attrs=attrs)
+        self.type = type
+        self.name = name
         
         
 
-    
-    # def __call__(
-    #     self, 
-    #     *content: ContentType | Chunk | Block | list,
-    #     role: str | None = None,
-    #     tags: list[str] | None = None,
-    #     style: str | None = None,
-    #     attrs: dict | None = None,        
-    # ):
-    #     if content:
-    #         if isinstance(content[0], Block):
-    #             self.extend_children(content)
-    #         elif isinstance(content[0], Chunk):
-    #             self.extend_content(content)
-    #         elif isinstance(content[0], list):
-    #             self.extend_children(*[Block(c, role=role, tags=tags, style=style, attrs=attrs) for c in content[0]])
-    #         elif isinstance(content, tuple):
-    #             self.extend_children(Block(*content, role=role, tags=tags, style=style, attrs=attrs))
-    #             # self.extend_content(*[to_chunk(c) for c in content])        
-    #         elif isinstance(content, str):
-    #             self.extend_children(Block(content, role=role, tags=tags, style=style, attrs=attrs))
-    #         else:
-    #             raise ValueError(f"Invalid content type: {type(content)}")
-    #     else:
-    #         self.extend_children(Block(role=role, tags=tags, style=style, attrs=attrs))
-    #     return self
-    
-    def __call__(self, content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> Block:
-        block = parse_content(content, **kwargs)
-        # self._root.append(block)
-        self.ctx.push(block)
-        return block
-    
-    def __enter__(self):
-        """
-        Enter a new block context.
-        with Block("title") as b:
-            with b("subtitle") as b:
-                b /= "item 1"
-                b /= "item 2"
-        """
-        if self.ctx.top.children:
-            target_block = self.ctx.top.children[-1]
-        else:
-            raise ValueError("No children to extend")
-        self.ctx.push(target_block)
-        return self
-    
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.ctx.pop()
         
-    def extend_content(self, *content: Chunk):        
-        for c in content:
-            self.last.add_content(c)
+    # def __enter__(self):
+    #     parent = self.parent
+    #     block = self if self.content is not None else None
+    #     ctx = FieldContext(
+    #         block,
+    #         role=self.role,
+    #         attrs=self.attrs,
+    #         tags=self.tags,
+    #         depth=self.depth,
+    #         parent=parent,
+    #         run_id=self.run_id,
+    #         model=self.model,
+    #         tool_calls=self.tool_calls,
+    #         usage=self.usage,
+    #         id=self.id,
+    #         db_id=self.db_id,
+    #         styles=self.styles,
+    #         sep=self.sep,
+    #         vsep=self.vsep,
+    #         wrap=self.wrap,
+    #         vwrap=self.vwrap,
+    #     )
+    #     self.parent = ctx
+    #     if isinstance(parent, BlockContext):
+    #         parent.children.pop()
+    #         parent.append_child(ctx)
+    #     return ctx
+
+
+
+
+class FieldContext(BlockContext):
+    pass
+
+
+
+class ResponseContext(BlockContext):
+    
+    def __init__(self, schema: FieldBlock, children: BlockList | None = None, tags: list[str] | None = None, **kwargs: Unpack[BlockParams]):
+        super().__init__(children=children, tags=[schema.name] + (tags or []), **kwargs)
+        self.schema = schema
+        self._value = None
+        self.postfix: BlockList | None = None
+    
+    @property
+    def name(self) -> str:
+        return self.schema.name
+    
+    def _cast(self, content: str):
+        if self.schema.type == str:
+            return content
+        elif self.schema.type == int:
+            return int(content)
+        elif self.schema.type == float:
+            return float(content)
+        elif self.schema.type == bool:
+            return bool(content)
+        elif self.schema.type == list:
+            return content.split(",")
+        elif self.schema.type == dict:
+            return json.loads(content)
         
-    def extend_children(self, *children: Block):
-        for c in children:
-            self.ctx.top.add_child(c)
-
+    def __getitem__(self, key: str):
+        return self.attrs[key]
     
-
-    def __itruediv__(self, content: ContentType | tuple[ContentType, ...] | Block):
-        """
-        Add child to the current block as a new line.
-        with Block("title") as b:
-            b /= "item 1"
-            b /= "item 2"
-            
-        >>> b.render()
-        "title\n item 1\n item 2"
-        """
-        if isinstance(content, list):
-            raise ValueError("Cannot use list as single line content")
-        elif isinstance(content, tuple):
-            self.extend_children(*[Block(*[to_chunk(c) for c in content])])
-        elif isinstance(content, Block):
-            self.extend_children(content)
-        else:
-            self.extend_children(Block(content))
+    def __setitem__(self, key: str, value: Any):
+        self.attrs[key] = value
+    
+    def set_attributes(self, attrs: dict[str, str]):
+        for k, v in attrs.items():
+            if k in self.schema.attrs:
+                value = self.schema.attrs[k].parse(v)
+                self.attrs[k] = value
+            else:
+                raise ValueError(f"Attribute {k} not found in schema")
+    
+    
+    def commit(self):
+        content = self.children.render()
+        content = content.strip()
+        content = textwrap.dedent(content)
+        self._value = self._cast(content)
         return self
     
-    
-    def __iadd__(self, other: ContentType | tuple[ContentType, ...]):
-        """
-        Add content to the current block. inline.
-        with Block("title") as b:
-            b += "item 1"
-            b += "item 2"
-            
-        >>> b.render()
-        "title item 1 item 2"
-        """
-        if isinstance(other, list):
-            raise ValueError("Cannot use list as single line content")
-        elif isinstance(other, tuple):
-            self.extend_content(*[to_chunk(c) for c in other])
-        else:
-            self.extend_content(to_chunk(other))
-        return self
+    @property
+    def value(self):
+        return self._value
     
     
-    def render(self) -> str:
-        from promptview.block.block_renderer2 import render
-        result = render(self.ctx.root)
-        return result if result is not None else ""
+    def __repr__(self) -> str:
+        root = self.root.render() if self.root else ''
+        tags = ','.join(self.tags) if self.tags else ''
+        tags = f"[{tags}] " if tags else ''
+        return f"ResponseContext({tags}root={root}, children={self.children})"
     
-    def print(self):
-        print(self.render())
     
-    def __str__(self) -> str:
-        return self.render()
     
+
+
+class ResponseBlock(Block):
+    
+    def __init__(self, schema: FieldBlock):
+        self.schema = schema
+        super().__init__(role="assistant", tags=[schema.name])
+        
+        
+    
+
+class BlockSchema(Block):
+      
+    def __init__(self, name: str = "schema"):
+        super().__init__(tags=[name])
+
+
+
+
     
     
 

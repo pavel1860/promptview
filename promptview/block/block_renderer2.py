@@ -104,6 +104,7 @@ def render_block(block: Block, ctx: RenderContext):
     fmt = ctx.style.get("block-format")
     renderer = renderer_registry.get(fmt) if fmt else default_renderer    
     content = renderer.try_render(ctx, block.content)
+    content+= block.sep
     return content
 
     
@@ -115,14 +116,16 @@ def render_list(block_list: BlockList, ctx: RenderContext):
     renderer = renderer_registry.get(fmt) if fmt else default_renderer    
     content_list = renderer.try_render_list(ctx, item_content)
         
-    layout_renderer = renderer_registry.get(layout_fmt) if layout_fmt else default_list_layout_renderer
-    content = layout_renderer.try_render_list_layout(ctx, content_list)
+    # layout_renderer = renderer_registry.get(layout_fmt) if layout_fmt else default_list_layout_renderer
+    # content = layout_renderer.try_render_list_layout(ctx, content_list)
+    content = "".join(content_list)
     return content
     
 def render_root_row(block_list: BlockList, ctx: RenderContext):
     item_content = [render(item, index=index, depth=ctx.depth, style=ctx.style, parent_ctx=ctx) for index, item in enumerate(block_list)]
     content_list = default_renderer.try_render_list(ctx, item_content)
-    content = default_list_layout_renderer.render_list_layout(ctx, content_list)
+    # content = default_list_layout_renderer.render_list_layout(ctx, content_list)
+    content = "".join(content_list)
     return content
     
 

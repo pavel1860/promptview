@@ -5,7 +5,6 @@ from functools import singledispatch
 from typing import Any, AsyncGenerator, Callable, Dict, Generic, List, Literal, ParamSpec, Self, Type, TypeVar, Union, TYPE_CHECKING, get_args
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 from pydantic.fields import FieldInfo
-from promptview.block import Chunk, ChunkList
 from promptview.block.util import StreamEvent
 from promptview.llms.types import ErrorMessage
 from promptview.block import Block, BlockRole, ToolCall, LlmUsage, BlockList
