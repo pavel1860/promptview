@@ -216,13 +216,14 @@ class Parser(BaseFbpComponent):
     
         
     async def asend(self, value: Any = None):
-        for i in range(20):
+        for i in range(20):            
             if not self._stream_started:
                 self.parser2.feed(f'<{self._safety_tag}>')
                 self._stream_started = True                
             if not self.queue.empty():
                 return self.queue.get()
-            value = await self.gen.asend(value)            
+            value = await self.gen.asend(value) 
+            print(value)           
             self.block_list.append(value)
             self.parser2.feed(value.content)
             
@@ -253,7 +254,7 @@ class Parser(BaseFbpComponent):
                     if field := self.response.get(element.tag):
                         for block in self.block_list:
                             field.append_root(block)
-                        field.attrs = dict(element.attrib)
+                        field.set_attributes(dict(element.attrib))
                         self.queue.put(
                             StreamEvent(
                                 type=self.start_tag, 

@@ -4,6 +4,7 @@ import yaml
 from typing import TYPE_CHECKING
 from abc import ABC, abstractmethod
 
+from promptview.block.block7 import FieldAttrBlock
 from promptview.block.types import ContentType
 
 
@@ -292,7 +293,26 @@ class XmlTitleRenderer(BaseRenderer):
     def render(self, ctx: RenderContext, content: ContentType, inner_content: str | None = None) -> str:
         
         if ctx.block.attrs:
-            attrs = " " + " ".join([f"{k}=\"{v}\"" for k, v in ctx.block.attrs.items()])
+            attrs = ""
+            for k, v in ctx.block.attrs.items():
+                if isinstance(v, FieldAttrBlock):
+                    instructions = ""
+                    if v.type in (int, float):
+                        instructions = " wrap in quotes"
+                    attr_info = f"(\"{v.type.__name__}\"{instructions}) {v.description}"
+                    # attrs += f"{k}=({v.type.__name__}) \"{v.description}\""
+                    if v.gt is not None:
+                        attr_info += f" gt={v.gt}"
+                    if v.lt is not None:
+                        attr_info += f" lt={v.lt}"
+                    if v.ge is not None:
+                        attr_info += f" ge={v.ge}"
+                    if v.le is not None:
+                        attr_info += f" le={v.le}"
+                    attrs += f"{k}=[{attr_info}]"
+                else:
+                    attrs += f"{k}=\"{v}\""
+            # attrs = " " + " ".join([f"{k}=\"{v}\"" for k, v in ctx.block.attrs.items()])
         else:
             attrs = ""
         

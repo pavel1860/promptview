@@ -1,7 +1,9 @@
 from collections import UserList
+import copy
 import json
 import textwrap
-from typing import TYPE_CHECKING, Any, Callable, Generic, List, Protocol, Set, Type, TypeVar, TypedDict, Unpack
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Generic, List, Protocol, Set, Type, TypeVar, TypedDict, Unpack
+import annotated_types
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
 from promptview.block.types import ContentType
@@ -133,7 +135,7 @@ class BlockParams(TypedDict, total=False):
     vsep: str
     wrap: tuple[str, str] | None
     vwrap: tuple[str, str] | None
-    attrs: dict | None
+    attrs: dict[str, "str | FieldAttrBlock"] | None
     depth: int
     parent: "BaseBlock | None"
     run_id: str | None
@@ -151,6 +153,13 @@ def all_slots(cls):
         if '__slots__' in base.__dict__:
             slots.extend(base.__slots__)
     return slots
+
+
+
+def get_attrs(attrs: dict[str, "str | FieldAttrBlock"] | None) -> "dict[str, FieldAttrBlock]":
+    if attrs is None:
+        return {}
+    return {k: v if isinstance(v, FieldAttrBlock) else FieldAttrBlock(name=k, description=v) for k, v in attrs.items()}
 
 class BaseBlock:
     
@@ -186,9 +195,8 @@ class BaseBlock:
         self.vsep: str = kwargs.get("vsep", "\n")
         self.wrap: tuple[str, str] | None = kwargs.get("wrap")
         self.vwrap: tuple[str, str] | None = kwargs.get("vwrap")
-        self.attrs: dict | None = kwargs.get("attrs")
-        
-        self.attrs: dict | None = kwargs.get("attrs")
+        # self.attrs: dict[str, FieldAttr] | None = kwargs.get("attrs")
+        self.attrs: dict[str, FieldAttrBlock] = get_attrs(kwargs.get("attrs", {}))
         self.depth: int = kwargs.get("depth", 0)
         self.parent: "BaseBlock | None" = kwargs.get("parent")
         self.run_id: str | None = kwargs.get("run_id")
@@ -681,10 +689,34 @@ class BlockContext(BaseBlock):
         root_logprob = self.root.logprob or 0
         return logprob + root_logprob
        
-    def field(self, name: str, type: Type, attrs: dict[str, str] | None = None):
+    def field(self, name: str, type: Type, attrs: dict[str, str] | None = None) -> "FieldBlock":
         block = FieldBlock(name, type, attrs=attrs)
         self.append_child(block)
         return block
+    
+    def attr(
+        self, 
+        name: str,
+        type: Type, 
+        description: str,
+        gt: int | float | None = None,
+        lt: int | float | None = None,
+        ge: int | float | None = None,
+        le: int | float | None = None,
+    ) -> "None":
+        if gt is not None: annotated_types.Gt(gt)
+        if lt is not None: annotated_types.Lt(lt)
+        if ge is not None: annotated_types.Ge(ge)
+        if le is not None: annotated_types.Le(le)
+        self.attrs[name] = FieldAttrBlock(
+            name=name,
+            type=type,
+            description=description,
+            gt=gt,
+            lt=lt,
+            ge=ge,
+            le=le,
+        )
     
     def __enter__(self):
         return self
@@ -841,7 +873,9 @@ class BlockContext(BaseBlock):
             # Copy only what you need; children will be filled during reduction.
             for b in n.root:
                 if isinstance(b, FieldBlock):
-                    return ResponseContext(b)
+                    f = copy.deepcopy(b)
+                    f.attrs = copy.deepcopy(n.attrs)
+                    return ResponseContext(f)
             raise ValueError("No field block found")
         
         def _is_target(node: BaseBlock) -> bool:
@@ -886,14 +920,82 @@ class BlockContext(BaseBlock):
         return f"BlockContext({tags}root={root}, children={self.children})"
 
 
+def FieldAttr(
+    type: Type,
+    description: str,
+    name: str | None = None,
+    gt: annotated_types.Gt | None = None,
+    lt: annotated_types.Lt | None = None,
+    ge: annotated_types.Ge | None = None,
+    le: annotated_types.Le | None = None,
+):
+    return FieldAttrBlock(
+        name=name,
+        type=type,
+        description=description,
+        gt=gt,
+        lt=lt,
+        ge=ge,
+        le=le,
+    )
+
+
+class FieldAttrBlock:
+    name: str
+    type: Type
+    description: str
+    gt: annotated_types.Gt | None = None
+    lt: annotated_types.Lt | None = None
+    ge: annotated_types.Ge | None = None
+    le: annotated_types.Le | None = None
+    
+    def __init__(
+        self, 
+        name: str, 
+        type: Type, 
+        description: str, 
+        gt: annotated_types.Gt | None = None, 
+        lt: annotated_types.Lt | None = None, 
+        ge: annotated_types.Ge | None = None, 
+        le: annotated_types.Le | None = None
+    ):
+        self.name = name
+        self.type = type
+        self.description = description
+        self.gt = gt
+        self.lt = lt
+        self.ge = ge
+        self.le = le
+        
+        
+    def parse(self, content: str):
+        content = content.strip()
+        content = textwrap.dedent(content)
+        if self.type == int:
+            return int(content)
+        elif self.type == float:
+            return float(content)
+        elif self.type == bool:
+            return bool(content)
+        elif self.type == str:
+            return content
+        elif self.type == list:
+            return content.split(",")
+        elif self.type == dict:
+            return json.loads(content)
+        else:
+            raise ValueError(f"Invalid type: {self.type}")
+
 
 class FieldBlock(Block):
     
-    def __init__(self, name: str, type: Type, attrs: dict[str, str] | None = None):
+    def __init__(self, name: str, type: Type, attrs: dict[str, str | FieldAttrBlock] | None = None):
         super().__init__(name, tags=[name], style="xml", attrs=attrs)
         self.type = type
         self.name = name
         
+        
+
         
     # def __enter__(self):
     #     parent = self.parent
@@ -955,6 +1057,21 @@ class ResponseContext(BlockContext):
             return content.split(",")
         elif self.schema.type == dict:
             return json.loads(content)
+        
+    def __getitem__(self, key: str):
+        return self.attrs[key]
+    
+    def __setitem__(self, key: str, value: Any):
+        self.attrs[key] = value
+    
+    def set_attributes(self, attrs: dict[str, str]):
+        for k, v in attrs.items():
+            if k in self.schema.attrs:
+                value = self.schema.attrs[k].parse(v)
+                self.attrs[k] = value
+            else:
+                raise ValueError(f"Attribute {k} not found in schema")
+    
     
     def commit(self):
         content = self.children.render()
