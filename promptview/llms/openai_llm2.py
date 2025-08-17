@@ -3,7 +3,6 @@ import json
 from typing import Any, AsyncGenerator, List, Type
 
 from promptview.block.block import BlockList
-from promptview.block.block7 import Chunk, ChunkList
 from promptview.block.util import LLMEvent, StreamEvent
 from promptview.tracer.langsmith_tracer import Tracer
 from promptview.utils.model_utils import schema_to_function

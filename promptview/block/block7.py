@@ -18,53 +18,6 @@ if TYPE_CHECKING:
 
 CHUNK_TYPE = TypeVar("CHUNK_TYPE", str, int, float, bool, None)
 
-class Chunk:
-    
-    __slots__ = [
-        "content",
-        "logprob",
-    ]
-    
-    def __init__(self, content: ContentType, logprob: float = 0):
-        self.content: ContentType = content 
-        self.logprob: float = logprob
-        
-    def merge(self, other: "Chunk") -> "ChunkList":
-        return ChunkList([self, other])
-    
-    def rmerge(self, other: "Chunk") -> "ChunkList":
-        return ChunkList([other, self])
-    
-    def __add__(self, other: "Chunk") -> "ChunkList":
-        return self.merge(other)
-    
-    def __radd__(self, other: "Chunk") -> "ChunkList":
-        return self.rmerge(other)
-    
-    def __str__(self) -> str:
-        return str(self.content)
-    
-    def __repr__(self) -> str:
-        return f"Chunk({self.content}: {self.logprob})"
-    
-    
-        
-        
-
-
-class ChunkList(list[Chunk]):
-    
-    def __init__(self, chunks: list[Chunk]):
-        super().__init__(chunks)
-         
-    
-    @property
-    def logprob(self) -> float:
-        return sum(chunk.logprob for chunk in self)
-    
-    
-    def __repr__(self) -> str:
-        return f"ChunkList({[chunk.content for chunk in self]}: {self.logprob})"
 
 
 
@@ -110,11 +63,6 @@ def children_to_blocklist(children: list["Block"] | tuple["Block", ...] | None) 
     if isinstance(children, BlockList):
         return children
     return BlockList(list(children))
-
-def to_chunk(content: ContentType | Chunk) -> Chunk:
-    if isinstance(content, Chunk):
-        return content
-    return Chunk(content)
 
 
 def parse_style(style: str | List[str] | None) -> List[str]:
@@ -185,7 +133,7 @@ class BaseBlock:
     
     def __init__(self, **kwargs: Unpack[BlockParams]):        
         self.role: str | None = kwargs.get("role")
-        self.tags: list[str] | None = kwargs.get("tags")
+        self.tags: list[str] = kwargs.get("tags", [])
         if kwargs.get("styles"):
             self.styles = kwargs.get("styles")
         else:
@@ -282,7 +230,7 @@ class Block(BaseBlock):
     - Designed for dynamic, programmatic prompt generation
 
     Args:
-        *chunks: Content pieces (str, int, float, bool, None, or Chunk)
+        *chunks: Content pieces (str, int, float, bool, None)
         children: Optional list of child Blocks
         role: Optional string indicating the role (e.g., "user", "assistant")
         tags: Optional list of tags for organization or filtering
@@ -1039,6 +987,7 @@ class ResponseContext(BlockContext):
         super().__init__(children=children, tags=[schema.name] + (tags or []), **kwargs)
         self.schema = schema
         self._value = None
+        self.postfix: BlockList | None = None
     
     @property
     def name(self) -> str:
@@ -1112,178 +1061,6 @@ class BlockSchema(Block):
 
 
 
-    
-    # def __
-    
-# class ResponseBlock(Block):
-    
-#     def __init__(self, content: str):
-#         self.
-    
-    
-#     def append(self, content: str):
-
-
-class BlockPrompt:
-    
-    def __init__(self):
-        self.ctx = ContextStack()
-        self._root = BlockList()        
-        
-        
-        
-    @property
-    def last(self) -> Block:
-        if self.ctx.top.children:
-            target = self.ctx.top.children[-1]
-        else:
-            target =self.ctx.top
-        return target
-    
-    @property
-    def top(self) -> Block:
-        return self.ctx.top
-    
-    @property
-    def root(self) -> Block:
-        return self.ctx.root
-    
-    @property
-    def content(self) -> ChunkList:
-        return self.ctx.top.content
-    
-    @property
-    def children(self) -> BlockList:
-        return self.ctx.top.children
-    
-    
-    def build_block(
-        self, 
-        content: ContentType | Chunk, 
-        children: list[Block] | None = None
-    ) -> Block:    
-        return Block(
-            *content,
-            children=children,
-            role=self.ctx.top.role,
-            tags=self.ctx.top.tags,
-        )
-        
-        
-        
-
-    
-    # def __call__(
-    #     self, 
-    #     *content: ContentType | Chunk | Block | list,
-    #     role: str | None = None,
-    #     tags: list[str] | None = None,
-    #     style: str | None = None,
-    #     attrs: dict | None = None,        
-    # ):
-    #     if content:
-    #         if isinstance(content[0], Block):
-    #             self.extend_children(content)
-    #         elif isinstance(content[0], Chunk):
-    #             self.extend_content(content)
-    #         elif isinstance(content[0], list):
-    #             self.extend_children(*[Block(c, role=role, tags=tags, style=style, attrs=attrs) for c in content[0]])
-    #         elif isinstance(content, tuple):
-    #             self.extend_children(Block(*content, role=role, tags=tags, style=style, attrs=attrs))
-    #             # self.extend_content(*[to_chunk(c) for c in content])        
-    #         elif isinstance(content, str):
-    #             self.extend_children(Block(content, role=role, tags=tags, style=style, attrs=attrs))
-    #         else:
-    #             raise ValueError(f"Invalid content type: {type(content)}")
-    #     else:
-    #         self.extend_children(Block(role=role, tags=tags, style=style, attrs=attrs))
-    #     return self
-    
-    def __call__(self, content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> Block:
-        block = parse_content(content, **kwargs)
-        # self._root.append(block)
-        self.ctx.push(block)
-        return block
-    
-    def __enter__(self):
-        """
-        Enter a new block context.
-        with Block("title") as b:
-            with b("subtitle") as b:
-                b /= "item 1"
-                b /= "item 2"
-        """
-        if self.ctx.top.children:
-            target_block = self.ctx.top.children[-1]
-        else:
-            raise ValueError("No children to extend")
-        self.ctx.push(target_block)
-        return self
-    
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.ctx.pop()
-        
-    def extend_content(self, *content: Chunk):        
-        for c in content:
-            self.last.add_content(c)
-        
-    def extend_children(self, *children: Block):
-        for c in children:
-            self.ctx.top.add_child(c)
-
-    
-
-    def __itruediv__(self, content: ContentType | tuple[ContentType, ...] | Block):
-        """
-        Add child to the current block as a new line.
-        with Block("title") as b:
-            b /= "item 1"
-            b /= "item 2"
-            
-        >>> b.render()
-        "title\n item 1\n item 2"
-        """
-        if isinstance(content, list):
-            raise ValueError("Cannot use list as single line content")
-        elif isinstance(content, tuple):
-            self.extend_children(*[Block(*[to_chunk(c) for c in content])])
-        elif isinstance(content, Block):
-            self.extend_children(content)
-        else:
-            self.extend_children(Block(content))
-        return self
-    
-    
-    def __iadd__(self, other: ContentType | tuple[ContentType, ...]):
-        """
-        Add content to the current block. inline.
-        with Block("title") as b:
-            b += "item 1"
-            b += "item 2"
-            
-        >>> b.render()
-        "title item 1 item 2"
-        """
-        if isinstance(other, list):
-            raise ValueError("Cannot use list as single line content")
-        elif isinstance(other, tuple):
-            self.extend_content(*[to_chunk(c) for c in other])
-        else:
-            self.extend_content(to_chunk(other))
-        return self
-    
-    
-    def render(self) -> str:
-        from promptview.block.block_renderer2 import render
-        result = render(self.ctx.root)
-        return result if result is not None else ""
-    
-    def print(self):
-        print(self.render())
-    
-    def __str__(self) -> str:
-        return self.render()
-    
     
     
 

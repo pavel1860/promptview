@@ -5,7 +5,7 @@ from queue import SimpleQueue
 
 from typing import Any, AsyncGenerator, Callable, Iterable, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING
 import xml
-from promptview.block.block7 import Block, BlockList
+from promptview.block.block7 import Block, BlockList, ResponseContext
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
 from promptview.prompt.parser import BlockBuffer, SaxStreamParser
 from promptview.prompt.events import StreamEvent
@@ -232,16 +232,19 @@ class Parser(BaseFbpComponent):
             
             
             if self.current_tag and not self._detected_tag:
+                value.tags += [self.current_tag, self.text_tag]
                 if field := self.response.get(self.current_tag):
                     field += value
-                self.queue.put(
-                    StreamEvent(
-                        type=self.text_tag, 
-                        name=self.current_tag, 
-                        depth=0, 
-                        # payload=self.block_list.pop()
-                        payload=value
-                    ))
+                    
+                self.queue.put(value)
+                # self.queue.put(
+                #     StreamEvent(
+                #         type=self.text_tag, 
+                #         name=self.current_tag, 
+                #         depth=0, 
+                #         # payload=self.block_list.pop()
+                #         payload=value
+                #     ))
                     
                 
 
@@ -255,14 +258,16 @@ class Parser(BaseFbpComponent):
                         for block in self.block_list:
                             field.append_root(block)
                         field.set_attributes(dict(element.attrib))
-                        self.queue.put(
-                            StreamEvent(
-                                type=self.start_tag, 
-                                name=element.tag, 
-                                attrs=field.attrs, 
-                                depth=0, 
-                                payload=field
-                            ))
+                        field.tags += [self.start_tag]
+                        self.queue.put(field)
+                        # self.queue.put(
+                        #     StreamEvent(
+                        #         type=self.start_tag, 
+                        #         name=element.tag, 
+                        #         attrs=field.attrs, 
+                        #         depth=0, 
+                        #         payload=field
+                        #     ))
                     else:
                         raise ValueError(f"Field {element.tag} not found in response schema")
                     self.block_list=[]
@@ -270,21 +275,23 @@ class Parser(BaseFbpComponent):
                 elif event == 'end':
                     self._pop_tag()
                     is_end_event = False
-                    block_list = BlockList()
+                    block_list = BlockList(tags=[self.end_tag])
                     for block in self.block_list:
                         if "</" in block.content:
                             is_end_event = True                        
                         if is_end_event:
                             block_list.append(block)
-                        self.queue.put(
-                            StreamEvent(
-                                type=self.end_tag, 
-                                name=element.tag, 
-                                depth=0, 
-                                payload=block_list
-                            ))
+                        # self.queue.put(
+                        #     StreamEvent(
+                        #         type=self.end_tag, 
+                        #         name=element.tag, 
+                        #         depth=0, 
+                        #         payload=block_list
+                        #     ))
                     else:
+                        self.queue.put(block_list)
                         if field := self.response.get(element.tag):
+                            field.postfix = block_list
                             field.commit()
                     self.block_list=[]
                     self._detected_tag = False
@@ -421,6 +428,10 @@ class StreamController(BaseFbpComponent):
         return StreamEvent(type="stream_start", name=self._name)
     
     def on_value_event(self, payload: Any = None):
+        # if isinstance(payload, ResponseContext):
+        #     return StreamEvent(type="stream_delta_field_start", name=self._name, payload=payload)
+        # elif isinstance(payload, BlockList):
+        #     return StreamEvent(type="stream_delta_field_end", name=self._name, payload=payload)
         return StreamEvent(type="stream_delta", name=self._name, payload=payload)
     
     def on_stop_event(self, payload: Any = None):
@@ -590,7 +601,10 @@ class FlowRunner:
         return None
     
     
-    
+    def _try_to_gen_event(self, func: Callable[[], Any], value: Any):
+        if isinstance(value, StreamEvent):
+            return value
+        return func(value)
     
 
     async def __anext__(self):
@@ -621,6 +635,7 @@ class FlowRunner:
                     self.last_value = value
                     if not self.should_output_events:
                         return value
+                    # return self._try_to_gen_event(gen.on_value_event, value)
                     return gen.on_value_event(value)
             except StopAsyncIteration:
                 gen = self.pop()

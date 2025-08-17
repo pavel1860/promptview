@@ -2,7 +2,7 @@ from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Dict, List, Literal, Type, TypedDict, Unpack
 from pydantic import BaseModel, Field
 
-from promptview.block.block7 import Block, BlockContext, BlockPrompt, BlockList, Chunk
+from promptview.block.block7 import Block, BlockContext, BlockPrompt, BlockList
 from promptview.prompt.flow_components import StreamController
 
 
@@ -132,6 +132,18 @@ class LLM():
             raise KeyError(f"Model {model} is not registered")        
         llm_cls = cls._model_registry[model]
         return llm_cls
+    
+    
+    def stream(
+        self,
+        *blocks: Block | BlockContext |BlockList | BlockPrompt | str,
+        model: str | None = None,
+        tools: List[Type[BaseModel]] | None = None,
+        config: LlmConfig | None = None,
+    ) -> LLMStream:
+        llm_cls = self._get_llm(model)
+        llm = llm_cls(config=config)
+        return llm.stream(blocks=blocks, tools=tools)
 
     def __call__(
         self,        
@@ -158,8 +170,8 @@ class LLM():
             raise ValueError(f"Invalid blocks type: {type(blocks)}")
         
         llm_ctx = self._get_llm(model)
-        config = config or LlmConfig(model=llm_ctx.model)
-        return llm_ctx(llm_blocks, config)
+        # config = config or LlmConfig(model=llm_ctx.model)
+        return llm_ctx(llm_blocks)
     # def __call__(
     #     self,        
     #     blocks: BlockContext |BlockList | Block | BlockPrompt | str,
