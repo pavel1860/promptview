@@ -1,5 +1,5 @@
 from functools import wraps
-from typing import Any, AsyncGenerator, Dict, List, Literal, Type, Unpack
+from typing import Any, AsyncGenerator, Callable, Dict, List, Literal, Type, TypedDict, Unpack
 from pydantic import BaseModel, Field
 
 from promptview.block.block7 import Block, BlockContext, BlockPrompt, BlockList, Chunk
@@ -45,18 +45,31 @@ class LLMStream(StreamController):
         self.tools = tools
         self.model = model
         
-        
 
-    
-def llm_stream(method):
+
+class LlmStreamParams(TypedDict, total=False):
+    blocks: BlockList
+    config: LlmConfig
+    tools: List[Type[BaseModel]] | None = None
+
+
+
+
+def llm_stream(
+    method: Callable[..., AsyncGenerator[Any, None]]
+) -> Callable[..., StreamController]:
+    """
+    Decorator that wraps an async generator method to return a StreamController.
+    Provides proper typing for IntelliSense support.
+    """
     @wraps(method)
-    def wrapper(self, *args, **kwargs):
-        # If "config" not passed, inject from self.model_config
+    def wrapper(self, *args, **kwargs) -> StreamController:
+        # If "config" not passed, inject from self.config
         if "config" not in kwargs:
             kwargs["config"] = getattr(self, "config", None)
         gen = method(self, *args, **kwargs)
         return StreamController(gen=gen, name=method.__name__)
-    return wrapper  
+    return wrapper
 
     
  
@@ -69,6 +82,7 @@ class BaseLLM:
     def __init__(self, config: LlmConfig | None = None):        
         self.config = config or LlmConfig(model=self.default_model )
     
+
     @llm_stream
     async def stream(
         self,
@@ -78,6 +92,7 @@ class BaseLLM:
     ) -> AsyncGenerator[Any, None]:
         """
         This method is used to stream the response from the LLM.
+        After decoration, this will return a StreamController instance.
         """
         pass
         yield

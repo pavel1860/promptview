@@ -250,34 +250,38 @@ class Parser(BaseFbpComponent):
                     continue
                 if event == 'start':
                     self._push_tag(element.tag)
-                    for block in self.block_list:                        
-                        if field := self.response.get(element.tag):
+                    if field := self.response.get(element.tag):
+                        for block in self.block_list:
                             field.append_root(block)
+                        field.attrs = dict(element.attrib)
                         self.queue.put(
                             StreamEvent(
                                 type=self.start_tag, 
                                 name=element.tag, 
-                                attrs=dict(element.attrib), 
+                                attrs=field.attrs, 
                                 depth=0, 
-                                payload=block
+                                payload=field
                             ))
+                    else:
+                        raise ValueError(f"Field {element.tag} not found in response schema")
                     self.block_list=[]
-                    self._detected_tag = False
-                    
+                    self._detected_tag = False                    
                 elif event == 'end':
                     self._pop_tag()
                     is_end_event = False
+                    block_list = BlockList()
                     for block in self.block_list:
                         if "</" in block.content:
                             is_end_event = True                        
                         if is_end_event:
-                            self.queue.put(
-                                StreamEvent(
-                                    type=self.end_tag, 
-                                    name=element.tag, 
-                                    depth=0, 
-                                    payload=block
-                                ))
+                            block_list.append(block)
+                        self.queue.put(
+                            StreamEvent(
+                                type=self.end_tag, 
+                                name=element.tag, 
+                                depth=0, 
+                                payload=block_list
+                            ))
                     else:
                         if field := self.response.get(element.tag):
                             field.commit()
@@ -372,14 +376,14 @@ class StreamController(BaseFbpComponent):
         self._stream.save_stream(path)
         return self
     
-    def load(self, name: str, dir: str | None = None):
+    def load(self, name: str, dir: str | None = None, delay: float = 0.07):
         import asyncio
         path = f"{dir}/{name}.jsonl" if dir else f"{name}.jsonl"
         
         async def load_stream():
             with open(path, "r") as f:
                 for line in f:
-                    await asyncio.sleep(0.07)
+                    await asyncio.sleep(delay)
                     j = json.loads(line)
                     block = Block.model_validate(j)
                     yield block

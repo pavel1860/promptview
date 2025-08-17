@@ -681,8 +681,8 @@ class BlockContext(BaseBlock):
         root_logprob = self.root.logprob or 0
         return logprob + root_logprob
        
-    def field(self, name: str, type: Type):
-        block = FieldBlock(name, type)
+    def field(self, name: str, type: Type, attrs: dict[str, str] | None = None):
+        block = FieldBlock(name, type, attrs=attrs)
         self.append_child(block)
         return block
     
@@ -889,8 +889,8 @@ class BlockContext(BaseBlock):
 
 class FieldBlock(Block):
     
-    def __init__(self, name: str, type: Type):
-        super().__init__(name, tags=[name], style="xml")
+    def __init__(self, name: str, type: Type, attrs: dict[str, str] | None = None):
+        super().__init__(name, tags=[name], style="xml", attrs=attrs)
         self.type = type
         self.name = name
         
