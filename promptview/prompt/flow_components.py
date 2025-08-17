@@ -188,34 +188,70 @@ class Parser(BaseFbpComponent):
         self.end_tag = "tag_end"
         self.text_tag = "chunk"                
         self.response_schema = response_schema
+        self._safety_tag = "stream_start"        
         self.response = response_schema.reduce_tree()        
         self.parser2 = etree.XMLPullParser(events=("start", "end"))
         self.queue = SimpleQueue()
         self.block_list = []
         self._stream_started = False
-        self._safety_tag = "stream_start"
+        self._detected_tag = False
+        
+        self._tag_stack = []
         
 
     def __aiter__(self):
         return self
     
+    def _push_tag(self, tag: str):
+        self._tag_stack.append(tag)
+    
+    def _pop_tag(self):
+        return self._tag_stack.pop()
+    
+    @property
+    def current_tag(self):
+        if not self._tag_stack:
+            return None
+        return self._tag_stack[-1]
+    
         
     async def asend(self, value: Any = None):
-        for i in range(2000):
+        for i in range(20):
             if not self._stream_started:
                 self.parser2.feed(f'<{self._safety_tag}>')
-                self._stream_started = True
-            value = await self.gen.asend(value)
+                self._stream_started = True                
+            if not self.queue.empty():
+                return self.queue.get()
+            value = await self.gen.asend(value)            
             self.block_list.append(value)
             self.parser2.feed(value.content)
+            
+            if "<" in value.content:
+                self._detected_tag = True
+            
+            
+            if self.current_tag and not self._detected_tag:
+                if field := self.response.get(self.current_tag):
+                    field += value
+                self.queue.put(
+                    StreamEvent(
+                        type=self.text_tag, 
+                        name=self.current_tag, 
+                        depth=0, 
+                        # payload=self.block_list.pop()
+                        payload=value
+                    ))
+                    
+                
+
             
             for event, element in self.parser2.read_events():
                 if element.tag == self._safety_tag:
                     continue
                 if event == 'start':
-                    for block in self.block_list:
-                        field = self.response.get(element.tag)
-                        if field:
+                    self._push_tag(element.tag)
+                    for block in self.block_list:                        
+                        if field := self.response.get(element.tag):
                             field.append_root(block)
                         self.queue.put(
                             StreamEvent(
@@ -226,24 +262,15 @@ class Parser(BaseFbpComponent):
                                 payload=block
                             ))
                     self.block_list=[]
+                    self._detected_tag = False
                     
                 elif event == 'end':
+                    self._pop_tag()
                     is_end_event = False
                     for block in self.block_list:
                         if "</" in block.content:
                             is_end_event = True                        
-                        if not is_end_event:
-                            field = self.response.get(element.tag)
-                            if field:
-                                field += block
-                            self.queue.put(
-                                StreamEvent(
-                                    type=self.text_tag, 
-                                    name=element.tag, 
-                                    depth=0, 
-                                    payload=block
-                                ))
-                        else:
+                        if is_end_event:
                             self.queue.put(
                                 StreamEvent(
                                     type=self.end_tag, 
@@ -252,10 +279,11 @@ class Parser(BaseFbpComponent):
                                     payload=block
                                 ))
                     else:
-                        field = self.response.get(element.tag)
-                        if field:
+                        if field := self.response.get(element.tag):
                             field.commit()
                     self.block_list=[]
+                    self._detected_tag = False
+                
                     
             if not self.queue.empty():
                 return self.queue.get()
@@ -343,6 +371,23 @@ class StreamController(BaseFbpComponent):
         path = f"{dir}/{name}.jsonl" if dir else f"{name}.jsonl"
         self._stream.save_stream(path)
         return self
+    
+    def load(self, name: str, dir: str | None = None):
+        import asyncio
+        path = f"{dir}/{name}.jsonl" if dir else f"{name}.jsonl"
+        
+        async def load_stream():
+            with open(path, "r") as f:
+                for line in f:
+                    await asyncio.sleep(0.07)
+                    j = json.loads(line)
+                    block = Block.model_validate(j)
+                    yield block
+                    
+        self._gen = Stream(load_stream())
+        return self
+    
+                
     
     @property
     def name(self):

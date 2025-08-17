@@ -876,7 +876,8 @@ class BlockContext(BaseBlock):
         dfs(self)
         if not dummy_children:
             raise ValueError("No target nodes found")
-        return dummy_children[0]
+        res = BlockContext(children=BlockList(dummy_children))
+        return res
         
     def __repr__(self) -> str:
         root = self.root.render() if self.root else ''
@@ -932,8 +933,8 @@ class FieldContext(BlockContext):
 
 class ResponseContext(BlockContext):
     
-    def __init__(self, schema: FieldBlock, children: BlockList | None = None, **kwargs: Unpack[BlockParams]):
-        super().__init__(children=children, tags=[schema.name], **kwargs)
+    def __init__(self, schema: FieldBlock, children: BlockList | None = None, tags: list[str] | None = None, **kwargs: Unpack[BlockParams]):
+        super().__init__(children=children, tags=[schema.name] + (tags or []), **kwargs)
         self.schema = schema
         self._value = None
     
