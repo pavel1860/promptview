@@ -17,7 +17,7 @@ class RenderContext:
     def __init__(
         self, 
         block: "BaseBlock | None",
-        style: dict, 
+        style: dict | None, 
         index: int, 
         depth: int,
         parent_ctx: "RenderContext | None" = None,
@@ -32,6 +32,11 @@ class RenderContext:
     def is_list(self) -> bool:
         from promptview.block.block7 import BlockList
         return isinstance(self.block, BlockList)
+    
+    def get_style(self, key: str) -> dict:
+        if self.style is None:
+            return None
+        return self.style.get(key)
     
     @property
     def is_context(self) -> bool:
@@ -226,7 +231,7 @@ class NumberedListRenderer(BaseRenderer):
         idx_list = []
         curr = ctx.parent_ctx
         while curr:
-            if curr.is_context and curr.style.get("list-format") == "numbered-list" and not curr.is_root and curr.parent_ctx.style.get("list-format") == "numbered-list":
+            if curr.is_context and curr.get_style("list-format") == "numbered-list" and not curr.is_root and curr.parent_ctx.get_style("list-format") == "numbered-list":
                 idx_list.append(curr.index)
             curr = curr.parent_ctx
             

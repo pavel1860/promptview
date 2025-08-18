@@ -5,7 +5,7 @@ import openai
 import os
 
 from pydantic import BaseModel
-from promptview.block.block7 import Block, BlockList, Chunk
+from promptview.block.block7 import Block, BlockList
 from promptview.block.util import LLMEvent, ToolCall
 from promptview.context.execution_context import ExecutionContext
 from promptview.llms.llm2 import LLMStream, LlmConfig

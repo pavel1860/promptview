@@ -2,7 +2,7 @@ from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Dict, List, Literal, Type, TypedDict, Unpack
 from pydantic import BaseModel, Field
 
-from promptview.block.block7 import Block, BlockContext, BlockPrompt, BlockList
+from promptview.block.block7 import Block, BlockContext, BlockList
 from promptview.prompt.flow_components import StreamController
 
 
@@ -136,7 +136,7 @@ class LLM():
     
     def stream(
         self,
-        *blocks: Block | BlockContext |BlockList | BlockPrompt | str,
+        *blocks: Block | BlockContext |BlockList | str,
         model: str | None = None,
         tools: List[Type[BaseModel]] | None = None,
         config: LlmConfig | None = None,
@@ -147,7 +147,7 @@ class LLM():
 
     def __call__(
         self,        
-        *blocks: Block | BlockContext |BlockList | BlockPrompt | str,
+        *blocks: Block | BlockContext |BlockList | str,
         model: str | None = None,
         config: LlmConfig | None = None,
     ) -> LLMStream:                                
@@ -162,8 +162,6 @@ class LLM():
                     llm_blocks.append(b)
         elif isinstance(blocks, Block):
             llm_blocks = BlockList([blocks])
-        elif isinstance(blocks, BlockPrompt):
-            llm_blocks = BlockList([blocks.root])
         elif isinstance(blocks, BlockList):
             llm_blocks = blocks        
         else:

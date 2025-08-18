@@ -112,49 +112,15 @@ def get_attrs(attrs: dict[str, "str | FieldAttrBlock"] | None) -> "dict[str, Fie
 class BaseBlock:
     
     __slots__ = [
-    "role",        
-    "tags",
-    "styles",  
-    "sep",  
-    "vsep",
-    "wrap",
-    "vwrap",
-    "attrs",
-    "depth",
-    "parent",
-    "run_id",
-    "model",
-    "tool_calls",
-    "usage",
-    "id",
-    "db_id",
-    "_logprob",
+        "path",
+        "parent",
     ]
     
-    def __init__(self, **kwargs: Unpack[BlockParams]):        
-        self.role: str | None = kwargs.get("role")
-        self.tags: list[str] = kwargs.get("tags", [])
-        if kwargs.get("styles"):
-            self.styles = kwargs.get("styles")
-        else:
-            self.styles: list[str] | None = parse_style(kwargs.get("style"))
-        
-        self.sep: str = kwargs.get("sep", " ")
-        self.vsep: str = kwargs.get("vsep", "\n")
-        self.wrap: tuple[str, str] | None = kwargs.get("wrap")
-        self.vwrap: tuple[str, str] | None = kwargs.get("vwrap")
-        # self.attrs: dict[str, FieldAttr] | None = kwargs.get("attrs")
-        self.attrs: dict[str, FieldAttrBlock] = get_attrs(kwargs.get("attrs", {}))
-        self.depth: int = kwargs.get("depth", 0)
-        self.parent: "BaseBlock | None" = kwargs.get("parent")
-        self.run_id: str | None = kwargs.get("run_id")
-        self.model: str | None = kwargs.get("model")
-        self.tool_calls: list[ToolCall] | None = kwargs.get("tool_calls")
-        self.usage: LlmUsage | None = kwargs.get("usage")
-        self.id: str | None = kwargs.get("id")
-        self.db_id: str | None = kwargs.get("db_id")
-        self._logprob: float | None = kwargs.get("logprob")
-        
+    
+    def __init__(self, path: str | None = None, parent: "BaseBlock | None" = None):
+        self.path = path or [1]
+        self.parent = parent
+
     # @property
     # def is_end_of_line(self) -> bool:
     #     return self.sep == "\n"
@@ -263,6 +229,8 @@ class Block(BaseBlock):
         "content",
         "children",
         "is_end_of_line",
+        "sep",
+        "_logprob",
     ]
     
     
@@ -274,7 +242,9 @@ class Block(BaseBlock):
         """
         Basic component of prompt building. 
         """
-        super().__init__(**kwargs)
+        super().__init__(parent=kwargs.get("parent"))
+        self.sep: str = kwargs.get("sep", " ")
+        self._logprob: float | None = kwargs.get("logprob")
         self.is_end_of_line = False
         if kwargs.get("is_end_of_line"):
             self.is_end_of_line = kwargs.get("is_end_of_line")        
@@ -300,33 +270,33 @@ class Block(BaseBlock):
         return len(self.children) == 0
 
     
-    def __enter__(self):
-        parent = self.parent
-        block = self if self.content is not None else None
-        ctx = BlockContext(
-            block,
-            role=self.role,
-            attrs=self.attrs,
-            tags=self.tags,
-            depth=self.depth,
-            parent=parent,
-            run_id=self.run_id,
-            model=self.model,
-            tool_calls=self.tool_calls,
-            usage=self.usage,
-            id=self.id,
-            db_id=self.db_id,
-            styles=self.styles,
-            sep=self.sep,
-            vsep=self.vsep,
-            wrap=self.wrap,
-            vwrap=self.vwrap,
-        )
-        self.parent = ctx
-        if isinstance(parent, BlockContext):
-            parent.children.pop()
-            parent.append_child(ctx)
-        return ctx
+    # def __enter__(self):
+    #     parent = self.parent
+    #     block = self if self.content is not None else None
+    #     ctx = BlockContext(
+    #         block,
+    #         role=self.role,
+    #         attrs=self.attrs,
+    #         tags=self.tags,
+    #         depth=self.depth,
+    #         parent=parent,
+    #         run_id=self.run_id,
+    #         model=self.model,
+    #         tool_calls=self.tool_calls,
+    #         usage=self.usage,
+    #         id=self.id,
+    #         db_id=self.db_id,
+    #         styles=self.styles,
+    #         sep=self.sep,
+    #         vsep=self.vsep,
+    #         wrap=self.wrap,
+    #         vwrap=self.vwrap,
+    #     )
+    #     self.parent = ctx
+    #     if isinstance(parent, BlockContext):
+    #         parent.children.pop()
+    #         parent.append_child(ctx)
+    #     return ctx
     
     def __exit__(self, exc_type, exc_value, traceback):
         pass
@@ -526,28 +496,54 @@ class BlockContext(BaseBlock):
     __slots__ = [
         "root",
         "children",
+        "role",        
+        "tags",
+        "styles",      
+        "wrap",
+        "vwrap",
+        "attrs",
+        "depth",
+        "run_id",
+        "model",
+        "tool_calls",
+        "usage",
+        "id",
+        "db_id",
     ]
     
-    def __init__(self, root: Block | BlockList | None = None, children: BlockList | None = None, **kwargs: Unpack[BlockParams]):
-        super().__init__(**kwargs)
-        if isinstance(root, Block):
-            self.root: BlockList = BlockList([root], parent=self)
-        elif isinstance(root, BlockList):
-            self.root: BlockList = root
+    def __init__(self, root: Block | BlockList | None = None, children: BlockList | None = None, path: list[int] | None = None, **kwargs: Unpack[BlockParams]):
+        super().__init__(parent=kwargs.get("parent"), path=path)
+        self.role: str | None = kwargs.get("role")
+        self.tags: list[str] = kwargs.get("tags", [])
+        if kwargs.get("styles"):
+            self.styles = kwargs.get("styles")
+        else:
+            self.styles: list[str] | None = parse_style(kwargs.get("style"))
+        self.wrap: tuple[str, str] | None = kwargs.get("wrap")
+        self.vwrap: tuple[str, str] | None = kwargs.get("vwrap")
+        # self.attrs: dict[str, FieldAttr] | None = kwargs.get("attrs")
+        self.attrs: dict[str, FieldAttrBlock] = get_attrs(kwargs.get("attrs", {}))
+        self.depth: int = kwargs.get("depth", 0)
+        self.run_id: str | None = kwargs.get("run_id")
+        self.model: str | None = kwargs.get("model")
+        self.tool_calls: list[ToolCall] | None = kwargs.get("tool_calls")
+        self.usage: LlmUsage | None = kwargs.get("usage")
+        self.id: str | None = kwargs.get("id")
+        self.db_id: str | None = kwargs.get("db_id")
+        
+        root_block = self._process_content(root, self.path) if root is not None else None
+
+        if isinstance(root_block, Block):
+            self.root: BlockList = BlockList([root_block], parent=self)
+        elif isinstance(root_block, BlockList):
+            self.root: BlockList = root_block
         else:
             self.root: BlockList = BlockList([], parent=self)
         if children is None:
-            # self.children: BlockList = BlockList([], style="list-col", parent=self)
             self.children: BlockList = BlockList([], parent=self)
         else:
             self.children: BlockList = children
-            # if self.children.styles:    
-            #     self.children.styles.append("list-col")
-            # else:
-            #     self.children.styles = ["list-col"]
-        # self.styles = ["list-col"] + (self.styles or [])
-        # if root:
-            # root.parent = self
+
     @classmethod
     def model_validate(cls, data: dict):
         if "_type" not in data or data["_type"] != "BlockContext":
@@ -596,6 +592,7 @@ class BlockContext(BaseBlock):
         )
     
     def __enter__(self):
+        
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
@@ -620,41 +617,60 @@ class BlockContext(BaseBlock):
     #         return content
     
     def __call__(self, content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> Block:
-        # if isinstance(content, str)
-        block = parse_content(content, **kwargs)
-        self.append_child(block)
-        return block
+        ctx = BlockContext(
+            content,
+            path=self.path + [len(self.children) + 1],
+            role=self.role,
+            attrs=self.attrs,
+            tags=self.tags,
+            depth=self.depth,
+            parent=self.parent,
+            run_id=self.run_id,
+            model=self.model,
+            tool_calls=self.tool_calls,
+            usage=self.usage,
+            id=self.id,
+            db_id=self.db_id,
+            styles=self.styles,
+            wrap=self.wrap,
+            vwrap=self.vwrap,
+        )
+        self.children.append(ctx)        
+        return ctx
     
     
     def __iadd__(self, other: ContentType | Block | tuple[ContentType, ...]):
-        if isinstance(other, ContentType):            
-            other = Block(other)        
-            self.append_root(other)
-        elif isinstance(other, Block):
-            self.append_child(other, as_line=True)
-        elif isinstance(other, tuple):
-            for c in other:
-                if isinstance(c, ContentType):
-                    c = Block(c)
-                self.append_root(c)
-        else:
-            raise ValueError(f"Invalid content type: {type(other)}")
+        # if isinstance(other, ContentType):            
+        #     other = Block(other)        
+        #     self.append_root(other)
+        # elif isinstance(other, Block):
+        #     self.append_child(other, as_line=True)
+        # elif isinstance(other, tuple):
+        #     for c in other:
+        #         if isinstance(c, ContentType):
+        #             c = Block(c)
+        #         self.append_root(c)
+        # else:
+        #     raise ValueError(f"Invalid content type: {type(other)}")
+        block = self._process_content(other, self.path)
+        block.append_child(block)
         return self
     
     
     def __itruediv__(self, other: ContentType | Block | tuple[ContentType, ...]):
-        if not isinstance(other, Block):
-            if isinstance(other, tuple):
-                other = BlockList([Block(item) for item in other], style="list:row")                
-            else:
-                other = Block(other)
-        
-        self.append_child(other)
+        # if not isinstance(other, Block):
+        #     if isinstance(other, tuple):
+        #         other = BlockList([Block(item) for item in other], style="list:row")                
+        #     else:
+        #         other = Block(other)
+        block = self._process_content(other, self.path + [len(self.children) + 1])
+        self.append_child(block)
         return self
     
     
     
     def append_child(self, child: Block, as_line: bool = False):
+        child.path = self.path + [len(self.children) + 1]
         child.parent = self
         if as_line:
             if not self.children or not isinstance(self.children[-1], BlockList):
@@ -667,11 +683,31 @@ class BlockContext(BaseBlock):
         return self
     
     def append_root(self, content: ContentType | Block):
-        if not isinstance(content, Block):
-            content = Block(content)
-        content.parent = self
-        self.root.append(content)
+        block = self._process_content(content, self.path)
+        self.root.append(block)
         return self
+    
+    
+    def _process_content(self, content: ContentType | Block, path: list[int]):
+        if isinstance(content, Block):
+            content.path = path
+            return content
+        elif isinstance(content, str):
+            return Block(content, path=path, parent=self)
+        elif isinstance(content, int):
+            return Block(str(content), path=path, parent=self)
+        elif isinstance(content, float):
+            return Block(str(content), path=path, parent=self)
+        elif isinstance(content, bool):
+            return Block(str(content), path=path, parent=self)
+        elif isinstance(content, list):
+            return BlockList(content, path=path, parent=self)
+        elif isinstance(content, BaseBlock):
+            content.path = path
+            content.parent = self
+            return content        
+        else:
+            raise ValueError(f"Invalid content type: {type(content)} for path: {path}")
     
     
     def response_schema(self, name: str | None = None):
@@ -982,13 +1018,34 @@ class ResponseBlock(Block):
         
     
 
-class BlockSchema(Block):
+class BlockSchema(BlockContext):
       
     def __init__(self, name: str = "schema"):
         super().__init__(tags=[name])
 
 
 
+    # def __call__(self, content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> Block:
+    #     ctx = BlockContext(
+    #         content,
+    #         path=self.path + [len(self.children) + 1],
+    #         role=self.role,
+    #         attrs=self.attrs,
+    #         tags=self.tags,
+    #         depth=self.depth,
+    #         parent=self.parent,
+    #         run_id=self.run_id,
+    #         model=self.model,
+    #         tool_calls=self.tool_calls,
+    #         usage=self.usage,
+    #         id=self.id,
+    #         db_id=self.db_id,
+    #         styles=self.styles,
+    #         wrap=self.wrap,
+    #         vwrap=self.vwrap,
+    #     )
+    #     self.children.append(ctx)        
+    #     return ctx
 
     
     

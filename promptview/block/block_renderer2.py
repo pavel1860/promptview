@@ -88,7 +88,8 @@ def render(target, index=0, depth=0, style=None, parent_ctx: RenderContext | Non
     # if style is None:
     if not isinstance(target, BaseBlock):
         raise ValueError(f"Invalid block type: {type(target)}")
-    style = style_manager.resolve(target)
+    if isinstance(target, BlockContext):
+        style = style_manager.resolve(target)
     ctx = RenderContext(target, style, index, depth, parent_ctx)
     if isinstance(target, BlockContext):
         return render_context(target, ctx)
@@ -101,7 +102,7 @@ def render(target, index=0, depth=0, style=None, parent_ctx: RenderContext | Non
     
     
 def render_block(block: Block, ctx: RenderContext):
-    fmt = ctx.style.get("block-format")
+    fmt = ctx.parent_ctx.get_style("block-format")
     renderer = renderer_registry.get(fmt) if fmt else default_renderer    
     content = renderer.try_render(ctx, block.content)
     content+= block.sep
@@ -109,8 +110,8 @@ def render_block(block: Block, ctx: RenderContext):
 
     
 def render_list(block_list: BlockList, ctx: RenderContext):
-    fmt = ctx.style.get("list-format")
-    layout_fmt = ctx.style.get("list-layout")
+    fmt = ctx.parent_ctx.get_style("list-format")
+    layout_fmt = ctx.parent_ctx.get_style("list-layout")
     item_content = [render(item, index=index, depth=ctx.depth, style=ctx.style, parent_ctx=ctx) for index, item in enumerate(block_list)]
     
     renderer = renderer_registry.get(fmt) if fmt else default_renderer    
@@ -118,7 +119,7 @@ def render_list(block_list: BlockList, ctx: RenderContext):
         
     # layout_renderer = renderer_registry.get(layout_fmt) if layout_fmt else default_list_layout_renderer
     # content = layout_renderer.try_render_list_layout(ctx, content_list)
-    content = "".join(content_list)
+    content = "\n".join(content_list)
     return content
     
 def render_root_row(block_list: BlockList, ctx: RenderContext):
@@ -132,7 +133,7 @@ def render_root_row(block_list: BlockList, ctx: RenderContext):
 def render_context(block: BlockContext, ctx: RenderContext):
     
     #! render title content
-    title_fmt = ctx.style.get("title-format") 
+    title_fmt = ctx.get_style("title-format") 
     # title_content = render_list(block.root, ctx) if not ctx.is_wrapper else ""
     title_content = render_root_row(block.root, ctx)
     if title_content and block.wrap:
