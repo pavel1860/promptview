@@ -102,16 +102,16 @@ def render(target, index=0, depth=0, style=None, parent_ctx: RenderContext | Non
     
     
 def render_block(block: Block, ctx: RenderContext):
-    fmt = ctx.parent_ctx.get_style("block-format")
-    renderer = renderer_registry.get(fmt) if fmt else default_renderer    
+    fmt = ctx.get_parent_style("block-format")
+    renderer = renderer_registry.get(fmt) if fmt else default_renderer
     content = renderer.try_render(ctx, block.content)
     content+= block.sep
     return content
 
     
 def render_list(block_list: BlockList, ctx: RenderContext):
-    fmt = ctx.parent_ctx.get_style("list-format")
-    layout_fmt = ctx.parent_ctx.get_style("list-layout")
+    fmt = ctx.get_parent_style("list-format")
+    layout_fmt = ctx.get_parent_style("list-layout")
     item_content = [render(item, index=index, depth=ctx.depth, style=ctx.style, parent_ctx=ctx) for index, item in enumerate(block_list)]
     
     renderer = renderer_registry.get(fmt) if fmt else default_renderer    

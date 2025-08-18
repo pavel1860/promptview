@@ -38,6 +38,11 @@ class RenderContext:
             return None
         return self.style.get(key)
     
+    def get_parent_style(self, key: str) -> dict:
+        if self.parent_ctx is None:
+            return None
+        return self.parent_ctx.get_style(key)
+    
     @property
     def is_context(self) -> bool:
         from promptview.block.block7 import BlockContext
@@ -314,7 +319,7 @@ class XmlTitleRenderer(BaseRenderer):
                         attr_info += f" ge={v.ge}"
                     if v.le is not None:
                         attr_info += f" le={v.le}"
-                    attrs += f"{k}=[{attr_info}]"
+                    attrs += f"{k}=[{attr_info}] "
                 else:
                     attrs += f"{k}=\"{v}\""
             # attrs = " " + " ".join([f"{k}=\"{v}\"" for k, v in ctx.block.attrs.items()])

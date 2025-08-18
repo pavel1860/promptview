@@ -351,7 +351,7 @@ class StreamController(BaseFbpComponent):
         self._name = name
         self._stream = Stream(gen)
         self._gen = self._stream
-        self._acc = Accumulator(BlockList(style="stream"))
+        self._acc = Accumulator(BlockList())
         self._gen |= self._acc
         self._response_schema = response_schema
         # self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))

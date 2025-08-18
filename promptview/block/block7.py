@@ -412,10 +412,11 @@ class BlockList(UserList[Block], BaseBlock):
     def __init__(self, blocks: list[Block] | None = None, **kwargs: Unpack[BlockParams]):
         if blocks is None:
             blocks = []
-        for block in blocks:
-            block.parent = self
+
         UserList.__init__(self, blocks)
-        BaseBlock.__init__(self, **kwargs)        
+        BaseBlock.__init__(self, parent=kwargs.get("parent"), path=kwargs.get("path"))
+        for block in blocks:
+            block.parent = self.parent
     
     @property
     def logprob(self) -> float | None:
@@ -564,8 +565,26 @@ class BlockContext(BaseBlock):
        
     def field(self, name: str, type: Type, attrs: dict[str, str] | None = None) -> "FieldBlock":
         block = FieldBlock(name, type, attrs=attrs)
-        self.append_child(block)
-        return block
+        ctx = BlockContext(
+            block,
+            path=self.path + [len(self.children) + 1],
+            role=self.role,
+            attrs=self.attrs,
+            tags=self.tags,
+            depth=self.depth,
+            parent=self.parent,
+            run_id=self.run_id,
+            model=self.model,
+            tool_calls=self.tool_calls,
+            usage=self.usage,
+            id=self.id,
+            db_id=self.db_id,
+            styles=["xml"],
+            wrap=self.wrap,
+            vwrap=self.vwrap,
+        )
+        self.append_child(ctx)
+        return ctx
     
     def attr(
         self, 
@@ -712,7 +731,7 @@ class BlockContext(BaseBlock):
     
     def response_schema(self, name: str | None = None):
         name = name or "response_schema"
-        block = BlockSchema(name=name)
+        block = BlockContext(tags=[name])
         self.append_child(block)
         return block
     
