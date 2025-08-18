@@ -1,7 +1,7 @@
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, List, Literal, Awaitable, Tuple, TypeVar
 
-from promptview.block import Block
+from promptview.block import BlockChunk
 from promptview.testing.test_models import Evaluation, EvaluatorConfig, TurnEvaluator    
 
 if TYPE_CHECKING:

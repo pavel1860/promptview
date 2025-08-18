@@ -10,7 +10,7 @@ from promptview.block.types import ContentType
 
 
 if TYPE_CHECKING:
-    from promptview.block.block7 import Block, BaseBlock
+    from promptview.block.block7 import BlockChunk, BaseBlock
 
 
 class RenderContext:
@@ -45,8 +45,8 @@ class RenderContext:
     
     @property
     def is_context(self) -> bool:
-        from promptview.block.block7 import BlockContext
-        return isinstance(self.block, BlockContext)
+        from promptview.block.block7 import Block
+        return isinstance(self.block, Block)
     
     @property
     def is_root(self) -> bool:
@@ -54,8 +54,8 @@ class RenderContext:
     
     @property
     def is_wrapper(self) -> bool:
-        from promptview.block.block7 import BlockContext
-        if self.block and isinstance(self.block, BlockContext):
+        from promptview.block.block7 import Block
+        if self.block and isinstance(self.block, Block):
             if not self.block.root:
                 return True
         return False

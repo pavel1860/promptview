@@ -3,7 +3,7 @@ import asyncio
 import json
 from pydantic import BaseModel
 
-from promptview.block.block7 import Block, BlockList
+from promptview.block.block7 import BlockChunk, BlockList
 from promptview.prompt.flow_components import StreamController, PipeController, Stream, Parser, Accumulator
 from promptview.prompt.parser import StreamEvent
 
@@ -16,8 +16,8 @@ class Response(BaseModel):
 # Test data generators
 async def hw_stream():
     """Simple hello world stream for testing"""
-    yield Block("Hello")
-    yield Block("World")
+    yield BlockChunk("Hello")
+    yield BlockChunk("World")
 
 
 async def pirate_stream():
@@ -25,7 +25,7 @@ async def pirate_stream():
     with open("__tests__/data/pirate_xml_reasoning_stream.json", "r") as f:
         index = 0
         for line in f:
-            block = Block.model_validate(json.loads(line))
+            block = BlockChunk.model_validate(json.loads(line))
             yield block
             await asyncio.sleep(0.02)
             index += 1
@@ -44,18 +44,18 @@ async def sub_agent():
         response = yield PipeController(prompt_span)
         for tool in response.tools:
             if tool == "attack":
-                yield Block("Attack")
+                yield BlockChunk("Attack")
             elif tool == "defend":
-                yield Block("Defend")
+                yield BlockChunk("Defend")
             elif tool == "heal":
-                yield Block("Heal")
+                yield BlockChunk("Heal")
 
 
 async def master_agent():
     """Test master agent that processes sub-agents"""
     for i in range(3):
         response = yield PipeController(sub_agent)
-        yield Block(f"Master: {response.content}")
+        yield BlockChunk(f"Master: {response.content}")
 
 
 
@@ -66,8 +66,8 @@ def assert_stream(chunks):
     assert chunks[2].type == "stream_delta"
     assert chunks[3].type == "stream_end"
     assert chunks[1].name == "hw_stream"
-    assert chunks[1].payload == Block("Hello")
-    assert chunks[2].payload == Block("World")
+    assert chunks[1].payload == BlockChunk("Hello")
+    assert chunks[2].payload == BlockChunk("World")
     assert chunks[3].payload is None
     
     
@@ -90,7 +90,7 @@ def assert_sub_agent(chunks):
     assert_prompt_span(chunks[8:14])
     assert chunks[14].type == "span_end"
     assert chunks[14].name == "sub_agent"
-    assert chunks[14].payload == Block("Attack")
+    assert chunks[14].payload == BlockChunk("Attack")
     
     
 
@@ -108,8 +108,8 @@ class TestStreamController:
         assert chunks[2].type == "stream_delta"
         assert chunks[3].type == "stream_end"
         assert chunks[1].name == "hw_stream"
-        assert chunks[1].payload == Block("Hello")
-        assert chunks[2].payload == Block("World")
+        assert chunks[1].payload == BlockChunk("Hello")
+        assert chunks[2].payload == BlockChunk("World")
         assert chunks[3].payload is None
 
     @pytest.mark.asyncio
@@ -125,8 +125,8 @@ class TestStreamController:
         
         # Verify accumulator contains the expected blocks
         assert len(controller.acc) == 2
-        assert controller.acc[0] == Block("Hello")
-        assert controller.acc[1] == Block("World")
+        assert controller.acc[0] == BlockChunk("Hello")
+        assert controller.acc[1] == BlockChunk("World")
 
     @pytest.mark.asyncio
     async def test_stream_controller_index(self):
@@ -179,8 +179,8 @@ class TestStreamComponents:
             chunks.append(chunk)
         
         assert len(chunks) == 2
-        assert chunks[0] == Block("Hello")
-        assert chunks[1] == Block("World")
+        assert chunks[0] == BlockChunk("Hello")
+        assert chunks[1] == BlockChunk("World")
         assert stream._index == 2
 
     @pytest.mark.asyncio
@@ -196,8 +196,8 @@ class TestStreamComponents:
         
         assert len(chunks) == 2
         assert len(accumulator.result) == 2
-        assert accumulator.result[0] == Block("Hello")
-        assert accumulator.result[1] == Block("World")
+        assert accumulator.result[0] == BlockChunk("Hello")
+        assert accumulator.result[1] == BlockChunk("World")
 
 
 class TestIntegration:
@@ -247,7 +247,7 @@ class TestErrorHandling:
         """Test StreamController with an empty stream"""
         async def empty_stream():
             if False:
-                yield Block("This won't be yielded")
+                yield BlockChunk("This won't be yielded")
         
         controller = StreamController(empty_stream)
         chunks = [chunk async for chunk in controller]

@@ -1,4 +1,4 @@
-from promptview.block.block7 import  BaseBlock, Block, BlockContext, BlockList
+from promptview.block.block7 import  BaseBlock, BlockChunk, Block, BlockList
 from promptview.block.style2 import StyleManager
 from promptview.block.renderers import (
     AsteriskListRenderer,
@@ -88,20 +88,20 @@ def render(target, index=0, depth=0, style=None, parent_ctx: RenderContext | Non
     # if style is None:
     if not isinstance(target, BaseBlock):
         raise ValueError(f"Invalid block type: {type(target)}")
-    if isinstance(target, BlockContext):
+    if isinstance(target, Block):
         style = style_manager.resolve(target)
     ctx = RenderContext(target, style, index, depth, parent_ctx)
-    if isinstance(target, BlockContext):
+    if isinstance(target, Block):
         return render_context(target, ctx)
     elif isinstance(target, BlockList):
         return render_list(target, ctx)
-    elif isinstance(target, Block):
+    elif isinstance(target, BlockChunk):
         return render_block(target, ctx)
     else:
         raise ValueError(f"Invalid block type: {type(target)}")
     
     
-def render_block(block: Block, ctx: RenderContext):
+def render_block(block: BlockChunk, ctx: RenderContext):
     fmt = ctx.get_parent_style("block-format")
     renderer = renderer_registry.get(fmt) if fmt else default_renderer
     content = renderer.try_render(ctx, block.content)
@@ -130,7 +130,7 @@ def render_root_row(block_list: BlockList, ctx: RenderContext):
     return content
     
 
-def render_context(block: BlockContext, ctx: RenderContext):
+def render_context(block: Block, ctx: RenderContext):
     
     #! render title content
     title_fmt = ctx.get_style("title-format") 

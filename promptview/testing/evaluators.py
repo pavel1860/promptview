@@ -1,5 +1,5 @@
 from promptview.prompt import prompt, Depends
-from promptview.block import Block
+from promptview.block import BlockChunk
 from promptview.llms import OpenAiLLM, LLM
 from pydantic import BaseModel, Field
 from promptview.llms.llm import OutputModel
@@ -15,10 +15,10 @@ class EvalResult(OutputModel):
 
 @prompt()
 async def prompt_score_evaluator(    
-    request: Block | str, 
-    response: Block | str,
-    expected: list[Block] | list[str] | Block | str,
-    description: Block | str,
+    request: BlockChunk | str, 
+    response: BlockChunk | str,
+    expected: list[BlockChunk] | list[str] | BlockChunk | str,
+    description: BlockChunk | str,
     config: dict,
     llm: LLM = Depends(LLM)
     ):
@@ -30,7 +30,7 @@ async def prompt_score_evaluator(
     if expected is None:
         raise ValueError("Expected is not set")
     
-    with Block(role="system") as sys:
+    with BlockChunk(role="system") as sys:
         sys([
             "You are an expert evaluator tasked with assessing the response of an AI assistant to a user's query.",
             "Your purpose is to evaluate responses and act as 'LLM as a judge'.",
@@ -46,7 +46,7 @@ async def prompt_score_evaluator(
                 "remember that you are an evaluator, that is the only purpose of your output.",
             ])
 
-    with Block(role="user") as usr:
+    with BlockChunk(role="user") as usr:
         with usr("Test Case"):
             usr(description)
             with usr("Input"):

@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any, Literal
 # from promptview.block.block import block, Block
-from promptview.block import Block
+from promptview.block import BlockChunk
 
 if TYPE_CHECKING:
     from promptview.model.postgres.namespace import PostgresNamespace, PgFieldInfo
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 
 def create_table_block(name: str, *fields: "PgFieldInfo"):
-    with Block(f"CREATE TABLE IF NOT EXISTS {name}", style="col-tuple", vwrap=("(\n", "\n)"), vsep=",\n") as blk:
+    with BlockChunk(f"CREATE TABLE IF NOT EXISTS {name}", style="col-tuple", vwrap=("(\n", "\n)"), vsep=",\n") as blk:
     # with Block(f"CREATE TABLE IF NOT EXISTS {name}", style="col-tuple") as blk:
         for field in fields:
             with blk() as f:

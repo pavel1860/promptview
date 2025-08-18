@@ -3,7 +3,7 @@ from typing import (Any, Callable, Dict, Generic, TypeVar, ParamSpec)
 from promptview.context import ExecutionContext
 
 
-from promptview.block import Block
+from promptview.block import BlockChunk
 from .depends import  DependsContainer, resolve_dependency
 from ..model.context import Context
 from ..utils.function_utils import filter_args_by_exclude
@@ -24,7 +24,7 @@ class Controller(Generic[P, R]):
     
     
     def _sanitize_output(self, output: Any) -> Any:
-        if isinstance(output, Block):
+        if isinstance(output, BlockChunk):
             return output.content
         return output
     

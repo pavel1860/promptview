@@ -25,7 +25,7 @@ class ContextStack:
     """
     A stack-based context for managing nested block structures.
     """
-    _ctx_stack: "list[Block]"
+    _ctx_stack: "list[BlockChunk]"
     
     def __init__(self):
         self._ctx_stack = []
@@ -36,12 +36,12 @@ class ContextStack:
         return self._ctx_stack[-1]
     
     @property
-    def root(self) -> "Block":
+    def root(self) -> "BlockChunk":
         if not self._ctx_stack:
             raise ValueError("No context stack")
         return self._ctx_stack[0]
         
-    def __getitem__(self, idx: int) -> "Block":
+    def __getitem__(self, idx: int) -> "BlockChunk":
         return self._ctx_stack[idx]
     
     def __len__(self) -> int:
@@ -49,7 +49,7 @@ class ContextStack:
     
     
     
-    def push(self, block: "Block"):
+    def push(self, block: "BlockChunk"):
         self._ctx_stack.append(block)
         
     def pop(self):
@@ -57,7 +57,7 @@ class ContextStack:
     
 
 
-def children_to_blocklist(children: list["Block"] | tuple["Block", ...] | None) -> "BlockList":
+def children_to_blocklist(children: list["BlockChunk"] | tuple["BlockChunk", ...] | None) -> "BlockList":
     if children is None:
         return BlockList([])
     if isinstance(children, BlockList):
@@ -174,7 +174,7 @@ class BaseBlock:
         return out
         
 
-class Block(BaseBlock):
+class BlockChunk(BaseBlock):
     """
     Block(content, children=None, role=None, tags=None, style=None, ...)
 
@@ -301,7 +301,7 @@ class Block(BaseBlock):
     def __exit__(self, exc_type, exc_value, traceback):
         pass
         
-    def __add__(self, other: "Block"):
+    def __add__(self, other: "BlockChunk"):
         
         
         return BlockList(
@@ -318,17 +318,17 @@ class Block(BaseBlock):
             db_id=self.db_id,
         )
     
-    def __radd__(self, other: "Block"):
+    def __radd__(self, other: "BlockChunk"):
         return other.hstack(self)
     
-    def __iadd__(self, other: "Block"):
+    def __iadd__(self, other: "BlockChunk"):
         self.ihstack(other)
         return self
     
     def __eq__(self, other: object):
         if isinstance(other, str):
             return self.content == other
-        elif isinstance(other, Block):
+        elif isinstance(other, BlockChunk):
             return self.content == other.content
         else:
             return False
@@ -346,14 +346,14 @@ class Block(BaseBlock):
         
     @staticmethod
     def _validate(v: Any) -> Any:
-        if isinstance(v, Block):
+        if isinstance(v, BlockChunk):
             return v
         else:
             raise ValueError(f"Invalid block: {v}")
 
     @staticmethod
     def _serialize(v: Any) -> Any:
-        if isinstance(v, Block):
+        if isinstance(v, BlockChunk):
             return v.model_dump()
         else:
             raise ValueError(f"Invalid block: {v}")
@@ -399,17 +399,17 @@ class Block(BaseBlock):
         data.pop("_type")
         content = data.pop("content", None)
         children_data = data.pop("children", [])
-        children = [Block.model_validate(child) for child in children_data]
+        children = [BlockChunk.model_validate(child) for child in children_data]
         block = cls(content, **data)
         block.children = children
         return block
 
 
 
-class BlockList(UserList[Block], BaseBlock):
+class BlockList(UserList[BlockChunk], BaseBlock):
     
     
-    def __init__(self, blocks: list[Block] | None = None, **kwargs: Unpack[BlockParams]):
+    def __init__(self, blocks: list[BlockChunk] | None = None, **kwargs: Unpack[BlockParams]):
         if blocks is None:
             blocks = []
 
@@ -436,7 +436,7 @@ class BlockList(UserList[Block], BaseBlock):
         data = dict(data)
         data.pop("_type")
         blocks_data = data.pop("blocks", [])
-        blocks = [Block.model_validate(b) for b in blocks_data]
+        blocks = [BlockChunk.model_validate(b) for b in blocks_data]
         return cls(blocks=blocks, **data)
     
     @classmethod
@@ -452,7 +452,7 @@ class BlockList(UserList[Block], BaseBlock):
         for block in self:
             if block.tags and tag in block.tags:
                 return block
-            elif isinstance(block, BlockContext):
+            elif isinstance(block, Block):
                 return block.get(tag)
         return None
         
@@ -462,7 +462,7 @@ class BlockList(UserList[Block], BaseBlock):
             return v
         elif isinstance(v, list):
             for item in v:
-                if not isinstance(item, Block):
+                if not isinstance(item, BlockChunk):
                     raise ValueError(f"Invalid block list: {v}")
             return BlockList(v)
         else:
@@ -478,21 +478,21 @@ class BlockList(UserList[Block], BaseBlock):
 
 
 
-def parse_content(content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> Block:
+def parse_content(content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> BlockChunk:
     if content is None:
-        return Block(**kwargs)
-    elif isinstance(content, Block):
+        return BlockChunk(**kwargs)
+    elif isinstance(content, BlockChunk):
         return content
     elif isinstance(content, list):
-        return Block(content, **kwargs)
+        return BlockChunk(content, **kwargs)
     elif isinstance(content, str):
-        return Block(content, **kwargs)
+        return BlockChunk(content, **kwargs)
     else:
         raise ValueError(f"Invalid content type: {type(content)}")
       
       
         
-class BlockContext(BaseBlock):
+class Block(BaseBlock):
     
     __slots__ = [
         "root",
@@ -512,7 +512,7 @@ class BlockContext(BaseBlock):
         "db_id",
     ]
     
-    def __init__(self, root: Block | BlockList | None = None, children: BlockList | None = None, path: list[int] | None = None, **kwargs: Unpack[BlockParams]):
+    def __init__(self, root: BlockChunk | BlockList | None = None, children: BlockList | None = None, path: list[int] | None = None, **kwargs: Unpack[BlockParams]):
         super().__init__(parent=kwargs.get("parent"), path=path)
         self.role: str | None = kwargs.get("role")
         self.tags: list[str] = kwargs.get("tags", [])
@@ -534,7 +534,7 @@ class BlockContext(BaseBlock):
         
         root_block = self._process_content(root, self.path) if root is not None else None
 
-        if isinstance(root_block, Block):
+        if isinstance(root_block, BlockChunk):
             self.root: BlockList = BlockList([root_block], parent=self)
         elif isinstance(root_block, BlockList):
             self.root: BlockList = root_block
@@ -565,7 +565,7 @@ class BlockContext(BaseBlock):
        
     def field(self, name: str, type: Type, attrs: dict[str, str] | None = None) -> "FieldBlock":
         block = FieldBlock(name, type, attrs=attrs)
-        ctx = BlockContext(
+        ctx = Block(
             block,
             path=self.path + [len(self.children) + 1],
             role=self.role,
@@ -635,8 +635,8 @@ class BlockContext(BaseBlock):
     #         self.append_child(content)
     #         return content
     
-    def __call__(self, content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> Block:
-        ctx = BlockContext(
+    def __call__(self, content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> BlockChunk:
+        ctx = Block(
             content,
             path=self.path + [len(self.children) + 1],
             role=self.role,
@@ -658,7 +658,7 @@ class BlockContext(BaseBlock):
         return ctx
     
     
-    def __iadd__(self, other: ContentType | Block | tuple[ContentType, ...]):
+    def __iadd__(self, other: ContentType | BlockChunk | tuple[ContentType, ...]):
         # if isinstance(other, ContentType):            
         #     other = Block(other)        
         #     self.append_root(other)
@@ -672,11 +672,11 @@ class BlockContext(BaseBlock):
         # else:
         #     raise ValueError(f"Invalid content type: {type(other)}")
         block = self._process_content(other, self.path)
-        block.append_child(block)
+        self.append_child(block)
         return self
     
     
-    def __itruediv__(self, other: ContentType | Block | tuple[ContentType, ...]):
+    def __itruediv__(self, other: ContentType | BlockChunk | tuple[ContentType, ...]):
         # if not isinstance(other, Block):
         #     if isinstance(other, tuple):
         #         other = BlockList([Block(item) for item in other], style="list:row")                
@@ -688,7 +688,7 @@ class BlockContext(BaseBlock):
     
     
     
-    def append_child(self, child: Block, as_line: bool = False):
+    def append_child(self, child: BlockChunk, as_line: bool = False):
         child.path = self.path + [len(self.children) + 1]
         child.parent = self
         if as_line:
@@ -701,24 +701,24 @@ class BlockContext(BaseBlock):
             self.children.append(child)        
         return self
     
-    def append_root(self, content: ContentType | Block):
+    def append_root(self, content: ContentType | BlockChunk):
         block = self._process_content(content, self.path)
         self.root.append(block)
         return self
     
     
-    def _process_content(self, content: ContentType | Block, path: list[int]):
-        if isinstance(content, Block):
+    def _process_content(self, content: ContentType | BlockChunk, path: list[int]):
+        if isinstance(content, BlockChunk):
             content.path = path
             return content
         elif isinstance(content, str):
-            return Block(content, path=path, parent=self)
+            return BlockChunk(content, path=path, parent=self)
         elif isinstance(content, int):
-            return Block(str(content), path=path, parent=self)
+            return BlockChunk(str(content), path=path, parent=self)
         elif isinstance(content, float):
-            return Block(str(content), path=path, parent=self)
+            return BlockChunk(str(content), path=path, parent=self)
         elif isinstance(content, bool):
-            return Block(str(content), path=path, parent=self)
+            return BlockChunk(str(content), path=path, parent=self)
         elif isinstance(content, list):
             return BlockList(content, path=path, parent=self)
         elif isinstance(content, BaseBlock):
@@ -731,7 +731,7 @@ class BlockContext(BaseBlock):
     
     def response_schema(self, name: str | None = None):
         name = name or "response_schema"
-        block = BlockContext(tags=[name])
+        block = Block(tags=[name])
         self.append_child(block)
         return block
     
@@ -739,9 +739,9 @@ class BlockContext(BaseBlock):
     def get(self, tag: str):
         tag = tag.lower()
         for child in self.children:
-            if child.tags and tag in child.tags:
-                return child
-            elif isinstance(child, BlockContext):
+            if isinstance(child,Block):
+                if tag in child.tags:
+                    return child            
                 block = child.get(tag)
                 if block:
                     return block
@@ -751,7 +751,7 @@ class BlockContext(BaseBlock):
         for child in self.children:
             if isinstance(child, FieldBlock):
                 return child
-            elif isinstance(child, BlockContext):
+            elif isinstance(child, Block):
                 for b in child.root:
                     if isinstance(b, FieldBlock):
                         return b
@@ -776,11 +776,11 @@ class BlockContext(BaseBlock):
         
     @staticmethod
     def _validate(v: Any) -> Any:
-        if isinstance(v, BlockContext):
+        if isinstance(v, Block):
             return v
         elif isinstance(v, list):
             for item in v:
-                if not isinstance(item, Block):
+                if not isinstance(item, BlockChunk):
                     raise ValueError(f"Invalid block list: {v}")
             return BlockList(v)
         else:
@@ -788,7 +788,7 @@ class BlockContext(BaseBlock):
 
     @staticmethod
     def _serialize(v: Any) -> Any:
-        if isinstance(v, BlockContext):
+        if isinstance(v, Block):
             return v.model_dump()
         else:
             raise ValueError(f"Invalid block list: {v}")
@@ -799,9 +799,9 @@ class BlockContext(BaseBlock):
         """Return a forest containing only target-type nodes, attached under their
         nearest target-type ancestor from the original tree."""
         dummy_children: List[BaseBlock] = []
-        stack: List[BlockContext] = []  # stack of cloned target nodes
+        stack: List[Block] = []  # stack of cloned target nodes
         
-        def _clone_target_node(n: BlockContext) -> ResponseContext:
+        def _clone_target_node(n: Block) -> ResponseContext:
             # Copy only what you need; children will be filled during reduction.
             for b in n.root:
                 if isinstance(b, FieldBlock):
@@ -813,7 +813,7 @@ class BlockContext(BaseBlock):
         def _is_target(node: BaseBlock) -> bool:
             if isinstance(node, FieldBlock):
                 return True
-            elif isinstance(node, BlockContext):
+            elif isinstance(node, Block):
                 for b in node.root:
                     if isinstance(b, FieldBlock):
                         return True
@@ -822,7 +822,7 @@ class BlockContext(BaseBlock):
         is_target = is_target or _is_target
         clone_target_node = clone_target_node or _clone_target_node
 
-        def dfs(u: BlockContext):
+        def dfs(u: Block):
             created = None
             if is_target(u):
                 created = clone_target_node(u)
@@ -832,7 +832,7 @@ class BlockContext(BaseBlock):
                     dummy_children.append(created)
                 stack.append(created)
 
-            if isinstance(u, BlockContext):
+            if isinstance(u, Block):
                 for child in u.children:
                     dfs(child)
                     
@@ -842,7 +842,7 @@ class BlockContext(BaseBlock):
         dfs(self)
         if not dummy_children:
             raise ValueError("No target nodes found")
-        res = BlockContext(children=BlockList(dummy_children))
+        res = Block(children=BlockList(dummy_children))
         return res
         
     def __repr__(self) -> str:
@@ -919,7 +919,7 @@ class FieldAttrBlock:
             raise ValueError(f"Invalid type: {self.type}")
 
 
-class FieldBlock(Block):
+class FieldBlock(BlockChunk):
     
     def __init__(self, name: str, type: Type, attrs: dict[str, str | FieldAttrBlock] | None = None):
         super().__init__(name, tags=[name], style="xml", attrs=attrs)
@@ -960,12 +960,12 @@ class FieldBlock(Block):
 
 
 
-class FieldContext(BlockContext):
+class FieldContext(Block):
     pass
 
 
 
-class ResponseContext(BlockContext):
+class ResponseContext(Block):
     
     def __init__(self, schema: FieldBlock, children: BlockList | None = None, tags: list[str] | None = None, **kwargs: Unpack[BlockParams]):
         super().__init__(children=children, tags=[schema.name] + (tags or []), **kwargs)
@@ -1028,7 +1028,7 @@ class ResponseContext(BlockContext):
     
 
 
-class ResponseBlock(Block):
+class ResponseBlock(BlockChunk):
     
     def __init__(self, schema: FieldBlock):
         self.schema = schema
@@ -1037,7 +1037,7 @@ class ResponseBlock(Block):
         
     
 
-class BlockSchema(BlockContext):
+class BlockSchema(Block):
       
     def __init__(self, name: str = "schema"):
         super().__init__(tags=[name])
@@ -1072,7 +1072,7 @@ class BlockSchema(BlockContext):
 
 
 class Blockable(Protocol):
-    def block(self) -> Block:
+    def block(self) -> BlockChunk:
         ...
 
 
@@ -1084,7 +1084,7 @@ class Blockable(Protocol):
 
 
 def block(
-    *content: ContentType | Block | list,
+    *content: ContentType | BlockChunk | list,
     role: str | None = None,
     tags: list[str] | None = None,
     style: str | None = None,
@@ -1093,7 +1093,7 @@ def block(
     vsep: str = "\n",
     wrap: tuple[str, str] | None = None,
 ):
-    return Block(
+    return BlockChunk(
         *content,
         role=role,
         tags=tags,

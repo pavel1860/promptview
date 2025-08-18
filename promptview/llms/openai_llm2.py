@@ -10,7 +10,7 @@ from .llm import LLM, LLMToolNotFound, LlmConfig, LlmContext
 from pydantic import Field, BaseModel
 from .utils.action_manager import Actions
 # from ..prompt.block import BaseBlock, ResponseBlock
-from ..block import Block, ToolCall
+from ..block import BlockChunk, ToolCall
 import openai
 import os
 from openai.types.chat import ChatCompletionMessageParam
@@ -115,7 +115,7 @@ class OpenAiLLM(LlmContext):
                     logprobs=True,                
                 )
             
-            block = Block(sep="")
+            block = BlockChunk(sep="")
             yield LLMEvent(type="stream_start")
             async for chunk in res_stream:
                 if chunk.choices[0].delta:
@@ -146,8 +146,8 @@ class OpenAiLLM(LlmContext):
         blocks: BlockList, 
         tools: List[Type[BaseModel]] | None = None, 
         config: LlmConfig | None = None,
-        error_blocks: List[Block] | None = None
-    ) -> Block:
+        error_blocks: List[BlockChunk] | None = None
+    ) -> BlockChunk:
                 
         messages = self.to_chat(blocks, tools, error_blocks)
         llm_tools = None
@@ -188,7 +188,7 @@ class OpenAiLLM(LlmContext):
                         tool=action_instance
                     ))
                       
-        response_block = Block(
+        response_block = BlockChunk(
             output.content or "",
             role="assistant",
             tool_calls=tool_calls,
@@ -202,7 +202,7 @@ class OpenAiLLM(LlmContext):
     
     
     
-    async def client_complete2(self, blocks: Block, tools: List[Type[BaseModel]] | None = None, config: LlmConfig | None = None) -> Block:
+    async def client_complete2(self, blocks: BlockChunk, tools: List[Type[BaseModel]] | None = None, config: LlmConfig | None = None) -> BlockChunk:
         
         content = """
         <observation>
@@ -222,7 +222,7 @@ class OpenAiLLM(LlmContext):
         
             
                       
-        response_block = Block(
+        response_block = BlockChunk(
             content=content,
             role="assistant",
             tool_calls=[],
@@ -251,10 +251,10 @@ class OpenAiLLM2(LLM):
     
     
 
-    def render(self, blocks: Block):
-        if not isinstance(blocks, Block):
-            if isinstance(blocks, Block):
-                blocks = Block.from_block(blocks)
+    def render(self, blocks: BlockChunk):
+        if not isinstance(blocks, BlockChunk):
+            if isinstance(blocks, BlockChunk):
+                blocks = BlockChunk.from_block(blocks)
                         
         if block.role == "user" or block.role == "system" or block.role == None:
             return {
@@ -345,7 +345,7 @@ class OpenAiLLM2(LLM):
                     ))
                 
                 
-        response_block = Block(
+        response_block = BlockChunk(
             content=output.content,
             role="assistant",
             tool_calls=tool_calls,
@@ -354,7 +354,7 @@ class OpenAiLLM2(LLM):
         )
         return response_block
         
-        response_block = Block(
+        response_block = BlockChunk(
             output.content,
             role="assistant",
             # id=response.id,

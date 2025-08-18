@@ -5,16 +5,16 @@ from queue import SimpleQueue
 
 from typing import Any, AsyncGenerator, Callable, Iterable, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING
 import xml
-from promptview.block.block7 import Block, BlockList, ResponseContext
+from promptview.block.block7 import BlockChunk, BlockList, ResponseContext
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
 from promptview.prompt.parser import BlockBuffer, SaxStreamParser
 from promptview.prompt.events import StreamEvent
 from promptview.utils.function_utils import call_function
 from lxml import etree
 
-
-if TYPE_CHECKING:
-    from promptview.block import BlockSchema, BlockContext
+from promptview.block import BlockSchema, Block
+# if TYPE_CHECKING:
+    
 
 
 
@@ -182,7 +182,7 @@ class Stream(BaseFbpComponent):
 
 class Parser(BaseFbpComponent):
       
-    def __init__(self, response_schema: "BlockContext", gen=None) -> None:
+    def __init__(self, response_schema: "Block", gen=None) -> None:
         super().__init__(gen)
         self.start_tag = "tag_start"
         self.end_tag = "tag_end"
@@ -223,7 +223,7 @@ class Parser(BaseFbpComponent):
             if not self.queue.empty():
                 return self.queue.get()
             value = await self.gen.asend(value) 
-            print(value)           
+            print(value)
             self.block_list.append(value)
             self.parser2.feed(value.content)
             
@@ -232,7 +232,9 @@ class Parser(BaseFbpComponent):
             
             
             if self.current_tag and not self._detected_tag:
-                value.tags += [self.current_tag, self.text_tag]
+                # if not isinstance(value, Block):
+                #     value = Block(value)
+                # value.tags += [self.current_tag, self.text_tag]
                 if field := self.response.get(self.current_tag):
                     field += value
                     
@@ -245,9 +247,6 @@ class Parser(BaseFbpComponent):
                 #         # payload=self.block_list.pop()
                 #         payload=value
                 #     ))
-                    
-                
-
             
             for event, element in self.parser2.read_events():
                 if element.tag == self._safety_tag:
@@ -393,7 +392,7 @@ class StreamController(BaseFbpComponent):
                 for line in f:
                     await asyncio.sleep(delay)
                     j = json.loads(line)
-                    block = Block.model_validate(j)
+                    block = BlockChunk.model_validate(j)
                     yield block
                     
         self._gen = Stream(load_stream())

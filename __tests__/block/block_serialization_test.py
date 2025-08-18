@@ -1,7 +1,7 @@
-from promptview.block import Block
+from promptview.block import BlockChunk
 
 
-def recursive_validate(blk1: Block, blk2: Block):
+def recursive_validate(blk1: BlockChunk, blk2: BlockChunk):
     assert blk1.render() == blk2.render()
     assert blk1.tags == blk2.tags
     assert blk1.inline_style.style == blk2.inline_style.style
@@ -12,7 +12,7 @@ def recursive_validate(blk1: Block, blk2: Block):
 
 def test_simple_block_serialization():
 
-    with Block("Header", tags=["tag1", "tag2"], style=["list"]) as blk:
+    with BlockChunk("Header", tags=["tag1", "tag2"], style=["list"]) as blk:
         blk /= "rule 1"
         blk /= "rule 2"
         blk /= "rule 3"
@@ -20,7 +20,7 @@ def test_simple_block_serialization():
 
     print(blk.render())
     d = blk.model_dump()    
-    blk2 = Block.model_validate(d)
+    blk2 = BlockChunk.model_validate(d)
     # blk2.render()
     print(blk2.render())
 
@@ -28,7 +28,7 @@ def test_simple_block_serialization():
 
 
 def test_complex_block_serialization():
-    with Block("Header", style=["md"]) as blk:
+    with BlockChunk("Header", style=["md"]) as blk:
         blk /= "some description"
         with blk("list 1", style=["list"]):
             blk /= "item 1"
@@ -47,14 +47,14 @@ def test_complex_block_serialization():
                 blk /= "some wait for response"
                 
     d = blk.model_dump()
-    blk2 = Block.model_validate(d)
+    blk2 = BlockChunk.model_validate(d)
     print(blk2.render())
 
     recursive_validate(blk, blk2)
     
     
 def test_very_complex_block_serialization():
-    with Block() as blk:
+    with BlockChunk() as blk:
         with blk(tags=["system"], role="system"):
             blk /= "you are a helpful assistant"
             with blk("Task"):
@@ -94,5 +94,5 @@ def test_very_complex_block_serialization():
                 
                 
     d = blk.model_dump() 
-    blk2 = Block.model_validate(d)
+    blk2 = BlockChunk.model_validate(d)
     recursive_validate(blk, blk2)

@@ -4,7 +4,7 @@ from promptview.block.types import StyleProps
 
 
 if TYPE_CHECKING:
-    from promptview.block.block7 import Block
+    from promptview.block.block7 import BlockChunk
 
 
 

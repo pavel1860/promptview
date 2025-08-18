@@ -1,7 +1,7 @@
 import pytest
 import pytest_asyncio
 
-from promptview.block import Block
+from promptview.block import BlockChunk
 from promptview.block.block7 import BlockList
 from promptview.llms.openai_llm3 import OpenAiLLM
 
@@ -15,7 +15,7 @@ from promptview.llms.openai_llm3 import OpenAiLLM
 
 @pytest_asyncio.fixture()
 async def test_basic_parser():
-    with Block() as prompt:
+    with BlockChunk() as prompt:
         with prompt(role="system") as s:
             s /= "you are a pirate"
             s /= "you should answer in pirate language"
