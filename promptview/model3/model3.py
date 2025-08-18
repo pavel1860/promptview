@@ -147,11 +147,11 @@ class Model(BaseModel, metaclass=ModelMeta):
         return getattr(self, ns.primary_key)
 
     @classmethod
-    def query(cls: Type[Self], fields: list[str] | None = None, **kwargs) -> "PgSelectQuerySet[Self]":
+    def query(cls: Type[Self], fields: list[str] | None = None, alias: str | None = None, **kwargs) -> "PgSelectQuerySet[Self]":
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
         if not fields:
-            return PgSelectQuerySet(cls).select("*")
-        return PgSelectQuerySet(cls).select(*fields)
+            return PgSelectQuerySet(cls, alias=alias).select("*")
+        return PgSelectQuerySet(cls, alias=alias).select(*fields)
 
 
 

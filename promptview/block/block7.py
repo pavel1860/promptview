@@ -298,78 +298,7 @@ class Block(BaseBlock):
     @property
     def is_inline(self) -> bool:
         return len(self.children) == 0
-    
-    # @property
-    # def is_empty_content(self) -> bool:
-    #     return len(self.content) == 0
-    
-    # def hstack(self, other: "Block") -> "Block":
-    #     """
-    #     Horizontaly stack two blocks
-    #     b1 = Block("Hello")
-    #     b2 = Block("World")
-    #     b3 = b1.hstack(b2)
-        
-    #     >>> b3.render()
-    #     "Hello World"        
-    #     """
-    #     return Block(
-    #         *self.content,
-    #         *other.content,
-    #         children=self.children + other.children,
-    #         role=self.role,
-    #         tags=self.tags + other.tags,
-    #     )
-    
-    # def vstack(self, other: "Block") -> "Block":
-    #     """
-    #     Vertically stack two blocks
-    #     b1 = Block("Hello")
-    #     b2 = Block("World")
-    #     b3 = b1.vstack(b2)
-        
-    #     >>> b3.render()
-    #     "Hello\nWorld"
-    #     """
-    #     return Block(
-    #         children=[self, other],
-    #         role=self.role,
-    #         tags=self.tags + other.tags,
-    #     )
-        
-    # def ihstack(self, other: "Block") -> "Block":
-    #     """
-    #     In-place horizontaly stack two blocks
-    #     b1 = Block("Hello")
-    #     b2 = Block("World")
-    #     b1.ihstack(b2)
-        
-    #     >>> b1.render()
-    #     "Hello World"
-    #     """
-    #     self.content.extend(other.content)
-    #     self.children.extend(other.children)
-    #     self.role = self.role or other.role
-    #     self.tags = self.tags + other.tags
-    #     return self
-    
-    
-    # def append(self, *content: ContentType | Chunk):
-    #     self.content.extend([to_chunk(c) for c in content])
-        
-    # def extend(self, *children: "Block"):
-    #     self.children.extend(children_to_blocklist(children))
-    
-    
-    # def add_child(self, child: "Block"):
-    #     child.parent = self
-    #     child.depth = self.depth + 1
-    #     self.children.append(child)
-    #     return self
-        
-    # def add_content(self, content: Chunk):
-    #     self.content.append(content)
-    
+
     
     def __enter__(self):
         parent = self.parent
@@ -1079,7 +1008,7 @@ class Blockable(Protocol):
 
 
 def block(
-    *content: ContentType | Chunk | Block | list,
+    *content: ContentType | Block | list,
     role: str | None = None,
     tags: list[str] | None = None,
     style: str | None = None,

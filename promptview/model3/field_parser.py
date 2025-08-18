@@ -81,5 +81,6 @@ class FieldParser:
             enum_values=enum_values if is_enum else None,
             order_by=extra.get("order_by", False),
             foreign_cls=extra.get("foreign_cls", None),
+            sql_type=extra.get("db_type", None),
         )
         self.namespace.add_field(field_obj)

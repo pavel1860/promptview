@@ -255,12 +255,12 @@ class VersionedModel(Model):
         return turn.id if isinstance(turn, Turn) else turn
     
     @classmethod
-    def query(cls, **kwargs):
+    def query(cls, fields: list[str] | None = None, **kwargs):
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
         return (
             PgSelectQuerySet(cls) \
             .use_cte(
-                Turn.versioned_query().select("*").where(status=TurnStatus.COMMITTED),
+                Turn.versioned_query().select(fields or "*").where(status=TurnStatus.COMMITTED),
                 name="committed_turns",
                 alias="ct",
             )

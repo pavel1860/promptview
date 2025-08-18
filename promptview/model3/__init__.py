@@ -9,6 +9,7 @@ from .vectors import Vector, SparseVector, transformer
 from ..context.model_context import ModelCtx, Context
 from .relation_model import RelationModel
 from .block_model import BlockModel
+from .sql.expressions import RawValue
 
 __all__ = [
     "Model", 
@@ -30,4 +31,5 @@ __all__ = [
     "ModelCtx",
     "RelationModel",
     "BlockModel",
+    "RawValue"
 ]
