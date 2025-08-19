@@ -94,15 +94,9 @@ class BlockParams(BaseBlockParams):
     vsep: str
     wrap: tuple[str, str] | None
     vwrap: tuple[str, str] | None
-    attrs: dict[str, "str | FieldAttrBlock"] | None
-    depth: int
-    parent: "BaseBlock | None"
-    run_id: str | None
-    model: str | None
-    tool_calls: list[ToolCall] | None
-    usage: LlmUsage | None
+    attrs: dict[str, "str | FieldAttrBlock"] | None    
+    parent: "BaseBlock | None"    
     id: str | None
-    db_id: str | None
     styles: list[str] | None
     
     
@@ -128,6 +122,7 @@ class BaseBlock:
     
     __slots__ = [
         "path",
+        "id",
         "parent",
     ]
     
@@ -136,10 +131,11 @@ class BaseBlock:
         self, 
         path: List[int] | None = None, 
         parent: "BaseBlock | None" = None,
+        id: str | None = None,
     ):
         self.path = path or [1]
         self.parent = parent
-
+        self.id = id
     # @property
     # def is_end_of_line(self) -> bool:
     #     return self.sep == "\n"
@@ -200,7 +196,7 @@ class BlockChunk(BaseBlock):
         "children",
         "is_end_of_line",
         "sep",
-        "_logprob",
+        "logprob",
     ]
     
     
@@ -212,14 +208,15 @@ class BlockChunk(BaseBlock):
         parent: "BaseBlock | None" = None,
         is_end_of_line: bool = False,
         path: str | None = None,
+        id: str | None = None,
     ):
         """
         Basic component of prompt building. 
         """
-        super().__init__(parent=parent)
+        super().__init__(parent=parent, id=id, path=path)
         self.content: ContentType = content
         self.sep: str = sep
-        self._logprob: float | None = logprob
+        self.logprob: float | None = logprob
         self.is_end_of_line = False
         if is_end_of_line:
             self.is_end_of_line = is_end_of_line        
@@ -487,10 +484,10 @@ class Block(BaseBlock):
     def __init__(
         self, 
         root: BlockChunk | BlockList | None = None, 
-        children: BlockList | None = None, path: list[int] | None = None, 
+        children: BlockList | None = None,         
         **kwargs: Unpack[BlockParams]
     ):
-        super().__init__(parent=kwargs.get("parent"), path=path)
+        super().__init__(parent=kwargs.get("parent"), path=kwargs.get("path"), id=kwargs.get("id"))
         self.role: str | None = kwargs.get("role")
         self.tags: list[str] = kwargs.get("tags", [])
         if kwargs.get("styles"):
@@ -969,7 +966,7 @@ class ResponseContext(Block):
     ):
         if schema.name not in tags:
             tags = [schema.name] + (tags or [])
-        super().__init__(root=schema.name, style="xml", children=children, tags=tags, **kwargs)
+        super().__init__(children=children, tags=tags, **kwargs)
         self.schema = schema
         self._value = None
         self.postfix: BlockList | None = None

@@ -189,7 +189,7 @@ class Parser(BaseFbpComponent):
         self.text_tag = "chunk"                
         self.response_schema = response_schema
         self._safety_tag = "stream_start"        
-        self.response = response_schema.reduce_tree()        
+        self.response = response_schema.build_response()        
         self.parser2 = etree.XMLPullParser(events=("start", "end"))
         self.queue = SimpleQueue()
         self.block_list = []
