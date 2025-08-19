@@ -72,10 +72,21 @@ def parse_style(style: str | List[str] | None) -> List[str]:
         return style
     else:
         return []
-    
 
 
-class BlockParams(TypedDict, total=False):
+
+class BaseBlockParams(TypedDict, total=False):
+    path: List[int] | None
+    parent: "BaseBlock | None"
+
+class BlockChunkParams(BaseBlockParams):
+    content: ContentType | None
+    sep: str
+    logprob: float | None
+    is_end_of_line: bool
+
+
+class BlockParams(BaseBlockParams):
     role: str | None
     tags: list[str] | None
     style: str | None
@@ -93,7 +104,6 @@ class BlockParams(TypedDict, total=False):
     id: str | None
     db_id: str | None
     styles: list[str] | None
-    logprob: float | None
     
 def all_slots(cls):
     slots = []
@@ -117,7 +127,11 @@ class BaseBlock:
     ]
     
     
-    def __init__(self, path: str | None = None, parent: "BaseBlock | None" = None):
+    def __init__(
+        self, 
+        path: List[int] | None = None, 
+        parent: "BaseBlock | None" = None,
+    ):
         self.path = path or [1]
         self.parent = parent
 
@@ -175,55 +189,6 @@ class BaseBlock:
         
 
 class BlockChunk(BaseBlock):
-    """
-    Block(content, children=None, role=None, tags=None, style=None, ...)
-
-    A composable building block for programmatic prompt and string construction.
-
-    The Block class enables flexible, component-based prompt engineering in Python,
-    inspired by React/HTML composition. It separates content from style (e.g., markdown,
-    XML, JSON, numbered lists), supports tagging, and allows for easy reuse and
-    manipulation of prompt components. Blocks can be nested, stacked, and combined
-    horizontally or vertically, making it easy to build complex, context-aware prompts
-    for LLMs and other applications.
-
-    Key Features:
-    - Compose prompts using nested, reusable blocks
-    - Separate content from formatting via a style system
-    - Add roles, tags, and metadata for context and organization
-    - Horizontal and vertical stacking (hstack, vstack, +, /=, +=)
-    - Context manager support for building nested structures
-    - Designed for dynamic, programmatic prompt generation
-
-    Args:
-        *chunks: Content pieces (str, int, float, bool, None)
-        children: Optional list of child Blocks
-        role: Optional string indicating the role (e.g., "user", "assistant")
-        tags: Optional list of tags for organization or filtering
-        style: Optional style string or list (e.g., "markdown-header", "numbered-list")
-        attrs: Optional dictionary of additional attributes
-        depth: Nesting depth (used internally)
-        parent: Parent Block (used internally)
-        run_id, model, tool_calls, usage, id, db_id, sep: Advanced/streaming options
-
-    Example:
-        >>> block = Block("Hello", "World", style="markdown-header", tags=["greeting"])
-        >>> print(block.render())
-        # Hello World
-
-        >>> with Block("List", style="numbered-list") as lst:
-        ...     lst /= "Item 1"
-        ...     lst /= "Item 2"
-        >>> print(lst.render())
-        1. Item 1
-        2. Item 2
-
-    See Also:
-        - hstack, vstack, ihstack: for block composition
-        - append, extend, add_child: for adding content/children
-        - render(): to produce the final string output
-        - Context manager usage for nested block construction
-    """
     
     __slots__ = [
         "content",
@@ -237,37 +202,46 @@ class BlockChunk(BaseBlock):
     def __init__(
         self, 
         content: ContentType | None = None,
-        **kwargs: Unpack[BlockParams]
+        sep: str = " ",
+        logprob: float | None = None,
+        parent: "BaseBlock | None" = None,
+        is_end_of_line: bool = False,
+        path: str | None = None,
     ):
         """
         Basic component of prompt building. 
         """
-        super().__init__(parent=kwargs.get("parent"))
-        self.sep: str = kwargs.get("sep", " ")
-        self._logprob: float | None = kwargs.get("logprob")
+        super().__init__(parent=parent)
+        self.content: ContentType = content
+        self.sep: str = sep
+        self._logprob: float | None = logprob
         self.is_end_of_line = False
-        if kwargs.get("is_end_of_line"):
-            self.is_end_of_line = kwargs.get("is_end_of_line")        
+        if is_end_of_line:
+            self.is_end_of_line = is_end_of_line        
         else:
             #! if content is a string, check if it ends with a newline
-            if type(content) is str:
-                if content.endswith("\n"):
-                    content = content[:-1]            
-                    self.sep = "\n"
-                    self.is_end_of_line = True
+            if self._detect_end_of_line(content):
+                self.sep = "\n"
+                self.is_end_of_line = True
         
         self.content: ContentType = content
         
     
+    def _detect_end_of_line(self, content: ContentType):
+        if type(content) is str:
+            if content.endswith("\n"):
+                content = content[:-1]            
+                return True
+        return False
         
             
-    @property
-    def is_block(self) -> bool:
-        return len(self.children) > 0
+    # @property
+    # def is_block(self) -> bool:
+    #     return len(self.children) > 0
     
-    @property
-    def is_inline(self) -> bool:
-        return len(self.children) == 0
+    # @property
+    # def is_inline(self) -> bool:
+    #     return len(self.children) == 0
 
     
     # def __enter__(self):
