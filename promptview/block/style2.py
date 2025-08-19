@@ -28,8 +28,8 @@ class StyleManager:
         resolved = {}
 
         # inherit parent styles — but NOT format
-        if block.parent:
-            parent_style = self.resolve(block.parent)
+        if parent := block.block_parent:
+            parent_style = self.resolve(parent)
             for k, v in parent_style.items():
                 # if k not in ("format",):  # don't inherit format
                 resolved[k] = v

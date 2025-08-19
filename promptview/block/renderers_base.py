@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import json
 import textwrap
 import yaml
@@ -79,7 +80,7 @@ class RendererRegistry:
     def __init__(self):
         self._registry = {}
         self._default_registry = {}
-
+    
     def register(self, name: str, renderer: "BaseRenderer"):
         self._registry[name] = renderer
         
@@ -134,7 +135,7 @@ class MetaRenderer(type):
             
             
 class BaseRenderer(metaclass=MetaRenderer):
-    styles: list[str] = []
+    styles = []
     
     def render(self, ctx: RenderContext, block: "BaseBlock", inner_content: str | None = None) -> str:
         """

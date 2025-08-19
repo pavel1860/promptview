@@ -1,13 +1,117 @@
 
 
 
+import textwrap
+from promptview.block.block7 import Block, BlockList, FieldAttrBlock
+from promptview.block.renderers_base import BlockRenderer, ListRenderer, RenderContext
 
+
+class MarkdownHeaderRenderer(BlockRenderer):
+    styles = ["markdown", "md"]
+    def render(self, ctx: RenderContext, block: Block, title_content: str, inner_content: str) -> str:
+        level = min(len(block.full_path), 6)        
+        header_content = f"{'#' * level} {title_content}"
+        return f"{header_content}\n{inner_content}"
+
+
+class NumberedListRenderer(ListRenderer):
+    styles = ["list-num", "li"]
+    
+    
+    def render(self, ctx: RenderContext, block: BlockList, inner_content: list[str]) -> str:
+        path = ".".join([str(i) for i in block.full_path[1:]])
+        if path:
+            path += "."
+        return "\n".join([f"{path}{i + 1}. {c}" for i, c in enumerate(inner_content)])
+    
+    # def _get_prefix(self, ctx: RenderContext) -> str:
+    #     idx_list = []
+    #     curr = ctx.parent_ctx
+    #     while curr:
+    #         if curr.is_context and curr.get_style("list-format") == "numbered-list" and not curr.is_root and curr.parent_ctx.get_style("list-format") == "numbered-list":
+    #             idx_list.append(curr.index)
+    #         curr = curr.parent_ctx
+            
+    #     if not idx_list:
+    #         return ""
+    #     return ".".join([str(i + 1) for i in reversed(idx_list)]) + "."
+
+
+
+
+class AsteriskListRenderer(ListRenderer):
+    styles = ["list-asterisk", "li-a"]
+    
+    def render(self, ctx: RenderContext, block: BlockList, inner_content: list[str]) -> str:
+        return "\n".join([f"* {c}" for c in inner_content])
+    
     
 
+class DashListRenderer(ListRenderer):
+    styles = ["list-dash", "li-d"]
     
+    def render(self, ctx: RenderContext, block: BlockList, inner_content: list[str]) -> str:
+        return "\n".join([f"- {c}" for c in inner_content])
     
     
 
+class PlusListRenderer(ListRenderer):
+    styles = ["list-plus", "li-p"]
+    
+    def render(self, ctx: RenderContext, block: BlockList, inner_content: list[str]) -> str:
+        return "\n".join([f"+ {c}" for c in inner_content])
+    
+    
+
+class BulletListRenderer(ListRenderer):
+    styles = ["list-bullet", "li-b"]
+    
+    def render(self, ctx: RenderContext, block: BlockList, inner_content: list[str]) -> str:
+        return "\n".join([f"• {c}" for c in inner_content])
+    
+    
+
+class CheckboxListRenderer(ListRenderer):
+    styles = ["list-checkbox", "li-c"]
+    
+    def render(self, ctx: RenderContext, block: BlockList, inner_content: list[str]) -> str:
+        return "\n".join([f"[ ] {c}" for c in inner_content])
+
+
+
+class XmlRenderer(BlockRenderer):
+    styles = ["xml"]
+    
+    def render(self, ctx: RenderContext, block: Block, title_content: str, inner_content: str) -> str:  
+        if block.attrs:
+            attrs = ""
+            for k, v in block.attrs.items():
+                if isinstance(v, FieldAttrBlock):
+                    instructions = ""
+                    if v.type in (int, float):
+                        instructions = " wrap in quotes"
+                    attr_info = f"(\"{v.type.__name__}\"{instructions}) {v.description}"
+                    if v.gt is not None:
+                        attr_info += f" gt={v.gt}"
+                    if v.lt is not None:
+                        attr_info += f" lt={v.lt}"
+                    if v.ge is not None:
+                        attr_info += f" ge={v.ge}"
+                    if v.le is not None:
+                        attr_info += f" le={v.le}"
+                    attrs += f"{k}=[{attr_info}] "
+                else:
+                    attrs += f"{k}=\"{v}\""
+        else:
+            attrs = ""
+    
+        if not inner_content:
+            return f"<{title_content}{attrs} />"
+        
+        inner_content = textwrap.indent(inner_content, " ")
+        return f"<{title_content}{attrs}>\n{inner_content}\n</{title_content}>"
+        
+            
 
 
 # class ListColumnTupleLayoutRenderer(BaseRenderer):

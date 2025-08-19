@@ -90,10 +90,6 @@ class BlockParams(BaseBlockParams):
     role: str | None
     tags: list[str] | None
     style: str | None
-    sep: str
-    vsep: str
-    wrap: tuple[str, str] | None
-    vwrap: tuple[str, str] | None
     attrs: dict[str, "str | FieldAttrBlock"] | None    
     parent: "BaseBlock | None"    
     id: str | None
@@ -139,6 +135,34 @@ class BaseBlock:
     # @property
     # def is_end_of_line(self) -> bool:
     #     return self.sep == "\n"
+    
+    @property
+    def full_path(self) -> list[int]:
+        raise NotImplementedError("Not implemented")
+        # path = self.path.copy()
+        # curr = self
+        # while curr:= curr.block_parent:
+            # path = curr.path + path
+        # path = []
+        # curr = self
+        # # while curr:
+        # for i in range(20):
+        #     if curr is None:
+        #         break
+        #     print(curr)
+        #     path.insert(0, curr.path[0])
+        #     if isinstance(curr.parent, BlockList):
+        #         curr = curr.parent.parent
+        #     elif isinstance(curr.parent, Block):
+        #         curr = curr.parent
+                
+        # return path
+    
+    @property
+    def block_parent(self):
+        if isinstance(self.parent, BlockList):
+            return self.parent.parent
+        return self.parent       
         
     @property
     def logprob(self) -> float | None:
@@ -232,44 +256,8 @@ class BlockChunk(BaseBlock):
                 content = content[:-1]            
                 return True
         return False
-        
-            
-    # @property
-    # def is_block(self) -> bool:
-    #     return len(self.children) > 0
+                
     
-    # @property
-    # def is_inline(self) -> bool:
-    #     return len(self.children) == 0
-
-    
-    # def __enter__(self):
-    #     parent = self.parent
-    #     block = self if self.content is not None else None
-    #     ctx = BlockContext(
-    #         block,
-    #         role=self.role,
-    #         attrs=self.attrs,
-    #         tags=self.tags,
-    #         depth=self.depth,
-    #         parent=parent,
-    #         run_id=self.run_id,
-    #         model=self.model,
-    #         tool_calls=self.tool_calls,
-    #         usage=self.usage,
-    #         id=self.id,
-    #         db_id=self.db_id,
-    #         styles=self.styles,
-    #         sep=self.sep,
-    #         vsep=self.vsep,
-    #         wrap=self.wrap,
-    #         vwrap=self.vwrap,
-    #     )
-    #     self.parent = ctx
-    #     if isinstance(parent, BlockContext):
-    #         parent.children.pop()
-    #         parent.append_child(ctx)
-    #     return ctx
     
     def __exit__(self, exc_type, exc_value, traceback):
         pass
@@ -407,6 +395,12 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         self.has_eol = False
         if wrap:
             self.wrap(*wrap)
+            
+    @property
+    def full_path(self) -> list[int]:
+        if self.parent is None:
+            return self.path
+        return self.parent.full_path + self.path
         
     @property
     def logprob(self) -> float | None:
@@ -554,10 +548,16 @@ class BlockList(UserList[BaseBlock], BaseBlock):
         BaseBlock.__init__(self, parent=kwargs.get("parent"), path=kwargs.get("path"))
         for block in blocks:
             block.parent = self.parent
+            
+            
+    @property
+    def full_path(self) -> list[int]:
+        return self.parent.full_path
     
     @property
     def logprob(self) -> float | None:
         return sum(block.logprob for block in self if block.logprob is not None)
+    
     
     @property
     def last(self) -> BlockChunk:
@@ -573,12 +573,15 @@ class BlockList(UserList[BaseBlock], BaseBlock):
         return dump
     
     def append(self, content: "BlockChunk | BlockSent | Block"):
-        if isinstance(content, BlockSent):
+        if isinstance(content, BlockSent):            
             UserList.append(self, content)
         elif isinstance(content, Block):
             UserList.append(self, content)
         else:
-            UserList.append(self, BlockSent([content]))
+            content = BlockSent([content])
+            UserList.append(self, content)
+        content.parent = self          
+        content.path = [len(self)]
         return self
     
     @classmethod
@@ -653,8 +656,6 @@ class Block(BaseBlock):
         "role",        
         "tags",
         "styles",      
-        "wrap",
-        "vwrap",
         "attrs",
     ]
     
@@ -671,13 +672,11 @@ class Block(BaseBlock):
             self.styles = kwargs.get("styles")
         else:
             self.styles: list[str] | None = parse_style(kwargs.get("style"))
-        self.wrap: tuple[str, str] | None = kwargs.get("wrap")
-        self.vwrap: tuple[str, str] | None = kwargs.get("vwrap")
         self.attrs: dict[str, FieldAttrBlock] = get_attrs(kwargs.get("attrs", {}))        
-        self.root = BlockSent()
-        self.children = BlockList()
+        self.root = BlockSent(path=self.path, parent=self)
+        self.children = BlockList(path=self.path, parent=self)
         
-        root_block = self._process_content(root, self.path) if root is not None else None
+        root_block = self._process_content(root) if root is not None else None
                 
         self.root.append(root_block)
         
@@ -692,6 +691,11 @@ class Block(BaseBlock):
         #     self.children: BlockList = BlockList([], parent=self)
         # else:
         #     self.children: BlockList = children
+    @property
+    def full_path(self) -> list[int]:
+        if self.parent is None:
+            return self.path
+        return self.parent.full_path + self.path
 
     @classmethod
     def model_validate(cls, data: dict):
@@ -717,12 +721,9 @@ class Block(BaseBlock):
             name,
             type=type,
             attrs=attrs,
-            path=self.path + [len(self.children) + 1],
             role=self.role,
             parent=self.parent,            
             styles=["xml"],
-            wrap=self.wrap,
-            vwrap=self.vwrap,
         )
         self.append_child(ctx)
         return ctx
@@ -783,10 +784,8 @@ class Block(BaseBlock):
             role=self.role,
             attrs=self.attrs,
             tags=self.tags,            
-            parent=self.parent,            
+            parent=self,            
             styles=self.styles,
-            wrap=self.wrap,
-            vwrap=self.vwrap,
         )
         self.children.append(ctx)        
         return ctx
@@ -825,7 +824,7 @@ class Block(BaseBlock):
         #         self.append_root(c)
         # else:
         #     raise ValueError(f"Invalid content type: {type(other)}")
-        block = self._process_content(other, self.path)
+        block = self._process_content(other)
         self.append_child(block)
         return self
     
@@ -836,7 +835,7 @@ class Block(BaseBlock):
         #         other = BlockList([Block(item) for item in other], style="list:row")                
         #     else:
         #         other = Block(other)
-        block = self._process_content(other, self.path + [len(self.children) + 1])
+        block = self._process_content(other)
         self.append_child(block)
         return self
     
@@ -856,34 +855,31 @@ class Block(BaseBlock):
     #     return self
     
     def append_child(self, content: ContentType | BlockChunk):
-        block = self._process_content(content, self.path)
+        block = self._process_content(content)
         self.children.append(block)
         return self
         
     
     def append_root(self, content: ContentType | BlockChunk):
-        block = self._process_content(content, self.path)
+        block = self._process_content(content)
         self.root.append(block)
         return self
     
     
-    def _process_content(self, content: ContentType | BlockChunk, path: list[int]):
+    def _process_content(self, content: ContentType | BlockChunk):
         if isinstance(content, BlockChunk):
-            content.path = path
             return content
         elif isinstance(content, str):
-            return BlockChunk(content, path=path, parent=self)
+            return BlockChunk(content, parent=self)
         elif isinstance(content, int):
-            return BlockChunk(str(content), path=path, parent=self)
+            return BlockChunk(str(content), parent=self)
         elif isinstance(content, float):
-            return BlockChunk(str(content), path=path, parent=self)
+            return BlockChunk(str(content), parent=self)
         elif isinstance(content, bool):
-            return BlockChunk(str(content), path=path, parent=self)
+            return BlockChunk(str(content), parent=self)
         elif isinstance(content, list):
-            return BlockList(content, path=path, parent=self)
+            return BlockList(content, parent=self)
         elif isinstance(content, BaseBlock):
-            content.path = path
-            content.parent = self
             return content        
         else:
             raise ValueError(f"Invalid content type: {type(content)} for path: {path}")
@@ -1106,36 +1102,6 @@ class FieldBlock(Block):
         
         
 
-        
-    # def __enter__(self):
-    #     parent = self.parent
-    #     block = self if self.content is not None else None
-    #     ctx = FieldContext(
-    #         block,
-    #         role=self.role,
-    #         attrs=self.attrs,
-    #         tags=self.tags,
-    #         depth=self.depth,
-    #         parent=parent,
-    #         run_id=self.run_id,
-    #         model=self.model,
-    #         tool_calls=self.tool_calls,
-    #         usage=self.usage,
-    #         id=self.id,
-    #         db_id=self.db_id,
-    #         styles=self.styles,
-    #         sep=self.sep,
-    #         vsep=self.vsep,
-    #         wrap=self.wrap,
-    #         vwrap=self.vwrap,
-    #     )
-    #     self.parent = ctx
-    #     if isinstance(parent, BlockContext):
-    #         parent.children.pop()
-    #         parent.append_child(ctx)
-    #     return ctx
-
-
 
 
 class FieldContext(Block):
@@ -1229,29 +1195,6 @@ class BlockSchema(Block):
         super().__init__(tags=[name])
 
 
-
-    # def __call__(self, content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> Block:
-    #     ctx = BlockContext(
-    #         content,
-    #         path=self.path + [len(self.children) + 1],
-    #         role=self.role,
-    #         attrs=self.attrs,
-    #         tags=self.tags,
-    #         depth=self.depth,
-    #         parent=self.parent,
-    #         run_id=self.run_id,
-    #         model=self.model,
-    #         tool_calls=self.tool_calls,
-    #         usage=self.usage,
-    #         id=self.id,
-    #         db_id=self.db_id,
-    #         styles=self.styles,
-    #         wrap=self.wrap,
-    #         vwrap=self.vwrap,
-    #     )
-    #     self.children.append(ctx)        
-    #     return ctx
-
     
     
 
@@ -1275,9 +1218,6 @@ def block(
     tags: list[str] | None = None,
     style: str | None = None,
     attrs: dict | None = None,
-    sep: str = " ",
-    vsep: str = "\n",
-    wrap: tuple[str, str] | None = None,
 ):
     return BlockChunk(
         *content,
@@ -1285,7 +1225,4 @@ def block(
         tags=tags,
         style=style,
         attrs=attrs,
-        sep=sep,
-        vsep=vsep,
-        wrap=wrap,
     )
