@@ -105,6 +105,11 @@ class BlockParams(BaseBlockParams):
     db_id: str | None
     styles: list[str] | None
     
+    
+class FieldBlockParams(BlockParams):
+    type: Type
+    attrs: dict[str, "str | FieldAttrBlock"] | None
+    
 def all_slots(cls):
     slots = []
     for base in cls.__mro__:
@@ -477,16 +482,14 @@ class Block(BaseBlock):
         "wrap",
         "vwrap",
         "attrs",
-        "depth",
-        "run_id",
-        "model",
-        "tool_calls",
-        "usage",
-        "id",
-        "db_id",
     ]
     
-    def __init__(self, root: BlockChunk | BlockList | None = None, children: BlockList | None = None, path: list[int] | None = None, **kwargs: Unpack[BlockParams]):
+    def __init__(
+        self, 
+        root: BlockChunk | BlockList | None = None, 
+        children: BlockList | None = None, path: list[int] | None = None, 
+        **kwargs: Unpack[BlockParams]
+    ):
         super().__init__(parent=kwargs.get("parent"), path=path)
         self.role: str | None = kwargs.get("role")
         self.tags: list[str] = kwargs.get("tags", [])
@@ -496,15 +499,7 @@ class Block(BaseBlock):
             self.styles: list[str] | None = parse_style(kwargs.get("style"))
         self.wrap: tuple[str, str] | None = kwargs.get("wrap")
         self.vwrap: tuple[str, str] | None = kwargs.get("vwrap")
-        # self.attrs: dict[str, FieldAttr] | None = kwargs.get("attrs")
-        self.attrs: dict[str, FieldAttrBlock] = get_attrs(kwargs.get("attrs", {}))
-        self.depth: int = kwargs.get("depth", 0)
-        self.run_id: str | None = kwargs.get("run_id")
-        self.model: str | None = kwargs.get("model")
-        self.tool_calls: list[ToolCall] | None = kwargs.get("tool_calls")
-        self.usage: LlmUsage | None = kwargs.get("usage")
-        self.id: str | None = kwargs.get("id")
-        self.db_id: str | None = kwargs.get("db_id")
+        self.attrs: dict[str, FieldAttrBlock] = get_attrs(kwargs.get("attrs", {}))        
         
         root_block = self._process_content(root, self.path) if root is not None else None
 
@@ -538,21 +533,14 @@ class Block(BaseBlock):
         return logprob + root_logprob
        
     def field(self, name: str, type: Type, attrs: dict[str, str] | None = None) -> "FieldBlock":
-        block = FieldBlock(name, type, attrs=attrs)
-        ctx = Block(
-            block,
+        # block = FieldBlock(name, type, attrs=attrs)
+        ctx = FieldBlock(
+            name,
+            type=type,
+            attrs=attrs,
             path=self.path + [len(self.children) + 1],
             role=self.role,
-            attrs=self.attrs,
-            tags=self.tags,
-            depth=self.depth,
-            parent=self.parent,
-            run_id=self.run_id,
-            model=self.model,
-            tool_calls=self.tool_calls,
-            usage=self.usage,
-            id=self.id,
-            db_id=self.db_id,
+            parent=self.parent,            
             styles=["xml"],
             wrap=self.wrap,
             vwrap=self.vwrap,
@@ -615,21 +603,34 @@ class Block(BaseBlock):
             path=self.path + [len(self.children) + 1],
             role=self.role,
             attrs=self.attrs,
-            tags=self.tags,
-            depth=self.depth,
-            parent=self.parent,
-            run_id=self.run_id,
-            model=self.model,
-            tool_calls=self.tool_calls,
-            usage=self.usage,
-            id=self.id,
-            db_id=self.db_id,
+            tags=self.tags,            
+            parent=self.parent,            
             styles=self.styles,
             wrap=self.wrap,
             vwrap=self.vwrap,
         )
         self.children.append(ctx)        
         return ctx
+    
+    
+    def __add__(self, other: ContentType | BlockChunk | tuple[ContentType, ...]):
+        if isinstance(other, Block):
+            for rc in other.root:
+                self.append_root(rc)
+        else:
+            block = self._process_content(other, self.path)
+            self.append_root(block)
+        return self
+    
+    
+    def __truediv__(self, other: ContentType | BlockChunk | tuple[ContentType, ...]):
+        if isinstance(other, Block):
+            self.append_child(other)
+        else:
+            block = self._process_content(other, self.path)
+            self.append_child(block)
+        return self
+    
     
     
     def __iadd__(self, other: ContentType | BlockChunk | tuple[ContentType, ...]):
@@ -766,7 +767,17 @@ class Block(BaseBlock):
             return v.model_dump()
         else:
             raise ValueError(f"Invalid block list: {v}")
+    
+    def build_response(self):
+        def _clone_target_node(n: Block) -> ResponseContext:
+            return ResponseContext(                
+                schema=n, 
+                tags=n.tags,                           
+            )
         
+        def _is_target(node: BaseBlock) -> bool:
+            return isinstance(node, FieldBlock)
+        return self.reduce_tree(_is_target, _clone_target_node)
         
         
     def reduce_tree(self, is_target: Callable[[BaseBlock], bool] | None = None, clone_target_node = None) -> "ResponseContext":
@@ -775,26 +786,28 @@ class Block(BaseBlock):
         dummy_children: List[BaseBlock] = []
         stack: List[Block] = []  # stack of cloned target nodes
         
-        def _clone_target_node(n: Block) -> ResponseContext:
-            # Copy only what you need; children will be filled during reduction.
-            for b in n.root:
-                if isinstance(b, FieldBlock):
-                    f = copy.deepcopy(b)
-                    f.attrs = copy.deepcopy(n.attrs)
-                    return ResponseContext(f)
-            raise ValueError("No field block found")
+        # def _clone_target_node(n: Block) -> ResponseContext:
+        #     # Copy only what you need; children will be filled during reduction.
+        #     for b in n.root:
+        #         if isinstance(b, FieldBlock):
+        #             f = copy.deepcopy(b)
+        #             f.attrs = copy.deepcopy(n.attrs)
+        #             return ResponseContext(f)
+        #     raise ValueError("No field block found")
         
-        def _is_target(node: BaseBlock) -> bool:
-            if isinstance(node, FieldBlock):
-                return True
-            elif isinstance(node, Block):
-                for b in node.root:
-                    if isinstance(b, FieldBlock):
-                        return True
-            return False
+        # def _is_target(node: BaseBlock) -> bool:
+        #     if isinstance(node, FieldBlock):
+        #         return True
+        #     elif isinstance(node, Block):
+        #         for b in node.root:
+        #             if isinstance(b, FieldBlock):
+        #                 return True
+        #     return False
         
-        is_target = is_target or _is_target
-        clone_target_node = clone_target_node or _clone_target_node
+
+        
+        # is_target = is_target or _is_target
+        # clone_target_node = clone_target_node or _clone_target_node
 
         def dfs(u: Block):
             created = None
@@ -848,7 +861,7 @@ def FieldAttr(
 
 class FieldAttrBlock:
     name: str
-    type: Type
+    type: Type = str
     description: str
     gt: annotated_types.Gt | None = None
     lt: annotated_types.Lt | None = None
@@ -857,9 +870,9 @@ class FieldAttrBlock:
     
     def __init__(
         self, 
-        name: str, 
-        type: Type, 
+        name: str,          
         description: str, 
+        type: Type = str,
         gt: annotated_types.Gt | None = None, 
         lt: annotated_types.Lt | None = None, 
         ge: annotated_types.Ge | None = None, 
@@ -893,11 +906,17 @@ class FieldAttrBlock:
             raise ValueError(f"Invalid type: {self.type}")
 
 
-class FieldBlock(BlockChunk):
+class FieldBlock(Block):
     
-    def __init__(self, name: str, type: Type, attrs: dict[str, str | FieldAttrBlock] | None = None):
-        super().__init__(name, tags=[name], style="xml", attrs=attrs)
-        self.type = type
+    def __init__(
+        self, 
+        name: str, 
+        **kwargs: Unpack[FieldBlockParams]        
+    ):
+        super().__init__(name, tags=[name], style="xml", attrs=kwargs.get("attrs"))
+        if not kwargs.get("type"):
+            raise ValueError("type is required")
+        self.type = kwargs.get("type")
         self.name = name
         
         
@@ -941,8 +960,16 @@ class FieldContext(Block):
 
 class ResponseContext(Block):
     
-    def __init__(self, schema: FieldBlock, children: BlockList | None = None, tags: list[str] | None = None, **kwargs: Unpack[BlockParams]):
-        super().__init__(children=children, tags=[schema.name] + (tags or []), **kwargs)
+    def __init__(
+        self, 
+        schema: FieldBlock, 
+        children: BlockList | None = None, 
+        tags: list[str] | None = None, 
+        **kwargs: Unpack[BlockParams]
+    ):
+        if schema.name not in tags:
+            tags = [schema.name] + (tags or [])
+        super().__init__(root=schema.name, style="xml", children=children, tags=tags, **kwargs)
         self.schema = schema
         self._value = None
         self.postfix: BlockList | None = None
