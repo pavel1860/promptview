@@ -399,10 +399,11 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
     
         UserList.__init__(self, blocks)
         BaseBlock.__init__(self, parent=kwargs.get("parent"), path=kwargs.get("path"))
+        self.sep_list = []
         self.default_sep = sep
         for block in blocks:
             block.parent = self.parent
-        self.sep_list = []
+            self.sep_list.append(sep)        
         self.has_eol = False
         if wrap:
             self.wrap(*wrap)
@@ -456,6 +457,13 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
             self.has_eol = True
         self.sep_list.insert(index, sep)
         UserList.insert(self, index, block)
+        
+        
+    def iter_chunks(self):
+        if len(self) != len(self.sep_list):
+            raise ValueError("Number of chunks and separators must match")
+        for chunk, sep in zip(self, self.sep_list):
+            yield chunk, sep
         
         
     def __add__(self, other: ContentType):
@@ -551,12 +559,27 @@ class BlockList(UserList[BaseBlock], BaseBlock):
     def logprob(self) -> float | None:
         return sum(block.logprob for block in self if block.logprob is not None)
     
+    @property
+    def last(self) -> BlockChunk:
+        if not self:
+            UserList.append(self, BlockSent())
+        return self[-1]
+    
     
     def model_dump(self):
         dump = super().model_dump()
         dump["_type"] = "BlockList"
         dump["blocks"] = [b.model_dump() for b in self]
         return dump
+    
+    def append(self, content: "BlockChunk | BlockSent | Block"):
+        if isinstance(content, BlockSent):
+            UserList.append(self, content)
+        elif isinstance(content, Block):
+            UserList.append(self, content)
+        else:
+            UserList.append(self, BlockSent([content]))
+        return self
     
     @classmethod
     def model_validate(cls, data: dict):
@@ -819,18 +842,24 @@ class Block(BaseBlock):
     
     
     
-    def append_child(self, child: BlockChunk, as_line: bool = False):
-        child.path = self.path + [len(self.children) + 1]
-        child.parent = self
-        if as_line:
-            if not self.children or not isinstance(self.children[-1], BlockList):
-                self.children.append(BlockList([]))
-            self.children[-1].append(child)
-            if child.is_end_of_line:
-                self.children.append(BlockList([]))
-        else:
-            self.children.append(child)        
+    # def append_child(self, child: BlockChunk, as_line: bool = False):
+    #     child.path = self.path + [len(self.children) + 1]
+    #     child.parent = self
+    #     if as_line:
+    #         if not self.children or not isinstance(self.children[-1], BlockList):
+    #             self.children.append(BlockList([]))
+    #         self.children[-1].append(child)
+    #         if child.is_end_of_line:
+    #             self.children.append(BlockList([]))
+    #     else:
+    #         self.children.append(child)        
+    #     return self
+    
+    def append_child(self, content: ContentType | BlockChunk):
+        block = self._process_content(content, self.path)
+        self.children.append(block)
         return self
+        
     
     def append_root(self, content: ContentType | BlockChunk):
         block = self._process_content(content, self.path)

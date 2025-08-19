@@ -1,77 +1,78 @@
 from promptview.block.block7 import  BaseBlock, BlockChunk, Block, BlockSent, BlockList
+from promptview.block.renderers_base import RenderContext, renderer_registry, style_manager
 from promptview.block.style2 import StyleManager
-from promptview.block.renderers import (
-    AsteriskListRenderer,
-    BaseRenderer,
-    BulletListRenderer,
-    CheckboxListRenderer,
-    DashListRenderer,
-    ListColumnLayoutRenderer,
-    ListColumnTupleLayoutRenderer,
-    ListRowLayoutRenderer,
-    PlusListRenderer,
-    RenderContext,
-    ContentRenderer,
-    RendererRegistry,
-    MarkdownHeaderRenderer,
-    # YamlRenderer,
-    # JsonRenderer,
-    XmlTitleRenderer,
-    NumberedListRenderer,
-    ListStreamLayoutRenderer,
-    # BulletedListRenderer
-)
+# from promptview.block.renderers import (
+#     AsteriskListRenderer,
+#     BaseRenderer,
+#     BulletListRenderer,
+#     CheckboxListRenderer,
+#     DashListRenderer,
+#     ListColumnLayoutRenderer,
+#     ListColumnTupleLayoutRenderer,
+#     ListRowLayoutRenderer,
+#     PlusListRenderer,
+#     RenderContext,
+#     ContentRenderer,
+#     RendererRegistry,
+#     MarkdownHeaderRenderer,
+#     # YamlRenderer,
+#     # JsonRenderer,
+#     XmlTitleRenderer,
+#     NumberedListRenderer,
+#     ListStreamLayoutRenderer,
+#     # BulletedListRenderer
+# )
 
 # initialize global registries
-style_manager = StyleManager()
+# style_manager = StyleManager()
 
 
-style_manager.add_style(["markdown-title", "md"], {"title-format": "markdown-title"})
-
-
-
-
-style_manager.add_style(["list-num", "li1"], {"list-format": "numbered-list"})
-style_manager.add_style(["list-bullet", "li•"], {"list-format": "bullet-list"})
-style_manager.add_style(["list-dash", "li-"], {"list-format": "dash-list"})
-style_manager.add_style(["list-plus", "li+"], {"list-format": "plus-list"})
-style_manager.add_style(["list-asterisk", "li*"], {"list-format": "asterisk-list"})
-
-style_manager.add_style(["list-checkbox", "li[]"], {"list-format": "checkbox-list"})
+# style_manager.add_style(["markdown-title", "md"], {"title-format": "markdown-title"})
 
 
 
-style_manager.add_style(['list-col', 'col'], {"list-layout": "list-column-layout"})
-style_manager.add_style(["row", "list-row"], {"list-layout": "list-row-layout"})
-style_manager.add_style(["stream", "list-stream"], {"list-layout": "list-stream-layout"})
-style_manager.add_style(["col-tuple"], {"list-layout": "list-column-tuple-layout"})
+
+# style_manager.add_style(["list-num", "li1"], {"list-format": "numbered-list"})
+# style_manager.add_style(["list-bullet", "li•"], {"list-format": "bullet-list"})
+# style_manager.add_style(["list-dash", "li-"], {"list-format": "dash-list"})
+# style_manager.add_style(["list-plus", "li+"], {"list-format": "plus-list"})
+# style_manager.add_style(["list-asterisk", "li*"], {"list-format": "asterisk-list"})
+
+# style_manager.add_style(["list-checkbox", "li[]"], {"list-format": "checkbox-list"})
 
 
-style_manager.add_style(["xml"], {"title-format": "xml-title"})
 
-renderer_registry = RendererRegistry()
-
-# register default renderers
-renderer_registry.register("markdown-title", MarkdownHeaderRenderer())
-renderer_registry.register("xml-title", XmlTitleRenderer())
+# style_manager.add_style(['list-col', 'col'], {"list-layout": "list-column-layout"})
+# style_manager.add_style(["row", "list-row"], {"list-layout": "list-row-layout"})
+# style_manager.add_style(["stream", "list-stream"], {"list-layout": "list-stream-layout"})
+# style_manager.add_style(["col-tuple"], {"list-layout": "list-column-tuple-layout"})
 
 
-renderer_registry.register("numbered-list", NumberedListRenderer())
-renderer_registry.register("bullet-list", BulletListRenderer())
-renderer_registry.register("dash-list", DashListRenderer())
-renderer_registry.register("plus-list", PlusListRenderer())
-renderer_registry.register("checkbox-list", CheckboxListRenderer())
-renderer_registry.register("asterisk-list", AsteriskListRenderer())
+# style_manager.add_style(["xml"], {"title-format": "xml-title"})
+
+# renderer_registry = RendererRegistry()
+
+# # register default renderers
+# renderer_registry.register("markdown-title", MarkdownHeaderRenderer())
+# renderer_registry.register("xml-title", XmlTitleRenderer())
 
 
-renderer_registry.register("list-column-layout", ListColumnLayoutRenderer())
-renderer_registry.register("list-row-layout", ListRowLayoutRenderer())
-renderer_registry.register("list-stream-layout", ListStreamLayoutRenderer())
-renderer_registry.register("list-column-tuple-layout", ListColumnTupleLayoutRenderer())
+# renderer_registry.register("numbered-list", NumberedListRenderer())
+# renderer_registry.register("bullet-list", BulletListRenderer())
+# renderer_registry.register("dash-list", DashListRenderer())
+# renderer_registry.register("plus-list", PlusListRenderer())
+# renderer_registry.register("checkbox-list", CheckboxListRenderer())
+# renderer_registry.register("asterisk-list", AsteriskListRenderer())
 
-default_renderer = ContentRenderer()
 
-default_list_layout_renderer = ListRowLayoutRenderer()
+# renderer_registry.register("list-column-layout", ListColumnLayoutRenderer())
+# renderer_registry.register("list-row-layout", ListRowLayoutRenderer())
+# renderer_registry.register("list-stream-layout", ListStreamLayoutRenderer())
+# renderer_registry.register("list-column-tuple-layout", ListColumnTupleLayoutRenderer())
+
+# default_renderer = ContentRenderer()
+
+# default_list_layout_renderer = ListRowLayoutRenderer()
 
 
 
@@ -84,31 +85,26 @@ def combine_content(left: str, right: str, sep: str):
         return right
 
 
-def render(target, index=0, depth=0, style=None, parent_ctx: RenderContext | None = None, verbose: bool = False):
-    # if style is None:
-    if not isinstance(target, BaseBlock):
-        raise ValueError(f"Invalid block type: {type(target)}")
-    if isinstance(target, Block):
-        style = style_manager.resolve(target)
-    ctx = RenderContext(target, style, index, depth, parent_ctx, verbose=verbose)
-    if isinstance(target, Block):
-        return render_context(target, ctx)
-    elif isinstance(target, BlockList):
-        return render_list(target, ctx)
-    elif isinstance(target, BlockSent):
-        return render_sentence(target, ctx)
-    elif isinstance(target, BlockChunk):
-        return render_block(target, ctx)
-    else:
-        raise ValueError(f"Invalid block type: {type(target)}")
+# def render(target, index=0, depth=0, style=None, parent_ctx: RenderContext | None = None, verbose: bool = False):
+#     # if style is None:
+#     if not isinstance(target, BaseBlock):
+#         raise ValueError(f"Invalid block type: {type(target)}")
+#     if isinstance(target, Block):
+#         style = style_manager.resolve(target)
+#     ctx = RenderContext(target, style, index, depth, parent_ctx, verbose=verbose)
+#     if isinstance(target, Block):
+#         return render_block(target, ctx)
+#     elif isinstance(target, BlockList):
+#         return render_list(target, ctx)
+#     elif isinstance(target, BlockSent):
+#         return render_sentence(target, ctx)
+#     # elif isinstance(target, BlockChunk):
+#     #     return render_chunk(target, ctx)
+#     else:
+#         raise ValueError(f"Invalid block type: {type(target)}")
     
     
-def render_block(block: BlockChunk, ctx: RenderContext):
-    fmt = ctx.get_parent_style("block-format")
-    renderer = renderer_registry.get(fmt) if fmt else default_renderer
-    content = renderer.try_render(ctx, block.content)
-    content+= block.sep
-    return content
+
 
     
 # def render_list(block_list: BlockList, ctx: RenderContext):
@@ -133,34 +129,83 @@ def render_block(block: BlockChunk, ctx: RenderContext):
 #     return content
 
 
-def render_sentence(block_sentence: BlockSent, ctx: RenderContext):
-    raise "bla"
+# def render_chunk(block: BlockChunk, ctx: RenderContext):
+#     fmt = ctx.get_parent_style("block-format")
+#     renderer = renderer_registry.get(fmt)
+#     content = renderer.try_render(ctx, block.content)
+#     content+= block.sep
+#     return content
+
+
+def render(target, style=None, parent_ctx: RenderContext | None = None, verbose: bool = False):
+    # if style is None:
+    if not isinstance(target, BaseBlock):
+        raise ValueError(f"Invalid block type: {type(target)}")
+    if isinstance(target, Block):
+        style = style_manager.resolve(target)
+    ctx = RenderContext(target, style, parent_ctx, verbose=verbose)
+    if isinstance(target, Block):
+        return render_block(target, ctx)
+    elif isinstance(target, BlockList):
+        return render_list(target, ctx)
+    elif isinstance(target, BlockSent):
+        return render_sentence(target, ctx)
+    # elif isinstance(target, BlockChunk):
+    #     return render_chunk(target, ctx)
+    else:
+        raise ValueError(f"Invalid block type: {type(target)}")
+
+
+def render_sentence(sentence: BlockSent, ctx: RenderContext):
+    fmt = ctx.get_parent_style("sentence-format")
+    renderer = renderer_registry.get(fmt, 'sentence-format')
+    content = renderer.render(ctx, sentence)
+    return content
 
 
 def render_list(block_list: BlockList, ctx: RenderContext):
-    raise "bla"
-    
-
-def render_context(block: Block, ctx: RenderContext):
-    
-    #! render title content
-    title_fmt = ctx.get_style("title-format") 
-    # title_content = render_list(block.root, ctx) if not ctx.is_wrapper else ""
-    title_content = render_root_row(block.root, ctx)    
-    if title_content and block.wrap:
-        title_content = block.wrap[0] + title_content + block.wrap[1]
-    ctx.log("title_content", title_content)
-    #! render children
-    # children_content = render_item_list(block.children, ctx)
-    child_depth = ctx.depth + 1 if not ctx.is_wrapper else ctx.depth    
-    children_content = render(block.children, ctx.index, child_depth, None, ctx)
-    if block.vwrap and children_content:
-        children_content = block.vwrap[0] + children_content + block.vwrap[1]
-    ctx.log("children_content", children_content)
-    #! render title with children content
-    title_renderer = renderer_registry.get(title_fmt) if title_fmt else default_renderer
-    content = title_renderer.try_render(ctx, title_content, children_content)
+    fmt = ctx.get_parent_style("list-format")
+    renderer = renderer_registry.get(fmt, 'list-format')
+    content = renderer.render(ctx, block_list)
     return content
+    
+def render_block(block: Block, ctx: RenderContext):
+    fmt = ctx.get_style("sentence-format")
+    title_renderer = renderer_registry.get(fmt, 'sentence-format')
+    title_content = title_renderer.render(ctx, block.root)        
+    
+    children_content_list = [render(child, None, ctx) for child in block.children]
+    children_fmt = ctx.get_style("list-format")
+    children_renderer = renderer_registry.get(children_fmt, 'list-format')
+    children_content = children_renderer.render(ctx, block, children_content_list)
+    
+    block_fmt = ctx.get_style("block-format")
+    block_renderer = renderer_registry.get(block_fmt, 'block-format')
+    content = block_renderer.render(ctx, block, title_content, children_content)    
+    return content
+
+
+
+# def render_context(block: Block, ctx: RenderContext):
+    
+#     #! render title content
+#     title_fmt = ctx.get_style("title-format") 
+#     # title_content = render_list(block.root, ctx) if not ctx.is_wrapper else ""
+#     title_content = render_list(block.root, ctx)    
+#     if title_content and block.wrap:
+#         title_content = block.wrap[0] + title_content + block.wrap[1]
+#     ctx.log("title_content", title_content)
+#     #! render children
+#     # children_content = render_item_list(block.children, ctx)
+#     child_depth = ctx.depth + 1 if not ctx.is_wrapper else ctx.depth    
+#     children_content = render(block.children, ctx.index, child_depth, None, ctx)
+#     if block.vwrap and children_content:
+#         children_content = block.vwrap[0] + children_content + block.vwrap[1]
+#     ctx.log("children_content", children_content)
+#     #! render title with children content
+#     title_renderer = renderer_registry.get(title_fmt) if title_fmt else default_renderer
+#     content = title_renderer.try_render(ctx, title_content, children_content)
+#     return content
         
     # return combine_content(title_content, children_content, "\n")
   
