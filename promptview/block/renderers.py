@@ -1,7 +1,7 @@
 import json
 import textwrap
 import yaml
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, List
 from abc import ABC, abstractmethod
 
 from promptview.block.block7 import FieldAttrBlock
@@ -21,12 +21,17 @@ class RenderContext:
         index: int, 
         depth: int,
         parent_ctx: "RenderContext | None" = None,
+        verbose: bool = False,
     ):
         self.block = block
         self.style = style
         self.index = index
         self.depth = depth
         self.parent_ctx = parent_ctx
+        if parent_ctx and parent_ctx.verbose:
+            self.verbose = True
+        else:
+            self.verbose = verbose
         
     @property
     def is_list(self) -> bool:
@@ -59,6 +64,10 @@ class RenderContext:
             if not self.block.root:
                 return True
         return False
+    
+    def log(self, name: str, target: Any):
+        if self.verbose:
+            print(f"{name}{self.block.path}:", target)
 
 class BaseRenderer(ABC):    
         

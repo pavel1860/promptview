@@ -174,13 +174,13 @@ class BaseBlock:
     #     return cls(*content,**data, children=[cls.model_validate(c) for c in children])
     
     
-    def render(self) -> str:
+    def render(self, verbose: bool = False) -> str:
         from promptview.block.block_renderer2 import render
-        result = render(self)
+        result = render(self, verbose=verbose)
         return result if result is not None else ""
     
-    def print(self):
-        print(self.render())
+    def print(self, verbose: bool = False):
+        print(self.render(verbose=verbose))
     
     def __str__(self) -> str:
         out = self.render()
@@ -194,8 +194,6 @@ class BlockChunk(BaseBlock):
     __slots__ = [
         "content",
         "children",
-        "is_end_of_line",
-        "sep",
         "logprob",
     ]
     
@@ -203,10 +201,8 @@ class BlockChunk(BaseBlock):
     def __init__(
         self, 
         content: ContentType | None = None,
-        sep: str = " ",
         logprob: float | None = None,
-        parent: "BaseBlock | None" = None,
-        is_end_of_line: bool = False,
+        parent: "BaseBlock | None" = None,        
         path: str | None = None,
         id: str | None = None,
     ):
@@ -214,19 +210,20 @@ class BlockChunk(BaseBlock):
         Basic component of prompt building. 
         """
         super().__init__(parent=parent, id=id, path=path)
-        self.content: ContentType = content
-        self.sep: str = sep
+        self.content: ContentType = content        
         self.logprob: float | None = logprob
-        self.is_end_of_line = False
-        if is_end_of_line:
-            self.is_end_of_line = is_end_of_line        
-        else:
-            #! if content is a string, check if it ends with a newline
-            if self._detect_end_of_line(content):
-                self.sep = "\n"
-                self.is_end_of_line = True
+        # self.is_end_of_line = False
+        # if is_end_of_line:
+        #     self.is_end_of_line = is_end_of_line        
+        # else:
+        #     #! if content is a string, check if it ends with a newline
+        #     if self._detect_end_of_line(content):
+        #         self.sep = "\n"
+        #         self.is_end_of_line = True
         
-        self.content: ContentType = content
+    @property
+    def is_eol(self) -> bool:
+        return self.content.endswith("\n")
         
     
     def _detect_end_of_line(self, content: ContentType):
@@ -382,7 +379,163 @@ class BlockChunk(BaseBlock):
 
 
 
-class BlockList(UserList[BlockChunk], BaseBlock):
+class BlockSent(UserList[BlockChunk], BaseBlock):
+    
+    __slots__ = [
+        "sep_list",
+        "has_eol",
+    ]
+    
+    
+    def __init__(
+        self, 
+        blocks: list[BlockChunk] | None = None, 
+        sep: str = " ", 
+        wrap: tuple[str, str] | None = None,
+        **kwargs: Unpack[BlockParams],
+    ):
+        if blocks is None:
+            blocks = []
+    
+        UserList.__init__(self, blocks)
+        BaseBlock.__init__(self, parent=kwargs.get("parent"), path=kwargs.get("path"))
+        self.default_sep = sep
+        for block in blocks:
+            block.parent = self.parent
+        self.sep_list = []
+        self.has_eol = False
+        if wrap:
+            self.wrap(*wrap)
+        
+    @property
+    def logprob(self) -> float | None:
+        return sum(block.logprob for block in self if block.logprob is not None)
+    
+    
+    def wrap(self, start_token: str, end_token: str):
+        self.prepend(start_token)
+        self.append(end_token)
+    
+    def _process_content(self, content: ContentType):
+        if isinstance(content, BlockChunk):
+            return content
+        elif isinstance(content, str):
+            return BlockChunk(content)
+        elif isinstance(content, int):
+            return BlockChunk(content)
+        elif isinstance(content, float):
+            return BlockChunk(content)
+        else:
+            raise ValueError(f"Invalid content type: {type(content)}")
+    
+    def append(self, content: ContentType, sep: str | None = None):
+        if self.has_eol:
+            raise ValueError("Cannot append to a list that has an end of line")
+        block = self._process_content(content)
+        sep = sep or self.default_sep
+        if block.is_eol:
+            sep = "\n"
+            self.has_eol = True
+        self.sep_list.append(sep)
+        UserList.append(self, block)
+        
+    def prepend(self, content: ContentType, sep: str | None = None):
+        self.insert(0, content, sep=sep)
+        
+    def insert(self, index: int, content: ContentType, sep: str | None = None):
+        if self.has_eol and index == len(self):
+            raise ValueError("Cannot insert to the end of a list that has an end of line")
+        block = self._process_content(content)
+        sep = sep or self.default_sep
+        if block.is_eol:
+            if index != len(self):
+                raise ValueError("end of line cannot be inserted in the middle of a list")
+            if self.has_eol:
+                raise ValueError("Cannot insert an end of line to a list that has an end of line")
+            sep = "\n"
+            self.has_eol = True
+        self.sep_list.insert(index, sep)
+        UserList.insert(self, index, block)
+        
+        
+    def __add__(self, other: ContentType):
+        self.append(other)
+        return self
+    
+    def __and__(self, other: ContentType):
+        self.append(other, sep="")
+        return self
+    
+    def __iadd__(self, other: ContentType):
+        self.append(other)
+        return self
+    
+    def __radd__(self, other: ContentType):
+        self.append(other)
+        return self
+    
+    def __iradd__(self, other: ContentType):
+        self.append(other)
+        return self
+    
+        
+        
+    
+    def model_dump(self):
+        dump = super().model_dump()
+        dump["_type"] = "BlockList"
+        dump["blocks"] = [b.model_dump() for b in self]
+        return dump
+    
+    @classmethod
+    def model_validate(cls, data: dict):
+        if "_type" not in data or data["_type"] != "BlockList":
+            raise ValueError(f"Invalid or missing _type for BlockList: {data.get('_type')}")
+        data = dict(data)
+        data.pop("_type")
+        blocks_data = data.pop("blocks", [])
+        blocks = [BlockChunk.model_validate(b) for b in blocks_data]
+        return cls(blocks=blocks, **data)
+    
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            cls._validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                cls._serialize
+            )
+        )
+        
+    def get(self, tag: str):
+        for block in self:
+            if block.tags and tag in block.tags:
+                return block
+            elif isinstance(block, Block):
+                return block.get(tag)
+        return None
+        
+    @staticmethod
+    def _validate(v: Any) -> Any:
+        if isinstance(v, BlockList):
+            return v
+        elif isinstance(v, list):
+            for item in v:
+                if not isinstance(item, BlockChunk):
+                    raise ValueError(f"Invalid block list: {v}")
+            return BlockList(v)
+        else:
+            raise ValueError(f"Invalid block list: {v}")
+
+    @staticmethod
+    def _serialize(v: Any) -> Any:
+        if isinstance(v, BlockList):
+            return [item.model_dump() for item in v]
+        else:
+            raise ValueError(f"Invalid block list: {v}")
+        
+
+
+class BlockList(UserList[BaseBlock], BaseBlock):
     
     
     def __init__(self, blocks: list[BlockChunk] | None = None, **kwargs: Unpack[BlockParams]):
@@ -451,6 +604,7 @@ class BlockList(UserList[BlockChunk], BaseBlock):
         else:
             raise ValueError(f"Invalid block list: {v}")
         
+    
 
 
 
@@ -497,19 +651,24 @@ class Block(BaseBlock):
         self.wrap: tuple[str, str] | None = kwargs.get("wrap")
         self.vwrap: tuple[str, str] | None = kwargs.get("vwrap")
         self.attrs: dict[str, FieldAttrBlock] = get_attrs(kwargs.get("attrs", {}))        
+        self.root = BlockSent()
+        self.children = BlockList()
         
         root_block = self._process_content(root, self.path) if root is not None else None
+                
+        self.root.append(root_block)
+        
 
-        if isinstance(root_block, BlockChunk):
-            self.root: BlockList = BlockList([root_block], parent=self)
-        elif isinstance(root_block, BlockList):
-            self.root: BlockList = root_block
-        else:
-            self.root: BlockList = BlockList([], parent=self)
-        if children is None:
-            self.children: BlockList = BlockList([], parent=self)
-        else:
-            self.children: BlockList = children
+        # if isinstance(root_block, BlockChunk):
+        #     self.root: BlockList = BlockList([root_block], parent=self)
+        # elif isinstance(root_block, BlockList):
+        #     self.root: BlockList = root_block
+        # else:
+        #     self.root: BlockList = BlockList([], parent=self)
+        # if children is None:
+        #     self.children: BlockList = BlockList([], parent=self)
+        # else:
+        #     self.children: BlockList = children
 
     @classmethod
     def model_validate(cls, data: dict):

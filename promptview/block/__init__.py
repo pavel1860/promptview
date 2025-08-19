@@ -1,6 +1,6 @@
 # from .block import Block, block, BlockList
 # from .block import block
-from .block7 import BlockChunk, BlockList, block, ContextStack, Blockable, Block, BlockSchema
+from .block7 import BlockChunk, BlockSent, BlockList, block, ContextStack, Blockable, Block, BlockSchema
 from .util import BlockRole, LlmUsage, ToolCall
 
 # from .block_renderer import BlockRenderer
@@ -9,7 +9,8 @@ from .style import InlineStyle, BlockStyle, StyleManager, UndefinedTagError
 
 __all__ = [
     "block",
-    "BlockChunk", 
+    "BlockChunk",
+    "BlockSent",
     # "BlockRenderer", 
     # "RendererMeta", 
     # "Renderer", 

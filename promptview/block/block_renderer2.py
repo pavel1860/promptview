@@ -1,4 +1,4 @@
-from promptview.block.block7 import  BaseBlock, BlockChunk, Block, BlockList
+from promptview.block.block7 import  BaseBlock, BlockChunk, Block, BlockSent, BlockList
 from promptview.block.style2 import StyleManager
 from promptview.block.renderers import (
     AsteriskListRenderer,
@@ -84,17 +84,19 @@ def combine_content(left: str, right: str, sep: str):
         return right
 
 
-def render(target, index=0, depth=0, style=None, parent_ctx: RenderContext | None = None):
+def render(target, index=0, depth=0, style=None, parent_ctx: RenderContext | None = None, verbose: bool = False):
     # if style is None:
     if not isinstance(target, BaseBlock):
         raise ValueError(f"Invalid block type: {type(target)}")
     if isinstance(target, Block):
         style = style_manager.resolve(target)
-    ctx = RenderContext(target, style, index, depth, parent_ctx)
+    ctx = RenderContext(target, style, index, depth, parent_ctx, verbose=verbose)
     if isinstance(target, Block):
         return render_context(target, ctx)
     elif isinstance(target, BlockList):
         return render_list(target, ctx)
+    elif isinstance(target, BlockSent):
+        return render_sentence(target, ctx)
     elif isinstance(target, BlockChunk):
         return render_block(target, ctx)
     else:
@@ -109,25 +111,34 @@ def render_block(block: BlockChunk, ctx: RenderContext):
     return content
 
     
-def render_list(block_list: BlockList, ctx: RenderContext):
-    fmt = ctx.get_parent_style("list-format")
-    layout_fmt = ctx.get_parent_style("list-layout")
-    item_content = [render(item, index=index, depth=ctx.depth, style=ctx.style, parent_ctx=ctx) for index, item in enumerate(block_list)]
+# def render_list(block_list: BlockList, ctx: RenderContext):
+#     fmt = ctx.get_parent_style("list-format")
+#     layout_fmt = ctx.get_parent_style("list-layout")
+#     item_content = [render(item, index=index, depth=ctx.depth, style=ctx.style, parent_ctx=ctx) for index, item in enumerate(block_list)]
     
-    renderer = renderer_registry.get(fmt) if fmt else default_renderer    
-    content_list = renderer.try_render_list(ctx, item_content)
+#     renderer = renderer_registry.get(fmt) if fmt else default_renderer    
+#     content_list = renderer.try_render_list(ctx, item_content)
         
-    # layout_renderer = renderer_registry.get(layout_fmt) if layout_fmt else default_list_layout_renderer
-    # content = layout_renderer.try_render_list_layout(ctx, content_list)
-    content = "\n".join(content_list)
-    return content
+#     # layout_renderer = renderer_registry.get(layout_fmt) if layout_fmt else default_list_layout_renderer
+#     # content = layout_renderer.try_render_list_layout(ctx, content_list)
+#     content = "\n".join(content_list)    
+#     return content
     
-def render_root_row(block_list: BlockList, ctx: RenderContext):
-    item_content = [render(item, index=index, depth=ctx.depth, style=ctx.style, parent_ctx=ctx) for index, item in enumerate(block_list)]
-    content_list = default_renderer.try_render_list(ctx, item_content)
-    # content = default_list_layout_renderer.render_list_layout(ctx, content_list)
-    content = "".join(content_list)
-    return content
+# def render_root_row(block_list: BlockList, ctx: RenderContext):
+#     item_content = [render(item, index=index, depth=ctx.depth, style=ctx.style, parent_ctx=ctx) for index, item in enumerate(block_list)]
+#     ctx.log("root_row", item_content)
+#     content_list = default_renderer.try_render_list(ctx, item_content)
+#     # content = default_list_layout_renderer.render_list_layout(ctx, content_list)
+#     content = "".join(content_list)
+#     return content
+
+
+def render_sentence(block_sentence: BlockSent, ctx: RenderContext):
+    raise "bla"
+
+
+def render_list(block_list: BlockList, ctx: RenderContext):
+    raise "bla"
     
 
 def render_context(block: Block, ctx: RenderContext):
@@ -135,17 +146,17 @@ def render_context(block: Block, ctx: RenderContext):
     #! render title content
     title_fmt = ctx.get_style("title-format") 
     # title_content = render_list(block.root, ctx) if not ctx.is_wrapper else ""
-    title_content = render_root_row(block.root, ctx)
+    title_content = render_root_row(block.root, ctx)    
     if title_content and block.wrap:
         title_content = block.wrap[0] + title_content + block.wrap[1]
-    
+    ctx.log("title_content", title_content)
     #! render children
     # children_content = render_item_list(block.children, ctx)
     child_depth = ctx.depth + 1 if not ctx.is_wrapper else ctx.depth    
     children_content = render(block.children, ctx.index, child_depth, None, ctx)
     if block.vwrap and children_content:
         children_content = block.vwrap[0] + children_content + block.vwrap[1]
-    
+    ctx.log("children_content", children_content)
     #! render title with children content
     title_renderer = renderer_registry.get(title_fmt) if title_fmt else default_renderer
     content = title_renderer.try_render(ctx, title_content, children_content)
