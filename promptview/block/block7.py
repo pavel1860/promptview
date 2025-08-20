@@ -76,7 +76,7 @@ def parse_style(style: str | List[str] | None) -> List[str]:
 
 
 class BaseBlockParams(TypedDict, total=False):
-    path: List[int] | None
+    index: int | None
     parent: "BaseBlock | None"
 
 class BlockChunkParams(BaseBlockParams):
@@ -90,8 +90,7 @@ class BlockParams(BaseBlockParams):
     role: str | None
     tags: list[str] | None
     style: str | None
-    attrs: dict[str, "str | FieldAttrBlock"] | None    
-    parent: "BaseBlock | None"    
+    attrs: dict[str, "str | FieldAttrBlock"] | None     
     id: str | None
     styles: list[str] | None
     
@@ -120,53 +119,31 @@ class BaseBlock:
         "path",
         "id",
         "parent",
+        "index",
     ]
     
     
     def __init__(
         self, 
-        path: List[int] | None = None, 
+        index: int | None = None, 
         parent: "BaseBlock | None" = None,
         id: str | None = None,
     ):
-        self.path = path or [1]
+        self.index = index or 1
         self.parent = parent
         self.id = id
-    # @property
-    # def is_end_of_line(self) -> bool:
-    #     return self.sep == "\n"
     
     @property
     def full_path(self) -> list[int]:
         raise NotImplementedError("Not implemented")
-        # path = self.path.copy()
-        # curr = self
-        # while curr:= curr.block_parent:
-            # path = curr.path + path
-        # path = []
-        # curr = self
-        # # while curr:
-        # for i in range(20):
-        #     if curr is None:
-        #         break
-        #     print(curr)
-        #     path.insert(0, curr.path[0])
-        #     if isinstance(curr.parent, BlockList):
-        #         curr = curr.parent.parent
-        #     elif isinstance(curr.parent, Block):
-        #         curr = curr.parent
-                
-        # return path
+
     
     @property
     def block_parent(self):
         if isinstance(self.parent, BlockList):
             return self.parent.parent
         return self.parent       
-        
-    @property
-    def logprob(self) -> float | None:
-        return self._logprob
+
     
         
     def model_dump(self):
@@ -187,16 +164,7 @@ class BaseBlock:
         import json
         return json.dumps(self.model_dump())
     
-    # @classmethod
-    # def model_validate(cls, data: dict):
-    #     if "_type" not in data:
-    #         raise ValueError("Missing _type, not a valid block")
-    #     if data["_type"] != cls.__name__:
-    #         raise ValueError(f"Invalid _type: {data['_type']}")
-    #     _type = data.pop("_type")
-    #     content = content if isinstance(content, tuple) else (content,)
-    #     return cls(*content,**data, children=[cls.model_validate(c) for c in children])
-    
+
     
     def render(self, verbose: bool = False) -> str:
         from promptview.block.block_renderer2 import render
@@ -227,13 +195,13 @@ class BlockChunk(BaseBlock):
         content: ContentType | None = None,
         logprob: float | None = None,
         parent: "BaseBlock | None" = None,        
-        path: str | None = None,
+        index: int | None = None,
         id: str | None = None,
     ):
         """
         Basic component of prompt building. 
         """
-        super().__init__(parent=parent, id=id, path=path)
+        super().__init__(parent=parent, id=id, index=index)
         self.content: ContentType = content        
         self.logprob: float | None = logprob
         # self.is_end_of_line = False
@@ -247,7 +215,9 @@ class BlockChunk(BaseBlock):
         
     @property
     def is_eol(self) -> bool:
-        return self.content.endswith("\n")
+        if isinstance(self.content, str):
+            return self.content.endswith("\n")
+        return True
         
     
     def _detect_end_of_line(self, content: ContentType):
@@ -263,7 +233,6 @@ class BlockChunk(BaseBlock):
         pass
         
     def __add__(self, other: "BlockChunk"):
-        
         
         return BlockList(
             [self, other], 
@@ -380,13 +349,14 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         blocks: list[BlockChunk] | None = None, 
         sep: str = " ", 
         wrap: tuple[str, str] | None = None,
-        **kwargs: Unpack[BlockParams],
+        index: int | None = None,
+        parent: "BaseBlock | None" = None,
     ):
         if blocks is None:
             blocks = []
     
         UserList.__init__(self, blocks)
-        BaseBlock.__init__(self, parent=kwargs.get("parent"), path=kwargs.get("path"))
+        BaseBlock.__init__(self, parent=parent, index=index)
         self.sep_list = []
         self.default_sep = sep
         for block in blocks:
@@ -399,8 +369,8 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
     @property
     def full_path(self) -> list[int]:
         if self.parent is None:
-            return self.path
-        return self.parent.full_path + self.path
+            return [self.index]
+        return self.parent.full_path + [self.index]
         
     @property
     def logprob(self) -> float | None:
@@ -540,18 +510,25 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
 class BlockList(UserList[BaseBlock], BaseBlock):
     
     
-    def __init__(self, blocks: list[BlockChunk] | None = None, **kwargs: Unpack[BlockParams]):
+    def __init__(
+        self, 
+        blocks: list[BlockChunk] | None = None, 
+        index: int | None = None,
+        parent: "BaseBlock | None" = None,
+    ):
         if blocks is None:
             blocks = []
 
         UserList.__init__(self, blocks)
-        BaseBlock.__init__(self, parent=kwargs.get("parent"), path=kwargs.get("path"))
+        BaseBlock.__init__(self, parent=parent, index=index)
         for block in blocks:
             block.parent = self.parent
             
             
     @property
     def full_path(self) -> list[int]:
+        if self.parent is None:
+            raise ValueError("BlockList has no parent")
         return self.parent.full_path
     
     @property
@@ -581,7 +558,7 @@ class BlockList(UserList[BaseBlock], BaseBlock):
             content = BlockSent([content])
             UserList.append(self, content)
         content.parent = self          
-        content.path = [len(self)]
+        content.index = len(self)
         return self
     
     @classmethod
@@ -659,26 +636,36 @@ class Block(BaseBlock):
         "attrs",
     ]
     
+    # def __init__(
+    #     self, 
+    #     root: BlockChunk | BlockList | None = None, 
+    #     children: BlockList | None = None,         
+    #     **kwargs: Unpack[BlockParams]
+    # ):
     def __init__(
         self, 
-        root: BlockChunk | BlockList | None = None, 
-        children: BlockList | None = None,         
-        **kwargs: Unpack[BlockParams]
+        root: ContentType | BlockChunk | BlockList | None = None, 
+        children: BlockList | None = None,                 
+        role: str | None = None,
+        tags: list[str] | None = None,
+        style: str | None = None,
+        attrs: "dict[str, FieldAttrBlock] | None" = None,
+        id: str | None = None,
+        styles: list[str] | None = None,
+        index: int | None = None,
+        parent: "BaseBlock | None" = None,
     ):
-        super().__init__(parent=kwargs.get("parent"), path=kwargs.get("path"), id=kwargs.get("id"))
-        self.role: str | None = kwargs.get("role")
-        self.tags: list[str] = kwargs.get("tags", [])
-        if kwargs.get("styles"):
-            self.styles = kwargs.get("styles")
-        else:
-            self.styles: list[str] | None = parse_style(kwargs.get("style"))
-        self.attrs: dict[str, FieldAttrBlock] = get_attrs(kwargs.get("attrs", {}))        
-        self.root = BlockSent(path=self.path, parent=self)
-        self.children = BlockList(path=self.path, parent=self)
+        super().__init__(parent=parent, index=index, id=id)
+        self.role: str | None = role
+        self.tags: list[str] = tags or []
+        self.styles: list[str] | None = styles or parse_style(style)
+        self.attrs: dict[str, FieldAttrBlock] = get_attrs(attrs)        
+        self.root = BlockSent(index=self.index, parent=self)
+        self.children = BlockList(index=self.index, parent=self)
         
         root_block = self._process_content(root) if root is not None else None
-                
-        self.root.append(root_block)
+        if root_block is not None:
+            self.root.append(root_block)
         
 
         # if isinstance(root_block, BlockChunk):
@@ -694,8 +681,8 @@ class Block(BaseBlock):
     @property
     def full_path(self) -> list[int]:
         if self.parent is None:
-            return self.path
-        return self.parent.full_path + self.path
+            return [self.index]
+        return self.parent.full_path + [self.index]
 
     @classmethod
     def model_validate(cls, data: dict):
@@ -752,8 +739,7 @@ class Block(BaseBlock):
             le=le,
         )
     
-    def __enter__(self):
-        
+    def __enter__(self):        
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
@@ -777,15 +763,22 @@ class Block(BaseBlock):
     #         self.append_child(content)
     #         return content
     
-    def __call__(self, content: ContentType | BaseBlock | list[str] | None = None, **kwargs: Unpack[BlockParams]) -> BlockChunk:
+    def __call__(
+        self, 
+        content: ContentType | BaseBlock | list[str] | None = None, 
+        role: str | None = None,
+        tags: list[str] | None = None,
+        style: str | None = None,
+        attrs: "dict[str, FieldAttrBlock] | None" = None,
+    ) -> "Block":        
         ctx = Block(
             content,
-            path=self.path + [len(self.children) + 1],
-            role=self.role,
-            attrs=self.attrs,
-            tags=self.tags,            
+            index=len(self.children) + 1,
+            role=role,
+            tags=tags,            
             parent=self,            
-            styles=self.styles,
+            style=style,
+            attrs=attrs,
         )
         self.children.append(ctx)        
         return ctx
@@ -796,22 +789,22 @@ class Block(BaseBlock):
             for rc in other.root:
                 self.append_root(rc)
         else:
-            block = self._process_content(other, self.path)
+            block = self._process_content(other)
             self.append_root(block)
         return self
     
     
-    def __truediv__(self, other: ContentType | BlockChunk | tuple[ContentType, ...]):
+    def __truediv__(self, other: "ContentType | BlockChunk | Block"):
         if isinstance(other, Block):
             self.append_child(other)
         else:
-            block = self._process_content(other, self.path)
+            block = self._process_content(other)
             self.append_child(block)
         return self
     
     
     
-    def __iadd__(self, other: ContentType | BlockChunk | tuple[ContentType, ...]):
+    def __iadd__(self, other: ContentType | BlockChunk):
         # if isinstance(other, ContentType):            
         #     other = Block(other)        
         #     self.append_root(other)
@@ -829,7 +822,7 @@ class Block(BaseBlock):
         return self
     
     
-    def __itruediv__(self, other: ContentType | BlockChunk | tuple[ContentType, ...]):
+    def __itruediv__(self, other: ContentType | BlockChunk):
         # if not isinstance(other, Block):
         #     if isinstance(other, tuple):
         #         other = BlockList([Block(item) for item in other], style="list:row")                
@@ -839,20 +832,7 @@ class Block(BaseBlock):
         self.append_child(block)
         return self
     
-    
-    
-    # def append_child(self, child: BlockChunk, as_line: bool = False):
-    #     child.path = self.path + [len(self.children) + 1]
-    #     child.parent = self
-    #     if as_line:
-    #         if not self.children or not isinstance(self.children[-1], BlockList):
-    #             self.children.append(BlockList([]))
-    #         self.children[-1].append(child)
-    #         if child.is_end_of_line:
-    #             self.children.append(BlockList([]))
-    #     else:
-    #         self.children.append(child)        
-    #     return self
+
     
     def append_child(self, content: ContentType | BlockChunk):
         block = self._process_content(content)
@@ -882,6 +862,7 @@ class Block(BaseBlock):
         elif isinstance(content, BaseBlock):
             return content        
         else:
+            path = self.full_path
             raise ValueError(f"Invalid content type: {type(content)} for path: {path}")
     
     
