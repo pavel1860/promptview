@@ -116,7 +116,6 @@ def get_attrs(attrs: dict[str, "str | FieldAttrBlock"] | None) -> "dict[str, Fie
 class BaseBlock:
     
     __slots__ = [
-        "path",
         "id",
         "parent",
         "index",
@@ -134,7 +133,7 @@ class BaseBlock:
         self.id = id
     
     @property
-    def full_path(self) -> list[int]:
+    def path(self) -> list[int]:
         raise NotImplementedError("Not implemented")
 
     
@@ -366,11 +365,20 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         if wrap:
             self.wrap(*wrap)
             
+    # @property
+    # def path(self) -> list[int]:
+    #     if self.parent is None:
+    #         return [self.index]
+    #     return self.parent.path + [self.index]
+    
     @property
-    def full_path(self) -> list[int]:
+    def path(self) -> list[int]:
         if self.parent is None:
             return [self.index]
-        return self.parent.full_path + [self.index]
+        if isinstance(self.parent, Block):
+            return self.parent.path
+        else:
+            return self.parent.path + [self.index]
         
     @property
     def logprob(self) -> float | None:
@@ -459,6 +467,7 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         dump["blocks"] = [b.model_dump() for b in self]
         return dump
     
+
     @classmethod
     def model_validate(cls, data: dict):
         if "_type" not in data or data["_type"] != "BlockList":
@@ -526,10 +535,10 @@ class BlockList(UserList[BaseBlock], BaseBlock):
             
             
     @property
-    def full_path(self) -> list[int]:
+    def path(self) -> list[int]:
         if self.parent is None:
             raise ValueError("BlockList has no parent")
-        return self.parent.full_path
+        return self.parent.path
     
     @property
     def logprob(self) -> float | None:
@@ -587,6 +596,9 @@ class BlockList(UserList[BaseBlock], BaseBlock):
             elif isinstance(block, Block):
                 return block.get(tag)
         return None
+        
+        
+    
         
     @staticmethod
     def _validate(v: Any) -> Any:
@@ -679,10 +691,10 @@ class Block(BaseBlock):
         # else:
         #     self.children: BlockList = children
     @property
-    def full_path(self) -> list[int]:
+    def path(self) -> list[int]:
         if self.parent is None:
             return [self.index]
-        return self.parent.full_path + [self.index]
+        return self.parent.path + [self.index]
 
     @classmethod
     def model_validate(cls, data: dict):
@@ -862,7 +874,7 @@ class Block(BaseBlock):
         elif isinstance(content, BaseBlock):
             return content        
         else:
-            path = self.full_path
+            path = self.path
             raise ValueError(f"Invalid content type: {type(content)} for path: {path}")
     
     
@@ -871,6 +883,15 @@ class Block(BaseBlock):
         block = Block(tags=[name])
         self.append_child(block)
         return block
+    
+    
+    def traverse(self):
+        yield self.root
+        for child in self.children:
+            if isinstance(child, Block):
+                yield from child.traverse()
+            else:
+                yield child
     
     
     def get(self, tag: str):

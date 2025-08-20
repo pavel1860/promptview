@@ -9,7 +9,7 @@ from promptview.block.renderers_base import BlockRenderer, ListRenderer, RenderC
 class MarkdownHeaderRenderer(BlockRenderer):
     styles = ["markdown", "md"]
     def render(self, ctx: RenderContext, block: Block, title_content: str, inner_content: str) -> str:
-        level = min(len(block.full_path), 6)        
+        level = min(len(block.path), 6)        
         header_content = f"{'#' * level} {title_content}"
         return f"{header_content}\n{inner_content}"
 
@@ -19,7 +19,7 @@ class NumberedListRenderer(ListRenderer):
     
     
     def render(self, ctx: RenderContext, block: BlockList, inner_content: list[str]) -> str:
-        path = ".".join([str(i) for i in block.full_path[1:]])
+        path = ".".join([str(i) for i in block.path[1:]])
         if path:
             path += "."
         return "\n".join([f"{path}{i + 1}. {c}" for i, c in enumerate(inner_content)])

@@ -8,7 +8,7 @@ from .versioning.models import Branch, Turn, TurnStatus, VersionedModel, Artifac
 from .vectors import Vector, SparseVector, transformer
 from ..context.model_context import ModelCtx, Context
 from .relation_model import RelationModel
-from .block_model import BlockModel
+from .block_models.block_models import BlockModel
 from .sql.expressions import RawValue
 
 __all__ = [
