@@ -191,8 +191,9 @@ async def fetch_block_nodes(tree_id: str, conn):
 
 
 async def load_cert_chain(branch: Branch, tree_id: str) -> list[dict]:
-    async with branch:
+    with branch:
         res = await BlockNode.query([
+                Column("tree_id", "btc"),
                 Column("styles", "bn"),
                 Column("role", "bn"),
                 Column("tags", "bn"),
@@ -209,7 +210,41 @@ async def load_cert_chain(branch: Branch, tree_id: str) -> list[dict]:
             .join(BlockModel.query(["content", "json_content"], alias="bsm"), on=("block_id", "id")) \
             .where(lambda b: (b.tree_id == RawValue("btc.id"))).print().json()
         return res
+    
+    
+def _build_block_tree_query(cte):
+    return BlockNode.query([
+        Column("tree_id", "btc"),
+        Column("styles", "bn"),
+        Column("role", "bn"),
+        Column("tags", "bn"),
+        Column("path", "bn"),
+        Column("attrs", "bn"),
+        Column("type", "bn"),
+        Column("content", "bsm"),
+        Column("json_content", "bsm"),            
+    ], alias="bn") \
+    .use_cte(cte,"tree_cte", alias="btc") \
+    .join(BlockModel.query(["content", "json_content"], alias="bsm"), on=("block_id", "id")) \
+    .where(lambda b: (b.tree_id == RawValue("btc.id")))
 
+
+async def get_many_block_trees(cte):
+    query = _build_block_tree_query(cte)
+    records = await query.json()
+    curr_tree_id = None
+    target_records = []
+    for rec in records:
+        if rec["tree_id"] != curr_tree_id:
+            curr_tree_id = rec["tree_id"]
+            pack_block(target_records)
+            target_records = []
+        
+    
+    
+async def get_block_tree(cte):
+    
+    
 
 def pack_block(records: list[dict]) -> Block:
     block_lookup = {}
