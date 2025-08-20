@@ -50,6 +50,12 @@ class Transaction:
             raise RuntimeError("Connection is not initialized.")
         return await self.connection.execute(query, *args)
     
+    async def executemany(self, query: str, args_list: List[tuple]) -> None:
+        """Execute a query multiple times with different parameters within the transaction."""
+        if self.connection is None:
+            raise RuntimeError("Connection is not initialized.")
+        return await self.connection.executemany(query, args_list)
+    
     async def fetch(self, query: str, *args) -> List[dict]:
         """Fetch multiple rows from the database within the transaction as list of dicts."""
         if self.connection is None:
@@ -133,11 +139,24 @@ class PGConnectionManager:
         try:
             if cls._pool is None:
                 await cls.initialize()
-            
+            assert cls._pool is not None, "Pool must be initialized"
             async with cls._pool.acquire() as conn:
                 return await conn.execute(query, *args)
         except Exception as e:
             print_error_sql(query, args, e)
+            raise e
+    
+    @classmethod
+    async def executemany(cls, query: str, args_list: List[tuple]) -> None:
+        """Execute a query multiple times with different parameters."""
+        try:
+            if cls._pool is None:
+                await cls.initialize()
+            assert cls._pool is not None, "Pool must be initialized"
+            async with cls._pool.acquire() as conn:
+                return await conn.executemany(query, args_list)
+        except Exception as e:
+            print_error_sql(query, args_list, e)
             raise e
 
     @classmethod

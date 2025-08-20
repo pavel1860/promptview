@@ -4,9 +4,13 @@ import hashlib
 import json
 import uuid
 from typing import Any, Dict, List, Optional
-from promptview.block.block7 import BaseBlock, Block, BlockList, BlockSent
+from promptview.block.block7 import BaseBlock, Block, BlockChunk, BlockList, BlockSent
+from promptview.model.versioning import Branch
+from promptview.model3.sql.expressions import RawValue
+from promptview.model3.sql.queries import Column
 from promptview.utils.db_connections import PGConnectionManager
 import datetime as dt
+from promptview.model3.block_models.block_models import BlockNode, BlockTree, BlockModel
 
 def block_hash(content: Optional[str] = None, json_content: Optional[dict] = None) -> str:
     if content is not None:
@@ -28,59 +32,20 @@ def flatten_tree(data: Dict[str, Any], base_path: str = "1") -> List[Dict[str, A
 
 
 
-# async def insert_block_tree(block: Block, branch_id: int, turn_id: int) -> str:
-    # root_data = block_to_dict(block)
-async def insert_block_tree2(root_data: Dict[str, Any], branch_id: int, turn_id: int) -> str:
-    async with PGConnectionManager.transaction() as tx:
-        tree_id = str(uuid.uuid4())
-        created_at = dt.datetime.now()
-        await tx.execute("INSERT INTO block_trees (id, created_at, branch_id, turn_id) VALUES ($1, $2, $3, $4)", tree_id, created_at, branch_id, turn_id)
-
-        nodes = flatten_tree(root_data)
-
-        # --- prepare rows ---
-        block_rows = []
-        node_rows = []
-
-        for node in nodes:
-            blk_id = block_hash(node["content"], node["json_content"])
-            block_rows.append((blk_id, node["content"], json.dumps(node["json_content"])))
-            node_rows.append((tree_id, node["path"], blk_id, json.dumps(node["style"])))
-
-        # --- bulk insert blocks ---
-        await tx.execute("""
-            INSERT INTO blocks (id, content, json_content)
-            SELECT x.id, x.content, x.json_content
-            FROM UNNEST($1::text[], $2::text[], $3::jsonb[]) AS x(id, content, json_content)
-            ON CONFLICT (id) DO NOTHING
-        """,
-        [r[0] for r in block_rows],
-        [r[1] for r in block_rows],
-        [r[2] for r in block_rows])
-
-        # --- bulk insert nodes ---
-        await tx.execute("""
-            INSERT INTO block_nodes (tree_id, path, block_id, style)
-            SELECT x.tree_id, x.path::ltree, x.block_id, x.style
-            FROM UNNEST($1::uuid[], $2::text[], $3::text[], $4::jsonb[]) 
-                    AS x(tree_id, path, block_id, style)
-        """,
-        [r[0] for r in node_rows],
-        [r[1] for r in node_rows],
-        [r[2] for r in node_rows],
-        [r[3] for r in node_rows])
-
-        return tree_id
 
 
-def get_real_parent(n: BaseBlock) -> Block:
+def get_real_parent(n: BaseBlock) -> tuple[Block, str]:
     parent = n.parent
+    if parent is None:
+        raise ValueError(f"Node {n} has no parent")
     if isinstance(parent, Block):
-        return parent
-    elif isinstance(n.parent, BlockList):
-        return get_real_parent(parent)
+        return parent, "root"
+    elif isinstance(parent, BlockList):
+        parent, _ =  get_real_parent(parent)
+        return parent, "child"
     elif isinstance(parent, BlockSent):
-        return get_real_parent(parent)
+        raise ValueError(f"BlockSent {parent} has no parent")
+        # parent = get_real_parent(parent)
     else:
         raise ValueError(f"Unknown parent type: {type(parent)}")
         
@@ -95,7 +60,7 @@ def block_to_dict(block: Block) -> tuple[list[dict[str, Any]], list[dict[str, An
     blocks_dumps = []
     used_nodes = set()
     for n in block.traverse():
-        parent = get_real_parent(n)
+        parent, _type = get_real_parent(n)
         ppath = ".".join(str(p) for p in parent.path)
         if ppath not in used_nodes:
             blocks_dumps.append({
@@ -108,8 +73,15 @@ def block_to_dict(block: Block) -> tuple[list[dict[str, Any]], list[dict[str, An
             })
         d = {
             "path": ".".join(str(p) for p in n.path),
+            "type": _type,
             "content": n.render(),
-            "json_content": n.model_dump(),
+            "json_content": n.model_dump(),            
+            # Block fields
+            "styles": parent.styles,
+            "role": parent.role,
+            "tags": parent.tags,
+            "attrs": parent.attrs,
+            "index": parent.id,
         }
         
         
@@ -118,50 +90,86 @@ def block_to_dict(block: Block) -> tuple[list[dict[str, Any]], list[dict[str, An
 
 
 
-async def insert_block_tree(block: Block, branch_id: int, turn_id: int) -> str:
+async def insert_block(block: Block, branch_id: int, turn_id: int) -> str:
+    """
+    Alternative implementation using executemany for bulk inserts.
+    This approach is cleaner and more straightforward than UNNEST.
+    """
     nodes, blocks = block_to_dict(block)
     async with PGConnectionManager.transaction() as tx:
         tree_id = str(uuid.uuid4())
         created_at = dt.datetime.now()
-        await tx.execute("INSERT INTO block_trees (id, created_at, branch_id, turn_id) VALUES ($1, $2, $3, $4)", tree_id, created_at, branch_id, turn_id)
+        await tx.execute(
+            "INSERT INTO block_trees (id, created_at, branch_id, turn_id) VALUES ($1, $2, $3, $4)", 
+            tree_id, created_at, branch_id, turn_id
+        )
 
-        # nodes = flatten_tree(root_data)
-
-        # --- prepare rows ---
+        # --- prepare rows for blocks ---
         block_rows = []
-        node_rows = []
-
         for node in nodes:
             blk_id = block_hash(node["content"], node["json_content"])
             block_rows.append((blk_id, node["content"], json.dumps(node["json_content"])))
-            # node_rows.append((tree_id, node["path"], blk_id, json.dumps(node["style"])))
-            node_rows.append((tree_id, node["path"], blk_id, json.dumps({})))
 
-        # --- bulk insert blocks ---
-        await tx.execute("""
-            INSERT INTO blocks (id, content, json_content)
-            SELECT x.id, x.content, x.json_content
-            FROM UNNEST($1::text[], $2::text[], $3::jsonb[]) AS x(id, content, json_content)
-            ON CONFLICT (id) DO NOTHING
-        """,
-        [r[0] for r in block_rows],
-        [r[1] for r in block_rows],
-        [r[2] for r in block_rows])
+        # --- bulk insert blocks using executemany ---
+        if block_rows:
+            await tx.executemany(
+                "INSERT INTO blocks (id, content, json_content) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+                block_rows
+            )
 
-        # --- bulk insert nodes ---
-        await tx.execute("""
-            INSERT INTO block_nodes (tree_id, path, block_id, style)
-            SELECT x.tree_id, x.path::ltree, x.block_id, x.style
-            FROM UNNEST($1::uuid[], $2::text[], $3::text[], $4::jsonb[]) 
-                    AS x(tree_id, path, block_id, style)
-        """,
-        [r[0] for r in node_rows],
-        [r[1] for r in node_rows],
-        [r[2] for r in node_rows],
-        [r[3] for r in node_rows])
+        # --- prepare rows for nodes ---
+        node_rows = []
+        for node in nodes:
+            blk_id = block_hash(node["content"], node["json_content"])
+            # Convert lists to arrays for PostgreSQL
+            styles_array = node["styles"] if node["styles"] is not None else []
+            tags_array = node["tags"] if node["tags"] is not None else []            
+            node_rows.append((
+                tree_id, 
+                node["path"], 
+                blk_id, 
+                node["type"],
+                styles_array, 
+                node["role"], 
+                tags_array, 
+                json.dumps(node["attrs"])
+            ))
+
+        # --- bulk insert nodes using executemany ---
+        if node_rows:
+            await tx.executemany(
+                "INSERT INTO block_nodes (tree_id, path, block_id, type, styles, role, tags, attrs) VALUES ($1, $2::ltree, $3, $4, $5, $6, $7, $8)",
+                node_rows
+            )
 
         return tree_id
 
+
+# Example usage and testing function
+async def test_executemany_vs_unnest(block: Block, branch_id: int, turn_id: int):
+    """
+    Test function to compare executemany vs UNNEST approaches.
+    This can be used to benchmark and validate both implementations.
+    """
+    import time
+    
+    # Test executemany approach
+    start_time = time.time()
+    tree_id_executemany = await insert_block(block, branch_id, turn_id)
+    executemany_time = time.time() - start_time
+    
+    # Test UNNEST approach  
+    start_time = time.time()
+    tree_id_unnest = await insert_block_tree(block, branch_id, turn_id + 1)  # Use different turn_id
+    unnest_time = time.time() - start_time
+    
+    print(f"ExecuteMany time: {executemany_time:.4f}s, Tree ID: {tree_id_executemany}")
+    print(f"UNNEST time: {unnest_time:.4f}s, Tree ID: {tree_id_unnest}")
+    
+    return {
+        "executemany": {"time": executemany_time, "tree_id": tree_id_executemany},
+        "unnest": {"time": unnest_time, "tree_id": tree_id_unnest}
+    }
 
 
 async def fetch_block_nodes(tree_id: str, conn):
@@ -179,3 +187,72 @@ async def fetch_block_nodes(tree_id: str, conn):
         ORDER BY bn.path;
     """, tree_id)
     return [dict(r) for r in rows]
+
+
+
+async def load_cert_chain(branch: Branch, tree_id: str) -> list[dict]:
+    async with branch:
+        res = await BlockNode.query([
+                Column("styles", "bn"),
+                Column("role", "bn"),
+                Column("tags", "bn"),
+                Column("path", "bn"),
+                Column("attrs", "bn"),
+                Column("type", "bn"),
+                Column("content", "bsm"),
+                Column("json_content", "bsm"),            
+            ], alias="bn") \
+            .use_cte(
+                BlockTree.query(alias="bt").select("*") \
+                .where(lambda b: (b.id == tree_id)) \
+            ,"tree_cte", alias="btc") \
+            .join(BlockModel.query(["content", "json_content"], alias="bsm"), on=("block_id", "id")) \
+            .where(lambda b: (b.tree_id == RawValue("btc.id"))).print().json()
+        return res
+
+
+def pack_block(records: list[dict]) -> Block:
+    block_lookup = {}
+
+    def build_sentence(rec: dict) -> BlockSent:
+        sent = BlockSent()   
+        json_content = rec["json_content"]
+        for c in json_content["blocks"]:
+            chunk = BlockChunk(
+                index=c["index"],
+                content=c["content"],
+                logprob=c.get("logprob", None),            
+            )
+            sent.append(chunk)
+        return sent
+
+    for rec in records:
+        path_str = rec["path"]
+        path = path_str.split(".")
+        if rec["type"] == "root":
+            block = Block(
+                styles=rec["styles"],
+                role=rec["role"],
+                tags=rec["tags"],
+                attrs=rec["attrs"],
+            )
+            sent = build_sentence(rec)
+            block.root = sent
+            block_lookup[path_str] = block
+            if len(path) > 1:
+                parent = block_lookup[path_str[:-2]]
+                parent.children.append(block)
+        else:
+            block = block_lookup[path_str[:-2]]
+            sent = build_sentence(rec)
+            block.children.append(sent)
+    block = block_lookup["1"]    
+    return block
+        
+    
+    
+    
+async def load_block_tree(branch: Branch, tree_id: str) -> Block:
+    records = await load_cert_chain(branch, tree_id)
+    return pack_block(records)
+    

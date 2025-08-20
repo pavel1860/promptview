@@ -17,10 +17,13 @@ class BlockNode(Model):
     id: int = KeyField(primary_key=True)
     tree_id: UUID = ModelField(foreign_key=True)
     path: str = ModelField(db_type="LTREE")
+    type: str = ModelField()
     block_id: str = ModelField(foreign_key=True)
-    style: dict | None = ModelField(default=None)
+    styles: list[str] | None = ModelField(default=None)
     role: str | None = ModelField(default=None)
     order_in_parent: int = ModelField(default=0)
+    tags: list[str] | None = ModelField(default=None)
+    attrs: dict | None = ModelField(default=None)
     tree: "BlockTree" = RelationField(primary_key="tree_id", foreign_key="id")
 
 
