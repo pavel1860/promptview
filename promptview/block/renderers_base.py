@@ -175,8 +175,11 @@ class ListRenderer(BaseRenderer):
     
 class BlockRenderer(BaseRenderer):    
     
-    def render(self, ctx: RenderContext, block: Block, title_content: str, inner_content: str) -> str:
-        return f"{title_content}\n{textwrap.indent(inner_content, '  ')}"
+    def render(self, ctx: RenderContext, block: Block, title_content: str, inner_content: str, postfix_content: str | None = None) -> str:
+        content =  f"{title_content}\n{textwrap.indent(inner_content, '  ')}"
+        if postfix_content:
+            content += f"\n{postfix_content}"
+        return content
     
 
 

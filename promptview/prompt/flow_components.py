@@ -274,7 +274,7 @@ class Parser(BaseFbpComponent):
                 elif event == 'end':
                     self._pop_tag()
                     is_end_event = False
-                    block_list = BlockList(tags=[self.end_tag])
+                    block_list = BlockList(tags=[self.end_tag], sep="")
                     for block in self.block_list:
                         if "</" in block.content:
                             is_end_event = True                        

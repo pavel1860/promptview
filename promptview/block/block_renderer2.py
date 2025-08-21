@@ -1,4 +1,4 @@
-from promptview.block.block7 import  BaseBlock, BlockChunk, Block, BlockSent, BlockList
+from promptview.block.block7 import  BaseBlock, BlockChunk, Block, BlockSent, BlockList, ResponseContext
 from promptview.block.renderers_base import RenderContext, renderer_registry, style_manager
 from promptview.block.style2 import StyleManager
 from .renderers import *
@@ -56,9 +56,15 @@ def render_block(block: Block, ctx: RenderContext):
     children_renderer = renderer_registry.get(children_fmt, 'list-format')
     children_content = children_renderer.render(ctx, block, children_content_list)
     
+    postfix_content = None
+    if isinstance(block, ResponseContext):
+        if block.postfix is not None:
+            postfix_content = render(block.postfix, None, ctx)
+            
+    
     block_fmt = ctx.get_style("block-format")
     block_renderer = renderer_registry.get(block_fmt, 'block-format')
-    content = block_renderer.render(ctx, block, title_content, children_content)    
+    content = block_renderer.render(ctx, block, title_content, children_content, postfix_content)    
     return content
 
 

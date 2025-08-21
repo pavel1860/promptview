@@ -82,7 +82,7 @@ class CheckboxListRenderer(ListRenderer):
 class XmlRenderer(BlockRenderer):
     styles = ["xml"]
     
-    def render(self, ctx: RenderContext, block: Block, title_content: str, inner_content: str) -> str:  
+    def render(self, ctx: RenderContext, block: Block, title_content: str, inner_content: str, postfix_content: str | None = None) -> str:  
         if block.attrs:
             attrs = ""
             for k, v in block.attrs.items():
@@ -108,8 +108,9 @@ class XmlRenderer(BlockRenderer):
         if not inner_content:
             return f"<{title_content}{attrs} />"
         
+        postfix_content = postfix_content or f"</{title_content}>"
         inner_content = textwrap.indent(inner_content, " ")
-        return f"<{title_content}{attrs}>\n{inner_content}\n</{title_content}>"
+        return f"<{title_content}{attrs}>\n{inner_content}\n{postfix_content}"
         
             
 

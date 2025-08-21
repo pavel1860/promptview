@@ -575,7 +575,9 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
 
 
 class BlockList(UserList[BaseBlock], BaseBlock):
-    
+    __slots__ = [
+        "default_sep",
+    ]
     
     def __init__(
         self, 
@@ -588,6 +590,7 @@ class BlockList(UserList[BaseBlock], BaseBlock):
         attrs: "dict[str, FieldAttrBlock] | None" = None,
         id: str | None = None,
         styles: list[str] | None = None,
+        sep: str = " ",
     ):
         if blocks is None:
             blocks = []
@@ -596,6 +599,7 @@ class BlockList(UserList[BaseBlock], BaseBlock):
         BaseBlock.__init__(self, parent=parent, index=index)
         for block in blocks:
             block.parent = self.parent
+        self.default_sep = sep
             
             
     @property
@@ -612,7 +616,7 @@ class BlockList(UserList[BaseBlock], BaseBlock):
     @property
     def last(self) -> BlockChunk:
         if not self:
-            UserList.append(self, BlockSent())
+            UserList.append(self, BlockSent(sep=self.default_sep))
         return self[-1]
     
     
@@ -629,7 +633,7 @@ class BlockList(UserList[BaseBlock], BaseBlock):
             UserList.append(self, content)
         elif isinstance(content, BlockChunk):
             if self._should_add_sentence():
-                UserList.append(self, BlockSent())            
+                UserList.append(self, BlockSent(sep=self.default_sep))            
             self.last.append(content)
         else:
             raise ValueError(f"Invalid content type: {type(content)}")
@@ -1213,6 +1217,8 @@ class ResponseContext(Block):
         if schema.name not in tags:
             tags = [schema.name] + (tags or [])
         super().__init__(children=children, tags=tags, style=style, id=id, index=index, parent=parent)
+        self.root.default_sep = ""
+        self.children.default_sep = ""
         self.schema = schema
         self._value = None
         self.postfix: BlockList | None = None
