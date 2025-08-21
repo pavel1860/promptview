@@ -37,7 +37,7 @@ def flatten_tree(data: Dict[str, Any], base_path: str = "1") -> List[Dict[str, A
 
 def get_real_parent(n: BaseBlock) -> tuple[Block, str]:
     parent = n.parent
-    if parent is None:
+    if parent is None and n.path != [1]:
         raise ValueError(f"Node {n} has no parent")
     if isinstance(parent, Block):
         return parent, "root"

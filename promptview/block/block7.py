@@ -572,6 +572,9 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         else:
             raise ValueError(f"Invalid block list: {v}")
         
+    def __repr__(self) -> str:
+        return f"BlockSent({super().__repr__()})"
+
 
 
 class BlockList(UserList[BaseBlock], BaseBlock):
@@ -616,7 +619,7 @@ class BlockList(UserList[BaseBlock], BaseBlock):
     @property
     def last(self) -> BlockChunk:
         if not self:
-            UserList.append(self, BlockSent(sep=self.default_sep))
+            UserList.append(self, BlockSent(sep=self.default_sep, parent=self))
         return self[-1]
     
     
@@ -633,7 +636,7 @@ class BlockList(UserList[BaseBlock], BaseBlock):
             UserList.append(self, content)
         elif isinstance(content, BlockChunk):
             if self._should_add_sentence():
-                UserList.append(self, BlockSent(sep=self.default_sep))            
+                UserList.append(self, BlockSent(sep=self.default_sep, parent=self))            
             self.last.append(content)
         else:
             raise ValueError(f"Invalid content type: {type(content)}")
@@ -702,7 +705,8 @@ class BlockList(UserList[BaseBlock], BaseBlock):
         else:
             raise ValueError(f"Invalid block list: {v}")
         
-    
+    def __repr__(self) -> str:
+        return f"BlockList({super().__repr__()})"
 
 
 

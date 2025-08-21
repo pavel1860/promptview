@@ -15,6 +15,9 @@ from promptview.model3.sql.queries import CTENode, RawSQL
 from promptview.model3.sql.expressions import RawValue
 from promptview.utils.db_connections import PGConnectionManager
 
+if TYPE_CHECKING:
+    from promptview.block import Block
+
 # ContextVars for current branch/turn
 _curr_branch = contextvars.ContextVar("curr_branch", default=None)
 _curr_turn = contextvars.ContextVar("curr_turn", default=None)
@@ -188,6 +191,10 @@ class Turn(Model):
             )
         ).parse(parse_block_tree_turn)
         
+        
+    async def add_block(self, block: "Block"):
+        from promptview.model3.block_models.block_log import insert_block
+        return await insert_block(block, self.branch_id, self.id)
         
         
     async def commit(self):
