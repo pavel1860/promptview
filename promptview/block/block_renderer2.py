@@ -1,4 +1,4 @@
-from promptview.block.block7 import  BaseBlock, BlockChunk, Block, BlockSent, BlockList, ResponseContext
+from promptview.block.block7 import  BaseBlock, BlockChunk, Block, BlockSent, BlockList, ResponseBlock
 from promptview.block.renderers_base import RenderContext, renderer_registry, style_manager
 from promptview.block.style2 import StyleManager
 from .renderers import *
@@ -57,7 +57,7 @@ def render_block(block: Block, ctx: RenderContext):
     children_content = children_renderer.render(ctx, block, children_content_list)
     
     postfix_content = None
-    if isinstance(block, ResponseContext):
+    if isinstance(block, ResponseBlock):
         if block.postfix is not None:
             postfix_content = render(block.postfix, None, ctx)
             

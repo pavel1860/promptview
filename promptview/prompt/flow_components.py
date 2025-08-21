@@ -5,7 +5,7 @@ from queue import SimpleQueue
 
 from typing import Any, AsyncGenerator, Callable, Iterable, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING
 import xml
-from promptview.block.block7 import BlockChunk, BlockList, ResponseContext
+from promptview.block.block7 import BlockChunk, BlockList, ResponseBlock
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
 from promptview.prompt.parser import BlockBuffer, SaxStreamParser
 from promptview.prompt.events import StreamEvent

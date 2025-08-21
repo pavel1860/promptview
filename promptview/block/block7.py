@@ -1035,8 +1035,8 @@ class Block(BaseBlock):
             raise ValueError(f"Invalid block list: {v}")
     
     def build_response(self):
-        def _clone_target_node(n: Block) -> ResponseContext:
-            return ResponseContext(                
+        def _clone_target_node(n: Block) -> ResponseBlock:
+            return ResponseBlock(                
                 schema=n, 
                 tags=n.tags,                           
             )
@@ -1046,7 +1046,7 @@ class Block(BaseBlock):
         return self.reduce_tree(_is_target, _clone_target_node)
         
         
-    def reduce_tree(self, is_target: Callable[[BaseBlock], bool] | None = None, clone_target_node = None) -> "ResponseContext":
+    def reduce_tree(self, is_target: Callable[[BaseBlock], bool] | None = None, clone_target_node = None) -> "ResponseBlock":
         """Return a forest containing only target-type nodes, attached under their
         nearest target-type ancestor from the original tree."""
         dummy_children: List[BaseBlock] = []
@@ -1202,7 +1202,7 @@ class FieldContext(Block):
 
 
 
-class ResponseContext(Block):
+class ResponseBlock(Block):
     
     def __init__(
         self, 
@@ -1278,11 +1278,6 @@ class ResponseContext(Block):
     
 
 
-class ResponseBlock(BlockChunk):
-    
-    def __init__(self, schema: FieldBlock):
-        self.schema = schema
-        super().__init__(role="assistant", tags=[schema.name])
         
         
     
