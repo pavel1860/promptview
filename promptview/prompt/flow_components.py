@@ -268,7 +268,7 @@ class Parser(BaseFbpComponent):
                         #         payload=field
                         #     ))
                     else:
-                        raise ValueError(f"Field {element.tag} not found in response schema")
+                        raise ValueError(f"Field '{element.tag}' not found in response schema")
                     self.block_list=[]
                     self._detected_tag = False                    
                 elif event == 'end':
@@ -350,8 +350,8 @@ class StreamController(BaseFbpComponent):
         self._name = name
         self._stream = Stream(gen)
         self._gen = self._stream
-        self._acc = Accumulator(BlockList())
-        self._gen |= self._acc
+        # self._acc = Accumulator(BlockList())
+        # self._gen |= self._acc
         self._response_schema = response_schema
         # self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
         self._parser = None
@@ -379,8 +379,11 @@ class StreamController(BaseFbpComponent):
         return self
     
     def save(self, name: str, dir: str | None = None):
+        import os
         path = f"{dir}/{name}.jsonl" if dir else f"{name}.jsonl"
         self._stream.save_stream(path)
+        if os.path.exists(path):
+            os.remove(path)
         return self
     
     def load(self, name: str, dir: str | None = None, delay: float = 0.07):

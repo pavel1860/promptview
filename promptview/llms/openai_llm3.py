@@ -93,7 +93,7 @@ class OpenAiLLM(BaseLLM):
                         logprob = 0  
                 except:
                     raise ValueError("No logprobs")        
-                blk_chunk = BlockChunk(content, logprob=logprob, sep="")
+                blk_chunk = BlockChunk(content, logprob=logprob)
                 yield blk_chunk
                     
                     
