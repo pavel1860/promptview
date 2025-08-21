@@ -3,12 +3,12 @@ from .model3 import Model
 from .fields import ModelField, RelationField, KeyField, VectorField
 from .postgres2.pg_namespace import PgNamespace
 from .namespace_manager2 import NamespaceManager
-from .versioning.models import Branch, Turn, TurnStatus, VersionedModel, ArtifactModel
+from .versioning.models import Branch, Turn, TurnStatus, VersionedModel, ArtifactModel, BlockModel
 # from .context import Context
 from .vectors import Vector, SparseVector, transformer
 from ..context.model_context import ModelCtx, Context
 from .relation_model import RelationModel
-from .block_models.block_models import BlockModel
+# from .block_models.block_models import BlockModel
 from .sql.expressions import RawValue
 
 __all__ = [

@@ -10,7 +10,8 @@ from promptview.model3.sql.expressions import RawValue
 from promptview.model3.sql.queries import Column
 from promptview.utils.db_connections import PGConnectionManager
 import datetime as dt
-from promptview.model3.block_models.block_models import BlockNode, BlockTree, BlockModel
+# from promptview.model3.block_models.block_models import BlockNode, BlockModel
+from promptview.model3.versioning.models import BlockTree, BlockNode, BlockModel
 
 def block_hash(content: Optional[str] = None, json_content: Optional[dict] = None) -> str:
     if content is not None:
@@ -242,7 +243,7 @@ async def get_many_block_trees(cte):
         
     
     
-async def get_block_tree(cte):
+
     
     
 
@@ -291,3 +292,50 @@ async def load_block_tree(branch: Branch, tree_id: str) -> Block:
     records = await load_cert_chain(branch, tree_id)
     return pack_block(records)
     
+    
+    
+    
+    
+def parse_block_tree(block_tree: BlockTree) -> Block:
+    print(">", block_tree)
+    block_lookup: dict[str, Block] = {}
+    def build_sentence(node: BlockNode) -> BlockSent:
+        sent = BlockSent()   
+        json_content = node.block.json_content
+        for c in json_content["blocks"]:
+            chunk = BlockChunk(
+                index=c["index"],
+                content=c["content"],
+                logprob=c.get("logprob", None),            
+            )
+            sent.append(chunk)
+        return sent
+
+
+    for node in block_tree.nodes:
+        path_str = node.path
+        path = path_str.split(".")
+        if node.type == "root":
+            block = Block(
+                styles=node.styles,
+                role=node.role,
+                tags=node.tags,
+                attrs=node.attrs,
+            )
+            sent = build_sentence(node)
+            block.root = sent
+            block_lookup[path_str] = block
+            if len(path) > 1:
+                parent = block_lookup[path_str[:-2]]
+                parent.children.append(block)
+        else:
+            block = block_lookup[path_str[:-2]]
+            sent = build_sentence(node)
+            block.children.append(sent)
+    block = block_lookup["1"]    
+    return block
+
+
+def parse_block_tree_turn(turn):
+    block_list = [parse_block_tree(block_tree) for block_tree in turn.block_tree]
+    return BlockList(block_list)

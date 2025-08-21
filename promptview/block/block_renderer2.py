@@ -42,7 +42,8 @@ def render_sentence(sentence: BlockSent, ctx: RenderContext):
 def render_list(block_list: BlockList, ctx: RenderContext):
     fmt = ctx.get_parent_style("list-format")
     renderer = renderer_registry.get(fmt, 'list-format')
-    content = renderer.render(ctx, block_list)
+    children_content_list = [render(child, None, ctx) for child in block_list]
+    content = renderer.render(ctx, block_list, children_content_list)
     return content
     
 def render_block(block: Block, ctx: RenderContext):

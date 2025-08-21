@@ -404,6 +404,7 @@ class QuerySet(Generic[MODEL]):
         # self.table = self.table_registry.get_ns_table(self.namespace, table_name)
         self.table = self.table_registry.register_ns(self.namespace, table_name, alias=alias)
         self.projection_set = ProjectionSet(self.namespace, self.table, self.table_registry)        
+        self.parser = None
     
     def build_query(self):
         raise NotImplementedError("Subclasses must implement build_query")
@@ -414,6 +415,11 @@ class QuerySet(Generic[MODEL]):
     
     def get_field(self, name):
         return self.projection_set[name]   
+    
+    def parse(self, func: Callable[[MODEL], Any]):
+        self.parser = func
+        return self
+    
         
 class CteSet(QuerySet[MODEL]):
     
@@ -747,7 +753,10 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         data = dict(row)        
         data = self.namespace.deserialize(data)
 
-        return self.model_class(**data)
+        obj = self.model_class(**data)
+        if self.parser:
+            obj = self.parser(obj)
+        return obj
   
     
     def parse_json_row(self, row: dict[str, Any]) -> MODEL:
@@ -800,6 +809,8 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         sql, params = self.render()
         rows = await PGConnectionManager.fetch(sql, *params)
         return [self.parse_row(dict(row)) for row in rows]
+    
+
 
 
 

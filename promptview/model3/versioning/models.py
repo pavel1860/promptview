@@ -3,7 +3,8 @@ import enum
 import uuid
 import datetime as dt
 import contextvars
-from typing import AsyncGenerator, Callable, List, Type, TypeVar, Self, Any
+from typing import TYPE_CHECKING, AsyncGenerator, Callable, List, Type, TypeVar, Self, Any
+
 
 
 from promptview.model3.model3 import Model
@@ -172,11 +173,21 @@ class Turn(Model):
     branch_id: int = ModelField(foreign_key=True)
     trace_id: str | None = ModelField(default=None)
     metadata: dict | None = ModelField(default=None)
+    block_tree: List["BlockTree"] = RelationField(foreign_key="turn_id")
     _auto_commit: bool = True
 
     # forked_branches: List["Branch"] = RelationField("Branch", foreign_key="forked_from_turn_id")
-
-    
+    @classmethod
+    def blocks(cls):
+        from promptview.model3.block_models.block_log import parse_block_tree_turn
+        return cls.query().include(
+            BlockTree.query(alias="bt").select("*").include(
+                BlockNode.query(alias="bn").select("*").include(
+                    BlockModel.query(alias="bm").select("*")
+                )
+            )
+        ).parse(parse_block_tree_turn)
+        
         
         
     async def commit(self):
@@ -233,8 +244,8 @@ class VersionedModel(Model):
     _is_base = True
     branch_id: int = ModelField(foreign_key=True, foreign_cls=Branch)
     turn_id: int = ModelField(foreign_key=True, foreign_cls=Turn)
-    turn: Turn | None = RelationField("Turn", primary_key="turn_id", foreign_key="id")
-    branch: Branch | None = RelationField("Branch", foreign_key="id")
+    turn: "Turn | None" = RelationField("Turn", primary_key="turn_id", foreign_key="id")
+    branch: "Branch | None" = RelationField("Branch", foreign_key="id")
     
 
     async def save(self, *, branch: Branch | int | None = None, turn: Turn | int | None = None):
@@ -255,16 +266,64 @@ class VersionedModel(Model):
         return turn.id if isinstance(turn, Turn) else turn
     
     @classmethod
-    def query(cls, fields: list[str] | None = None, **kwargs):
+    def vquery(cls, fields: list[str] | None = None, alias: str | None = None, **kwargs):
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
         return (
-            PgSelectQuerySet(cls) \
+            PgSelectQuerySet(cls, alias=alias) \
             .use_cte(
                 Turn.versioned_query().select(fields or "*").where(status=TurnStatus.COMMITTED),
                 name="committed_turns",
                 alias="ct",
             )
         )
+
+
+
+class BlockModel(Model):
+    _namespace_name: str = "blocks"
+    id: str = KeyField(primary_key=True)
+    # created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    content: str | None = ModelField(default=None)
+    json_content: dict | None = ModelField(default=None)    
+    
+
+class BlockNode(Model):
+    id: int = KeyField(primary_key=True)
+    tree_id: uuid.UUID = ModelField(foreign_key=True)
+    path: str = ModelField(db_type="LTREE")
+    type: str = ModelField()
+    block_id: str = ModelField(foreign_key=True)
+    styles: list[str] | None = ModelField(default=None)
+    role: str | None = ModelField(default=None)
+    tags: list[str] | None = ModelField(default=None)
+    attrs: dict | None = ModelField(default=None)
+    block: "BlockModel" = RelationField(primary_key="block_id", foreign_key="id")
+    tree: "BlockTree" = RelationField(primary_key="tree_id", foreign_key="id")
+    
+    @classmethod
+    async def block_query(cls, cte):
+        from promptview.model3.block_models.block_log import pack_block
+        from promptview.model3.sql.queries import Column
+        records = await cls.query([
+            Column("styles", "bn"),
+            Column("role", "bn"),
+            Column("tags", "bn"),
+            Column("path", "bn"),
+            Column("attrs", "bn"),
+            Column("type", "bn"),
+            Column("content", "bsm"),
+            Column("json_content", "bsm"),            
+        ], alias="bn") \
+        .use_cte(cte,"tree_cte", alias="btc") \
+        .join(BlockModel.query(["content", "json_content"], alias="bsm"), on=("block_id", "id")) \
+        .where(lambda b: (b.tree_id == RawValue("btc.id"))).print().json()
+        return pack_block(records)
+     
+        
+class BlockTree(VersionedModel):
+    id: uuid.UUID = KeyField(primary_key=True)
+    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    nodes: List[BlockNode] = RelationField(foreign_key="tree_id")
     
 
 
@@ -279,3 +338,8 @@ class ArtifactModel(VersionedModel):
         """Backend-specific: get latest version per artifact."""
         # Placeholder — will be overridden in backend manager
         return await cls.query().filter(artifact_id=artifact_id).order_by("-version").first()
+
+
+
+
+

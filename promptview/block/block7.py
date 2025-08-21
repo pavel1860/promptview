@@ -2,7 +2,7 @@ from collections import UserList
 import copy
 import json
 import textwrap
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Generic, List, Protocol, Set, Type, TypeVar, TypedDict, Unpack
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Generic, List, Protocol, Sequence, Set, Type, TypeVar, TypedDict, Unpack
 import annotated_types
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
@@ -521,7 +521,7 @@ class BlockList(UserList[BaseBlock], BaseBlock):
     
     def __init__(
         self, 
-        blocks: list[BlockChunk] | None = None, 
+        blocks: Sequence[BaseBlock] | None = None, 
         index: int | None = None,
         parent: "BaseBlock | None" = None,
     ):
