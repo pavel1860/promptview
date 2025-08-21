@@ -312,7 +312,8 @@ class ProjectionSet:
     
     def iter_fields(self):
         for col in self.columns:
-            namespace = self.table_registry.get_ns(col.table)
+            target_ns = col if isinstance(col, str) else str(col.table)
+            namespace = self.table_registry.get_ns(target_ns)
             field = namespace.get_field(col.name)
             yield col.alias_or_name, field
             
