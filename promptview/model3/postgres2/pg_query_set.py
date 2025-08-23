@@ -482,9 +482,21 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         return self
             
         
-    def use_cte(self, cte, name: str | None = None, alias: str | None = None, on: tuple[str, str] | None = None):
-        query_set = self._resolve_query_set_target(cte)
-        cte_set = self._cte_registry.register(query_set, name, alias=alias)        
+    # def use_cte(self, query_set, name: str | None = None, alias: str | None = None, on: tuple[str, str] | None = None):
+    #     query_set = self._resolve_query_set_target(query_set)
+    #     # cte_table = self.table_registry()
+    #     cte_set = self._cte_registry.register(query_set, name, alias=alias) 
+               
+    #     self.join(cte_set, on=on)
+    #     return self
+    def use_cte(self, query_set, name: str, alias: str | None = None, on: tuple[str, str] | None = None):
+        self._cte_registry.merge(query_set._cte_registry)
+        query_set._cte_registry.clear()
+        if alias is None:
+            alias = self.table_registry.gen_alias(name)
+        cte_table = self.table_registry.register(name, alias, query_set.namespace)
+        cte_set = self._cte_registry.register(query_set, name, alias=alias) 
+               
         self.join(cte_set, on=on)
         return self
 
@@ -575,7 +587,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             # target._cte_registry = self._cte_registry
             return target
         elif isinstance(target, CteSet):
-            self.table_registry.merge_registries(target.table_registry)
+            # self.table_registry.merge_registries(target.table_registry)
             # target._cte_registry.clear()
             # target.table_registry = self.table_registry
             return target
@@ -691,12 +703,12 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         if include_ctes:
             for name, cte_qs in self._cte_registry:
                 query.with_cte(name, cte_qs.build_query(), recursive=self._cte_registry.recursive)
+                
         return query
     
     
     
     def to_json_query(self):
-        print("jsonify", self.alias)
         query = self.build_query(
             include_columns=False, 
             self_group=False, 
@@ -728,7 +740,10 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             query.select(json_obj)
             return Coalesce(query, default_value)
         else:
+            print("##", query.from_table)
             json_obj = Function("json_agg", json_obj)
+            query.select(json_obj)
+            return Coalesce(query, Value("[]", inline=True))
             return json_obj
             raise ValueError("No joins found")
         

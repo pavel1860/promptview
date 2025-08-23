@@ -521,7 +521,7 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
     
     def model_dump(self):
         dump = super().model_dump()
-        dump["_type"] = "BlockList"
+        dump["_type"] = "BlockSent"
         dump["blocks"] = [b.model_dump() for b in self]
         return dump
     
@@ -1005,9 +1005,15 @@ class Block(BaseBlock):
     def model_dump(self):
         dump = super().model_dump()
         # dump = self.base_model_dump()
-        dump["_type"] = "BlockContext"
+        dump["_type"] = "Block"
         dump["root"] = self.root.model_dump()
         dump["children"] = [c.model_dump() for c in self.children]
+        dump["styles"] = self.styles
+        dump["tags"] = self.tags
+        dump["attrs"] = self.attrs
+        dump["role"] = self.role
+        dump["id"] = self.id
+        
         return dump
     
     @classmethod
