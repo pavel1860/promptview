@@ -3,7 +3,7 @@ from typing import List, Literal
 from promptview.model.fields import ModelField
 from promptview.model.model import Model
 from promptview.model.version_control_models import TurnModel
-from promptview.block.block7 import BaseBlock, Blockable, ToolCall, Block
+from promptview.block.block7 import BaseBlock, Blockable, ToolCall, BlockChunk
 import copy
 
 
@@ -41,6 +41,6 @@ class BlockModel(TurnModel):
             res["tool_calls"] = [tool.model_dump() for tool in self.tool_calls]
         return res
         
-    def to_block(self) -> Block:                
-        block = Block.model_validate(copy.deepcopy(self.block))
+    def to_block(self) -> BlockChunk:                
+        block = BlockChunk.model_validate(copy.deepcopy(self.block))
         return block

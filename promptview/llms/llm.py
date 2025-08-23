@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 from pydantic.fields import FieldInfo
 from promptview.block.util import StreamEvent
 from promptview.llms.types import ErrorMessage
-from promptview.block import Block, BlockRole, ToolCall, LlmUsage, BlockList
+from promptview.block import BlockChunk, BlockRole, ToolCall, LlmUsage, BlockList
 from promptview.tracer import Tracer
 from promptview.parsers import XmlOutputParser
 from promptview.utils import logger
@@ -122,7 +122,7 @@ def get_field_type(field_info) -> str:
 
 class OutputModel(BaseModel):    
     tool_calls: List[ToolCall] = Field(default=[], json_schema_extra={"render": False})
-    _block: Block = PrivateAttr()
+    _block: BlockChunk = PrivateAttr()
     
     
     
@@ -135,7 +135,7 @@ class OutputModel(BaseModel):
         return ""
     
     @classmethod
-    def extra_rules(cls) -> Block | None:
+    def extra_rules(cls) -> BlockChunk | None:
         return None
     
     def output_fields(self) -> List[tuple[str, FieldInfo]]:
@@ -151,8 +151,8 @@ class OutputModel(BaseModel):
             
 
     @classmethod
-    def render(cls, tools: List[Type[BaseModel]] = [], config: LlmConfig | None = None) -> Block:
-        with Block("Output format", tags=["output_format"]) as blk:
+    def render(cls, tools: List[Type[BaseModel]] = [], config: LlmConfig | None = None) -> BlockChunk:
+        with BlockChunk("Output format", tags=["output_format"]) as blk:
             blk += "you **MUST** use the following format for your output:"
             for field, field_info in cls.iter_fields():
                 render_func = getattr(cls, f"render_{field}", None)                
@@ -203,7 +203,7 @@ class OutputModel(BaseModel):
                             blk.model_schema(tool)
         return blk
     
-    def block(self) -> Block:
+    def block(self) -> BlockChunk:
         self._block.tool_calls = self.tool_calls
         return self._block
     
@@ -258,7 +258,7 @@ class OutputModel(BaseModel):
         return tool_calls
     
     @classmethod
-    def parse(cls, completion: Block, tools: List[Type[BaseModel]]) -> Self:
+    def parse(cls, completion: BlockChunk, tools: List[Type[BaseModel]]) -> Self:
         """parse the completion into the output model"""
         try:
             root = ET.fromstring(f"<root>{cls.response_prefix()}{completion.content}</root>")
@@ -312,7 +312,7 @@ class LlmContext(Generic[OUTPUT_MODEL]):
         self.output_model: Type[OutputModel] | None = None
         self.is_traceable = True
         self.tracer_run: Tracer | None = None
-        self.parse_response_fn: Callable[[Block], Block] | None = None
+        self.parse_response_fn: Callable[[BlockChunk], BlockChunk] | None = None
         self.parse_output_fn: Callable[[OUTPUT_MODEL], OUTPUT_MODEL] | None = None
         
         
@@ -346,8 +346,8 @@ class LlmContext(Generic[OUTPUT_MODEL]):
         blocks: BlockList, 
         tools: List[Type[BaseModel]] | None = None, 
         config: LlmConfig | None = None, 
-        error_blocks: List[Block] | None = None
-    ) -> Block:
+        error_blocks: List[BlockChunk] | None = None
+    ) -> BlockChunk:
         ...
     
     def pick(
@@ -385,7 +385,7 @@ class LlmContext(Generic[OUTPUT_MODEL]):
         self.tools = tools
         return self
     
-    def parse_response(self, parse_response_fn: Callable[[Block], Block]) -> Self:
+    def parse_response(self, parse_response_fn: Callable[[BlockChunk], BlockChunk]) -> Self:
         self.parse_response_fn = parse_response_fn
         return self
     
@@ -420,7 +420,7 @@ class LlmContext(Generic[OUTPUT_MODEL]):
             raise ValueError("Output model is not set")
         return output_model
     
-    async def run_controller_block(self) -> Block:
+    async def run_controller_block(self) -> BlockChunk:
         blocks, output_model = await self.controller(self.blocks, self.tools, self.config)
         return blocks
     
@@ -435,7 +435,7 @@ class LlmContext(Generic[OUTPUT_MODEL]):
         blocks: BlockList,
         tools: List[Type[BaseModel]],
         config: LlmConfig    
-    ) -> tuple[Block, OUTPUT_MODEL | None]:        
+    ) -> tuple[BlockChunk, OUTPUT_MODEL | None]:        
         response = None
         error_blocks = BlockList()
         for attempt in range(config.retries):
@@ -470,7 +470,7 @@ class LlmContext(Generic[OUTPUT_MODEL]):
     async def run_complete2(
         self, 
         retries=3,    
-    ) -> Block:
+    ) -> BlockChunk:
 
         
         
@@ -546,7 +546,7 @@ class LLM():
     def __call__(
         self,        
         # *args: Block | List[Block] | BlockList | str,
-        *args: Block | str,
+        *args: BlockChunk | str,
         model: str | None = None,
     ) -> LlmContext:
 
@@ -565,7 +565,7 @@ class LLM():
         for block in args:
             if isinstance(block, str):
                 ctx_blocks.append(block, role="user", tags=["user_input"])
-            elif isinstance(block, Block):
+            elif isinstance(block, BlockChunk):
                 ctx_blocks.append(block)
             else:
                 raise ValueError("Invalid block type")

@@ -36,6 +36,8 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
     async def install_extensions(cls):
         sql = """
         CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+        CREATE EXTENSION IF NOT EXISTS "ltree";
+
         """
         await PGConnectionManager.execute(sql)
 

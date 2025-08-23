@@ -15,7 +15,7 @@ from promptview.model import Model, ArtifactModel, ModelField, RelationField, Ar
 import datetime as dt
 from promptview.model.fields import KeyField, RelationField, ModelField
 from promptview.model.namespace_manager import NamespaceManager
-from promptview.block import Block, ToolCall
+from promptview.block import BlockChunk, ToolCall
 
 from __tests__.utils import clean_database, test_db_pool
     
@@ -83,7 +83,7 @@ class Message(Model):
             res["tool_calls"] = [tool.model_dump() for tool in self.tool_calls]
         return res
         
-    def block(self) -> Block:
+    def block(self) -> BlockChunk:
         tags = []
         if self.role == "user":
             tags = ["user_input"]
@@ -93,7 +93,7 @@ class Message(Model):
             tags = ["tool"]
         else:
             raise ValueError("Invalid role")
-        return Block(
+        return BlockChunk(
             self.content,
             role=self.role,
             tags=tags,

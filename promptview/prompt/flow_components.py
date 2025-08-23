@@ -5,16 +5,16 @@ from queue import SimpleQueue
 
 from typing import Any, AsyncGenerator, Callable, Iterable, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING
 import xml
-from promptview.block.block7 import Block, BlockList, ResponseContext
+from promptview.block.block7 import BlockChunk, BlockList, ResponseBlock
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
 from promptview.prompt.parser import BlockBuffer, SaxStreamParser
 from promptview.prompt.events import StreamEvent
 from promptview.utils.function_utils import call_function
 from lxml import etree
 
-
-if TYPE_CHECKING:
-    from promptview.block import BlockSchema, BlockContext
+from promptview.block import BlockSchema, Block
+# if TYPE_CHECKING:
+    
 
 
 
@@ -182,14 +182,14 @@ class Stream(BaseFbpComponent):
 
 class Parser(BaseFbpComponent):
       
-    def __init__(self, response_schema: "BlockContext", gen=None) -> None:
+    def __init__(self, response_schema: "Block", gen=None) -> None:
         super().__init__(gen)
         self.start_tag = "tag_start"
         self.end_tag = "tag_end"
         self.text_tag = "chunk"                
         self.response_schema = response_schema
         self._safety_tag = "stream_start"        
-        self.response = response_schema.reduce_tree()        
+        self.response = response_schema.build_response()        
         self.parser2 = etree.XMLPullParser(events=("start", "end"))
         self.queue = SimpleQueue()
         self.block_list = []
@@ -223,7 +223,7 @@ class Parser(BaseFbpComponent):
             if not self.queue.empty():
                 return self.queue.get()
             value = await self.gen.asend(value) 
-            print(value)           
+            print(value)
             self.block_list.append(value)
             self.parser2.feed(value.content)
             
@@ -232,7 +232,9 @@ class Parser(BaseFbpComponent):
             
             
             if self.current_tag and not self._detected_tag:
-                value.tags += [self.current_tag, self.text_tag]
+                # if not isinstance(value, Block):
+                #     value = Block(value)
+                # value.tags += [self.current_tag, self.text_tag]
                 if field := self.response.get(self.current_tag):
                     field += value
                     
@@ -245,9 +247,6 @@ class Parser(BaseFbpComponent):
                 #         # payload=self.block_list.pop()
                 #         payload=value
                 #     ))
-                    
-                
-
             
             for event, element in self.parser2.read_events():
                 if element.tag == self._safety_tag:
@@ -269,13 +268,13 @@ class Parser(BaseFbpComponent):
                         #         payload=field
                         #     ))
                     else:
-                        raise ValueError(f"Field {element.tag} not found in response schema")
+                        raise ValueError(f"Field '{element.tag}' not found in response schema")
                     self.block_list=[]
                     self._detected_tag = False                    
                 elif event == 'end':
                     self._pop_tag()
                     is_end_event = False
-                    block_list = BlockList(tags=[self.end_tag])
+                    block_list = BlockList(tags=[self.end_tag], sep="")
                     for block in self.block_list:
                         if "</" in block.content:
                             is_end_event = True                        
@@ -351,8 +350,8 @@ class StreamController(BaseFbpComponent):
         self._name = name
         self._stream = Stream(gen)
         self._gen = self._stream
-        self._acc = Accumulator(BlockList(style="stream"))
-        self._gen |= self._acc
+        # self._acc = Accumulator(BlockList())
+        # self._gen |= self._acc
         self._response_schema = response_schema
         # self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
         self._parser = None
@@ -380,8 +379,11 @@ class StreamController(BaseFbpComponent):
         return self
     
     def save(self, name: str, dir: str | None = None):
+        import os
         path = f"{dir}/{name}.jsonl" if dir else f"{name}.jsonl"
         self._stream.save_stream(path)
+        if os.path.exists(path):
+            os.remove(path)
         return self
     
     def load(self, name: str, dir: str | None = None, delay: float = 0.07):
@@ -393,7 +395,7 @@ class StreamController(BaseFbpComponent):
                 for line in f:
                     await asyncio.sleep(delay)
                     j = json.loads(line)
-                    block = Block.model_validate(j)
+                    block = BlockChunk.model_validate(j)
                     yield block
                     
         self._gen = Stream(load_stream())

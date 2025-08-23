@@ -50,7 +50,10 @@ class NamespaceManager:
 
     @classmethod
     async def initialize_all(cls):
+        from promptview.model3.versioning.models import Branch
         await PgNamespace.install_extensions()
+        # Branch.model_rebuild()
+        # BlockNode.model_rebuild()
         cls.finalize()
         # 1️⃣ Create all tables first
         for ns in cls._registry.values():
@@ -61,6 +64,9 @@ class NamespaceManager:
         for ns in cls._registry.values():
             if hasattr(ns, "add_foreign_keys"):
                 await ns.add_foreign_keys()
+                
+                
+        
 
     
     # @classmethod

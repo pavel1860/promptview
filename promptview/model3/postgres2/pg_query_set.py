@@ -180,24 +180,49 @@ class SelectionSet:
 class TableRegistry:
     
     def __init__(self):
-        self.alias_lookup = {}
+        self.alias_lookup: "OrderedDict[str, Table]" = OrderedDict()
+        self.ns_lookup: "OrderedDict[str, BaseNamespace]" = OrderedDict()
+        self.alias_set = set()
         
-    def register(self, name: str, alias: str):
-        self.alias_lookup[name] = alias
+        
+    def iter_tables(self):
+        for name, table in self.alias_lookup.items():
+            # alias = self.alias_lookup[name]
+            ns = self.ns_lookup[table.alias]
+            yield table, ns
+            
+        
+    def register(self, name: str, alias: str, namespace: BaseNamespace) -> Table:
+        table = Table(name, alias=alias)
+        self.alias_lookup[name] = table
+        self.alias_set.add(alias)
+        self.ns_lookup[alias] = namespace
+        return table
+    
+    def register_table(self, table: Table):
+        self.alias_lookup[table.name] = table
+        self.alias_set.add(table.alias)
+        return table
+        
+    def has_alias(self, alias: str):
+        return alias in self.alias_set
+        
         
     def gen_alias(self, name: str) -> str:
         base = name[0].lower()
         alias = base
         i = 1
-        aliases = set(self.alias_lookup.values())
-        while alias in aliases:
+        while self.has_alias(alias):
             alias = f"{base}{i}"
             i += 1
         return alias
     
+    def get_ns(self, alias: str):
+        return self.ns_lookup[alias]
+    
     def confirm_alias(self, alias: str):
         i = 1
-        while alias in self.alias_lookup:
+        while self.has_alias(alias):
             alias = f"{alias}{i}"
             i += 1
         return alias
@@ -205,45 +230,56 @@ class TableRegistry:
     def register_ns(self, namespace: BaseNamespace, table_name: str | None = None, alias: str | None = None):        
         table_name = table_name or namespace.name
         if alias:
-            if alias in self.alias_lookup:
-                raise ValueError(f"Alias {alias} for namespace {namespace.name} already in use by {self.alias_lookup[alias]}")
-            self.alias_lookup[table_name] = alias
-            return Table(table_name, alias=self.alias_lookup[table_name])
-        # if table_name in self.alias_lookup:
-            # return Table(table_name, alias=self.alias_lookup[table_name])
-        else:
-            alias = self.gen_alias(table_name)
-            self.alias_lookup[table_name] = alias
-            return Table(table_name, alias=alias)
+            if self.has_alias(alias):
+                if table := self.alias_lookup.get(table_name, None):
+                    return table                
+                # raise ValueError(f"Alias {alias} for namespace {namespace.name} already in use by {self.alias_lookup[alias]}")
+            else:
+                return self.register(table_name, alias, namespace)        
+        alias = self.gen_alias(table_name)
+        return self.register(table_name, alias, namespace)
         
     
     def get_ns_table(self, namespace: BaseNamespace, table_name: str | None = None, alias: str | None = None) -> Table:        
         table_name = table_name or namespace.name
         if table_name in self.alias_lookup:
-            return Table(table_name, alias=self.alias_lookup[table_name])
+            return self.alias_lookup[table_name]
         else:
             alias = self.gen_alias(table_name)
-            self.alias_lookup[table_name] = alias
-            return Table(table_name, alias=alias)
+            return self.register(table_name, alias, namespace)
+        
+        
+    def get_alias(self, table_name: str, throw: bool = False) -> str | None:
+        if table_name in self.alias_lookup:
+            return self.alias_lookup[table_name]
+        if throw:
+            raise ValueError(f"Alias for {table_name} not found")
+        return None
     
     def merge_registries(self, other: "TableRegistry"):
-        for name, alias in other.alias_lookup.items():
-            if name not in self.alias_lookup:
-                self.alias_lookup[name] = alias
-            else:
-                self.alias_lookup[name] = self.confirm_alias(alias)
+        for table, ns in other.iter_tables():
+            if table.name not in self.alias_lookup:
+                # alias = self.confirm_alias(table.name)
+                # table.alias = alias
+                self.register_table(table)
+                self.ns_lookup[table.alias] = ns
+            # else:
+                # raise ValueError(f"Alias {table.alias} already in use")
+                # self.register_table(table)
+
 
 
 
 ColumnParamType = str | Column | tuple[str, str]
 
 class ProjectionSet:
-    def __init__(self, namespace: BaseNamespace, from_table: Table):
+    def __init__(self, namespace: BaseNamespace, from_table: Table, table_registry: TableRegistry):
         self.namespace = namespace
         self.from_table = from_table
         self.columns = []
         self.nest_columns: list[tuple["PgSelectQuerySet", str]] = []
         self.used_columns_set = set()
+        self.table_registry = table_registry
         
     @property
     def is_empty(self):
@@ -268,9 +304,17 @@ class ProjectionSet:
         self.used_columns_set.add(col.name)
         return col
     
+    def merge(self, other: "ProjectionSet"):
+        for col in other.columns:
+            self.append(col)
+        for qs, name in other.nest_columns:
+            self.nest(qs, name)
+    
     def iter_fields(self):
         for col in self.columns:
-            field = self.namespace.get_field(col.name)
+            target_ns = col if isinstance(col, str) else str(col.table)
+            namespace = self.table_registry.get_ns(target_ns)
+            field = namespace.get_field(col.name)
             yield col.alias_or_name, field
             
     def iter_relations(self):
@@ -360,7 +404,8 @@ class QuerySet(Generic[MODEL]):
         self.table_registry = table_registry or TableRegistry()
         # self.table = self.table_registry.get_ns_table(self.namespace, table_name)
         self.table = self.table_registry.register_ns(self.namespace, table_name, alias=alias)
-        self.projection_set = ProjectionSet(self.namespace, self.table)        
+        self.projection_set = ProjectionSet(self.namespace, self.table, self.table_registry)        
+        self.parser = None
     
     def build_query(self):
         raise NotImplementedError("Subclasses must implement build_query")
@@ -371,6 +416,11 @@ class QuerySet(Generic[MODEL]):
     
     def get_field(self, name):
         return self.projection_set[name]   
+    
+    def parse(self, func: Callable[[MODEL], Any]):
+        self.parser = func
+        return self
+    
         
 class CteSet(QuerySet[MODEL]):
     
@@ -432,9 +482,21 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         return self
             
         
-    def use_cte(self, cte, name: str | None = None, alias: str | None = None, on: tuple[str, str] | None = None):
-        query_set = self._resolve_query_set_target(cte)
-        cte_set = self._cte_registry.register(query_set, name, alias=alias)        
+    # def use_cte(self, query_set, name: str | None = None, alias: str | None = None, on: tuple[str, str] | None = None):
+    #     query_set = self._resolve_query_set_target(query_set)
+    #     # cte_table = self.table_registry()
+    #     cte_set = self._cte_registry.register(query_set, name, alias=alias) 
+               
+    #     self.join(cte_set, on=on)
+    #     return self
+    def use_cte(self, query_set, name: str, alias: str | None = None, on: tuple[str, str] | None = None):
+        self._cte_registry.merge(query_set._cte_registry)
+        query_set._cte_registry.clear()
+        if alias is None:
+            alias = self.table_registry.gen_alias(name)
+        cte_table = self.table_registry.register(name, alias, query_set.namespace)
+        cte_set = self._cte_registry.register(query_set, name, alias=alias) 
+               
         self.join(cte_set, on=on)
         return self
 
@@ -511,7 +573,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
                     raise ValueError(f"Field {on[0]} not found in {self.model_class.__name__}")
                 rel = self.namespace.build_temp_relation(f"{self.namespace.name}_{query_set.namespace.name}", query_set.namespace, on)
             else:            
-                raise ValueError(f"No relation to {query_set.model_class.__name__}")
+                raise ValueError(f"No relation from {self.model_class.__name__} to {query_set.model_class.__name__}")
         return rel
     
     
@@ -519,12 +581,13 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         if isinstance(target, PgSelectQuerySet):
             self.table_registry.merge_registries(target.table_registry)
             target.table_registry = self.table_registry
+            # self.projection_set.merge(target.projection_set)
             self._cte_registry.merge(target._cte_registry)
             target._cte_registry.clear()
             # target._cte_registry = self._cte_registry
             return target
         elif isinstance(target, CteSet):
-            self.table_registry.merge_registries(target.table_registry)
+            # self.table_registry.merge_registries(target.table_registry)
             # target._cte_registry.clear()
             # target.table_registry = self.table_registry
             return target
@@ -640,12 +703,12 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         if include_ctes:
             for name, cte_qs in self._cte_registry:
                 query.with_cte(name, cte_qs.build_query(), recursive=self._cte_registry.recursive)
+                
         return query
     
     
     
     def to_json_query(self):
-        print("jsonify", self.alias)
         query = self.build_query(
             include_columns=False, 
             self_group=False, 
@@ -664,6 +727,8 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             
         json_obj = Function("jsonb_build_object", *json_pairs)
         
+        
+        
         if len(self.join_set):
             join, relation = self.join_set[0]
             if relation is not None and not relation.is_one_to_one:
@@ -675,15 +740,28 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             query.select(json_obj)
             return Coalesce(query, default_value)
         else:
+            print("##", query.from_table)
             json_obj = Function("json_agg", json_obj)
             query.select(json_obj)
-            default_value = Value("[]", inline=True)
-            return Coalesce(query, default_value)
+            return Coalesce(query, Value("[]", inline=True))
             return json_obj
+            raise ValueError("No joins found")
+        
+        # if len(self.join_set):
+        #     join, relation = self.join_set[0]
+        #     if relation is not None and not relation.is_one_to_one:
+        #         json_obj = Function("json_agg", json_obj)
+        #         default_value = Value("[]", inline=True)
+        #     else:
+        #         default_value = Null()
+                
+        #     query.select(json_obj)
+        #     return Coalesce(query, default_value)
         # else:
         #     json_obj = Function("json_agg", json_obj)
-        #     return json_obj
-            raise ValueError("No joins found")
+        #     query.select(json_obj)
+        #     default_value = Value("[]", inline=True)
+        #     return Coalesce(query, default_value)
     
     
     def parse_row(self, row: dict[str, Any]) -> MODEL:
@@ -691,7 +769,10 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         data = dict(row)        
         data = self.namespace.deserialize(data)
 
-        return self.model_class(**data)
+        obj = self.model_class(**data)
+        if self.parser:
+            obj = self.parser(obj)
+        return obj
   
     
     def parse_json_row(self, row: dict[str, Any]) -> MODEL:
@@ -744,6 +825,8 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         sql, params = self.render()
         rows = await PGConnectionManager.fetch(sql, *params)
         return [self.parse_row(dict(row)) for row in rows]
+    
+
 
 
 

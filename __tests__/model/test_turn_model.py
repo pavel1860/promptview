@@ -11,7 +11,7 @@ from promptview.model.namespace_manager import NamespaceManager
 from promptview.model.version_control_models import Turn as BaseTurn, Branch
 from promptview.model import TurnModel
 from promptview.model.fields import KeyField, RelationField, ModelField
-from promptview.block import Block, ToolCall
+from promptview.block import BlockChunk, ToolCall
 from promptview.testing import TestCase, TestRun, TurnEvaluator, EvaluatorConfig
 
 
@@ -70,7 +70,7 @@ class Message(TurnModel):
             res["tool_calls"] = [tool.model_dump() for tool in self.tool_calls]
         return res
         
-    def block(self) -> Block:
+    def block(self) -> BlockChunk:
         tags = []
         if self.role == "user":
             tags = ["user_input"]
@@ -80,7 +80,7 @@ class Message(TurnModel):
             tags = ["tool"]
         else:
             raise ValueError("Invalid role")
-        return Block(
+        return BlockChunk(
             content=self.content,
             role=self.role,
             tags=tags,

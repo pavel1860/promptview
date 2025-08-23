@@ -5,7 +5,7 @@ from queue import SimpleQueue
 
 
 from promptview.prompt.events import StreamEvent
-from promptview.block import Block, BlockContext
+from promptview.block import BlockChunk, Block
 # if TYPE_CHECKING:
     
 
@@ -16,7 +16,7 @@ class BlockBuffer:
         self.buffer = []
         self.queue = SimpleQueue()
         
-    def add(self, block: "Block"):
+    def add(self, block: "BlockChunk"):
         # print("adding block:", f"'{block.content}'")
         self.buffer.append(block)
         
@@ -222,7 +222,7 @@ class StreamParser:
     async def __anext__(self):
         return await self._chunk_iter.__anext__()
     
-    def preprocess(self, chunk: "Block"):
+    def preprocess(self, chunk: "BlockChunk"):
         return chunk.content
     
     def postprocess(self, event: StreamEvent):

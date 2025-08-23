@@ -4,7 +4,7 @@ import openai
 import os
 
 from pydantic import BaseModel
-from promptview.block.block7 import Block, BlockList
+from promptview.block.block7 import BlockChunk, BlockList
 from promptview.block.util import LLMEvent, ToolCall
 from promptview.context.execution_context import ExecutionContext
 from promptview.llms.llm2 import BaseLLM, LLMStream, LlmConfig, llm_stream
@@ -60,7 +60,8 @@ class OpenAiLLM(BaseLLM):
         
             
         messages = [
-            self.to_message(b.render(), role=b.role or "user", tool_calls=b.tool_calls, tool_call_id=b.id)
+            # self.to_message(b.render(), role=b.role or "user", tool_calls=b.tool_calls, tool_call_id=b.id)
+            self.to_message(b.render(), role=b.role or "user", tool_call_id=b.id)
             for b in blocks
         ]
         llm_tools = None
@@ -92,7 +93,7 @@ class OpenAiLLM(BaseLLM):
                         logprob = 0  
                 except:
                     raise ValueError("No logprobs")        
-                blk_chunk = Block(content, logprob=logprob, sep="")
+                blk_chunk = BlockChunk(content, logprob=logprob)
                 yield blk_chunk
                     
                     
