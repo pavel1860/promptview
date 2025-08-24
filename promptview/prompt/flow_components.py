@@ -15,7 +15,7 @@ from lxml import etree
 
 from promptview.block import BlockSchema, Block
 if TYPE_CHECKING:
-    from promptview.model3.versioning.models import ExecutionSpan, span_type_enum
+    from promptview.model3.versioning.models import ExecutionSpan, Log, span_type_enum
     
 
 
@@ -348,62 +348,6 @@ class Spanable(Protocol):
         pass
     
 
-class SpanManager:
-    
-    def __init__(self, name: str, span_type: "span_type_enum"):
-        self._name = name
-        self._span_type = span_type
-        self._span = None
-        
-        
-    async def on_start(
-        self,
-        index: int,
-        parent_span: "ExecutionSpan | None" = None,
-    ):
-        from promptview.model3.versioning.models import ExecutionSpan
-        self._span = ExecutionSpan(
-            span_type=self._span_type,
-            name=self._name,
-            index=index,
-            parent_span_id=parent_span.id if parent_span else None,
-        )
-        await self._span.save()
-        return self
-    
-    @property
-    def span_id(self):
-        return self.span.id
-    
-    @property
-    def name(self):
-        return self._name
-    
-    @property
-    def span_type(self):
-        return self._span_type
-    
-    @property
-    def span(self):
-        if self._span is None:
-            raise ValueError(f"Span is not started for {self.__class__.__name__}")
-        return self._span
-    
-    async def on_end(self):
-        from promptview.model3.versioning.models import ExecutionSpan
-        self.span.end_time = dt.datetime.now()
-        self.span.status = "completed"
-        await self.span.save()
-        return self
-    
-    async def on_error(self, error: Exception):
-        from promptview.model3.versioning.models import ExecutionSpan
-        self.span.end_time = dt.datetime.now()
-        self.span.status = "failed"
-        self.span.metadata = {"error": str(error)}
-        await self.span.save()
-        return self
-        
     
     
 CHUNK = TypeVar("CHUNK")
@@ -433,14 +377,15 @@ class StreamController(BaseFbpComponent):
         self._name = name
         self._stream = Stream(gen)
         self._gen = self._stream
-        self.span = SpanManager(name=name, span_type=span_type)
         # self._acc = Accumulator(BlockList())
         # self._gen |= self._acc
         self._response_schema = response_schema
         # self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
         self._parser = None
         self.index = 0
-
+        self._span_type = span_type
+        self.parent: "PipeController | None" = None
+        self._span: "ExecutionSpan | None" = None
 
         
     @property
@@ -449,6 +394,15 @@ class StreamController(BaseFbpComponent):
             raise ValueError("StreamController is not initialized")
         return self._acc.result
     
+    @property
+    def span(self):
+        if self._span is None:
+            raise ValueError(f"Span is not started for {self.__class__.__name__}")
+        return self._span
+    
+    @property
+    def span_id(self):
+        return self.span.id
 
     
     def get_response(self):
@@ -493,34 +447,39 @@ class StreamController(BaseFbpComponent):
     @property
     def name(self):
         return self._name
+
+
+    async def on_start(self, value: Any = None):
+        from promptview.model3.versioning.models import ExecutionSpan
+        self._span = await ExecutionSpan(
+            span_type=self._span_type,
+            name=self._name,
+            index=self.index,
+            start_time=dt.datetime.now(),
+            parent_span_id=self.parent.span_id if self.parent else None,
+        ).save()
+        if self.parent:
+            await self.parent.span.add_span(self.span, self.parent.index)
+            
+    async def on_stop(self):
+        self.span.end_time = dt.datetime.now()
+        self.span.status = "completed"
+        self._span = await self.span.save()
+        
+    async def on_error(self, error: Exception):
+        from promptview.model3.versioning.models import Log
+        log = await Log(
+            message=str(error),
+            level="error"
+        ).save()
+        self.span.end_time = dt.datetime.now()
+        self.span.status = "failed"
+        self.span.metadata = {"error": str(error)}
+        self._span = await self.span.save()
+        
+        
     
-    # async def asend(self, value: Any = None):
-    #     return await self._stream.__anext__()
-    
-    # @property
-    # def index(self):
-    #     if self._stream is None:
-    #         raise ValueError("StreamController is not initialized")
-    #     return self._stream._index
-    
-    # async def on_start(self, value: Any = None):
-        # self._stream = Stream(self._gen)
-        # self._acc = Accumulator(self._acc_factory())
-        # self._flow = self._stream | self._acc 
-        # if self._response_schema:
-            # self._parser =Parser(response_schema=self._response_schema)
-            # self._flow |= self._parser
-        # self._gen = self._flow
         
-        
-    async def span_start(self, index: int, parent_span: "ExecutionSpan | None" = None):
-        await self.span.on_start(index, parent_span)
-        
-    async def span_end(self):
-        await self.span.on_end()
-        
-    async def span_error(self, error: Exception):
-        await self.span.on_error(error)
         
     
     
@@ -585,35 +544,28 @@ class PipeController(BaseFbpComponent):
         gen_func, 
         name: str, 
         span_type: "span_type_enum",
-        args = (), 
+        args = (),
         kwargs = {}
     ):
         super().__init__(None)
         self._gen_func = gen_func
         self._args = args
         self._kwargs = kwargs
-        self.span = SpanManager(name=name, span_type=span_type)
+        self._name = name
+        self._span_type = span_type
+        self.parent: "PipeController | None" = None
+        self._span: "ExecutionSpan | None" = None
         self.index = 0
-        
-        
-    async def span_start(self, index: int, parent_span: "ExecutionSpan | None" = None):
-        await self.span.on_start(index, parent_span)
-        
-    async def span_end(self):
-        await self.span.on_end()
-        
-    async def span_error(self, error: Exception):
-        await self.span.on_error(error)
-        
-    async def post_next(self, value: Any = None):
-        from promptview.model3.versioning.models import Turn
-        if isinstance(value, Block):
-            turn = Turn.current()
-            if turn:
-                await turn.add_block(value, self.index, span_id=self.span.span_id)
-                self.index += 1
-        return value
-        
+    
+    @property
+    def span(self):
+        if self._span is None:
+            raise ValueError(f"Span is not started for {self.__class__.__name__}")
+        return self._span
+
+    @property
+    def span_id(self):
+        return self.span.id
         
     def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
         return StreamEvent(type="span_start", name=self._gen_func.__name__, attrs=attrs)
@@ -626,11 +578,54 @@ class PipeController(BaseFbpComponent):
     
     def on_error_event(self, error: Exception):
         return StreamEvent(type="span_error", name=self._gen_func.__name__, payload=error)
+    
+    
+    # async def post_next(self, value: Any = None):
+    #     from promptview.model3.versioning.models import Turn
+    #     if isinstance(value, Block):
+    #         turn = Turn.current()
+    #         if turn:
+    #             await turn.add_block(value, self.index, span_id=self.span_id)
+    #             self.index += 1
+    #     return value
+    
+    async def post_next(self, value: Any = None):
+        from promptview.model3.versioning.models import ExecutionSpan
+        if isinstance(value, Block):
+            await self.span.add_block(value, self.index)
+            self.index += 1
+        return value
         
 
     async def on_start(self, value: Any = None):
+        from promptview.model3.versioning.models import ExecutionSpan
         bound, kwargs = await resolve_dependencies_kwargs(self._gen_func, self._args, self._kwargs)
         self._gen = self._gen_func(*bound.args, **bound.kwargs)
+        self._span = await ExecutionSpan(
+            span_type=self._span_type,
+            name=self._name,
+            index=self.index,
+            parent_span_id=self.parent.span_id if self.parent else None,
+        ).save()
+        if self.parent:
+            await self.parent.span.add_span(self.span, self.parent.index)
+        
+    async def on_stop(self):
+        self.span.end_time = dt.datetime.now()
+        self.span.status = "completed"
+        self._span = await self.span.save()
+        
+    async def on_error(self, error: Exception):
+        from promptview.model3.versioning.models import Log
+        log = await Log(
+            message=str(error),
+            level="error"
+        ).save()
+        await self.span.add_log(log, self.index)
+        self.span.end_time = dt.datetime.now()
+        self.span.status = "failed"
+        self.span.metadata = {"error": str(error)}
+        self._span = await self.span.save()
     
     def __aiter__(self):
         return FlowRunner(self)
@@ -719,14 +714,6 @@ class FlowRunner:
                 gen = self.current            
                 if not gen._did_start:
                     await gen.start_generator() 
-                    if isinstance(gen, Spanable):
-                        parent_span = None
-                        index = 0
-                        if len(self.stack) > 1:       
-                            parent_span = self.stack[-2].span.span
-                            index = self.stack[-2].index
-                            self.stack[-2].index += 1
-                        await gen.span_start(index, parent_span=parent_span)
                     if not self.should_output_events:
                         continue
                     return gen.on_start_event()
@@ -735,8 +722,10 @@ class FlowRunner:
                 value = await gen.asend(response)
                                 
                 if isinstance(value, StreamController):
+                    value.parent = self.current
                     self.push(value)
                 elif isinstance(value, PipeController):
+                    value.parent = self.current
                     self.push(value)
                 else:
                     self.last_value = value
@@ -746,15 +735,13 @@ class FlowRunner:
                     return gen.on_value_event(value)
             except StopAsyncIteration:
                 gen = self.pop()
-                if isinstance(gen, Spanable):
-                    await gen.span_end()
+                await gen.on_stop()
                 if not self.should_output_events:
                     continue
                 return gen.on_stop_event(None)
             except Exception as e:
                 gen = self.pop()
-                if isinstance(gen, Spanable):
-                    await gen.span_error(e)
+                await gen.on_error(e)
                 if not self.should_output_events:
                     raise e
                 self._error_to_raise = e

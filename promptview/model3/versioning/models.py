@@ -363,6 +363,26 @@ class ArtifactModel(VersionedModel):
 span_type_enum = Literal["component", "stream", "llm"]
 
 
+
+class Log(Model):
+    id: int = KeyField(primary_key=True)
+    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    message: str = ModelField()
+    level: Literal["info", "warning", "error"] = ModelField()
+    
+
+
+class SpanEvent(VersionedModel):
+    id: int = KeyField(primary_key=True)    
+    created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    event_type: Literal["block", "span", "log", "model"] = ModelField()
+    table: str | None = ModelField(default=None)
+    index: int = ModelField()
+    span_id: uuid.UUID = ModelField(foreign_key=True)
+    event_id: str = ModelField()
+    
+    
+
 class ExecutionSpan(VersionedModel):
     """Represents a single execution unit (component call, stream, etc.)"""
     id: uuid.UUID = KeyField(primary_key=True)
@@ -379,6 +399,50 @@ class ExecutionSpan(VersionedModel):
     index: int = ModelField()
     
     # Relations
-    children: List["ExecutionSpan"] = RelationField(foreign_key="parent_span_id")
+    events: List["SpanEvent"] = RelationField(foreign_key="span_id")
     # events: List[Event] = RelationField(foreign_key="execution_span_id")
     block_trees: List[BlockTree] = RelationField(foreign_key="span_id")
+    
+    
+    
+    async def add_block(self, block: "Block", index: int):
+        from promptview.model3.block_models.block_log import insert_block
+        tree_id = await insert_block(block, index, self.branch_id, self.turn_id, self.id)
+        event = await SpanEvent(
+            span_id=self.id,
+            event_type="block",
+            event_id=tree_id,
+            index=index
+        ).save()
+        return event
+    
+    
+    async def add_span(self, span: "ExecutionSpan", index: int):
+        return await SpanEvent(
+            span_id=self.id,
+            event_type="span",
+            event_id=str(span.id),
+            index=index
+        ).save()
+    
+    async def add_log(self, log: "Log", index: int):
+        return await SpanEvent(
+            span_id=self.id,
+            event_type="log",
+            event_id=str(log.id),
+            index=index
+        ).save()
+        
+        
+    async def add_model(self, model: "Model", index: int):
+        return await SpanEvent(
+            span_id=self.id,
+            event_type="model",
+            event_id=str(model.id),
+            table=model._namespace_name,
+            index=index
+        ).save()
+        
+        
+    
+    
