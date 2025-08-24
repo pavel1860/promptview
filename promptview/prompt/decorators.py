@@ -45,6 +45,12 @@ def component(
     def decorator(func: Callable[P, AsyncGenerator[CHUNK | StreamController, None]]) -> Callable[P, PipeController]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> PipeController:
-            return PipeController(gen_func=func, args=args, kwargs=kwargs)
+            return PipeController(
+                gen_func=func, 
+                name=func.__name__, 
+                span_type="component", 
+                args=args, 
+                kwargs=kwargs
+            )
         return wrapper
     return decorator

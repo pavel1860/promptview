@@ -50,7 +50,7 @@ class OpenAiLLM(BaseLLM):
         schema = schema_to_function(tool)
         return schema
     
-    @llm_stream
+    @llm_stream(name="openai_llm")
     async def stream(
         self, 
         blocks: BlockList,

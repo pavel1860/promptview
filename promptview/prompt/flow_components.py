@@ -2,8 +2,9 @@ import asyncio
 from functools import wraps
 import json
 from queue import SimpleQueue
+import datetime as dt
 
-from typing import Any, AsyncGenerator, Callable, Iterable, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING
+from typing import Any, AsyncGenerator, Callable, Iterable, Literal, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING, runtime_checkable
 import xml
 from promptview.block.block7 import BlockChunk, BlockList, ResponseBlock
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
@@ -13,7 +14,8 @@ from promptview.utils.function_utils import call_function
 from lxml import etree
 
 from promptview.block import BlockSchema, Block
-# if TYPE_CHECKING:
+if TYPE_CHECKING:
+    from promptview.model3.versioning.models import ExecutionSpan, span_type_enum
     
 
 
@@ -27,6 +29,7 @@ class BaseFbpComponent:
         self._did_end = False
         self._did_error = False
         self._last_value = None
+        self._span = None
         
         
     @property
@@ -38,6 +41,11 @@ class BaseFbpComponent:
     @property
     def name(self):
         return self.gen.__name__
+    
+
+    
+    
+
     
     def get_response(self):
         return self._last_value
@@ -328,6 +336,74 @@ class Accumulator(BaseFbpComponent):
     #         return res
     #     except StopAsyncIteration:
     #         raise StopAsyncIteration
+  
+@runtime_checkable
+class Spanable(Protocol):
+    index: int
+    async def span_start(self, index: int, parent_span: "ExecutionSpan | None" = None):
+        pass
+    async def span_end(self):
+        pass
+    async def span_error(self, error: Exception):
+        pass
+    
+
+class SpanManager:
+    
+    def __init__(self, name: str, span_type: "span_type_enum"):
+        self._name = name
+        self._span_type = span_type
+        self._span = None
+        
+        
+    async def on_start(
+        self,
+        index: int,
+        parent_span: "ExecutionSpan | None" = None,
+    ):
+        from promptview.model3.versioning.models import ExecutionSpan
+        self._span = ExecutionSpan(
+            span_type=self._span_type,
+            name=self._name,
+            index=index,
+            parent_span_id=parent_span.id if parent_span else None,
+        )
+        await self._span.save()
+        return self
+    
+    @property
+    def span_id(self):
+        return self.span.id
+    
+    @property
+    def name(self):
+        return self._name
+    
+    @property
+    def span_type(self):
+        return self._span_type
+    
+    @property
+    def span(self):
+        if self._span is None:
+            raise ValueError(f"Span is not started for {self.__class__.__name__}")
+        return self._span
+    
+    async def on_end(self):
+        from promptview.model3.versioning.models import ExecutionSpan
+        self.span.end_time = dt.datetime.now()
+        self.span.status = "completed"
+        await self.span.save()
+        return self
+    
+    async def on_error(self, error: Exception):
+        from promptview.model3.versioning.models import ExecutionSpan
+        self.span.end_time = dt.datetime.now()
+        self.span.status = "failed"
+        self.span.metadata = {"error": str(error)}
+        await self.span.save()
+        return self
+        
     
     
 CHUNK = TypeVar("CHUNK")
@@ -345,16 +421,25 @@ T = TypeVar("T")
 
 class StreamController(BaseFbpComponent):
     
-    def __init__(self, gen: AsyncGenerator, name:str = "stream",response_schema=None, acc_factory=None):
+    def __init__(
+        self, 
+        gen: AsyncGenerator, 
+        name:str,
+        span_type: "span_type_enum" = "stream",
+        response_schema=None, 
+        acc_factory=None
+    ):
         super().__init__(None)
         self._name = name
         self._stream = Stream(gen)
         self._gen = self._stream
+        self.span = SpanManager(name=name, span_type=span_type)
         # self._acc = Accumulator(BlockList())
         # self._gen |= self._acc
         self._response_schema = response_schema
         # self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
         self._parser = None
+        self.index = 0
 
 
         
@@ -363,6 +448,8 @@ class StreamController(BaseFbpComponent):
         if self._acc is None:
             raise ValueError("StreamController is not initialized")
         return self._acc.result
+    
+
     
     def get_response(self):
         if self._parser:
@@ -410,11 +497,11 @@ class StreamController(BaseFbpComponent):
     # async def asend(self, value: Any = None):
     #     return await self._stream.__anext__()
     
-    @property
-    def index(self):
-        if self._stream is None:
-            raise ValueError("StreamController is not initialized")
-        return self._stream._index
+    # @property
+    # def index(self):
+    #     if self._stream is None:
+    #         raise ValueError("StreamController is not initialized")
+    #     return self._stream._index
     
     # async def on_start(self, value: Any = None):
         # self._stream = Stream(self._gen)
@@ -424,6 +511,17 @@ class StreamController(BaseFbpComponent):
             # self._parser =Parser(response_schema=self._response_schema)
             # self._flow |= self._parser
         # self._gen = self._flow
+        
+        
+    async def span_start(self, index: int, parent_span: "ExecutionSpan | None" = None):
+        await self.span.on_start(index, parent_span)
+        
+    async def span_end(self):
+        await self.span.on_end()
+        
+    async def span_error(self, error: Exception):
+        await self.span.on_error(error)
+        
     
     
     def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
@@ -482,11 +580,39 @@ class StreamController(BaseFbpComponent):
 class PipeController(BaseFbpComponent):
     
     
-    def __init__(self, gen_func, args = (), kwargs = {}):
+    def __init__(
+        self, 
+        gen_func, 
+        name: str, 
+        span_type: "span_type_enum",
+        args = (), 
+        kwargs = {}
+    ):
         super().__init__(None)
         self._gen_func = gen_func
         self._args = args
         self._kwargs = kwargs
+        self.span = SpanManager(name=name, span_type=span_type)
+        self.index = 0
+        
+        
+    async def span_start(self, index: int, parent_span: "ExecutionSpan | None" = None):
+        await self.span.on_start(index, parent_span)
+        
+    async def span_end(self):
+        await self.span.on_end()
+        
+    async def span_error(self, error: Exception):
+        await self.span.on_error(error)
+        
+    async def post_next(self, value: Any = None):
+        from promptview.model3.versioning.models import Turn
+        if isinstance(value, Block):
+            turn = Turn.current()
+            if turn:
+                await turn.add_block(value, self.index, span_id=self.span.span_id)
+                self.index += 1
+        return value
         
         
     def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
@@ -511,36 +637,6 @@ class PipeController(BaseFbpComponent):
     
     def stream_events(self):
         return FlowRunner(self).stream_events()
-    
-    async def __aiter__2(self):
-        # bound = await resolve_dependencies(self._gen_func, self._args, self._kwargs)
-        # gen = self._gen_func(*bound.args, **bound.kwargs)
-        bound, kwargs = await resolve_dependencies_kwargs(self._gen_func, self._args, self._kwargs)
-        gen = self._gen_func(*bound.args, **bound.kwargs)
-        yield StreamEvent(type="span_start", name=gen.__name__, attrs=kwargs )        
-        value = await gen.asend(None)
-        try:      
-            while True:
-                if isinstance(value, StreamController):
-                    stream = value
-                    async for chunk in stream:
-                        yield chunk
-                        # print(chunk)
-                    value = await gen.asend(stream.acc)
-                    # yield StreamEvent(type="span_value", name=self._gen_func.__name__, payload=value)
-                    continue
-                elif isinstance(value, PipeController):
-                    pipe = value
-                    res = None
-                    async for res in pipe:
-                        yield res
-                    value = await gen.asend(res.payload if res else None)
-                    continue
-                else:
-                    yield StreamEvent(type="span_value", name=self._gen_func.__name__, payload=value)
-                    value = await gen.asend(value)                    
-        except StopAsyncIteration:
-            yield StreamEvent(type="span_end", name=self._gen_func.__name__, payload=value)
             
     @classmethod
     def decorator_factory(cls) -> Callable[[], Callable[[Callable[P, AsyncGenerator[CHUNK, None]]], Callable[P, Self]]]:
@@ -607,6 +703,7 @@ class FlowRunner:
         if isinstance(value, StreamEvent):
             return value
         return func(value)
+
     
 
     async def __anext__(self):
@@ -621,7 +718,15 @@ class FlowRunner:
             try:
                 gen = self.current            
                 if not gen._did_start:
-                    await gen.start_generator()
+                    await gen.start_generator() 
+                    if isinstance(gen, Spanable):
+                        parent_span = None
+                        index = 0
+                        if len(self.stack) > 1:       
+                            parent_span = self.stack[-2].span.span
+                            index = self.stack[-2].index
+                            self.stack[-2].index += 1
+                        await gen.span_start(index, parent_span=parent_span)
                     if not self.should_output_events:
                         continue
                     return gen.on_start_event()
@@ -641,11 +746,15 @@ class FlowRunner:
                     return gen.on_value_event(value)
             except StopAsyncIteration:
                 gen = self.pop()
+                if isinstance(gen, Spanable):
+                    await gen.span_end()
                 if not self.should_output_events:
                     continue
                 return gen.on_stop_event(None)
             except Exception as e:
                 gen = self.pop()
+                if isinstance(gen, Spanable):
+                    await gen.span_error(e)
                 if not self.should_output_events:
                     raise e
                 self._error_to_raise = e

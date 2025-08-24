@@ -91,7 +91,7 @@ def block_to_dict(block: Block) -> tuple[list[dict[str, Any]], list[dict[str, An
 
 
 
-async def insert_block(block: Block, branch_id: int, turn_id: int) -> str:
+async def insert_block(block: Block, index: int, branch_id: int, turn_id: int, span_id: uuid.UUID | None = None) -> str:
     """
     Alternative implementation using executemany for bulk inserts.
     This approach is cleaner and more straightforward than UNNEST.
@@ -101,8 +101,8 @@ async def insert_block(block: Block, branch_id: int, turn_id: int) -> str:
         tree_id = str(uuid.uuid4())
         created_at = dt.datetime.now()
         await tx.execute(
-            "INSERT INTO block_trees (id, created_at, branch_id, turn_id) VALUES ($1, $2, $3, $4)", 
-            tree_id, created_at, branch_id, turn_id
+            "INSERT INTO block_trees (id, created_at, branch_id, turn_id, span_id, index) VALUES ($1, $2, $3, $4, $5, $6)", 
+            tree_id, created_at, branch_id, turn_id, span_id, index
         )
 
         # --- prepare rows for blocks ---
@@ -335,9 +335,45 @@ def parse_block_tree_json(block_tree: dict) -> Block:
     return block
 
 
-def parse_block_tree_turn_json(turn):
-    block_list = [parse_block_tree_json(block_tree) for block_tree in turn["block_tree"]]
-    return BlockList(block_list)
+def parse_turn_spans_json(turn):
+    span_lookup = {}
+    root_span = None
+    for span in turn['spans']:
+        if span['parent_span_id'] is None:
+            if root_span is not None:
+                raise ValueError("Multiple root spans found")
+            root_span = span
+        span['children'] = []
+        span_lookup[span['id']] = span
+        block_list = [(block_tree['index'], parse_block_tree_json(block_tree)) for block_tree in span["block_trees"]]
+        for b in block_list:
+            span['children'].append({'type': 'block', 'data': b[1].model_dump(), 'index': b[0]})
+        del span['block_trees']
+    
+    for span in turn['spans']:
+        if span['parent_span_id'] is not None:
+            parent = span_lookup[span['parent_span_id']]
+            parent['children'].append({'type': 'span', 'data': span, 'index': span['index']})
+
+    for span in turn['spans']:
+        span['children'].sort(key=lambda x: x['index'])
+        
+    del turn['spans']
+    turn['span'] = root_span
+    return turn
+        
+        
+    
+    
+def parse_turn_spans_json2(turn):
+
+    for span in turn['spans']:
+        span["block_trees"].sort(key=lambda x: x['created_at'])
+        block_list = [parse_block_tree_json(block_tree) for block_tree in span["block_trees"]]
+        span['blocks'] = BlockList(block_list).model_dump()
+        del span['block_trees']    
+    turn['spans'].sort(key=lambda x: x['start_time'])
+    return turn
    
     
     

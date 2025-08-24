@@ -3,7 +3,7 @@ import enum
 import uuid
 import datetime as dt
 import contextvars
-from typing import TYPE_CHECKING, AsyncGenerator, Callable, List, Type, TypeVar, Self, Any
+from typing import TYPE_CHECKING, AsyncGenerator, Callable, List, Literal, Type, TypeVar, Self, Any
 
 
 
@@ -53,6 +53,14 @@ class Branch(Model):
             forked_from_branch_id=self.id,
             name=name,
         ).save()
+        return branch
+    
+    
+    @classmethod
+    async def get_main(cls):
+        branch = await cls.get_or_none(1)
+        if branch is None:
+            branch = await cls(name="main").save()
         return branch
     
     
@@ -176,7 +184,7 @@ class Turn(Model):
     branch_id: int = ModelField(foreign_key=True)
     trace_id: str | None = ModelField(default=None)
     metadata: dict | None = ModelField(default=None)
-    block_tree: List["BlockTree"] = RelationField(foreign_key="turn_id")
+    spans: List["ExecutionSpan"] = RelationField(foreign_key="turn_id")
     _auto_commit: bool = True
 
     # forked_branches: List["Branch"] = RelationField("Branch", foreign_key="forked_from_turn_id")
@@ -192,9 +200,9 @@ class Turn(Model):
         ).parse(parse_block_tree_turn)
         
         
-    async def add_block(self, block: "Block"):
+    async def add_block(self, block: "Block", index: int, span_id: uuid.UUID | None = None):
         from promptview.model3.block_models.block_log import insert_block
-        return await insert_block(block, self.branch_id, self.id)
+        return await insert_block(block, index, self.branch_id, self.id, span_id)
         
         
     async def commit(self):
@@ -331,6 +339,8 @@ class BlockTree(VersionedModel):
     id: uuid.UUID = KeyField(primary_key=True)
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
     nodes: List[BlockNode] = RelationField(foreign_key="tree_id")
+    span_id: uuid.UUID | None = ModelField(foreign_key=True)
+    index: int = ModelField()
     
 
 
@@ -350,3 +360,25 @@ class ArtifactModel(VersionedModel):
 
 
 
+span_type_enum = Literal["component", "stream", "llm"]
+
+
+class ExecutionSpan(VersionedModel):
+    """Represents a single execution unit (component call, stream, etc.)"""
+    id: uuid.UUID = KeyField(primary_key=True)
+    name: str = ModelField()  # Function/component name
+    span_type: span_type_enum = ModelField()
+    parent_span_id: uuid.UUID | None = ModelField(foreign_key=True)
+    turn_id: int = ModelField(foreign_key=True)
+    branch_id: int = ModelField(foreign_key=True)
+    start_time: dt.datetime = ModelField(default_factory=dt.datetime.now)
+    end_time: dt.datetime | None = ModelField(default=None)
+    depth: int = ModelField(default=0)  # Nesting level
+    metadata: dict[str, Any] = ModelField(default={})
+    status: Literal["running", "completed", "failed"] = ModelField(default="running")
+    index: int = ModelField()
+    
+    # Relations
+    children: List["ExecutionSpan"] = RelationField(foreign_key="parent_span_id")
+    # events: List[Event] = RelationField(foreign_key="execution_span_id")
+    block_trees: List[BlockTree] = RelationField(foreign_key="span_id")
