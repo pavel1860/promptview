@@ -34,8 +34,6 @@ def test_simple_context():
         b1 += "hello"
         b1 += "world"
 
-    b1.print()
-
     assert len(b1.root) == 1
     assert b1.root[0].content == "title"
     assert len(b1.children) == 1

@@ -838,9 +838,9 @@ class Block(BaseBlock):
         root_logprob = self.root.logprob or 0
         return logprob + root_logprob
        
-    def field(self, name: str, type: Type, attrs: dict[str, str] | None = None) -> "FieldBlock":
+    def field(self, name: str, type: Type, attrs: dict[str, str] | None = None) -> "FieldSchemaBlock":
         # block = FieldBlock(name, type, attrs=attrs)
-        ctx = FieldBlock(
+        ctx = FieldSchemaBlock(
             name,
             type=type,
             attrs=attrs,
@@ -986,6 +986,8 @@ class Block(BaseBlock):
     
     def get(self, tag: str):
         tag = tag.lower()
+        if tag in self.tags:
+            return self
         for child in self.children:
             if isinstance(child,Block):
                 if tag in child.tags:
@@ -997,11 +999,11 @@ class Block(BaseBlock):
 
     def get_field(self):
         for child in self.children:
-            if isinstance(child, FieldBlock):
+            if isinstance(child, FieldSchemaBlock):
                 return child
             elif isinstance(child, Block):
                 for b in child.root:
-                    if isinstance(b, FieldBlock):
+                    if isinstance(b, FieldSchemaBlock):
                         return b
         return None
     
@@ -1048,7 +1050,7 @@ class Block(BaseBlock):
         else:
             raise ValueError(f"Invalid block list: {v}")
     
-    def build_response(self):
+    def build_response(self) -> "ResponseBlock":
         def _clone_target_node(n: Block) -> ResponseBlock:
             return ResponseBlock(                
                 schema=n, 
@@ -1056,38 +1058,18 @@ class Block(BaseBlock):
             )
         
         def _is_target(node: BaseBlock) -> bool:
-            return isinstance(node, FieldBlock)
-        return self.reduce_tree(_is_target, _clone_target_node)
+            return isinstance(node, FieldSchemaBlock)
+        res = self.gather_trees(_is_target, _clone_target_node)
+        if len(res) == 1:
+            return res[0]
+        else:
+            raise ValueError("Multiple target nodes found")
         
-        
-    def reduce_tree(self, is_target: Callable[[BaseBlock], bool] | None = None, clone_target_node = None) -> "ResponseBlock":
+    def gather_trees(self, is_target: Callable[[BaseBlock], bool] | None = None, clone_target_node = None) -> "list[BaseBlock]":
         """Return a forest containing only target-type nodes, attached under their
         nearest target-type ancestor from the original tree."""
         dummy_children: List[BaseBlock] = []
         stack: List[Block] = []  # stack of cloned target nodes
-        
-        # def _clone_target_node(n: Block) -> ResponseContext:
-        #     # Copy only what you need; children will be filled during reduction.
-        #     for b in n.root:
-        #         if isinstance(b, FieldBlock):
-        #             f = copy.deepcopy(b)
-        #             f.attrs = copy.deepcopy(n.attrs)
-        #             return ResponseContext(f)
-        #     raise ValueError("No field block found")
-        
-        # def _is_target(node: BaseBlock) -> bool:
-        #     if isinstance(node, FieldBlock):
-        #         return True
-        #     elif isinstance(node, Block):
-        #         for b in node.root:
-        #             if isinstance(b, FieldBlock):
-        #                 return True
-        #     return False
-        
-
-        
-        # is_target = is_target or _is_target
-        # clone_target_node = clone_target_node or _clone_target_node
 
         def dfs(u: Block):
             created = None
@@ -1109,8 +1091,8 @@ class Block(BaseBlock):
         dfs(self)
         if not dummy_children:
             raise ValueError("No target nodes found")
-        res = Block(children=BlockList(dummy_children))
-        return res
+        # res = Block(children=BlockList(dummy_children))
+        return dummy_children
         
     def __repr__(self) -> str:
         root = self.root.render() if self.root else ''
@@ -1186,7 +1168,12 @@ class FieldAttrBlock:
             raise ValueError(f"Invalid type: {self.type}")
 
 
-class FieldBlock(Block):
+class FieldSchemaBlock(Block):
+    
+    __slots__ = [
+        "type",
+        "name",
+    ]
     
     def __init__(
         self, 
@@ -1207,7 +1194,7 @@ class FieldBlock(Block):
         self.type = type
         self.name = name
         
-        
+       
 
 
 
@@ -1226,7 +1213,7 @@ class ResponseBlock(Block):
     
     def __init__(
         self, 
-        schema: FieldBlock, 
+        schema: FieldSchemaBlock, 
         children: BlockList | None = None, 
         tags: list[str] | None = None, 
         style: str | None = None,
