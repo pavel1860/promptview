@@ -665,19 +665,35 @@ class BlockList(UserList[BaseBlock], BaseBlock):
         dump["blocks"] = [b.model_dump() for b in self]
         return dump
     
-    def append(self, content: "BlockChunk | BlockSent | Block"):
+    def append(self, content: "BlockSent | Block"):
         if isinstance(content, BlockSent):            
             UserList.append(self, content)
+            self._connect(content)
         elif isinstance(content, Block):
             UserList.append(self, content)
-        elif isinstance(content, BlockChunk):
-            if self._should_add_sentence():
-                UserList.append(self, BlockSent(sep=self.default_sep, parent=self))            
-            self.last.append(content)
+            self._connect(content)
         else:
             raise ValueError(f"Invalid content type: {type(content)}")
-        self._connect(content)
         return self
+    
+    def append_inline(self, content: "BlockChunk"):
+        if not isinstance(content, BlockChunk):
+            raise ValueError(f"Invalid content type: {type(content)}")
+        if self._should_add_sentence():
+            self._add_sentence()
+        self.last.append(content)
+        return self
+    
+    
+    def add_line(self):
+        sent = self._add_sentence()
+        return sent
+    
+    def _add_sentence(self):
+        sent = BlockSent(sep=self.default_sep)
+        UserList.append(self, sent)
+        self._connect(sent)
+        return sent
     
     def _connect(self, block: "BaseBlock"):
         block.parent = self
@@ -772,12 +788,7 @@ class Block(BaseBlock):
         "attrs",
     ]
     
-    # def __init__(
-    #     self, 
-    #     root: BlockChunk | BlockList | None = None, 
-    #     children: BlockList | None = None,         
-    #     **kwargs: Unpack[BlockParams]
-    # ):
+
     def __init__(
         self, 
         root: ContentType | BlockChunk | BlockList | None = None, 
@@ -803,17 +814,6 @@ class Block(BaseBlock):
         if root_block is not None:
             self.root.append(root_block)
         
-
-        # if isinstance(root_block, BlockChunk):
-        #     self.root: BlockList = BlockList([root_block], parent=self)
-        # elif isinstance(root_block, BlockList):
-        #     self.root: BlockList = root_block
-        # else:
-        #     self.root: BlockList = BlockList([], parent=self)
-        # if children is None:
-        #     self.children: BlockList = BlockList([], parent=self)
-        # else:
-        #     self.children: BlockList = children
     @property
     def path(self) -> list[int]:
         if self.parent is None:
@@ -881,23 +881,6 @@ class Block(BaseBlock):
     def __exit__(self, exc_type, exc_value, traceback):
         pass
     
-            
-            
-    # def __call__(self, content: ContentType | BaseBlock | list[str] | None = None) -> Block:
-    #     if content is None:
-    #         content = Block()
-            
-    #     if isinstance(content, Block):
-    #         self.append_child(content)
-    #         return content
-    #     elif isinstance(content, list):
-    #         for c in content:
-    #             self.append_child(c)
-    #         return c
-    #     else:
-    #         content = Block(content)
-    #         self.append_child(content)
-    #         return content
     
     def __call__(
         self, 
@@ -923,17 +906,26 @@ class Block(BaseBlock):
     
 
     
-    def append_child(self, content: "ContentType | BlockChunk | BlockSent | Block"):
-        # block = self._process_content(content)
+    def append_child(self, content: "ContentType | BlockChunk | BlockSent | Block"):        
         if isinstance(content, Block):
-            block = content
-        elif isinstance(content, BlockChunk):
-            block = content
+            self.children.append(content)
         elif isinstance(content, BlockSent):
-            block = content            
+            self.children.append(content)
         else:
-            block = process_basic_content(self, content)
-        self.children.append(block)
+            block = process_basic_content(self, content)            
+            self.children.add_line()
+            self.children.append_inline(block)        
+        return self
+    
+    def append_child_inline(self, content: "ContentType | BlockChunk"):        
+        block = process_basic_content(self, content)
+        self.children.append_inline(block)
+        return self
+    
+    def append_child_tuple(self, content: tuple[ContentType | BlockChunk, ...]):
+        self.children.add_line()
+        for c in content:
+            self.append_child_inline(c)
         return self
         
     
@@ -942,31 +934,37 @@ class Block(BaseBlock):
         self.root.append(content)
         return self
     
-    def __add__(self, other: ContentType | BlockChunk | tuple[ContentType, ...]):
-        if isinstance(other, Block):
-            for rc in other.root:
-                self.append_root(rc)
-        else:
-            self.append_root(other)
-        return self
     
     
-    def __truediv__(self, other: "ContentType | BlockChunk | Block"):
-        if isinstance(other, Block):
-            self.append_child(other)
-        else:
-            self.append_child(other)
-        return self
     
+    # def __add__(self, other: ContentType | BlockChunk | tuple[ContentType, ...]):
+    #     if isinstance(other, Block):
+    #         for rc in other.root:
+    #             self.append_root(rc)
+    #     else:
+    #         self.append_root(other)
+    #     return self
     
     
     def __iadd__(self, other: ContentType | BlockChunk):
-        self.append_child(other)
+        self.append_child_inline(other)
         return self
     
     
-    def __itruediv__(self, other: ContentType | BlockChunk):
-        self.append_child(other)
+    # def __truediv__(self, other: "ContentType | BlockChunk | Block | BlockSent | tuple[ContentType, ...]"):
+    #     if isinstance(other, Block):
+            
+    
+    
+    def __itruediv__(self, other: "ContentType | BlockChunk | Block | BlockSent | tuple[ContentType, ...]"):
+        if isinstance(other, Block):
+            self.append_child(other)
+        elif isinstance(other, BlockSent):
+            self.append_child(other)
+        elif isinstance(other, tuple):
+            self.append_child_tuple(other)
+        else:
+            self.append_child_tuple((other,))
         return self
     
     
