@@ -1,3 +1,4 @@
+import copy
 from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Dict, List, Literal, Type, TypedDict, Unpack
 from pydantic import BaseModel, Field
@@ -79,9 +80,9 @@ def pack_blocks(args: tuple[Any, ...]) -> tuple[BlockList, tuple[Any, ...]]:
         if isinstance(arg, str):
             block_list.append(Block(arg))
         elif isinstance(arg, Block):
-            block_list.append(arg)
+            block_list.append(copy.copy(arg))
         elif isinstance(arg, BlockList):
-            block_list.extend(arg)
+            block_list.extend(copy.copy(arg))
         else:
             extra_args += (arg,)
     return block_list, extra_args

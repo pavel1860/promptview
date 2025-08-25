@@ -239,28 +239,18 @@ class Parser(BaseFbpComponent):
             if "<" in value.content:
                 self._detected_tag = True
             
-            
+            # in the middle of the stream, adding chunks to the current field
             if self.current_tag and not self._detected_tag:
-                # if not isinstance(value, Block):
-                #     value = Block(value)
-                # value.tags += [self.current_tag, self.text_tag]
                 if field := self.response.get(self.current_tag):
-                    field += value
-                    
+                    field += value                    
                 self.queue.put(copy.deepcopy(value))
-                # self.queue.put(
-                #     StreamEvent(
-                #         type=self.text_tag, 
-                #         name=self.current_tag, 
-                #         depth=0, 
-                #         # payload=self.block_list.pop()
-                #         payload=value
-                #     ))
             
+            # start or end of a field, adding the whole field to the queue
             for event, element in self.parser2.read_events():
                 if element.tag == self._safety_tag:
-                    continue
+                    continue                
                 if event == 'start':
+                    # start of a field
                     self._push_tag(element.tag)
                     if field := self.response.get(element.tag):
                         for block in self.block_list:
@@ -268,19 +258,12 @@ class Parser(BaseFbpComponent):
                         field.set_attributes(dict(element.attrib))
                         field.tags += [self.start_tag]
                         self.queue.put(copy.deepcopy(field))
-                        # self.queue.put(
-                        #     StreamEvent(
-                        #         type=self.start_tag, 
-                        #         name=element.tag, 
-                        #         attrs=field.attrs, 
-                        #         depth=0, 
-                        #         payload=field
-                        #     ))
                     else:
                         raise ValueError(f"Field '{element.tag}' not found in response schema")
                     self.block_list=[]
                     self._detected_tag = False                    
                 elif event == 'end':
+                    # end of a field
                     self._pop_tag()
                     is_end_event = False
                     end_sent = BlockSent(tags=[self.end_tag], sep="")
@@ -289,19 +272,11 @@ class Parser(BaseFbpComponent):
                             is_end_event = True                        
                         if is_end_event:
                             end_sent.append(block)
-                        # self.queue.put(
-                        #     StreamEvent(
-                        #         type=self.end_tag, 
-                        #         name=element.tag, 
-                        #         depth=0, 
-                        #         payload=block_list
-                        #     ))
-                    else:
-                        
-                        if field := self.response.get(element.tag):
-                            self.queue.put(copy.deepcopy(end_sent))
+                    else:                        
+                        if field := self.response.get(element.tag):                            
                             field.set_postfix(end_sent)
                             field.commit()
+                            self.queue.put(copy.deepcopy(end_sent))
                     self.block_list=[]
                     self._detected_tag = False
                 

@@ -19,6 +19,27 @@ if TYPE_CHECKING:
 CHUNK_TYPE = TypeVar("CHUNK_TYPE", str, int, float, bool, None)
 
 
+def process_basic_content(parent: "BaseBlock", content: "ContentType | BlockChunk"):
+    if isinstance(content, BlockChunk):
+        return content
+    elif isinstance(content, str):
+        return BlockChunk(content)
+    elif isinstance(content, int):
+        return BlockChunk(str(content))
+    elif isinstance(content, float):
+        return BlockChunk(str(content))
+    elif isinstance(content, bool):
+        return BlockChunk(str(content))
+    # elif isinstance(content, list):
+    #     return BlockList(content)
+    # elif isinstance(content, BaseBlock):
+    #     return content        
+    else:
+        path = parent.path
+        raise ValueError(f"Invalid content type: {type(content)} for path: {path}")
+
+
+
 
 
 class ContextStack:
@@ -257,28 +278,6 @@ class BlockChunk(BaseBlock):
     def __exit__(self, exc_type, exc_value, traceback):
         pass
         
-    def __add__(self, other: "BlockChunk"):
-        
-        return BlockList(
-            [self, other], 
-            role=self.role,
-            attrs=self.attrs,
-            depth=self.depth,
-            parent=self.parent,
-            run_id=self.run_id,
-            model=self.model,
-            tool_calls=self.tool_calls,
-            usage=self.usage,
-            id=self.id,
-            db_id=self.db_id,
-        )
-    
-    def __radd__(self, other: "BlockChunk"):
-        return other.hstack(self)
-    
-    def __iadd__(self, other: "BlockChunk"):
-        self.ihstack(other)
-        return self
     
     def __eq__(self, other: object):
         if isinstance(other, str):
@@ -381,7 +380,7 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
     
     def __init__(
         self, 
-        chunks: list[BlockChunk] | None = None, 
+        chunks: list[BlockChunk | ContentType] | None = None, 
         sep: str = " ", 
         wrap: tuple[str, str] | None = None,
         index: int | None = None,
@@ -396,23 +395,22 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         if chunks is None:
             chunks = []
     
-        UserList.__init__(self, chunks)
+        UserList.__init__(self)
         BaseBlock.__init__(self, parent=parent, index=index)
         self.sep_list = []
         self.default_sep = sep
-        for chunk in chunks:
-            if not hasattr(chunk, "is_eol"):
-                print(f"Warning: {chunk} is not a BlockChunk")                
-            if chunk.is_eol:
-                if self.has_eol:
-                    raise ValueError("Cannot append to a list that has an end of line")
-                sep = ""
-                self.has_eol = True
-                chunk = chunk.replace("\n", "")
-            self.sep_list.append(sep)
-
-            
         self.has_eol = False
+        for chunk in chunks:
+            self.append(chunk)
+            # if not hasattr(chunk, "is_eol"):
+            #     print(f"Warning: {chunk} is not a BlockChunk")                
+            # if chunk.is_eol:
+            #     if self.has_eol:
+            #         raise ValueError("Cannot append to a list that has an end of line")
+            #     sep = ""
+            #     self.has_eol = True
+            #     chunk = chunk.replace("\n", "")
+            # self.sep_list.append(sep)
         if wrap:
             self.wrap(*wrap)
             
@@ -444,24 +442,23 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         self.prepend(start_token)
         self.append(end_token)
     
-    def _process_content(self, content: ContentType | BlockChunk):
-        if isinstance(content, BlockChunk):
-            chunk = content
-        elif isinstance(content, str):
-            chunk = BlockChunk(content)
-        elif isinstance(content, int):
-            chunk = BlockChunk(content)
-        elif isinstance(content, float):
-            chunk = BlockChunk(content)
-        else:
-            raise ValueError(f"Invalid content type: {type(content)}")
-        return chunk
+    # def _process_content(self, content: ContentType | BlockChunk):
+    #     if isinstance(content, BlockChunk):
+    #         chunk = content
+    #     elif isinstance(content, str):
+    #         chunk = BlockChunk(content)
+    #     elif isinstance(content, int):
+    #         chunk = BlockChunk(content)
+    #     elif isinstance(content, float):
+    #         chunk = BlockChunk(content)
+    #     else:
+    #         raise ValueError(f"Invalid content type: {type(content)}")
+    #     return chunk
         
     
     
     def append(self, content: ContentType | BlockChunk, sep: str | None = None):
-
-        chunk = self._process_content(content)
+        chunk = process_basic_content(self, content)
         sep = sep or self.default_sep
         if chunk.is_eol:
             if self.has_eol:
@@ -469,28 +466,45 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
             sep = ""
             self.has_eol = True
             chunk = chunk.replace("\n", "")
-        chunk.parent = self
-        chunk.index = len(self)
+        chunk = self._connect(chunk)
         self.sep_list.append(sep)
         UserList.append(self, chunk)
         
     def prepend(self, content: ContentType | BlockChunk, sep: str | None = None):
         self.insert(0, content, sep=sep)
         
+        
+        
+        
     def insert(self, index: int, content: ContentType | BlockChunk, sep: str | None = None):
         if self.has_eol and index == len(self):
             raise ValueError("Cannot insert to the end of a list that has an end of line")
-        block = self._process_content(content)
+        chunk = process_basic_content(self,content)
         sep = sep or self.default_sep
-        if block.is_eol:
+        if chunk.is_eol:
             if index != len(self):
                 raise ValueError("end of line cannot be inserted in the middle of a list")
             if self.has_eol:
                 raise ValueError("Cannot insert an end of line to a list that has an end of line")
             sep = "\n"
             self.has_eol = True
+        self._shift_index(index)
+        chunk = self._connect(chunk, index)
         self.sep_list.insert(index, sep)
-        UserList.insert(self, index, block)
+        UserList.insert(self, index, chunk)
+        
+    def extend(self, sent: "BlockSent"):
+        for chunk in sent:
+            self.append(chunk)
+        
+    def _connect(self, chunk: "BlockChunk", index: int | None = None):
+        chunk.parent = self
+        chunk.index = index if index is not None else len(self)
+        return chunk
+    
+    def _shift_index(self, index: int):
+        for i in range(index, len(self)):
+            self[i].index += 1
         
         
     def iter_chunks(self):
@@ -499,21 +513,38 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         for chunk, sep in zip(self, self.sep_list):
             yield chunk, sep
         
-        
-    def __add__(self, other: ContentType):
-        self.append(other)
-        return self
     
-    def __and__(self, other: ContentType):
+    
+    def __and__(self, other: ContentType | BlockChunk):
         self.append(other, sep="")
         return self
     
-    def __iadd__(self, other: ContentType):
-        self.append(other)
+    def __iand__(self, other: ContentType | BlockChunk):
+        self.append(other, sep="")
         return self
     
-    def __radd__(self, other: ContentType):
-        self.append(other)
+    def __add__(self, other: "ContentType | BlockChunk | BlockSent"):
+        if isinstance(other, BlockSent):
+            s = BlockSent()
+            s.extend(self)
+            s.extend(other)
+            return s
+        else:
+            self.append(other)
+        return self
+    
+    def __iadd__(self, other: "ContentType | BlockChunk | BlockSent"):
+        if isinstance(other, BlockSent):
+            self.extend(other)
+        else:
+            self.append(other)
+        return self
+    
+    def __radd__(self, other: "ContentType | BlockChunk | BlockSent"):
+        if isinstance(other, BlockSent):
+            pass
+        else:
+            self.prepend(other)
         return self
     
     def __iradd__(self, other: ContentType):
@@ -622,7 +653,7 @@ class BlockList(UserList[BaseBlock], BaseBlock):
     
     
     @property
-    def last(self) -> BlockChunk:
+    def last(self) -> BlockSent:
         if not self:
             UserList.append(self, BlockSent(sep=self.default_sep, parent=self))
         return self[-1]
@@ -645,12 +676,13 @@ class BlockList(UserList[BaseBlock], BaseBlock):
             self.last.append(content)
         else:
             raise ValueError(f"Invalid content type: {type(content)}")
-            
-            # content = BlockSent([content])
-            # UserList.append(self, content)
-        content.parent = self          
-        content.index = len(self)
+        self._connect(content)
         return self
+    
+    def _connect(self, block: "BaseBlock"):
+        block.parent = self
+        block.index = len(self)
+        return block
     
     def _should_add_sentence(self):
         if not len(self):
@@ -767,7 +799,7 @@ class Block(BaseBlock):
         self.root = BlockSent(index=self.index, parent=self)
         self.children = BlockList(children or [], index=self.index, parent=self)
         
-        root_block = self._process_content(root) if root is not None else None
+        root_block = process_basic_content(self, root) if root is not None else None
         if root_block is not None:
             self.root.append(root_block)
         
@@ -887,14 +919,35 @@ class Block(BaseBlock):
         self.children.append(ctx)        
         return ctx
     
+
+    
+
+    
+    def append_child(self, content: "ContentType | BlockChunk | BlockSent | Block"):
+        # block = self._process_content(content)
+        if isinstance(content, Block):
+            block = content
+        elif isinstance(content, BlockChunk):
+            block = content
+        elif isinstance(content, BlockSent):
+            block = content            
+        else:
+            block = process_basic_content(self, content)
+        self.children.append(block)
+        return self
+        
+    
+    def append_root(self, content: ContentType | BlockChunk):
+        # block = self._process_content(content)
+        self.root.append(content)
+        return self
     
     def __add__(self, other: ContentType | BlockChunk | tuple[ContentType, ...]):
         if isinstance(other, Block):
             for rc in other.root:
                 self.append_root(rc)
         else:
-            block = self._process_content(other)
-            self.append_root(block)
+            self.append_root(other)
         return self
     
     
@@ -902,72 +955,19 @@ class Block(BaseBlock):
         if isinstance(other, Block):
             self.append_child(other)
         else:
-            block = self._process_content(other)
-            self.append_child(block)
+            self.append_child(other)
         return self
     
     
     
     def __iadd__(self, other: ContentType | BlockChunk):
-        # if isinstance(other, ContentType):            
-        #     other = Block(other)        
-        #     self.append_root(other)
-        # elif isinstance(other, Block):
-        #     self.append_child(other, as_line=True)
-        # elif isinstance(other, tuple):
-        #     for c in other:
-        #         if isinstance(c, ContentType):
-        #             c = Block(c)
-        #         self.append_root(c)
-        # else:
-        #     raise ValueError(f"Invalid content type: {type(other)}")
-        block = self._process_content(other)
-        self.append_child(block)
+        self.append_child(other)
         return self
     
     
     def __itruediv__(self, other: ContentType | BlockChunk):
-        # if not isinstance(other, Block):
-        #     if isinstance(other, tuple):
-        #         other = BlockList([Block(item) for item in other], style="list:row")                
-        #     else:
-        #         other = Block(other)
-        block = self._process_content(other)
-        self.append_child(block)
+        self.append_child(other)
         return self
-    
-
-    
-    def append_child(self, content: ContentType | BlockChunk):
-        block = self._process_content(content)
-        self.children.append(block)
-        return self
-        
-    
-    def append_root(self, content: ContentType | BlockChunk):
-        block = self._process_content(content)
-        self.root.append(block)
-        return self
-    
-    
-    def _process_content(self, content: ContentType | BlockChunk):
-        if isinstance(content, BlockChunk):
-            return content
-        elif isinstance(content, str):
-            return BlockChunk(content, parent=self)
-        elif isinstance(content, int):
-            return BlockChunk(str(content), parent=self)
-        elif isinstance(content, float):
-            return BlockChunk(str(content), parent=self)
-        elif isinstance(content, bool):
-            return BlockChunk(str(content), parent=self)
-        elif isinstance(content, list):
-            return BlockList(content, parent=self)
-        elif isinstance(content, BaseBlock):
-            return content        
-        else:
-            path = self.path
-            raise ValueError(f"Invalid content type: {type(content)} for path: {path}")
     
     
     def response_schema(self, name: str | None = None):
