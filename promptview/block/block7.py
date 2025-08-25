@@ -321,7 +321,7 @@ class BlockChunk(BaseBlock):
     
     def model_dump(self):
         dump = super().model_dump()
-        dump["_type"] = "Block"
+        dump["_type"] = "BlockChunk"
         dump["content"] = self.content        
         return dump
     
@@ -348,8 +348,8 @@ class BlockChunk(BaseBlock):
     
     @classmethod
     def model_validate(cls, data: dict):
-        if "_type" not in data or data["_type"] != "Block":
-            raise ValueError(f"Invalid or missing _type for Block: {data.get('_type')}")
+        if "_type" not in data or data["_type"] != "BlockChunk":
+            raise ValueError(f"Invalid or missing _type for BlockChunk: {data.get('_type')}")
         data = dict(data)  # copy
         data.pop("_type")
         content = data.pop("content", None)
@@ -425,7 +425,8 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
     @property
     def path(self) -> list[int]:
         if self.parent is None:
-            return [self.index]
+            raise ValueError("BlockSent has no parent")
+            # return [self.index]
         if isinstance(self.parent, Block):
             return self.parent.path
         else:
@@ -445,15 +446,16 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
     
     def _process_content(self, content: ContentType | BlockChunk):
         if isinstance(content, BlockChunk):
-            return content
+            chunk = content
         elif isinstance(content, str):
-            return BlockChunk(content)
+            chunk = BlockChunk(content)
         elif isinstance(content, int):
-            return BlockChunk(content)
+            chunk = BlockChunk(content)
         elif isinstance(content, float):
-            return BlockChunk(content)
+            chunk = BlockChunk(content)
         else:
             raise ValueError(f"Invalid content type: {type(content)}")
+        return chunk
         
     
     
@@ -467,6 +469,8 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
             sep = ""
             self.has_eol = True
             chunk = chunk.replace("\n", "")
+        chunk.parent = self
+        chunk.index = len(self)
         self.sep_list.append(sep)
         UserList.append(self, chunk)
         
@@ -523,6 +527,7 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         dump = super().model_dump()
         dump["_type"] = "BlockSent"
         dump["blocks"] = [b.model_dump() for b in self]
+        dump["path"] = self.path
         return dump
     
 
@@ -1013,6 +1018,7 @@ class Block(BaseBlock):
         dump["attrs"] = self.attrs
         dump["role"] = self.role
         dump["id"] = self.id
+        dump["path"] = self.path
         
         return dump
     
@@ -1214,6 +1220,12 @@ class FieldContext(Block):
 
 class ResponseBlock(Block):
     
+    __slots__ = (
+        "schema", 
+        "_value", 
+        "postfix"
+    )
+    
     def __init__(
         self, 
         schema: FieldBlock, 
@@ -1231,7 +1243,8 @@ class ResponseBlock(Block):
         self.children.default_sep = ""
         self.schema = schema
         self._value = None
-        self.postfix: BlockList | None = None
+        self.postfix: BlockSent | None = None
+        
     
     @property
     def name(self) -> str:
@@ -1265,6 +1278,9 @@ class ResponseBlock(Block):
             else:
                 raise ValueError(f"Attribute {k} not found in schema")
     
+    def set_postfix(self, postfix: BlockSent): 
+        postfix.parent = self
+        self.postfix = postfix
     
     def commit(self):
         content = self.children.render()
@@ -1272,6 +1288,7 @@ class ResponseBlock(Block):
         content = textwrap.dedent(content)
         self._value = self._cast(content)
         return self
+    
     
     @property
     def value(self):
@@ -1282,7 +1299,7 @@ class ResponseBlock(Block):
         root = self.root.render() if self.root else ''
         tags = ','.join(self.tags) if self.tags else ''
         tags = f"[{tags}] " if tags else ''
-        return f"ResponseContext({tags}root={root}, children={self.children})"
+        return f"ResponseBlock({tags}root={root}, children={self.children})"
     
     
     

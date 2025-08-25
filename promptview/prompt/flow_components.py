@@ -1,4 +1,5 @@
 import asyncio
+import copy
 from functools import wraps
 import json
 from queue import SimpleQueue
@@ -6,7 +7,7 @@ import datetime as dt
 
 from typing import Any, AsyncGenerator, Callable, Iterable, Literal, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING, runtime_checkable
 import xml
-from promptview.block.block7 import BlockChunk, BlockList, ResponseBlock
+from promptview.block.block7 import BlockChunk, BlockList, BlockSent, ResponseBlock
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
 from promptview.prompt.parser import BlockBuffer, SaxStreamParser
 from promptview.prompt.events import StreamEvent
@@ -246,7 +247,7 @@ class Parser(BaseFbpComponent):
                 if field := self.response.get(self.current_tag):
                     field += value
                     
-                self.queue.put(value)
+                self.queue.put(copy.deepcopy(value))
                 # self.queue.put(
                 #     StreamEvent(
                 #         type=self.text_tag, 
@@ -266,7 +267,7 @@ class Parser(BaseFbpComponent):
                             field.append_root(block)
                         field.set_attributes(dict(element.attrib))
                         field.tags += [self.start_tag]
-                        self.queue.put(field)
+                        self.queue.put(copy.deepcopy(field))
                         # self.queue.put(
                         #     StreamEvent(
                         #         type=self.start_tag, 
@@ -282,12 +283,12 @@ class Parser(BaseFbpComponent):
                 elif event == 'end':
                     self._pop_tag()
                     is_end_event = False
-                    block_list = BlockList(tags=[self.end_tag], sep="")
+                    end_sent = BlockSent(tags=[self.end_tag], sep="")
                     for block in self.block_list:
                         if "</" in block.content:
                             is_end_event = True                        
                         if is_end_event:
-                            block_list.append(block)
+                            end_sent.append(block)
                         # self.queue.put(
                         #     StreamEvent(
                         #         type=self.end_tag, 
@@ -296,9 +297,10 @@ class Parser(BaseFbpComponent):
                         #         payload=block_list
                         #     ))
                     else:
-                        self.queue.put(block_list)
+                        
                         if field := self.response.get(element.tag):
-                            field.postfix = block_list
+                            self.queue.put(copy.deepcopy(end_sent))
+                            field.set_postfix(end_sent)
                             field.commit()
                     self.block_list=[]
                     self._detected_tag = False
@@ -404,6 +406,14 @@ class StreamController(BaseFbpComponent):
     def span_id(self):
         return self.span.id
 
+    def get_execution_path(self) -> list[int]:
+        """Build execution path using existing index tracking"""
+        path = []
+        current = self
+        while current:
+            path.insert(0, current.index)  # Prepend to build path from root
+            current = current.parent
+        return path
     
     def get_response(self):
         if self._parser:
@@ -484,20 +494,20 @@ class StreamController(BaseFbpComponent):
     
     
     def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
-        return StreamEvent(type="stream_start", name=self._name)
+        return StreamEvent(type="stream_start", name=self._name, span_id=str(self.span_id), path=self.get_execution_path())
     
     def on_value_event(self, payload: Any = None):
         # if isinstance(payload, ResponseContext):
         #     return StreamEvent(type="stream_delta_field_start", name=self._name, payload=payload)
         # elif isinstance(payload, BlockList):
         #     return StreamEvent(type="stream_delta_field_end", name=self._name, payload=payload)
-        return StreamEvent(type="stream_delta", name=self._name, payload=payload)
+        return StreamEvent(type="stream_delta", name=self._name, payload=payload, span_id=str(self.span_id), path=self.get_execution_path())
     
     def on_stop_event(self, payload: Any = None):
-        return StreamEvent(type="stream_end", name=self._name)
+        return StreamEvent(type="stream_end", name=self._name, span_id=str(self.span_id), path=self.get_execution_path())
     
     def on_error_event(self, error: Exception):
-        return StreamEvent(type="stream_error", name=self._name, payload=error)
+        return StreamEvent(type="stream_error", name=self._name, payload=error, span_id=str(self.span_id), path=self.get_execution_path())
         
     def __aiter__(self):
         return FlowRunner(self)
@@ -566,18 +576,27 @@ class PipeController(BaseFbpComponent):
     @property
     def span_id(self):
         return self.span.id
+
+    def get_execution_path(self) -> list[int]:
+        """Build execution path using existing index tracking"""
+        path = []
+        current = self
+        while current:
+            path.insert(0, current.index)  # Prepend to build path from root
+            current = current.parent
+        return path
         
     def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
-        return StreamEvent(type="span_start", name=self._gen_func.__name__, attrs=attrs)
+        return StreamEvent(type="span_start", name=self._gen_func.__name__, attrs=attrs, span_id=str(self.span_id), path=self.get_execution_path())
     
     def on_value_event(self, payload: Any = None):
-        return StreamEvent(type="span_value", name=self._gen_func.__name__, payload=payload)
+        return StreamEvent(type="span_value", name=self._gen_func.__name__, payload=payload, span_id=str(self.span_id), path=self.get_execution_path())
     
     def on_stop_event(self, payload: Any = None):
-        return StreamEvent(type="span_end", name=self._gen_func.__name__, payload=payload)
+        return StreamEvent(type="span_end", name=self._gen_func.__name__, payload=payload, span_id=str(self.span_id), path=self.get_execution_path())
     
     def on_error_event(self, error: Exception):
-        return StreamEvent(type="span_error", name=self._gen_func.__name__, payload=error)
+        return StreamEvent(type="span_error", name=self._gen_func.__name__, payload=error, span_id=str(self.span_id), path=self.get_execution_path())
     
     
     # async def post_next(self, value: Any = None):

@@ -40,6 +40,8 @@ class StreamEvent:
     error: str | None = None
     index: int | None = None
     request_id: str | None = None
+    span_id: str | None = None
+    path: list[int] | None = None
         
     def payload_to_dict(self):
         if self.payload is None:
@@ -83,6 +85,8 @@ class StreamEvent:
             "payload": payload,
             "index": self.index,
             "request_id": self.request_id,
+            "span_id": self.span_id,
+            "path": self.path,
         }        
         if self.error:
             dump["error"] = self.error
@@ -96,7 +100,7 @@ class StreamEvent:
         return self.to_json() + "\n"
     
     def __repr__(self):
-        return f"Event(type={self.type}, name={self.name}, attrs={self.attrs}, depth={self.depth}, payload={self.payload}, index={self.index}, request_id={self.request_id})"
+        return f"Event(type={self.type}, name={self.name}, attrs={self.attrs}, depth={self.depth}, payload={self.payload}, index={self.index}, request_id={self.request_id}, span_id={self.span_id}, path={self.path})"
     
     
 
