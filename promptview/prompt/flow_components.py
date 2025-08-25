@@ -242,8 +242,13 @@ class Parser(BaseFbpComponent):
             # in the middle of the stream, adding chunks to the current field
             if self.current_tag and not self._detected_tag:
                 if field := self.response.get(self.current_tag):
-                    field += value                    
-                self.queue.put(copy.deepcopy(value))
+                    value, sent = field.append_child_stream(value)
+                    if sent is not None:
+                        self.queue.put(copy.deepcopy(sent))
+                    else:
+                        self.queue.put(copy.deepcopy(value))
+                else:
+                    raise ValueError(f"Field '{self.current_tag}' not found in response schema")
             
             # start or end of a field, adding the whole field to the queue
             for event, element in self.parser2.read_events():

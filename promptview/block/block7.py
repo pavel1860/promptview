@@ -684,6 +684,15 @@ class BlockList(UserList[BaseBlock], BaseBlock):
         self.last.append(content)
         return self
     
+    def append_stream(self, content: "BlockChunk") -> tuple["BlockChunk", "BlockSent | None"]:
+        if not isinstance(content, BlockChunk):
+            raise ValueError(f"Invalid content type: {type(content)}")
+        sent = None
+        if self._should_add_sentence():
+            sent = self._add_sentence()
+        self.last.append(content)
+        return content, sent
+    
     
     def add_line(self):
         sent = self._add_sentence()
@@ -933,6 +942,12 @@ class Block(BaseBlock):
         # block = self._process_content(content)
         self.root.append(content)
         return self
+    
+    
+    def append_child_stream(self, content: "ContentType | BlockChunk") -> tuple["BlockChunk", "BlockSent | None"]:        
+        block = process_basic_content(self, content)
+        content, sent = self.children.append_stream(block)
+        return content, sent
     
     
     
