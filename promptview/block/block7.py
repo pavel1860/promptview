@@ -234,6 +234,12 @@ class BlockChunk(BaseBlock):
         #         self.is_end_of_line = True
         
     @property
+    def path(self) -> list[int]:
+        if self.parent is None:
+            return []
+        return self.parent.path
+        
+    @property
     def is_eol(self) -> bool:
         if isinstance(self.content, str):
             return self.content.endswith("\n")
@@ -321,7 +327,8 @@ class BlockChunk(BaseBlock):
     def model_dump(self):
         dump = super().model_dump()
         dump["_type"] = "BlockChunk"
-        dump["content"] = self.content        
+        dump["content"] = self.content
+        dump["path"] = self.path         
         return dump
     
         
@@ -557,7 +564,7 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
     def model_dump(self):
         dump = super().model_dump()
         dump["_type"] = "BlockSent"
-        dump["blocks"] = [b.model_dump() for b in self]
+        dump["children"] = [b.model_dump() for b in self]
         dump["path"] = self.path
         return dump
     
@@ -662,7 +669,7 @@ class BlockList(UserList[BaseBlock], BaseBlock):
     def model_dump(self):
         dump = super().model_dump()
         dump["_type"] = "BlockList"
-        dump["blocks"] = [b.model_dump() for b in self]
+        dump["children"] = [b.model_dump() for b in self]
         return dump
     
     def append(self, content: "BlockSent | Block"):
@@ -1288,6 +1295,17 @@ class ResponseBlock(Block):
         content = textwrap.dedent(content)
         self._value = self._cast(content)
         return self
+    
+    
+    def model_dump(self):
+        dump = super().model_dump()
+        dump["_type"] = "Block"
+        # dump["_type"] = "ResponseBlock"
+        # dump["schema"] = self.schema.model_dump()
+        del dump["schema"]        
+        # dump["value"] = self._value
+        dump["postfix"] = self.postfix.model_dump() if self.postfix else None
+        return dump
     
     
     @property

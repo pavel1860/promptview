@@ -375,7 +375,7 @@ class Log(Model):
 class SpanEvent(VersionedModel):
     id: int = KeyField(primary_key=True)    
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
-    event_type: Literal["block", "span", "log", "model"] = ModelField()
+    event_type: Literal["block", "span", "log", "model", "stream"] = ModelField()
     table: str | None = ModelField(default=None)
     index: int = ModelField()
     span_id: uuid.UUID = ModelField(foreign_key=True)
@@ -415,6 +415,14 @@ class ExecutionSpan(VersionedModel):
             index=index
         ).save()
         return event
+    
+    async def add_stream(self, index: int):
+        return await SpanEvent(
+            span_id=self.id,
+            event_type="stream",
+            event_id="",
+            index=index
+        ).save()
     
     
     async def add_span(self, span: "ExecutionSpan", index: int):

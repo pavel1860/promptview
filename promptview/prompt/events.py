@@ -35,6 +35,7 @@ class StreamEvent:
     name: str | None = None
     attrs: dict | None = None
     depth: int = 0
+    event: Any | None = None
     payload: Any | None = None    
     created_at: dt.datetime | None = None
     error: str | None = None
@@ -60,6 +61,8 @@ class StreamEvent:
             return obj.isoformat()
         if isinstance(obj, dt.date):
             return obj.isoformat()
+        if isinstance(obj, type):
+            return str(obj.__name__)
         if isinstance(obj, uuid.UUID):
             return str(obj)
         if hasattr(obj, "model_dump"):
@@ -87,6 +90,7 @@ class StreamEvent:
             "request_id": self.request_id,
             "span_id": self.span_id,
             "path": self.path,
+            "event": self.event.model_dump(exclude={"branch_id", "turn_id", "branch", "turn"}) if self.event else None,
         }        
         if self.error:
             dump["error"] = self.error

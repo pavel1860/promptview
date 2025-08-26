@@ -89,29 +89,34 @@ class PgFieldInfo(BaseFieldInfo):
 
     def serialize(self, value: Any) -> Any:
         """Serialize the value for the database"""
-        if value is None:
-            return self.default
+        
+        try:
+            if value is None:
+                return self.default
 
-        # Auto-generate UUID key
-        if self.is_key and self.key_type == "uuid" and value is None:
-            return str(uuid.uuid4())
+            # Auto-generate UUID key
+            if self.is_key and self.key_type == "uuid" and value is None:
+                return str(uuid.uuid4())
 
-        # Vector field
-        if self.is_vector:
-            return f"[{', '.join(map(str, value))}]"
+            # Vector field
+            if self.is_vector:
+                return f"[{', '.join(map(str, value))}]"
 
-        # JSONB handling
-        if self.sql_type == "JSONB":
-            if self.is_list:
-                value = [make_json_serializable(v) if isinstance(v, dict) else v for v in value]
-                return json.dumps(value)
+            # JSONB handling
+            if self.sql_type == "JSONB":
+                if self.is_list:
+                    value = [make_json_serializable(v) if isinstance(v, dict) else v for v in value]
+                    return json.dumps(value)
 
-            if self.data_type is dict or (inspect.isclass(self.data_type) and issubclass(self.data_type, BaseModel)):
-                if isinstance(value, Serializable):
-                    return json.dumps(value.serialize())
-                return json.dumps(make_json_serializable(value))
+                if self.data_type is dict or (inspect.isclass(self.data_type) and issubclass(self.data_type, BaseModel)):
+                    if isinstance(value, Serializable):
+                        return json.dumps(value.serialize())
+                    return json.dumps(make_json_serializable(value))
 
-        return value
+            return value
+        except Exception as e:
+            print(f"Error serializing {self.name}: {e}")
+            raise e
     
 
 
