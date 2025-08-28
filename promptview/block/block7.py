@@ -149,7 +149,7 @@ class BaseBlock:
         parent: "BaseBlock | None" = None,
         id: str | None = None,
     ):
-        self.index = index or 1
+        self.index = index if index is not None else 0
         self.parent = parent
         self.id = id
     
@@ -193,6 +193,11 @@ class BaseBlock:
     
     def print(self, verbose: bool = False):
         print(self.render(verbose=verbose))
+        
+        
+    def set_index(self, index: int):
+        self.index = index
+        return self
     
     def __str__(self) -> str:
         out = self.render()
@@ -237,7 +242,7 @@ class BlockChunk(BaseBlock):
     def path(self) -> list[int]:
         if self.parent is None:
             return []
-        return self.parent.path
+        return self.parent.path + [self.index]
         
     @property
     def is_eol(self) -> bool:
@@ -433,6 +438,8 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
             raise ValueError("BlockSent has no parent")
             # return [self.index]
         if isinstance(self.parent, Block):
+            if self.index == -1:
+                return self.parent.path + [self.index]
             return self.parent.path
         else:
             return self.parent.path + [self.index]
@@ -484,12 +491,12 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         
         
     def insert(self, index: int, content: ContentType | BlockChunk, sep: str | None = None):
-        if self.has_eol and index == len(self):
+        if self.has_eol and index == len(self) - 1:
             raise ValueError("Cannot insert to the end of a list that has an end of line")
         chunk = process_basic_content(self,content)
         sep = sep or self.default_sep
         if chunk.is_eol:
-            if index != len(self):
+            if index != len(self) - 1:
                 raise ValueError("end of line cannot be inserted in the middle of a list")
             if self.has_eol:
                 raise ValueError("Cannot insert an end of line to a list that has an end of line")
@@ -713,7 +720,7 @@ class BlockList(UserList[BaseBlock], BaseBlock):
     
     def _connect(self, block: "BaseBlock"):
         block.parent = self
-        block.index = len(self)
+        block.index = len(self) - 1
         return block
     
     def _should_add_sentence(self):
@@ -908,7 +915,7 @@ class Block(BaseBlock):
     ) -> "Block":        
         ctx = Block(
             content,
-            index=len(self.children) + 1,
+            index=len(self.children),
             role=role,
             tags=tags,            
             parent=self,            
@@ -1288,6 +1295,7 @@ class ResponseBlock(Block):
     def set_postfix(self, postfix: BlockSent): 
         postfix.parent = self
         self.postfix = postfix
+        self.postfix.set_index(-1)
     
     def commit(self):
         content = self.children.render()
