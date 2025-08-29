@@ -82,14 +82,14 @@ class StreamEvent:
         payload = self.payload_to_dict()        
         dump = {
             "type": self.type,
+            "path": self.path,
             "name": self.name,
+            "index": self.index,
             "attrs": self.attrs,
             "depth": self.depth,
-            "payload": payload,
-            "index": self.index,
+            "payload": payload,            
             "request_id": self.request_id,
-            "span_id": self.span_id,
-            "path": self.path,
+            "span_id": self.span_id,            
             "event": self.event.model_dump(exclude={"branch_id", "turn_id", "branch", "turn"}) if self.event else None,
         }        
         if self.error:

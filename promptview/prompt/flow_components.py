@@ -489,7 +489,7 @@ class StreamController(BaseFbpComponent):
     async def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
         event = await self.span.add_stream(self.index)
         self.stream_event = event
-        return StreamEvent(type="stream_start", name=self._name, span_id=str(self.span_id), path=self.get_execution_path(), event=event)
+        return StreamEvent(type="stream_start", name=self._name, payload=self.span, span_id=str(self.span_id), path=self.get_execution_path(), event=event)
     
     async def on_value_event(self, payload: Any = None):
         return StreamEvent(type="stream_delta", name=self._name, payload=payload, span_id=str(self.span_id), path=self.get_execution_path(), event=self.stream_event)
@@ -603,6 +603,7 @@ class PipeController(BaseFbpComponent):
             event = await self.span.add_block(payload, self.index)
             return StreamEvent(type="span_value", name=self._gen_func.__name__, payload=payload, span_id=str(self.span_id), path=self.get_execution_path(), event=event)
         else:
+            raise ValueError(f"Invalid payload type: {type(payload)}")
             return StreamEvent(type="span_value", name=self._gen_func.__name__, payload=payload, span_id=str(self.span_id), path=self.get_execution_path())
     
     async def on_stop_event(self, payload: Any = None):
