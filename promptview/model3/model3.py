@@ -87,7 +87,9 @@ class Model(BaseModel, metaclass=ModelMeta):
 
 
     async def save(self, *args, **kwargs) -> Self:
+        
         ns = self.get_namespace()
+        
         
         pk_value = getattr(self, ns.primary_key, None)
         

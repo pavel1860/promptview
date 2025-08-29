@@ -281,3 +281,10 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
     def query(self) -> "PgSelectQuerySet[Model]":
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
         return PgSelectQuerySet(self._model_cls)
+    
+    
+    
+    
+    
+
+        

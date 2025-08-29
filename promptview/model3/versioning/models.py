@@ -268,6 +268,12 @@ class VersionedModel(Model):
             self.branch_id = self._resolve_branch_id(branch)
         if self.turn_id is None:
             self.turn_id = self._resolve_turn_id(turn)
+         
+        if self.branch_id is None or self.turn_id is None:
+            ns = self.get_namespace()
+            if not ns.has_primary_key(self):
+                ns.set_primary_key(self, ns.generate_fake_key())
+            return self
         return await super().save()
 
     def _resolve_branch_id(self, branch):
@@ -407,7 +413,12 @@ class ExecutionSpan(VersionedModel):
     
     async def add_block(self, block: "Block", index: int):
         from promptview.model3.block_models.block_log import insert_block
-        tree_id = await insert_block(block, index, self.branch_id, self.turn_id, self.id)
+        from promptview.model3.namespace_manager2 import NamespaceManager
+        if NamespaceManager.should_save_to_db():
+            tree_id = await insert_block(block, index, self.branch_id, self.turn_id, self.id)
+        else:
+            tree_id = str(uuid.uuid4())
+            
         event = await SpanEvent(
             span_id=self.id,
             event_type="block",

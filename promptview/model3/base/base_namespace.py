@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Generic, Literal, Optional, Self, Type, TypeVar, runtime_checkable, Protocol
 import contextvars
+import uuid
 
 from .base_field_info import BaseFieldInfo
 from promptview.model3.relation_info import RelationInfo
@@ -262,8 +263,20 @@ class BaseNamespace(Generic[MODEL, FIELD]):
         )
         
         
-  
+    def generate_fake_key(self) -> Any:
+        if self.primary_key_field.field_type == int:
+            return 1
+        elif self.primary_key_field.field_type == uuid.UUID:
+            return uuid.uuid4()
+        else:
+            return "a"
+        
+    def has_primary_key(self, data:  MODEL) -> bool:
+        return getattr(data, self.primary_key) is not None
     
+    def set_primary_key(self, data: MODEL, value) -> None:
+        setattr(data, self.primary_key, value)
+
     
             
     def __repr__(self):
