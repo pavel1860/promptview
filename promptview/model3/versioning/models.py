@@ -407,11 +407,11 @@ class ExecutionSpan(VersionedModel):
     # Relations
     events: List["SpanEvent"] = RelationField(foreign_key="span_id")
     # events: List[Event] = RelationField(foreign_key="execution_span_id")
-    block_trees: List[BlockTree] = RelationField(foreign_key="span_id")
+    # block_trees: List[BlockTree] = RelationField(foreign_key="span_id")
     
     
     
-    async def add_block(self, block: "Block", index: int):
+    async def add_block_event(self, block: "Block", index: int):
         from promptview.model3.block_models.block_log import insert_block
         from promptview.model3.namespace_manager2 import NamespaceManager
         if NamespaceManager.should_save_to_db():
@@ -436,7 +436,7 @@ class ExecutionSpan(VersionedModel):
         ).save()
     
     
-    async def add_span(self, span: "ExecutionSpan", index: int):
+    async def add_span_event(self, span: "ExecutionSpan", index: int):
         return await SpanEvent(
             span_id=self.id,
             event_type="span",
@@ -444,7 +444,7 @@ class ExecutionSpan(VersionedModel):
             index=index
         ).save()
     
-    async def add_log(self, log: "Log", index: int):
+    async def add_log_event(self, log: "Log", index: int):
         return await SpanEvent(
             span_id=self.id,
             event_type="log",
@@ -453,7 +453,7 @@ class ExecutionSpan(VersionedModel):
         ).save()
         
         
-    async def add_model(self, model: "Model", index: int):
+    async def add_model_event(self, model: "Model", index: int):
         return await SpanEvent(
             span_id=self.id,
             event_type="model",

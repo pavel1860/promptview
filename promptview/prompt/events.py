@@ -12,7 +12,7 @@ import datetime as dt
 
 LlmStreamType = Literal["stream_start", "message_delta", "stream_end", "stream_error"]
 
-SpanEventType = Literal["span_start", "span_end"]
+SpanEventType = Literal["span_start", "span_event", "span_end"]
 
 MessageType = Literal["user_message", "assistant_message"]
 
@@ -35,6 +35,7 @@ class StreamEvent:
     name: str | None = None
     attrs: dict | None = None
     depth: int = 0
+    parent_event_id: int | None = None
     event: Any | None = None
     payload: Any | None = None    
     created_at: dt.datetime | None = None
@@ -89,7 +90,8 @@ class StreamEvent:
             "depth": self.depth,
             "payload": payload,            
             "request_id": self.request_id,
-            "span_id": self.span_id,            
+            "span_id": self.span_id,   
+            "parent_event_id": self.parent_event_id,
             "event": self.event.model_dump(exclude={"branch_id", "turn_id", "branch", "turn"}) if self.event else None,
         }        
         if self.error:

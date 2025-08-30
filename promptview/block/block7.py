@@ -363,11 +363,9 @@ class BlockChunk(BaseBlock):
             raise ValueError(f"Invalid or missing _type for BlockChunk: {data.get('_type')}")
         data = dict(data)  # copy
         data.pop("_type")
+        data.pop("path")
         content = data.pop("content", None)
-        children_data = data.pop("children", [])
-        children = [BlockChunk.model_validate(child) for child in children_data]
         block = cls(content, **data)
-        block.children = children
         return block
     
     
@@ -582,6 +580,7 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
             raise ValueError(f"Invalid or missing _type for BlockList: {data.get('_type')}")
         data = dict(data)
         data.pop("_type")
+        data.pop("path")
         blocks_data = data.pop("blocks", [])
         blocks = [BlockChunk.model_validate(b) for b in blocks_data]
         return cls(blocks=blocks, **data)
@@ -738,6 +737,7 @@ class BlockList(UserList[BaseBlock], BaseBlock):
             raise ValueError(f"Invalid or missing _type for BlockList: {data.get('_type')}")
         data = dict(data)
         data.pop("_type")
+        data.pop("path")
         blocks_data = data.pop("blocks", [])
         blocks = [BlockChunk.model_validate(b) for b in blocks_data]
         return cls(blocks=blocks, **data)
@@ -849,6 +849,7 @@ class Block(BaseBlock):
             raise ValueError(f"Invalid or missing _type for BlockContext: {data.get('_type')}")
         data = dict(data)
         data.pop("_type")
+        data.pop("path")
         root_data = data.pop("root", None)
         children_data = data.pop("children", [])
         root = BlockList.model_validate(root_data) if root_data else BlockList()
@@ -1296,6 +1297,23 @@ class ResponseBlock(Block):
         postfix.parent = self
         self.postfix = postfix
         self.postfix.set_index(-1)
+        
+    def partial_inst(
+        self, 
+        root: list[BlockChunk] | None = None, 
+        children: list[BlockChunk] | None = None, 
+        attrs: dict[str, str] | None = None, 
+        tags: list[str] | None = None,
+    ):
+        if attrs:
+            self.set_attributes(attrs)
+        if tags:
+            self.tags += tags        
+        if root:
+            for chunk in root:
+                self.append_root(chunk)
+        c = self._copy_without_children()
+        return c
     
     def commit(self):
         content = self.children.render()
@@ -1310,10 +1328,15 @@ class ResponseBlock(Block):
         dump["_type"] = "Block"
         # dump["_type"] = "ResponseBlock"
         # dump["schema"] = self.schema.model_dump()
-        del dump["schema"]        
+        del dump["schema"]
         # dump["value"] = self._value
         dump["postfix"] = self.postfix.model_dump() if self.postfix else None
         return dump
+    
+    def _copy_without_children(self):
+        c = copy.deepcopy(self)
+        c.children = BlockList()
+        return c
     
     
     @property
