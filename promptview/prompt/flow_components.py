@@ -251,18 +251,18 @@ class Parser(BaseFbpComponent):
     def _push_to_output(self, value: Any):
         self.queue.put(copy.deepcopy(value))
         
-    def _check_for_start_tag(self, value: Any):
+    def _try_set_tag_lock(self, value: Any):
         if "<" in value.content:
             self._detected_tag = True
             
-    def _close_tag(self):
+    def _release_tag_lock(self):
         self._chunks_from_last_tag = 0
         self._detected_tag = False
         
     def _should_output_chunk(self):
         if self.current_tag and not self._detected_tag:
-            # if self._chunks_from_last_tag <= 2:
-            #     return False
+            if self._chunks_from_last_tag < 2:
+                return False
             return True
         return False
         
@@ -281,26 +281,15 @@ class Parser(BaseFbpComponent):
             self._write_to_buffer(value)
             self.parser.feed(value.content)
             
-            self._check_for_start_tag(value)
+            self._try_set_tag_lock(value)
             
             # in the middle of the stream, adding chunks to the current field
-            if self._should_output_chunk():
-                if self._chunks_from_last_tag == 2:                
-                    for c in self._read_buffer(flush=True):
-                        print("3>", type(c), c)
-                        chunk = self.response_schema.partial_append_field(
-                            self.current_tag,
-                            c,
-                        )
-                        print("3<", type(chunk), chunk)
-                        self._push_to_output(chunk)
-                elif self._chunks_from_last_tag > 2:
-                    print("4>", type(value), value)
+            if self._should_output_chunk():               
+                for c in self._read_buffer(flush=True):
                     chunk = self.response_schema.partial_append_field(
                         self.current_tag,
-                        value,
+                        c,
                     )
-                    print("4<", type(chunk), chunk)
                     self._push_to_output(chunk)
             
             # start or end of a field, adding the whole field to the queue
@@ -317,7 +306,7 @@ class Parser(BaseFbpComponent):
                         tags=[self.start_tag]
                     ) 
                     self._push_to_output(partial_field)
-                    self._close_tag()
+                    self._release_tag_lock()
                 elif event == 'end':
                     # end of a field
                     self._pop_tag()
@@ -328,7 +317,7 @@ class Parser(BaseFbpComponent):
                     )
                     if field.postfix is not None:
                         self._push_to_output(field.postfix)
-                    self._close_tag()
+                    self._release_tag_lock()
                 
                     
             if not self.queue.empty():
