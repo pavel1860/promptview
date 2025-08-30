@@ -228,7 +228,7 @@ class Parser(BaseFbpComponent):
         buffer = []
         start_appending = start_from is None
         for block in self.block_buffer:
-            if start_from and block.content == start_from:
+            if start_from and start_from in block.content:
                 start_appending = True
             if start_appending:
                 buffer.append(block)
@@ -236,6 +236,9 @@ class Parser(BaseFbpComponent):
             self.block_buffer = []
         return buffer
     
+    
+    def _push(self, value: Any):
+        self.queue.put(value)
         
     async def asend(self, value: Any = None):
         for i in range(20):            
@@ -258,7 +261,8 @@ class Parser(BaseFbpComponent):
                     self.current_tag,
                     value,
                 )
-                self.queue.put(copy.deepcopy(chunk))
+                # self.queue.put(copy.deepcopy(chunk))
+                self._push(chunk)
             
             # start or end of a field, adding the whole field to the queue
             for event, element in self.parser.read_events():
@@ -273,7 +277,8 @@ class Parser(BaseFbpComponent):
                         attrs=dict(element.attrib),
                         tags=[self.start_tag]
                     ) 
-                    self.queue.put(partial_field)
+                    # self.queue.put(partial_field)
+                    self._push(partial_field)
                     self._detected_tag = False                    
                 elif event == 'end':
                     # end of a field
@@ -283,7 +288,9 @@ class Parser(BaseFbpComponent):
                         postfix=self.get_buffer(start_from="</"), 
                         tags=[self.end_tag]
                     )
-                    self.queue.put(copy.deepcopy(field.postfix))
+                    # self.queue.put(copy.deepcopy(field.postfix))
+                    if field.postfix is not None:
+                        self._push(field.postfix)
                     self._detected_tag = False
                 
                     
