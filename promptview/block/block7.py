@@ -2,7 +2,7 @@ from collections import UserList
 import copy
 import json
 import textwrap
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Generic, List, Protocol, Sequence, Set, Type, TypeVar, TypedDict, Unpack
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Generic, List, Literal, Protocol, Sequence, Set, Type, TypeVar, TypedDict, Unpack
 import annotated_types
 from pydantic_core import core_schema
 from pydantic import BaseModel, GetCoreSchemaHandler
@@ -1000,7 +1000,7 @@ class Block(BaseBlock):
     
     def response_schema(self, name: str | None = None):
         name = name or "response_schema"
-        block = Block(tags=[name])
+        block = BlockSchema(tags=[name])
         self.append_child(block)
         return block
     
@@ -1080,20 +1080,20 @@ class Block(BaseBlock):
         else:
             raise ValueError(f"Invalid block list: {v}")
     
-    def build_response(self) -> "ResponseBlock":
-        def _clone_target_node(n: Block) -> ResponseBlock:
-            return ResponseBlock(                
-                schema=n, 
-                tags=n.tags,                           
-            )
+    # def build_response(self) -> "ResponseBlock":
+    #     def _clone_target_node(n: Block) -> ResponseBlock:
+    #         return ResponseBlock(                
+    #             schema=n, 
+    #             tags=n.tags,                           
+    #         )
         
-        def _is_target(node: BaseBlock) -> bool:
-            return isinstance(node, FieldSchemaBlock)
-        res = self.gather_trees(_is_target, _clone_target_node)
-        if len(res) == 1:
-            return res[0]
-        else:
-            raise ValueError("Multiple target nodes found")
+    #     def _is_target(node: BaseBlock) -> bool:
+    #         return isinstance(node, FieldSchemaBlock)
+    #     res = self.gather_trees(_is_target, _clone_target_node)
+    #     if len(res) == 1:
+    #         return res[0]
+    #     else:
+    #         raise ValueError("Multiple target nodes found")
         
     def gather_trees(self, is_target: Callable[[BaseBlock], bool] | None = None, clone_target_node = None) -> "list[BaseBlock]":
         """Return a forest containing only target-type nodes, attached under their
@@ -1225,7 +1225,26 @@ class FieldSchemaBlock(Block):
         self.name = name
         
        
-
+    def partial_init(
+        self, 
+        root: list[BlockChunk] | None = None, 
+        children: list[BlockChunk] | None = None, 
+        attrs: dict[str, str] | None = None, 
+        tags: list[str] | None = None
+    ):
+        res = ResponseBlock(
+            self,
+            tags=self.tags + tags or [],            
+        )
+        if root: 
+            for chunk in root:
+                res.append_root(chunk)
+        if children:
+            for chunk in children:
+                res.append_child(chunk)
+        if attrs:
+            res.set_attributes(attrs)
+        return res
 
 
 class FieldContext(Block):
@@ -1333,7 +1352,7 @@ class ResponseBlock(Block):
         dump["postfix"] = self.postfix.model_dump() if self.postfix else None
         return dump
     
-    def _copy_without_children(self):
+    def copy_without_children(self):
         c = copy.deepcopy(self)
         c.children = BlockList()
         return c
@@ -1352,16 +1371,173 @@ class ResponseBlock(Block):
     
     
     
+# class BlockSchemaMeta(type):
+#     def __new__(mcls, name, bases, dct):
+#         return super().__new__(mcls, name, bases, dct)
+    
+#     def __call__(cls, *args, **kwargs):
+#         return super().__call__(*args, **kwargs)
+    
+    
+#     def __enter__(cls):
+#         return cls
+    
+#     def __exit__(cls, exc_type, exc_value, traceback):
+#         pass
+    
 
+        
+SchemaTarget = str
+SchemaFormat = Literal["xml"]
+
+class BlockSchema(Block):
+    
+    __slots__ = [
+        "inst",
+    ]
+    
+    def __init__(
+        self, 
+        root: ContentType | BlockChunk | BlockList | None = None, 
+        children: BlockList | None = None,                 
+        role: str | None = None,
+        tags: list[str] | None = None,
+        style: str | None = None,
+        attrs: "dict[str, FieldAttrBlock] | None" = None,
+        id: str | None = None,
+        styles: list[str] | None = None,
+        index: int | None = None,
+        parent: "BaseBlock | None" = None,
+    ):
+        super().__init__(root=root, children=children, role=role, tags=tags, style=style, attrs=attrs, id=id, styles=styles, index=index, parent=parent)
+        self.inst: ResponseBlock | None = None
+        
+        
+    def build_response(self) -> "ResponseBlock":
+        def _clone_target_node(n: Block) -> ResponseBlock:
+            return ResponseBlock(                
+                schema=n, 
+                tags=n.tags,                           
+            )
+        
+        def _is_target(node: BaseBlock) -> bool:
+            return isinstance(node, FieldSchemaBlock)
+        res = self.gather_trees(_is_target, _clone_target_node)
+        if len(res) == 1:
+            self.inst = res[0]
+            return self.inst
+        else:
+            raise ValueError("Multiple target nodes found")      
+        
+    
+    def new(self, target: SchemaTarget, format: SchemaFormat = "xml"): 
+        return 
+    
+    # def partial_init(
+    #     self,
+    #     field_name: str, 
+    #     root: list[BlockChunk] | None = None, 
+    #     children: list[BlockChunk] | None = None, 
+    #     attrs: dict[str, str] | None = None, 
+    #     tags: list[str] | None = None
+    # ):
+    #     field_schema = self.get(field_name)
+    #     if field_schema is None:
+    #         raise ValueError(f"Field {field_name} not found in schema")
+    #     if not isinstance(field_schema, FieldSchemaBlock):
+    #         raise ValueError(f"Field {field_name} is not a field schema")
+    #     field = field_schema.partial_init(root=root, children=children, attrs=attrs, tags=tags)
+    #     if self.inst is None:
+    #         self.inst = field
+    #     else:
+    #         self._inset
+    
+    def _get_field(self, field_name: str) -> ResponseBlock:
+        if self.inst is None:
+            raise ValueError("Schema is not initialized")
+        field = self.inst.get(field_name)
+        if field is None:
+            raise ValueError(f"Field '{field_name}' not found in response schema")
+        if not isinstance(field, ResponseBlock):
+            raise ValueError(f"Field '{field_name}' is not a response block")
+        return field
+    
+    def partial_init_field(
+        self,
+        field_name: str, 
+        root: list[BlockChunk] | None = None, 
+        children: list[BlockChunk] | None = None, 
+        attrs: dict[str, str] | None = None, 
+        tags: list[str] | None = None
+    ):
+        if self.inst is None:
+            raise ValueError("Schema is not initialized")
+        field = self._get_field(field_name)        
+        if root:
+            for block in root:
+                field.append_root(block)
+        if attrs:
+            field.set_attributes(attrs)
+        if children:
+            for block in children:
+                field.append_child(block)
+        if tags:
+            field.tags += tags
+        c = field.copy_without_children()
+        return c
+    
+    
+    
+    def partial_append_field(
+        self,
+        field_name: str,
+        content: ContentType | BlockChunk,
+        tags: list[str] | None = None,
+    ):
+        field = self._get_field(field_name)
+        value, sent = field.append_child_stream(content)
+        if sent is not None:
+            return sent
+        return value
+    
+    # def set_postfix(
+    #     self, 
+    #     field_name: str, 
+    #     postfix: list[BlockChunk],
+    #     tags: list[str] | None = None,
+    #     commit: bool = False
+    # ):
+    #     field = self._get_field(field_name)
+    #     end_sent = BlockSent(tags=tags or [], sep="")
+        
+    #     if commit:
+    #         field.commit()
+    #     return end_sent
+        
+    def commit_field(
+        self,
+        field_name: str,
+        postfix: list[BlockChunk] | None = None,
+        tags: list[str] | None = None,
+    ):
+        field = self._get_field(field_name)
+        if postfix:
+            end_sent = BlockSent(tags=tags or [], sep="")
+            for block in postfix:
+                end_sent.append(block)                
+            field.set_postfix(end_sent)
+        field.commit()
+        return field
+    
+    
+    def copy(self):
+        return copy.deepcopy(self)
+        
 
         
         
     
-
-class BlockSchema(Block):
-      
-    def __init__(self, name: str = "schema"):
-        super().__init__(tags=[name])
+    
 
 
     

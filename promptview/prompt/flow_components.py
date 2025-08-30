@@ -191,17 +191,17 @@ class Stream(BaseFbpComponent):
 
 class Parser(BaseFbpComponent):
       
-    def __init__(self, response_schema: "Block", gen=None) -> None:
+    def __init__(self, response_schema: "BlockSchema", gen=None) -> None:
         super().__init__(gen)
         self.start_tag = "tag_start"
         self.end_tag = "tag_end"
         self.text_tag = "chunk"                
-        self.response_schema = response_schema
+        self.response_schema = response_schema.copy()
         self._safety_tag = "stream_start"        
-        self.response = response_schema.build_response()        
+        self.response = self.response_schema.build_response()        
         self.parser = etree.XMLPullParser(events=("start", "end"))
         self.queue = SimpleQueue()
-        self.block_list = []
+        self.block_buffer = []
         self._stream_started = False
         self._detected_tag = False
         
@@ -223,6 +223,19 @@ class Parser(BaseFbpComponent):
             return None
         return self._tag_stack[-1]
     
+    
+    def get_buffer(self, start_from: str | None = None, flush=True):
+        buffer = []
+        start_appending = start_from is None
+        for block in self.block_buffer:
+            if start_from and block.content == start_from:
+                start_appending = True
+            if start_appending:
+                buffer.append(block)
+        if flush:
+            self.block_buffer = []
+        return buffer
+    
         
     async def asend(self, value: Any = None):
         for i in range(20):            
@@ -233,7 +246,7 @@ class Parser(BaseFbpComponent):
                 return self.queue.get()
             value = await self.gen.asend(value) 
             print(value)
-            self.block_list.append(value)
+            self.block_buffer.append(value)
             self.parser.feed(value.content)
             
             if "<" in value.content:
@@ -241,14 +254,11 @@ class Parser(BaseFbpComponent):
             
             # in the middle of the stream, adding chunks to the current field
             if self.current_tag and not self._detected_tag:
-                if field := self.response.get(self.current_tag):
-                    value, sent = field.append_child_stream(value)
-                    if sent is not None:
-                        self.queue.put(copy.deepcopy(sent))
-                    else:
-                        self.queue.put(copy.deepcopy(value))
-                else:
-                    raise ValueError(f"Field '{self.current_tag}' not found in response schema")
+                chunk = self.response_schema.partial_append_field(
+                    self.current_tag,
+                    value,
+                )
+                self.queue.put(copy.deepcopy(chunk))
             
             # start or end of a field, adding the whole field to the queue
             for event, element in self.parser.read_events():
@@ -257,34 +267,23 @@ class Parser(BaseFbpComponent):
                 if event == 'start':
                     # start of a field
                     self._push_tag(element.tag)
-                    if field := self.response.get(element.tag):
-                        for block in self.block_list:
-                            field.append_root(block)
-                        field.set_attributes(dict(element.attrib))
-                        field.tags += [self.start_tag]
-                        c = field.copy_without_children()
-                        self.queue.put(c)
-                    else:
-                        raise ValueError(f"Field '{element.tag}' not found in response schema")                    
-                        
-                    self.block_list=[]
+                    partial_field = self.response_schema.partial_init_field(
+                        field_name=element.tag,
+                        root=self.get_buffer(),
+                        attrs=dict(element.attrib),
+                        tags=[self.start_tag]
+                    ) 
+                    self.queue.put(partial_field)
                     self._detected_tag = False                    
                 elif event == 'end':
                     # end of a field
                     self._pop_tag()
-                    is_end_event = False
-                    end_sent = BlockSent(tags=[self.end_tag], sep="")
-                    for block in self.block_list:
-                        if "</" in block.content:
-                            is_end_event = True                        
-                        if is_end_event:
-                            end_sent.append(block)
-                    else:                        
-                        if field := self.response.get(element.tag):                            
-                            field.set_postfix(end_sent)
-                            field.commit()
-                            self.queue.put(copy.deepcopy(end_sent))
-                    self.block_list=[]
+                    field = self.response_schema.commit_field(
+                        element.tag, 
+                        postfix=self.get_buffer(start_from="</"), 
+                        tags=[self.end_tag]
+                    )
+                    self.queue.put(copy.deepcopy(field.postfix))
                     self._detected_tag = False
                 
                     
