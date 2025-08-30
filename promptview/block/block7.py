@@ -511,7 +511,7 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         
     def _connect(self, chunk: "BlockChunk", index: int | None = None):
         chunk.parent = self
-        chunk.index = index if index is not None else len(self)
+        chunk.index = index if index is not None else len(self) - 1
         return chunk
     
     def _shift_index(self, index: int):
@@ -862,9 +862,9 @@ class Block(BaseBlock):
         root_logprob = self.root.logprob or 0
         return logprob + root_logprob
        
-    def field(self, name: str, type: Type, attrs: dict[str, str] | None = None) -> "FieldSchemaBlock":
+    def field(self, name: str, type: Type, attrs: dict[str, str] | None = None) -> "BlockSchemaField":
         # block = FieldBlock(name, type, attrs=attrs)
-        ctx = FieldSchemaBlock(
+        ctx = BlockSchemaField(
             name,
             type=type,
             attrs=attrs,
@@ -1026,14 +1026,46 @@ class Block(BaseBlock):
                 if block:
                     return block
         return None
+    
+    
+    def get_path(self, path: list[int]):
+        index, sub_path = path[0],path[1:]
+        target = self.children[index]
+        if len(sub_path) == 0:
+            return target
+        if len(sub_path) == 1:
+            if isinstance(target, Block):
+                return target.get_path(sub_path)
+            elif isinstance(target, BlockSent):
+                return target[sub_path[0]]
+        elif len(sub_path) > 1:
+            if isinstance(target, Block):
+                return target.get_path(sub_path)
+            elif isinstance(target, BlockSent):
+                raise ValueError(f"Invalid path: {path}")
+        else:
+            raise ValueError(f"Invalid path: {path}")
+        
+        
+    def insert(self, path: list[int], content: "ContentType | BaseBlock"):
+        target = self.get_path(path)
+        if isinstance(target, Block):
+            target.append_child(content)
+        elif isinstance(target, BlockSent):
+            target.append(content)
+        else:
+            raise ValueError(f"Invalid path: {path}")
+            
+        
+        
 
     def get_field(self):
         for child in self.children:
-            if isinstance(child, FieldSchemaBlock):
+            if isinstance(child, BlockSchemaField):
                 return child
             elif isinstance(child, Block):
                 for b in child.root:
-                    if isinstance(b, FieldSchemaBlock):
+                    if isinstance(b, BlockSchemaField):
                         return b
         return None
     
@@ -1128,7 +1160,7 @@ class Block(BaseBlock):
         root = self.root.render() if self.root else ''
         tags = ','.join(self.tags) if self.tags else ''
         tags = f"[{tags}] " if tags else ''
-        return f"Block({tags}root={root}, children={self.children})"
+        return f"{self.__class__.__name__}({tags}root={root}, children={self.children})"
 
 
 def FieldAttr(
@@ -1198,7 +1230,7 @@ class FieldAttrBlock:
             raise ValueError(f"Invalid type: {self.type}")
 
 
-class FieldSchemaBlock(Block):
+class BlockSchemaField(Block):
     
     __slots__ = [
         "type",
@@ -1218,12 +1250,28 @@ class FieldSchemaBlock(Block):
         parent: "BaseBlock | None" = None,  
         styles: list[str] | None = None,
     ):
-        super().__init__(name, tags=tags, style=style, id=id, index=index, parent=parent, attrs=attrs, styles=styles)
+        super().__init__(name, tags=tags or [] + [name], style=style, id=id, index=index, parent=parent, attrs=attrs, styles=styles)
         if not type:
             raise ValueError("type is required")
         self.type = type
         self.name = name
-        
+    
+    
+    # @property
+    # def schema_path(self) -> list[int]:
+    #     parent = self.parent
+    #     for _ in range(10):
+    #         if parent is None:
+    #             return [self.index]
+    #         if isinstance(parent, BlockSchemaField):
+    #             return parent.schema_path + [self.index]
+    #         elif isinstance(self.parent, BlockSchema):
+    #             return [self.index]
+    #         else:
+    #             parent = parent.parent
+    #     else:
+    #         raise ValueError("Invalid parent")
+            
        
     def partial_init(
         self, 
@@ -1245,6 +1293,19 @@ class FieldSchemaBlock(Block):
         if attrs:
             res.set_attributes(attrs)
         return res
+    
+    def shallow_copy(self) -> "BlockSchemaField":
+        return BlockSchemaField(
+            name=self.name,
+            type=self.type,
+            attrs=self.attrs,
+            role=self.role,
+            styles=self.styles,
+            tags=[t for t in self.tags],
+            index=self.index,
+            id=self.id,
+        )
+    
 
 
 class FieldContext(Block):
@@ -1262,7 +1323,7 @@ class ResponseBlock(Block):
     
     def __init__(
         self, 
-        schema: FieldSchemaBlock, 
+        schema: BlockSchemaField, 
         children: BlockList | None = None, 
         tags: list[str] | None = None, 
         style: str | None = None,
@@ -1394,6 +1455,7 @@ class BlockSchema(Block):
     
     __slots__ = [
         "inst",
+        "pure_schema",
     ]
     
     def __init__(
@@ -1411,21 +1473,25 @@ class BlockSchema(Block):
     ):
         super().__init__(root=root, children=children, role=role, tags=tags, style=style, attrs=attrs, id=id, styles=styles, index=index, parent=parent)
         self.inst: ResponseBlock | None = None
+        self.pure_schema: BlockSchemaField | None = None
         
         
     def build_response(self) -> "ResponseBlock":
-        def _clone_target_node(n: Block) -> ResponseBlock:
-            return ResponseBlock(                
-                schema=n, 
-                tags=n.tags,                           
-            )
+        # def _clone_target_node(n: Block) -> ResponseBlock:
+        #     return ResponseBlock(                
+        #         schema=n, 
+        #         tags=n.tags,                           
+        #     )
+        def _clone_target_node(n: BlockSchemaField) -> BlockSchemaField:
+            r = n.shallow_copy()
+            return r
         
         def _is_target(node: BaseBlock) -> bool:
-            return isinstance(node, FieldSchemaBlock)
+            return isinstance(node, BlockSchemaField)
         res = self.gather_trees(_is_target, _clone_target_node)
         if len(res) == 1:
-            self.inst = res[0]
-            return self.inst
+            self.pure_schema = res[0]
+            return self.pure_schema
         else:
             raise ValueError("Multiple target nodes found")      
         
@@ -1462,6 +1528,36 @@ class BlockSchema(Block):
             raise ValueError(f"Field '{field_name}' is not a response block")
         return field
     
+    def _get_field_schema(self, field_name: str) -> BlockSchemaField:
+        if self.pure_schema is None:
+            raise ValueError("Schema is not initialized")
+        field = self.pure_schema.get(field_name)
+        if field is None:
+            raise ValueError(f"Field '{field_name}' not found in schema")
+        if not isinstance(field, BlockSchemaField):
+            raise ValueError(f"Field '{field_name}' is not a schema field")
+        return field
+
+    
+    def _inst_field(self, field_schema: BlockSchemaField) -> ResponseBlock:
+        res = ResponseBlock(
+            schema=field_schema,
+            tags=field_schema.tags,
+        )
+        if self.inst is None:
+            self.inst = res
+        else:
+            path = field_schema.path[1:-1]
+            if path:
+                self.inst.insert(path, res)
+            else:
+                self.inst.append_child(res)
+        return res
+        
+            
+            
+            
+    
     def partial_init_field(
         self,
         field_name: str, 
@@ -1469,10 +1565,9 @@ class BlockSchema(Block):
         children: list[BlockChunk] | None = None, 
         attrs: dict[str, str] | None = None, 
         tags: list[str] | None = None
-    ):
-        if self.inst is None:
-            raise ValueError("Schema is not initialized")
-        field = self._get_field(field_name)        
+    ):        
+        field_schema = self._get_field_schema(field_name)
+        field = self._inst_field(field_schema)
         if root:
             for block in root:
                 field.append_root(block)

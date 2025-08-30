@@ -4,7 +4,7 @@ from typing import AsyncGenerator, Callable, Union, Optional, Any
 from promptview.prompt.stream2 import StreamController, stream  # Adjust the import
 from promptview.prompt import component, Depends
 from promptview.llms import LLM
-from promptview.block.block7 import Block, BlockList, ResponseBlock, BlockSent, FieldSchemaBlock, BlockChunk
+from promptview.block.block7 import Block, BlockList, ResponseBlock, BlockSent, BlockSchemaField, BlockChunk
 from promptview.model3.versioning.models import Branch
 from promptview.model3 import NamespaceManager
 
