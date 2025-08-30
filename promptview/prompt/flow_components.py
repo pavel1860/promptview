@@ -204,8 +204,10 @@ class Parser(BaseFbpComponent):
         self.block_buffer = []
         self._stream_started = False
         self._detected_tag = False
-        
+        self._total_chunks = 0
+        self._chunks_from_last_tag = 0
         self._tag_stack = []
+        
         
 
     def __aiter__(self):
@@ -224,7 +226,7 @@ class Parser(BaseFbpComponent):
         return self._tag_stack[-1]
     
     
-    def get_buffer(self, start_from: str | None = None, flush=True):
+    def _read_buffer(self, start_from: str | None = None, flush=True):
         buffer = []
         start_appending = start_from is None
         for block in self.block_buffer:
@@ -236,9 +238,34 @@ class Parser(BaseFbpComponent):
             self.block_buffer = []
         return buffer
     
+    def _write_to_buffer(self, value: Any):
+        self._total_chunks += 1
+        self._chunks_from_last_tag += 1
+        self.block_buffer.append(value)
+        
+        
+    def _buffer_size(self):
+        return len(self.block_buffer)
     
-    def _push(self, value: Any):
-        self.queue.put(value)
+    
+    def _push_to_output(self, value: Any):
+        self.queue.put(copy.deepcopy(value))
+        
+    def _check_for_start_tag(self, value: Any):
+        if "<" in value.content:
+            self._detected_tag = True
+            
+    def _close_tag(self):
+        self._chunks_from_last_tag = 0
+        self._detected_tag = False
+        
+    def _should_output_chunk(self):
+        if self.current_tag and not self._detected_tag:
+            # if self._chunks_from_last_tag <= 2:
+            #     return False
+            return True
+        return False
+        
         
     async def asend(self, value: Any = None):
         for i in range(20):            
@@ -246,23 +273,35 @@ class Parser(BaseFbpComponent):
                 self.parser.feed(f'<{self._safety_tag}>')
                 self._stream_started = True                
             if not self.queue.empty():
-                return self.queue.get()
+                v = self.queue.get()
+                # print("1", type(v), v)
+                return v
             value = await self.gen.asend(value) 
-            print(value)
-            self.block_buffer.append(value)
+            # print(value)
+            self._write_to_buffer(value)
             self.parser.feed(value.content)
             
-            if "<" in value.content:
-                self._detected_tag = True
+            self._check_for_start_tag(value)
             
             # in the middle of the stream, adding chunks to the current field
-            if self.current_tag and not self._detected_tag:
-                chunk = self.response_schema.partial_append_field(
-                    self.current_tag,
-                    value,
-                )
-                # self.queue.put(copy.deepcopy(chunk))
-                self._push(chunk)
+            if self._should_output_chunk():
+                if self._chunks_from_last_tag == 2:                
+                    for c in self._read_buffer(flush=True):
+                        print("3>", type(c), c)
+                        chunk = self.response_schema.partial_append_field(
+                            self.current_tag,
+                            c,
+                        )
+                        print("3<", type(chunk), chunk)
+                        self._push_to_output(chunk)
+                elif self._chunks_from_last_tag > 2:
+                    print("4>", type(value), value)
+                    chunk = self.response_schema.partial_append_field(
+                        self.current_tag,
+                        value,
+                    )
+                    print("4<", type(chunk), chunk)
+                    self._push_to_output(chunk)
             
             # start or end of a field, adding the whole field to the queue
             for event, element in self.parser.read_events():
@@ -273,29 +312,29 @@ class Parser(BaseFbpComponent):
                     self._push_tag(element.tag)
                     partial_field = self.response_schema.partial_init_field(
                         field_name=element.tag,
-                        root=self.get_buffer(),
+                        root=self._read_buffer(),
                         attrs=dict(element.attrib),
                         tags=[self.start_tag]
                     ) 
-                    # self.queue.put(partial_field)
-                    self._push(partial_field)
-                    self._detected_tag = False                    
+                    self._push_to_output(partial_field)
+                    self._close_tag()
                 elif event == 'end':
                     # end of a field
                     self._pop_tag()
                     field = self.response_schema.commit_field(
                         element.tag, 
-                        postfix=self.get_buffer(start_from="</"), 
+                        postfix=self._read_buffer(start_from="</"), 
                         tags=[self.end_tag]
                     )
-                    # self.queue.put(copy.deepcopy(field.postfix))
                     if field.postfix is not None:
-                        self._push(field.postfix)
-                    self._detected_tag = False
+                        self._push_to_output(field.postfix)
+                    self._close_tag()
                 
                     
             if not self.queue.empty():
-                return self.queue.get()
+                v = self.queue.get()
+                # print("2", type(v), v)
+                return v
         else:
             raise StopAsyncIteration
         
@@ -420,7 +459,9 @@ class StreamController(BaseFbpComponent):
             return self._parser.response
         # return self.acc
         
-    def parse(self, block_schema: "BlockSchema") -> Self:
+    def parse(self, block_schema: BlockSchema) -> Self:
+        if not isinstance(block_schema, BlockSchema):
+            raise ValueError("block_schema must be a BlockSchema")
         if self._parser is not None:
             raise ValueError("Parser already initialized")
         if self._gen is None:
