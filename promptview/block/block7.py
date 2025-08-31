@@ -44,7 +44,11 @@ def process_sentence_content(parent: "BaseBlock", content: "ContentType | BlockC
         return content
     else: 
         block = process_basic_content(parent, content)
-        return BlockSent(chunks=[block], sep="", parent=parent)
+        return BlockSent(items=[block], sep="", parent=parent)
+
+
+
+
 
 
 
@@ -212,7 +216,168 @@ class BaseBlock:
         return out
     
     
+
+
+
+class BlockList(UserList[BaseBlock], BaseBlock):
+    __slots__ = [
+        "default_sep",
+    ]
     
+    def __init__(
+        self, 
+        blocks: Sequence[BaseBlock] | None = None, 
+        index: int | None = None,
+        parent: "BaseBlock | None" = None,
+        role: str | None = None,
+        tags: list[str] | None = None,
+        style: str | None = None,
+        attrs: "dict[str, FieldAttrBlock] | None" = None,
+        id: str | None = None,
+        styles: list[str] | None = None,
+        sep: str = " ",
+    ):
+        if blocks is None:
+            blocks = []
+
+        UserList.__init__(self, blocks)
+        BaseBlock.__init__(self, parent=parent, index=index)
+        for block in blocks:
+            block.parent = self.parent
+        self.default_sep = sep
+            
+            
+    @property
+    def path(self) -> list[int]:
+        if self.parent is None:
+            raise ValueError("BlockList has no parent")
+        return self.parent.path
+    
+    @property
+    def logprob(self) -> float | None:
+        return sum(block.logprob for block in self if block.logprob is not None)
+    
+    
+    @property
+    def last(self) -> "BlockSent":
+        if not self:
+            UserList.append(self, BlockSent(sep=self.default_sep, parent=self))
+        return self[-1]
+    
+    
+    def model_dump(self):
+        dump = super().model_dump()
+        dump["_type"] = "BlockList"
+        dump["children"] = [b.model_dump() for b in self]
+        return dump
+    
+    def append(self, content: "BlockSent | Block"):
+        if isinstance(content, BlockSent):            
+            UserList.append(self, content)
+            self._connect(content)
+        elif isinstance(content, Block):
+            UserList.append(self, content)
+            self._connect(content)
+        else:
+            raise ValueError(f"Invalid content type: {type(content)}")
+        return self
+    
+    def append_inline(self, content: "BlockChunk"):
+        if not isinstance(content, BlockChunk):
+            raise ValueError(f"Invalid content type: {type(content)}")
+        if self._should_add_sentence():
+            self._add_sentence()
+        self.last.append(content)
+        return self
+    
+    def append_stream(self, content: "BlockChunk") -> tuple["BlockChunk", "BlockSent | None"]:
+        if not isinstance(content, BlockChunk):
+            raise ValueError(f"Invalid content type: {type(content)}")
+        sent = None
+        if self._should_add_sentence():
+            sent = self._add_sentence()
+        self.last.append(content)
+        return content, sent
+    
+    
+    def add_line(self):
+        sent = self._add_sentence()
+        return sent
+    
+    def _add_sentence(self):
+        sent = BlockSent(sep=self.default_sep)
+        UserList.append(self, sent)
+        self._connect(sent)
+        return sent
+    
+    def _connect(self, block: "BaseBlock"):
+        block.parent = self
+        block.index = len(self) - 1
+        return block
+    
+    def _should_add_sentence(self):
+        if not len(self):
+            return True
+        if not isinstance(self.last, BlockSent):
+            return True
+        if self.last.has_eol:
+            return True
+        return False
+    
+    @classmethod
+    def model_validate(cls, data: dict):
+        if "_type" not in data or data["_type"] != "BlockList":
+            raise ValueError(f"Invalid or missing _type for BlockList: {data.get('_type')}")
+        data = dict(data)
+        data.pop("_type")
+        data.pop("path")
+        blocks_data = data.pop("blocks", [])
+        blocks = [BlockChunk.model_validate(b) for b in blocks_data]
+        return cls(blocks=blocks, **data)
+    
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            cls._validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                cls._serialize
+            )
+        )
+        
+    def get(self, tag: str):
+        for block in self:
+            if block.tags and tag in block.tags:
+                return block
+            elif isinstance(block, Block):
+                return block.get(tag)
+        return None
+        
+        
+    
+        
+    @staticmethod
+    def _validate(v: Any) -> Any:
+        if isinstance(v, BlockList):
+            return v
+        elif isinstance(v, list):
+            for item in v:
+                if not isinstance(item, BlockChunk):
+                    raise ValueError(f"Invalid block list: {v}")
+            return BlockList(v)
+        else:
+            raise ValueError(f"Invalid block list: {v}")
+
+    @staticmethod
+    def _serialize(v: Any) -> Any:
+        if isinstance(v, BlockList):
+            return [item.model_dump() for item in v]
+        else:
+            raise ValueError(f"Invalid block list: {v}")
+        
+    def __repr__(self) -> str:
+        return f"BlockList({super().__repr__()})"
+
+ 
 
 class BlockChunk(BaseBlock):
     
@@ -389,10 +554,10 @@ class BlockChunk(BaseBlock):
 
 
 
+SEQUENCE_ITEM = TypeVar("SEQUENCE_ITEM", bound=BaseBlock)
 
 
-
-class BlockSent(BaseBlock):
+class BlockSequence(Generic[SEQUENCE_ITEM], BaseBlock):
     
     __slots__ = [
         "sep_list",
@@ -404,35 +569,33 @@ class BlockSent(BaseBlock):
     
     def __init__(
         self, 
-        chunks: list[BlockChunk | ContentType] | None = None, 
+        items: list[SEQUENCE_ITEM] | None = None, 
         sep: str = " ", 
         wrap: tuple[str, str] | None = None,
-        index: int | None = None,
-        parent: "BaseBlock | None" = None,
+        index: int | None = None,        
         has_eol: bool = False,
-        sep_list: list[str] | None = None,
-        role: str | None = None,
-        tags: list[str] | None = None,
-        style: str | None = None,
-        attrs: "dict[str, FieldAttrBlock] | None" = None,
-        id: str | None = None,
-        styles: list[str] | None = None,
+        sep_list: list[str] | None = None,  
+        parent: "BaseBlock | None" = None,
     ):
-        if chunks is None:
-            chunks = []
-        BaseBlock.__init__(self, parent=parent, index=index)
+        BaseBlock.__init__(self, index, parent)
+        if items is None:
+            items = []        
         self.sep_list = []
         self.default_sep = sep
         self.has_eol = has_eol
-        self.children: list[BlockChunk] = []
+        self.children: list[SEQUENCE_ITEM] = []
         if sep_list is not None:
-            for chunk, sep in zip(chunks, sep_list):
+            for chunk, sep in zip(items, sep_list):
                 self.append(chunk, sep)
         else:
-            for chunk in chunks:
+            for chunk in items:
                 self.append(chunk)
         if wrap:
             self.wrap(*wrap)
+            
+            
+    def process_content(self, content: "ContentType | SEQUENCE_ITEM"):
+        raise NotImplementedError("process_content is not implemented")
             
             
     def __len__(self):
@@ -447,32 +610,17 @@ class BlockSent(BaseBlock):
     
     
     def __eq__(self, other: object):
-        if isinstance(other, BlockSent):
+        if isinstance(other, BlockSequence):
             return self.children == other.children
         else:
             return False
-        
-        
-            
-    
-    @property
-    def path(self) -> list[int]:
-        if self.parent is None:
-            raise ValueError("BlockSent has no parent")
-            # return [self.index]
-        if isinstance(self.parent, Block):
-            if self.index == -1:
-                return self.parent.path + [self.index]
-            return self.parent.path
-        else:
-            return self.parent.path + [self.index]
         
         
 
         
     @property
     def logprob(self) -> float | None:
-        return sum(block.logprob for block in self.children if block.logprob is not None)
+        return sum(item.logprob for item in self.children if item.logprob is not None)
     
     
     def wrap(self, start_token: str, end_token: str):
@@ -480,34 +628,38 @@ class BlockSent(BaseBlock):
         self.append(end_token)
     
     
+    def _connect(self, item: "SEQUENCE_ITEM"):
+        item.parent = self
+        item.index = len(self.children) - 1
+        return item
     
-    def append(self, content: ContentType | BlockChunk, sep: str | None = None):
-        chunk = process_basic_content(self, content)
+    def append(self, content: ContentType | SEQUENCE_ITEM, sep: str | None = None):
+        item = self.process_content(content)
         sep = sep or self.default_sep
-        if chunk.is_eol:
+        if item.is_eol:
             if self.has_eol:
                 raise ValueError("Cannot append to a list that has an end of line")
             sep = ""
             self.has_eol = True
-            chunk = chunk.replace("\n", "")
-        chunk = self._connect(chunk)
+            item = item.replace("\n", "")
+        item = self._connect(item)
         self.sep_list.append(sep)
-        self.children.append(chunk)
+        self.children.append(item)
         return self
     
-    def prepend(self, content: ContentType | BlockChunk, sep: str | None = None):
+    def prepend(self, content: ContentType | SEQUENCE_ITEM, sep: str | None = None):
         self.insert(0, content, sep=sep)
         return self
         
         
         
         
-    def insert(self, index: int, content: ContentType | BlockChunk, sep: str | None = None):
+    def insert(self, index: int, content: ContentType | SEQUENCE_ITEM, sep: str | None = None):
         if self.has_eol and index == len(self.children) - 1:
             raise ValueError("Cannot insert to the end of a list that has an end of line")
-        chunk = process_basic_content(self,content)
+        item = self.process_content(content)
         sep = sep or self.default_sep
-        if chunk.is_eol:
+        if item.is_eol:
             if index != len(self.children) - 1:
                 raise ValueError("end of line cannot be inserted in the middle of a list")
             if self.has_eol:
@@ -515,19 +667,19 @@ class BlockSent(BaseBlock):
             sep = "\n"
             self.has_eol = True
         self._shift_index(index)
-        chunk = self._connect(chunk, index)
+        item = self._connect(item, index)
         self.sep_list.insert(index, sep)
-        self.children.insert(index, chunk)
+        self.children.insert(index, item)
         return self
         
-    def extend(self, sent: "BlockSent"):
-        for chunk in sent:
-            self.append(chunk)
+    def extend(self, seq: "BlockSequence"):
+        for item in seq:
+            self.append(item)
         
-    def _connect(self, chunk: "BlockChunk", index: int | None = None):
-        chunk.parent = self
-        chunk.index = index if index is not None else len(self.children) - 1
-        return chunk
+    # def _connect(self, item: "SEQUENCE_ITEM", index: int | None = None):
+    #     item.parent = self
+    #     item.index = index if index is not None else len(self.children) - 1
+    #     return item
     
     def _shift_index(self, index: int):
         for i in range(index, len(self.children)):
@@ -541,6 +693,33 @@ class BlockSent(BaseBlock):
             yield chunk, sep
         
     
+
+
+
+class BlockSent(BlockSequence[BlockChunk]):
+    
+    
+    def __init__(
+        self,
+        content: list[BlockChunk | str] | str | None = None,
+        sep: str = " ",
+        wrap: tuple[str, str] | None = None,
+        index: int | None = None,
+        has_eol: bool = False,
+        sep_list: list[str] | None = None,
+        parent: "BaseBlock | None" = None,
+    ):
+        if isinstance(content, list):
+            chunks = content
+        else:
+            chunk = self.process_content(content)
+            chunks = [chunk]
+        super().__init__(chunks, sep, wrap, index, has_eol, sep_list, parent=parent)
+        
+        
+        
+    def process_content(self, content: "ContentType | BlockChunk"):
+        return process_basic_content(self, content)
     
     def __and__(self, other: ContentType | BlockChunk):
         self.append(other, sep="")
@@ -609,13 +788,6 @@ class BlockSent(BaseBlock):
             )
         )
         
-    def get(self, tag: str):
-        for block in self:
-            if block.tags and tag in block.tags:
-                return block
-            elif isinstance(block, Block):
-                return block.get(tag)
-        return None
         
     @staticmethod
     def _validate(v: Any) -> Any:
@@ -658,7 +830,7 @@ def parse_content(content: ContentType | BaseBlock | list[str] | None = None, **
       
       
         
-class Block(BaseBlock):
+class Block(BlockSequence):
     
     __slots__ = [
         "root",
@@ -673,7 +845,7 @@ class Block(BaseBlock):
     def __init__(
         self, 
         root: ContentType | BlockChunk | BlockSent | None = None, 
-        children: BlockList | None = None,                 
+        children: "list[Block | BlockSent] | None" = None,                 
         role: str | None = None,
         tags: list[str] | None = None,
         style: str | None = None,
@@ -690,7 +862,6 @@ class Block(BaseBlock):
         self.attrs: dict[str, FieldAttrBlock] = get_attrs(attrs)        
         self.root = BlockSent(index=self.index, parent=self)
         # self.children = BlockList(children or [], index=self.index, parent=self)
-        self.children: list[Block | BlockSent] = []
         
         if isinstance(root, BlockSent):
             self.root = root
@@ -790,30 +961,6 @@ class Block(BaseBlock):
         return ctx
     
     
-    def _shift_indices(self, index: int):
-        for i in range(index, len(self.children)):
-            self.children[i].index += 1
-    
-
-    
-                
-    
-    
-    def _append_root(self, block: "BlockChunk"):
-        pass
-    
-    def _process_to_block(self, content: "ContentType"):
-        pass
-    
-    def append(self, content: "ContentType | BlockChunk | BlockSent | Block", path: list[int] | None = None):
-        if isinstance(content, Block):
-            self._append_child(content)
-        elif isinstance(content, BlockSent):
-            self._append_child(content)
-        else:
-            block_sent = process_sentence_content(self, content)
-            self._append_child(block_sent)
-
     
     # def append_child(self, content: "ContentType | BlockChunk | BlockSent | Block"):        
     #     if isinstance(content, Block):
@@ -863,14 +1010,7 @@ class Block(BaseBlock):
     
     
     def __itruediv__(self, other: "ContentType | BlockChunk | Block | BlockSent | tuple[ContentType, ...]"):
-        if isinstance(other, Block):
-            self.append_child(other)
-        elif isinstance(other, BlockSent):
-            self.append_child(other)
-        elif isinstance(other, tuple):
-            self.append_child_tuple(other)
-        else:
-            self.append_child_tuple((other,))
+        
         return self
     
     
@@ -1494,164 +1634,6 @@ class BlockSchema(Block):
         
         
     
-class BlockList(UserList[BaseBlock], BaseBlock):
-    __slots__ = [
-        "default_sep",
-    ]
-    
-    def __init__(
-        self, 
-        blocks: Sequence[BaseBlock] | None = None, 
-        index: int | None = None,
-        parent: "BaseBlock | None" = None,
-        role: str | None = None,
-        tags: list[str] | None = None,
-        style: str | None = None,
-        attrs: "dict[str, FieldAttrBlock] | None" = None,
-        id: str | None = None,
-        styles: list[str] | None = None,
-        sep: str = " ",
-    ):
-        if blocks is None:
-            blocks = []
-
-        UserList.__init__(self, blocks)
-        BaseBlock.__init__(self, parent=parent, index=index)
-        for block in blocks:
-            block.parent = self.parent
-        self.default_sep = sep
-            
-            
-    @property
-    def path(self) -> list[int]:
-        if self.parent is None:
-            raise ValueError("BlockList has no parent")
-        return self.parent.path
-    
-    @property
-    def logprob(self) -> float | None:
-        return sum(block.logprob for block in self if block.logprob is not None)
-    
-    
-    @property
-    def last(self) -> BlockSent:
-        if not self:
-            UserList.append(self, BlockSent(sep=self.default_sep, parent=self))
-        return self[-1]
-    
-    
-    def model_dump(self):
-        dump = super().model_dump()
-        dump["_type"] = "BlockList"
-        dump["children"] = [b.model_dump() for b in self]
-        return dump
-    
-    def append(self, content: "BlockSent | Block"):
-        if isinstance(content, BlockSent):            
-            UserList.append(self, content)
-            self._connect(content)
-        elif isinstance(content, Block):
-            UserList.append(self, content)
-            self._connect(content)
-        else:
-            raise ValueError(f"Invalid content type: {type(content)}")
-        return self
-    
-    def append_inline(self, content: "BlockChunk"):
-        if not isinstance(content, BlockChunk):
-            raise ValueError(f"Invalid content type: {type(content)}")
-        if self._should_add_sentence():
-            self._add_sentence()
-        self.last.append(content)
-        return self
-    
-    def append_stream(self, content: "BlockChunk") -> tuple["BlockChunk", "BlockSent | None"]:
-        if not isinstance(content, BlockChunk):
-            raise ValueError(f"Invalid content type: {type(content)}")
-        sent = None
-        if self._should_add_sentence():
-            sent = self._add_sentence()
-        self.last.append(content)
-        return content, sent
-    
-    
-    def add_line(self):
-        sent = self._add_sentence()
-        return sent
-    
-    def _add_sentence(self):
-        sent = BlockSent(sep=self.default_sep)
-        UserList.append(self, sent)
-        self._connect(sent)
-        return sent
-    
-    def _connect(self, block: "BaseBlock"):
-        block.parent = self
-        block.index = len(self) - 1
-        return block
-    
-    def _should_add_sentence(self):
-        if not len(self):
-            return True
-        if not isinstance(self.last, BlockSent):
-            return True
-        if self.last.has_eol:
-            return True
-        return False
-    
-    @classmethod
-    def model_validate(cls, data: dict):
-        if "_type" not in data or data["_type"] != "BlockList":
-            raise ValueError(f"Invalid or missing _type for BlockList: {data.get('_type')}")
-        data = dict(data)
-        data.pop("_type")
-        data.pop("path")
-        blocks_data = data.pop("blocks", [])
-        blocks = [BlockChunk.model_validate(b) for b in blocks_data]
-        return cls(blocks=blocks, **data)
-    
-    @classmethod
-    def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
-        return core_schema.no_info_plain_validator_function(
-            cls._validate,
-            serialization=core_schema.plain_serializer_function_ser_schema(
-                cls._serialize
-            )
-        )
-        
-    def get(self, tag: str):
-        for block in self:
-            if block.tags and tag in block.tags:
-                return block
-            elif isinstance(block, Block):
-                return block.get(tag)
-        return None
-        
-        
-    
-        
-    @staticmethod
-    def _validate(v: Any) -> Any:
-        if isinstance(v, BlockList):
-            return v
-        elif isinstance(v, list):
-            for item in v:
-                if not isinstance(item, BlockChunk):
-                    raise ValueError(f"Invalid block list: {v}")
-            return BlockList(v)
-        else:
-            raise ValueError(f"Invalid block list: {v}")
-
-    @staticmethod
-    def _serialize(v: Any) -> Any:
-        if isinstance(v, BlockList):
-            return [item.model_dump() for item in v]
-        else:
-            raise ValueError(f"Invalid block list: {v}")
-        
-    def __repr__(self) -> str:
-        return f"BlockList({super().__repr__()})"
-
 
 
     
