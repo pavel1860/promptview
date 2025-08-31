@@ -74,7 +74,8 @@ class LlmStreamParams(TypedDict, total=False):
 
 
 def pack_blocks(args: tuple[Any, ...]) -> tuple[BlockList, tuple[Any, ...]]:
-    block_list = BlockList()
+    # block_list = BlockList()
+    block_list = []
     extra_args = ()
     for arg in args:
         if isinstance(arg, str):

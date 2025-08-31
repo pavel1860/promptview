@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 CHUNK_TYPE = TypeVar("CHUNK_TYPE", str, int, float, bool, None)
 
 
-def process_basic_content(parent: "BaseBlock", content: "ContentType | BlockChunk"):
+def process_basic_content(parent: "BlockSequence", content: "ContentType | BlockChunk"):
     if isinstance(content, BlockChunk):
         return content
     elif isinstance(content, str):
@@ -35,8 +35,8 @@ def process_basic_content(parent: "BaseBlock", content: "ContentType | BlockChun
     # elif isinstance(content, BaseBlock):
     #     return content        
     else:
-        path = parent.path
-        raise ValueError(f"Invalid content type: {type(content)} for path: {path}")
+        # path = parent.path
+        raise ValueError(f"Invalid content type: {type(content)}")
 
 
 def process_sentence_content(parent: "BaseBlock", content: "ContentType | BlockChunk | BlockSent"):
@@ -148,7 +148,6 @@ class BaseBlock:
     
     __slots__ = [
         "id",
-        "parent",
         "index",
     ]
     
@@ -156,23 +155,15 @@ class BaseBlock:
     def __init__(
         self, 
         index: int | None = None, 
-        parent: "BaseBlock | None" = None,
         id: str | None = None,
     ):
         self.index = index if index is not None else 0
-        self.parent = parent
         self.id = id
     
     @property
     def path(self) -> list[int]:
         raise NotImplementedError("Not implemented")
 
-    
-    @property
-    def block_parent(self):
-        if isinstance(self.parent, BlockList):
-            return self.parent.parent
-        return self.parent       
 
     
         
@@ -391,15 +382,14 @@ class BlockChunk(BaseBlock):
     def __init__(
         self, 
         content: ContentType | None = None,
-        logprob: float | None = None,
-        parent: "BaseBlock | None" = None,        
+        logprob: float | None = None,   
         index: int | None = None,
         id: str | None = None,
     ):
         """
         Basic component of prompt building. 
         """
-        super().__init__(parent=parent, id=id, index=index)
+        super().__init__(id=id, index=index)
         self.content: ContentType = content        
         self.logprob: float | None = logprob
         # self.is_end_of_line = False
@@ -506,7 +496,8 @@ class BlockChunk(BaseBlock):
         dump = super().model_dump()
         dump["_type"] = "BlockChunk"
         dump["content"] = self.content
-        dump["path"] = self.path         
+        dump['logprob'] = self.logprob
+        # dump["path"] = self.path         
         return dump
     
         
@@ -564,6 +555,7 @@ class BlockSequence(Generic[SEQUENCE_ITEM], BaseBlock):
         "has_eol",
         "children",
         "default_sep",
+        "parent",
     ]
     
     
@@ -575,13 +567,16 @@ class BlockSequence(Generic[SEQUENCE_ITEM], BaseBlock):
         index: int | None = None,        
         has_eol: bool = False,
         sep_list: list[str] | None = None,  
-        parent: "BaseBlock | None" = None,
+        default_sep: str = " ",
+        parent: "BlockSequence | None" = None,
+        id: str | None = None,
     ):
-        BaseBlock.__init__(self, index, parent)
+        BaseBlock.__init__(self, index, id)
         if items is None:
             items = []        
+        self.parent = parent
         self.sep_list = []
-        self.default_sep = sep
+        self.default_sep = default_sep
         self.has_eol = has_eol
         self.children: list[SEQUENCE_ITEM] = []
         if sep_list is not None:
@@ -594,7 +589,7 @@ class BlockSequence(Generic[SEQUENCE_ITEM], BaseBlock):
             self.wrap(*wrap)
             
             
-    def process_content(self, content: "ContentType | SEQUENCE_ITEM"):
+    def process_content(self, content: "ContentType | SEQUENCE_ITEM", sep: str, index: int | None = None) -> tuple[SEQUENCE_ITEM, str]:
         raise NotImplementedError("process_content is not implemented")
             
             
@@ -629,19 +624,20 @@ class BlockSequence(Generic[SEQUENCE_ITEM], BaseBlock):
     
     
     def _connect(self, item: "SEQUENCE_ITEM"):
-        item.parent = self
+        if hasattr(item, "parent"):
+            item.parent = self
         item.index = len(self.children) - 1
         return item
     
     def append(self, content: ContentType | SEQUENCE_ITEM, sep: str | None = None):
-        item = self.process_content(content)
         sep = sep or self.default_sep
-        if item.is_eol:
-            if self.has_eol:
-                raise ValueError("Cannot append to a list that has an end of line")
-            sep = ""
-            self.has_eol = True
-            item = item.replace("\n", "")
+        item, sep = self.process_content(content, sep)        
+        # if item.is_eol:
+        #     if self.has_eol:
+        #         raise ValueError("Cannot append to a list that has an end of line")
+        #     sep = ""
+        #     self.has_eol = True
+        #     item = item.replace("\n", "")
         item = self._connect(item)
         self.sep_list.append(sep)
         self.children.append(item)
@@ -657,15 +653,15 @@ class BlockSequence(Generic[SEQUENCE_ITEM], BaseBlock):
     def insert(self, index: int, content: ContentType | SEQUENCE_ITEM, sep: str | None = None):
         if self.has_eol and index == len(self.children) - 1:
             raise ValueError("Cannot insert to the end of a list that has an end of line")
-        item = self.process_content(content)
+        item, sep = self.process_content(content, sep, index)
         sep = sep or self.default_sep
-        if item.is_eol:
-            if index != len(self.children) - 1:
-                raise ValueError("end of line cannot be inserted in the middle of a list")
-            if self.has_eol:
-                raise ValueError("Cannot insert an end of line to a list that has an end of line")
-            sep = "\n"
-            self.has_eol = True
+        # if item.is_eol:
+        #     if index != len(self.children) - 1:
+        #         raise ValueError("end of line cannot be inserted in the middle of a list")
+        #     if self.has_eol:
+        #         raise ValueError("Cannot insert an end of line to a list that has an end of line")
+        #     sep = "\n"
+        #     self.has_eol = True
         self._shift_index(index)
         item = self._connect(item, index)
         self.sep_list.insert(index, sep)
@@ -707,19 +703,32 @@ class BlockSent(BlockSequence[BlockChunk]):
         index: int | None = None,
         has_eol: bool = False,
         sep_list: list[str] | None = None,
-        parent: "BaseBlock | None" = None,
+        parent: "BlockSequence | None" = None,
+        id: str | None = None,
+        default_sep: str = " ",
     ):
+        chunks = []
         if isinstance(content, list):
             chunks = content
-        else:
-            chunk = self.process_content(content)
+        elif content is not None:
+            chunk, sep = self.process_content(content, sep, index)
             chunks = [chunk]
-        super().__init__(chunks, sep, wrap, index, has_eol, sep_list, parent=parent)
+        super().__init__(chunks, sep, wrap, index, has_eol, sep_list, parent=parent, id=id)
         
+    @property
+    def path(self) -> list[int]:
+        return self.parent.path + [self.index]
         
-        
-    def process_content(self, content: "ContentType | BlockChunk"):
-        return process_basic_content(self, content)
+    def process_content(self, content: "ContentType | BlockChunk", sep: str, index: int | None = None) -> tuple[BlockChunk, str]:
+        chunk = process_basic_content(self, content)
+        if chunk.is_eol:            
+            if index is not None and index != len(self.children) - 1:
+                raise ValueError("end of line cannot be inserted in the middle of a list")
+            if self.has_eol:
+                raise ValueError("Cannot insert an end of line to a list that has an end of line")
+            sep = "\n"
+            self.has_eol = True
+        return chunk, sep
     
     def __and__(self, other: ContentType | BlockChunk):
         self.append(other, sep="")
@@ -830,7 +839,7 @@ def parse_content(content: ContentType | BaseBlock | list[str] | None = None, **
       
       
         
-class Block(BlockSequence):
+class Block(BlockSequence["Block | BlockSent"]):
     
     __slots__ = [
         "root",
@@ -853,14 +862,15 @@ class Block(BlockSequence):
         id: str | None = None,
         styles: list[str] | None = None,
         index: int | None = None,
-        parent: "BaseBlock | None" = None,
+        parent: "BlockSequence | None" = None,
+        default_sep: str = " ",        
     ):
-        super().__init__(parent=parent, index=index, id=id)
+        super().__init__(parent=parent, index=index, id=id, default_sep=default_sep)
         self.role: str | None = role
         self.tags: list[str] = tags or []
         self.styles: list[str] | None = styles or parse_style(style)
         self.attrs: dict[str, FieldAttrBlock] = get_attrs(attrs)        
-        self.root = BlockSent(index=self.index, parent=self)
+        self.root = BlockSent(index=self.index, parent=self, id=id)
         # self.children = BlockList(children or [], index=self.index, parent=self)
         
         if isinstance(root, BlockSent):
@@ -869,6 +879,18 @@ class Block(BlockSequence):
             root_block = process_basic_content(self, root) if root is not None else None
             if root_block is not None:
                 self.root.append(root_block)
+                
+                
+    def process_content(self, content: "ContentType | Block | BlockSent", sep: str, index: int | None = None) -> "tuple[Block | BlockSent, str]":
+        if isinstance(content, Block):
+            pass
+        elif isinstance(content, BlockSent):
+            pass
+        else:
+            chunk = process_basic_content(self, content)
+            content = BlockSent(content=[chunk], sep=sep, parent=self)
+        return content, sep
+        
         
     @property
     def path(self) -> list[int]:
@@ -906,7 +928,7 @@ class Block(BlockSequence):
             parent=self.parent,            
             styles=["xml"],
         )
-        self.append_child(ctx)
+        self.append(ctx)
         return ctx
     
     def attr(
@@ -932,92 +954,66 @@ class Block(BlockSequence):
             ge=ge,
             le=le,
         )
-    
-    def __enter__(self):        
-        return self
-    
-    def __exit__(self, exc_type, exc_value, traceback):
-        pass
-    
-    
-    def __call__(
-        self, 
-        content: ContentType | BaseBlock | list[str] | None = None, 
-        role: str | None = None,
-        tags: list[str] | None = None,
-        style: str | None = None,
-        attrs: "dict[str, FieldAttrBlock] | None" = None,
-    ) -> "Block":        
-        ctx = Block(
-            content,
-            index=len(self.children),
-            role=role,
-            tags=tags,            
-            parent=self,            
-            style=style,
-            attrs=attrs,
-        )
-        self.children.append(ctx)        
-        return ctx
-    
-    
-    
-    # def append_child(self, content: "ContentType | BlockChunk | BlockSent | Block"):        
-    #     if isinstance(content, Block):
-    #         self.children.append(content)
-    #     elif isinstance(content, BlockSent):
-    #         self.children.append(content)
-    #     else:
-    #         block = process_basic_content(self, content)            
-    #         self.children.add_line()
-    #         self.children.append_inline(block)        
-    #     return self
-    
-    # def append_child_inline(self, content: "ContentType | BlockChunk"):        
-    #     block = process_basic_content(self, content)
-    #     self.children.append_inline(block)
-    #     return self
-    
-    # def append_child_tuple(self, content: tuple[ContentType | BlockChunk, ...]):
-    #     self.children.add_line()
-    #     for c in content:
-    #         self.append_child_inline(c)
-    #     return self
         
+    def _should_add_sentence(self):
+        if not len(self):
+            return True
+        if not isinstance(self.last, BlockSent):
+            return True
+        if self.children[-1].has_eol:
+            return True
+        return False  
+        
+    # def iappend(self, content: "ContentType | Block | BlockSent", sep: str = " "):
+    #     last = self.children[-1]
+        
+            
+    #     else:
+            
+        
+
     
-    # def append_root(self, content: ContentType | BlockChunk):
-    #     # block = self._process_content(content)
-    #     self.root.append(content)
-    #     return self
     
-    
-    # def append_child_stream(self, content: "ContentType | BlockChunk") -> tuple["BlockChunk", "BlockSent | None"]:        
-    #     block = process_basic_content(self, content)
-    #     content, sent = self.children.append_stream(block)
-    #     return content, sent
-    
-    
-    
-    
-    
-    
-    def __iadd__(self, other: ContentType | BlockChunk):
-        self.append_child_inline(other)
+    def path_append(
+        self, 
+        path: list[int],
+        content: "ContentType | Block | BlockSent",
+        sep: str = " ",        
+    ): 
+        if path is not None:
+            target = self.get_path(path)
+            if target is None:
+                raise ValueError(f"Path {path} not found")
+            target.append(content, sep)
+        else:
+            super().append(content, sep)
         return self
-    
-    
             
     
-    
-    def __itruediv__(self, other: "ContentType | BlockChunk | Block | BlockSent | tuple[ContentType, ...]"):
+    def path_insert(self, path: list[int], content: "ContentType | Block | BlockSent", sep: str = " "):        
+        if len(path) > 1:
+            target = self.get_path(path)
+        else:
+            target = self
+        
+        if target is None:
+            raise ValueError(f"Path {path} not found")
+        if isinstance(target, BlockSent) and not type(content) in (BlockSent, ContentType):
+                raise ValueError(f"Cannot insert to a list that has an end of line")
+        if path[-1] >= len(target):            
+            target.append(content, sep)
+        else:            
+            target.insert(path[-1], content, sep)
         
         return self
     
+    
+
     
     def response_schema(self, name: str | None = None):
         name = name or "response_schema"
         block = BlockSchema(tags=[name])
-        self.append_child(block)
+        self.append(block)
         return block
     
     
@@ -1044,7 +1040,7 @@ class Block(BlockSequence):
         return None
     
     
-    def get_path(self, path: list[int]):
+    def get_path(self, path: list[int]) -> "Block | BlockSent | None":
         index, sub_path = path[0],path[1:]
         if len(self.children) <= index:
             return None
@@ -1173,6 +1169,59 @@ class Block(BlockSequence):
             raise ValueError("No target nodes found")
         # res = Block(children=BlockList(dummy_children))
         return dummy_children
+    
+    
+    def __enter__(self):        
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+    
+    
+    def __call__(
+        self, 
+        content: ContentType | BaseBlock | list[str] | None = None, 
+        role: str | None = None,
+        tags: list[str] | None = None,
+        style: str | None = None,
+        attrs: "dict[str, FieldAttrBlock] | None" = None,
+    ) -> "Block":        
+        ctx = Block(
+            content,
+            index=len(self.children),
+            role=role,
+            tags=tags,            
+            parent=self,            
+            style=style,
+            attrs=attrs,
+        )
+        self.children.append(ctx)        
+        return ctx
+    
+    def _process_tuple_content(self, other: tuple[ContentType, ...]):
+        block = BlockSent(default_sep=" ")
+        for o in other:
+            block.append(o)
+        return block
+        
+    
+    
+    def __iadd__(self, other: ContentType | BlockSent | tuple[ContentType, ...]):
+        if isinstance(other, tuple):
+            other =self._process_tuple_content(other)        
+        self.append(other)
+        return self
+    
+    
+            
+    
+    
+    def __itruediv__(self, other: "ContentType | BlockChunk | Block | BlockSent | tuple[ContentType, ...]"):        
+        if isinstance(other, tuple):
+            other =self._process_tuple_content(other)        
+        self.append(other)
+        return self
+    
         
     def __repr__(self) -> str:
         root = self.root.render() if self.root else ''
@@ -1304,10 +1353,10 @@ class BlockSchemaField(Block):
         )
         if root: 
             for chunk in root:
-                res.append_root(chunk)
+                res.root.append(chunk)
         if children:
             for chunk in children:
-                res.append_child(chunk)
+                res.append(chunk)
         if attrs:
             res.set_attributes(attrs)
         return res
@@ -1353,7 +1402,7 @@ class ResponseBlock(Block):
             tags = [schema.name] + (tags or [])
         super().__init__(children=children, tags=tags, style=style, id=id, index=index, parent=parent)
         self.root.default_sep = ""
-        self.children.default_sep = ""
+        self.default_sep = ""
         self.schema = schema
         self._value = None
         self.postfix: BlockSent | None = None
@@ -1417,7 +1466,7 @@ class ResponseBlock(Block):
     
     def copy_without_children(self):
         c = copy.deepcopy(self)
-        c.children = BlockList()
+        c.children = []
         return c
     
     
@@ -1553,7 +1602,7 @@ class BlockSchema(Block):
             if path:
                 self.inst.insert(path, res)
             else:
-                self.inst.append_child(res)
+                self.inst.append(res)
         return res
         
             
@@ -1572,12 +1621,12 @@ class BlockSchema(Block):
         field = self._inst_field(field_schema)
         if root:
             for block in root:
-                field.append_root(block)
+                field.root.append(block)
         if attrs:
             field.set_attributes(attrs)
         if children:
             for block in children:
-                field.append_child(block)
+                field.append(block)
         if tags:
             field.tags += tags
         c = field.copy_without_children()

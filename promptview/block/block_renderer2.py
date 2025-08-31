@@ -24,10 +24,11 @@ def render(target, style=None, parent_ctx: RenderContext | None = None, verbose:
     ctx = RenderContext(target, style, parent_ctx, verbose=verbose)
     if isinstance(target, Block):
         return render_block(target, ctx)
-    elif isinstance(target, BlockList):
-        return render_list(target, ctx)
     elif isinstance(target, BlockSent):
         return render_sentence(target, ctx)
+    elif isinstance(target, BlockList):
+        return render_list(target, ctx)
+    
     else:
         raise ValueError(f"Invalid block type: {type(target)}")
 
