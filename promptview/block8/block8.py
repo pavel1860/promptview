@@ -15,26 +15,37 @@ def compute_path(node: Block) -> list[int]:
     return list(reversed(path))
 
 
+
+def parse_style(style: str | list[str] | None) -> list[str]:
+    if isinstance(style, str):
+        return list(style.split(" "))
+    elif type(style) is list:
+        return style
+    else:
+        return []
+
+
 # --------------------------------------
 # Metadata
 # --------------------------------------
 
 class BlockMetadata:
-    __slots__ = ["name", "role", "dtype", "tags", "styles", "attrs"]
+    __slots__ = ["tag", "role", "dtype", "labels", "styles", "attrs"]
 
     def __init__(
         self,
-        name: str | None = None,
         role: str | None = None,
         dtype: type | None = None,
-        tags: list[str] | None = None,
+        labels: list[str] | None = None,
+        style: str | None = None,
         styles: list[str] | None = None,
         attrs: dict[str, str] | None = None,
     ):
-        self.name = name
         self.role = role
         self.dtype = dtype
-        self.tags = tags or []
+        self.labels = labels or []
+        if styles is None and style is not None:
+            styles = parse_style(style)
         self.styles = styles or []
         self.attrs = attrs or {}
 
@@ -56,6 +67,7 @@ class Child:
 
 class Block:
     __slots__ = [
+        "tag",
         "children",
         "parent",
         "index",
@@ -66,36 +78,43 @@ class Block:
 
     def __init__(
         self,
-        content: Union[str, Block],
+        content: Union[str, Block] | None = None,
         *,
+        tag: str | None = None,
         parent: Block | None = None,
         index: int | None = None,
         sep: str = " ",
         logprob: float | None = None,
-        default_sep: str = " ",
-        name: str | None = None,
+        default_sep: str = " ",        
         role: str | None = None,
         dtype: type | None = None,
-        tags: list[str] | None = None,
+        labels: list[str] | None = None,
+        style: str | None = None,
         styles: list[str] | None = None,
         attrs: dict[str, str] | None = None,
+        has_eol: bool | None = None,
     ):
+        self.tag = tag
         self.children: list[Child] = []
         self.parent = parent
         self.index = index if index is not None else 0
         self.metadata: BlockMetadata | None = None
         self.default_sep = default_sep
-        self.has_eol = False
+        if has_eol is None:            
+            self.has_eol = True if "\n" in sep else False
+        else:
+            self.has_eol = has_eol
 
         # init metadata if provided
-        if any([name, role, dtype, tags, styles, attrs]):
+        if any([tag, role, dtype, labels, styles, attrs, style]):
             self.metadata = BlockMetadata(
-                name=name, role=role, dtype=dtype,
-                tags=tags, styles=styles, attrs=attrs
+                role=role, dtype=dtype,
+                labels=labels, style=style, styles=styles, attrs=attrs
             )
 
         # add initial content
-        self.append(content, sep=sep, logprob=logprob)
+        if content is not None:
+            self.append(content, sep=sep, logprob=logprob)
 
     # --- metadata accessor ---
     @property
@@ -105,12 +124,11 @@ class Block:
         return self.metadata
 
     # --- convenience properties ---
-    @property
-    def name(self): return self.metadata.name if self.metadata else None
+
     @property
     def role(self): return self.metadata.role if self.metadata else None
     @property
-    def tags(self): return self.metadata.tags if self.metadata else []
+    def labels(self): return self.metadata.labels if self.metadata else []
     @property
     def styles(self): return self.metadata.styles if self.metadata else []
     @property
@@ -248,8 +266,8 @@ class Block:
         # 5. Metadata sanity
         if self.metadata is not None:
             assert isinstance(self.metadata, BlockMetadata)
-            if self.metadata.tags is not None:
-                assert isinstance(self.metadata.tags, list)
+            if self.metadata.labels is not None:
+                assert isinstance(self.metadata.labels, list)
             if self.metadata.styles is not None:
                 assert isinstance(self.metadata.styles, list)
             if self.metadata.attrs is not None:
@@ -266,6 +284,37 @@ class Block:
             assert found is self, f"Path check failed for {self} (got {found})"
 
         return True
+    
+    
+    def print_tree(self, indent: int = 0):
+        """
+        Pretty-print the tree with one row per child (Block or Text).
+        Shows metadata inline, indentation for hierarchy.
+        """
+        pad = "  " * indent
+
+        # current block line
+        meta = []
+        tag = self.tag + " " if self.tag else ""
+        if self.role:   meta.append(f"role={self.role}")
+        if self.labels:   meta.append(f"labels={self.labels}")
+        if self.dtype:  meta.append(f"dtype={self.dtype.__name__}")
+        meta_str = " ".join(meta)
+        print(f"{pad}Block({tag}idx={self.index}{' ' + meta_str if meta_str else ''})")
+
+        # children
+        for child in self.children:
+            c = child.content
+            if isinstance(c, Block):
+                c.print_tree(indent + 1)
+            else:
+                info = []
+                if child.logprob is not None:
+                    info.append(f"logprob={child.logprob:.3f}")
+                if child.sep and child.sep != " ":
+                    info.append(f"sep={repr(child.sep)}")
+                info_str = " " + " ".join(info) if info else ""
+                print(f"{pad}  Text({repr(c)}){info_str}")
 
     # --- rendering ---
     def render(self) -> str:
@@ -274,6 +323,201 @@ class Block:
             part = child.content.render() if isinstance(child.content, Block) else child.content
             out.append(part + child.sep)
         return "".join(out)
+    
+    
+    # syntactic sugar
+    def __enter__(self):
+        
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+    
+    def __call__(
+        self, 
+        tag: str,
+        style: str | None = None,
+        labels: list[str] | None = None,
+        role: str | None = None,
+        dtype: type | None = None,
+        styles: list[str] | None = None,
+        attrs: dict[str, str] | None = None,
+    ) -> Block:
+        tag_block = Block(
+            tag=tag, 
+            labels=labels, 
+            role=role, 
+            dtype=dtype, 
+            styles=styles, 
+            attrs=attrs,
+            sep="\n",
+        )
+        self.append(tag_block)
+        return tag_block
+    
+    def _iappend_tuple(self, other: tuple[str | Block, ...], sep: str = " "):
+        block = Block(default_sep=" ")
+        for o in other:
+            block.append(o, sep=sep)
+        self.append(block)
+    
+    def __itruediv__(self, other: Union[str, Block, tuple[str | Block, ...]]):        
+        if isinstance(other, tuple):
+            self._iappend_tuple(other, sep=" ")
+        else:
+            self.append(other, sep="\n")
+        return self
+    
+    def __iadd__(self, other: Union[str, Block]):
+        if isinstance(other, tuple):
+            self._iappend_tuple(other, sep=" ")
+        else:
+            self.append(other, sep=" ")
+        return self
+    
+    def __iand__(self, other: Union[str, Block]):
+        if isinstance(other, tuple):
+            self._iappend_tuple(other, sep="")
+        else:
+            self.append(other, sep="")
+        return self
 
     def __repr__(self):
-        return f"Block(name={self.name}, role={self.role}, idx={self.index}, children={len(self.children)})"
+        return f"Block(tag={self.tag}, role={self.role}, idx={self.index}, children={len(self.children)})"
+
+
+class ContextStack:
+    """
+    A stack-based context for managing nested block structures.
+    """
+    _ctx_stack: "list[Block]"
+    
+    def __init__(self):
+        self._ctx_stack = []
+        
+    def __getitem__(self, idx: int) -> "Block":
+        return self._ctx_stack[idx]
+    
+    def __len__(self) -> int:
+        return len(self._ctx_stack)
+    
+    def root(self) -> "Block":
+        if not self._ctx_stack:
+            raise ValueError("No context stack")
+        return self._ctx_stack[0]
+    
+    def push(self, block: "Block"):
+        self._ctx_stack.append(block)
+        
+    def pop(self):
+        return self._ctx_stack.pop()
+    
+    def top(self):
+        return self._ctx_stack[-1]
+
+
+
+
+class BlockContext:
+    
+    def __init__(
+        self,
+        content: Union[str, Block] | None = None,
+        *,
+        parent: Block | None = None,
+        index: int | None = None,
+        sep: str = " ",
+        logprob: float | None = None,
+        default_sep: str = " ",
+        tag: str | None = None,
+        role: str | None = None,
+        dtype: type | None = None,
+        labels: list[str] | None = None,
+        styles: list[str] | None = None,
+        attrs: dict[str, str] | None = None,
+    ):
+        self.root = Block(
+            content=content,
+            parent=parent,
+            index=index,
+            sep=sep,
+            logprob=logprob,
+            default_sep=default_sep,
+            tag=tag,
+            role=role,
+            dtype=dtype,
+            labels=labels,
+            styles=styles,
+            attrs=attrs,
+        )
+        self.ctx = ContextStack()
+        self.ctx.push(self.root)
+        
+        
+    def append(
+        self,
+        content: Union[str, Block],
+        *,
+        sep: str | None = None,
+        logprob: float | None = None,
+        path: list[int] | None = None,
+    ) -> Child:
+        return self.ctx.top.append(content, sep=sep, logprob=logprob, path=path)
+        
+        
+    def __call__(
+        self, 
+        title: Union[str, Block],
+        labels: list[str] | None = None,
+        role: str | None = None,
+        dtype: type | None = None,
+        styles: list[str] | None = None,
+        attrs: dict[str, str] | None = None,
+    ) -> BlockContext:
+        title_block = Block(
+            title, 
+            labels=labels, 
+            role=role, 
+            dtype=dtype, 
+            styles=styles, 
+            attrs=attrs,
+            sep="\n",
+        )
+        self.ctx.push(title_block)
+        return self
+    
+    
+    # def __enter__(self):
+
+
+
+
+def block(
+    content: Union[str, Block] | None = None,
+    *,
+    parent: Block | None = None,
+    index: int | None = None,
+    sep: str = " ",
+    logprob: float | None = None,
+    default_sep: str = " ",
+    tag: str | None = None,
+    role: str | None = None,
+    dtype: type | None = None,
+    labels: list[str] | None = None,
+    styles: list[str] | None = None,
+    attrs: dict[str, str] | None = None,
+) -> BlockContext:
+    return BlockContext(
+        content=content,
+        parent=parent,
+        index=index,
+        sep=sep,
+        logprob=logprob,
+        default_sep=default_sep,
+        tag=tag,
+        role=role,
+        dtype=dtype,
+        labels=labels,
+        styles=styles,
+        attrs=attrs,
+    )
