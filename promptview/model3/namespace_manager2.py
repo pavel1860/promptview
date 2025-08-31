@@ -152,11 +152,11 @@ class NamespaceManager:
     
     @classmethod
     def get_turn_namespace(cls):
-        return cls._registry.get(("Turn", "postgres"))
+        return cls._registry.get(("turns", "postgres"))
     
     @classmethod
     def get_branch_namespace(cls):
-        return cls._registry.get(("Branch", "postgres"))
+        return cls._registry.get(("branches", "postgres"))
     
     @classmethod
     def should_save_to_db(cls):

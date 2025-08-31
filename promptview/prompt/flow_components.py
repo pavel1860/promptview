@@ -445,7 +445,7 @@ class StreamController(BaseFbpComponent):
     
     def get_response(self):
         if self._parser:
-            return self._parser.response
+            return self._parser.response_schema.inst
         # return self.acc
         
     def parse(self, block_schema: BlockSchema) -> Self:
@@ -552,6 +552,9 @@ class StreamController(BaseFbpComponent):
         )
     
     async def on_stop_event(self, payload: Any = None):
+        response = self.get_response()
+        if response is not None:
+            await self.span.add_block_event(response, self.index)
         return StreamEvent(
             type="stream_end", 
             name=self._name, 
@@ -754,6 +757,10 @@ class PipeController(BaseFbpComponent):
     #         await self.span.add_block(value, self.index)
     #         self.index += 1
     #     return value
+    async def get_response(self):
+        if self._last_value and isinstance(self._last_value, BaseFbpComponent):
+            return await self._last_value.get_response()
+        return self._last_value
     
     async def build_span(self, parent_span_id: str | None = None):
         from promptview.model3.versioning.models import ExecutionSpan
@@ -923,45 +930,6 @@ class FlowRunner:
                     return value
                 return event
                 
-                # if isinstance(value, StreamController):
-                #     span = await value.build_span(str(gen.span_id))
-                #     event = await gen.add_span(span)
-                #     value.event = event
-                #     self.push(value)
-                #     if self.should_output_events:
-                #         se = gen.on_value_event(event)
-                #         se.event = event
-                #         return se
-                # elif isinstance(value, PipeController):
-                #     span = await value.build_span(str(gen.span_id))
-                #     event = await gen.add_span(span)
-                #     value.event = event
-                #     self.push(value)
-                #     if self.should_output_events:
-                #         se = gen.on_value_event(event)
-                #         se.event = event
-                #         return se                    
-                # else:
-                #     self.last_value = value
-                #     if not self.should_output_events:
-                #         return value                    
-                #     # return self._try_to_gen_event(gen.on_value_event, value)
-                #     return gen.on_value_event(value)
-                                
-                # if isinstance(value, StreamController):
-                #     event = await gen.add_event(span)
-                #     if self.should_output_events:
-                #         return gen.on_value_event(event)
-                #     self.push(value)
-                # elif isinstance(value, PipeController):
-                #     value.parent = self.current
-                #     self.push(value)
-                # else:
-                #     self.last_value = value
-                #     if not self.should_output_events:
-                #         return value
-                #     # return self._try_to_gen_event(gen.on_value_event, value)
-                #     return gen.on_value_event(value)
             except StopAsyncIteration:
                 gen = self.pop()
                 await gen.on_stop()

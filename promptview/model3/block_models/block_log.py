@@ -299,15 +299,9 @@ def parse_block_tree_json(block_tree: dict, model_dump: bool = True) -> Block:
     print(">", block_tree)
     block_lookup: dict[str, Block] = {}
     def build_sentence(node: dict) -> BlockSent:
-        sent = BlockSent()   
-        json_content = node["block"]["json_content"]
-        for c in json_content["blocks"]:
-            chunk = BlockChunk(
-                index=c["index"],
-                content=c["content"],
-                logprob=c.get("logprob", None),            
-            )
-            sent.append(chunk)
+        sj = node["block"]["json_content"]
+        sj['_type'] = "BlockSent"
+        sent = BlockSent.model_validate(sj)           
         return sent
 
 
@@ -331,7 +325,7 @@ def parse_block_tree_json(block_tree: dict, model_dump: bool = True) -> Block:
             block = block_lookup[path_str[:-2]]
             sent = build_sentence(node)
             block.children.append(sent)
-    block = block_lookup["1"] 
+    block = block_lookup["0"] 
     if model_dump:
         return block.model_dump()
     return block
@@ -386,7 +380,7 @@ def parse_block_tree(block_tree: BlockTree) -> Block:
     def build_sentence(node: BlockNode) -> BlockSent:
         sent = BlockSent()   
         json_content = node.block.json_content
-        for c in json_content["blocks"]:
+        for c in json_content["children"]:
             chunk = BlockChunk(
                 index=c["index"],
                 content=c["content"],

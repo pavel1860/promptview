@@ -395,6 +395,8 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         wrap: tuple[str, str] | None = None,
         index: int | None = None,
         parent: "BaseBlock | None" = None,
+        has_eol: bool = False,
+        sep_list: list[str] | None = None,
         role: str | None = None,
         tags: list[str] | None = None,
         style: str | None = None,
@@ -409,9 +411,13 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
         BaseBlock.__init__(self, parent=parent, index=index)
         self.sep_list = []
         self.default_sep = sep
-        self.has_eol = False
-        for chunk in chunks:
-            self.append(chunk)
+        self.has_eol = has_eol
+        if sep_list is not None:
+            for chunk, sep in zip(chunks, sep_list):
+                self.append(chunk, sep)
+        else:
+            for chunk in chunks:
+                self.append(chunk)
             # if not hasattr(chunk, "is_eol"):
             #     print(f"Warning: {chunk} is not a BlockChunk")                
             # if chunk.is_eol:
@@ -576,14 +582,14 @@ class BlockSent(UserList[BlockChunk], BaseBlock):
 
     @classmethod
     def model_validate(cls, data: dict):
-        if "_type" not in data or data["_type"] != "BlockList":
-            raise ValueError(f"Invalid or missing _type for BlockList: {data.get('_type')}")
+        if "_type" not in data or data["_type"] != "BlockSent":
+            raise ValueError(f"Invalid or missing _type for BlockSent: {data.get('_type')}")
         data = dict(data)
         data.pop("_type")
         data.pop("path")
-        blocks_data = data.pop("blocks", [])
+        blocks_data = data.pop("children", [])
         blocks = [BlockChunk.model_validate(b) for b in blocks_data]
-        return cls(blocks=blocks, **data)
+        return cls(blocks, **data)
     
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
@@ -814,7 +820,7 @@ class Block(BaseBlock):
 
     def __init__(
         self, 
-        root: ContentType | BlockChunk | BlockList | None = None, 
+        root: ContentType | BlockChunk | BlockSent | None = None, 
         children: BlockList | None = None,                 
         role: str | None = None,
         tags: list[str] | None = None,
@@ -833,9 +839,12 @@ class Block(BaseBlock):
         self.root = BlockSent(index=self.index, parent=self)
         self.children = BlockList(children or [], index=self.index, parent=self)
         
-        root_block = process_basic_content(self, root) if root is not None else None
-        if root_block is not None:
-            self.root.append(root_block)
+        if isinstance(root, BlockSent):
+            self.root = root
+        else:
+            root_block = process_basic_content(self, root) if root is not None else None
+            if root_block is not None:
+                self.root.append(root_block)
         
     @property
     def path(self) -> list[int]:
@@ -1030,6 +1039,8 @@ class Block(BaseBlock):
     
     def get_path(self, path: list[int]):
         index, sub_path = path[0],path[1:]
+        if len(self.children) <= index:
+            return None
         target = self.children[index]
         if len(sub_path) == 0:
             return target
@@ -1047,8 +1058,8 @@ class Block(BaseBlock):
             raise ValueError(f"Invalid path: {path}")
         
         
-    def insert(self, path: list[int], content: "ContentType | BaseBlock"):
-        target = self.get_path(path)
+    def insert(self, path: list[int], content: "ContentType | BaseBlock"):    
+        target = self if not path else self.get_path(path)
         if isinstance(target, Block):
             target.append_child(content)
         elif isinstance(target, BlockSent):
@@ -1378,22 +1389,6 @@ class ResponseBlock(Block):
         self.postfix = postfix
         self.postfix.set_index(-1)
         
-    def partial_inst(
-        self, 
-        root: list[BlockChunk] | None = None, 
-        children: list[BlockChunk] | None = None, 
-        attrs: dict[str, str] | None = None, 
-        tags: list[str] | None = None,
-    ):
-        if attrs:
-            self.set_attributes(attrs)
-        if tags:
-            self.tags += tags        
-        if root:
-            for chunk in root:
-                self.append_root(chunk)
-        c = self._copy_without_children()
-        return c
     
     def commit(self):
         content = self.children.render()
