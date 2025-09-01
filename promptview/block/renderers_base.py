@@ -151,7 +151,7 @@ class SentenceRenderer(BaseRenderer):
     
     def render(self, ctx: RenderContext, block: BlockSent, inner_content: str | None = None) -> str:
         content_list= []
-        for chunk, sep in block.iter_chunks():
+        for sep, chunk in block.iter_chunks():
             content = chunk.content
             if isinstance(content, str):
                 rendered_content = content
@@ -163,8 +163,9 @@ class SentenceRenderer(BaseRenderer):
                 rendered_content = str(content)
             else:
                 raise ValueError(f"Invalid content type: {type(content)}")
-            content_list.append(rendered_content)
             content_list.append(sep)
+            content_list.append(rendered_content)
+            
         return "".join(content_list)
     
     
@@ -175,8 +176,10 @@ class ListRenderer(BaseRenderer):
     
 class BlockRenderer(BaseRenderer):    
     
-    def render(self, ctx: RenderContext, block: Block, title_content: str, inner_content: str, postfix_content: str | None = None) -> str:
-        content =  f"{title_content}\n{textwrap.indent(inner_content, '  ')}"
+    def render(self, ctx: RenderContext, block: Block, title_content: str, inner_content: str, postfix_content: str | None = None) -> str:        
+        content = title_content
+        if inner_content:
+            content =  f"{title_content}\n{textwrap.indent(inner_content, '  ')}"
         if postfix_content:
             content += f"\n{postfix_content}"
         return content

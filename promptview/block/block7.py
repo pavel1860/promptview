@@ -408,7 +408,7 @@ class BlockChunk(BaseBlock):
         return self.parent.path + [self.index]
         
     @property
-    def is_eol(self) -> bool:
+    def has_eol(self) -> bool:
         if isinstance(self.content, str):
             return self.content.endswith("\n")
         return True
@@ -623,14 +623,14 @@ class BlockSequence(Generic[SEQUENCE_ITEM], BaseBlock):
         self.append(end_token)
     
     
-    def _connect(self, item: "SEQUENCE_ITEM"):
+    def _connect(self, item: "SEQUENCE_ITEM", index: int | None = None):
         if hasattr(item, "parent"):
             item.parent = self
-        item.index = len(self.children) - 1
+        item.index = index if index is not None else len(self.children) - 1
         return item
     
     def append(self, content: ContentType | SEQUENCE_ITEM, sep: str | None = None):
-        sep = sep or self.default_sep
+        sep = sep if sep is not None else self.default_sep
         item, sep = self.process_content(content, sep)        
         # if item.is_eol:
         #     if self.has_eol:
@@ -647,6 +647,14 @@ class BlockSequence(Generic[SEQUENCE_ITEM], BaseBlock):
         self.insert(0, content, sep=sep)
         return self
         
+    # def join(self) -> str:
+    #     def sep_gen():
+    #         length = len(self.children)
+    #         for i, (text, sep) in enumerate(zip(self.children, self.sep_list)):
+    #             yield text
+    #             if i < length - 1:
+    #                 yield sep
+    #     return "".join(sep_gen())
         
         
         
@@ -654,7 +662,7 @@ class BlockSequence(Generic[SEQUENCE_ITEM], BaseBlock):
         if self.has_eol and index == len(self.children) - 1:
             raise ValueError("Cannot insert to the end of a list that has an end of line")
         item, sep = self.process_content(content, sep, index)
-        sep = sep or self.default_sep
+        sep = sep if sep is not None else self.default_sep
         # if item.is_eol:
         #     if index != len(self.children) - 1:
         #         raise ValueError("end of line cannot be inserted in the middle of a list")
@@ -682,11 +690,16 @@ class BlockSequence(Generic[SEQUENCE_ITEM], BaseBlock):
             self.children[i].index += 1
         
         
-    def iter_chunks(self):
+    def iter_chunks(self, use_last_sep: bool = False):
         if len(self.children) != len(self.sep_list):
             raise ValueError("Number of chunks and separators must match")
-        for chunk, sep in zip(self.children, self.sep_list):
-            yield chunk, sep
+        for i, (chunk, sep) in enumerate(zip(self.children, self.sep_list)):
+            # if not use_last_sep and i == len(self.children) - 1:
+            #     yield chunk, ""
+            if i == 0:
+                yield "", chunk
+            else:
+                yield sep, chunk
         
     
 
@@ -721,12 +734,13 @@ class BlockSent(BlockSequence[BlockChunk]):
         
     def process_content(self, content: "ContentType | BlockChunk", sep: str, index: int | None = None) -> tuple[BlockChunk, str]:
         chunk = process_basic_content(self, content)
-        if chunk.is_eol:            
+        if chunk.has_eol:            
             if index is not None and index != len(self.children) - 1:
                 raise ValueError("end of line cannot be inserted in the middle of a list")
             if self.has_eol:
                 raise ValueError("Cannot insert an end of line to a list that has an end of line")
-            sep = "\n"
+            chunk.content = chunk.content.replace("\n", "")
+            # sep = "\n"
             self.has_eol = True
         return chunk, sep
     
@@ -839,7 +853,7 @@ def parse_content(content: ContentType | BaseBlock | list[str] | None = None, **
       
       
         
-class Block(BlockSequence["Block | BlockSent"]):
+class Block(BlockSequence["Block"]):
     
     __slots__ = [
         "root",
@@ -863,7 +877,7 @@ class Block(BlockSequence["Block | BlockSent"]):
         styles: list[str] | None = None,
         index: int | None = None,
         parent: "BlockSequence | None" = None,
-        default_sep: str = " ",        
+        default_sep: str = "\n",        
     ):
         super().__init__(parent=parent, index=index, id=id, default_sep=default_sep)
         self.role: str | None = role
@@ -881,14 +895,15 @@ class Block(BlockSequence["Block | BlockSent"]):
                 self.root.append(root_block)
                 
                 
-    def process_content(self, content: "ContentType | Block | BlockSent", sep: str, index: int | None = None) -> "tuple[Block | BlockSent, str]":
+    def process_content(self, content: "ContentType | Block | BlockSent", sep: str, index: int | None = None) -> "tuple[Block, str]":
         if isinstance(content, Block):
             pass
         elif isinstance(content, BlockSent):
-            pass
+            content = Block(root=content)
         else:
             chunk = process_basic_content(self, content)
-            content = BlockSent(content=[chunk], sep=sep, parent=self)
+            # content = BlockSent(content=[chunk], sep=sep, parent=self)
+            content = Block(root=chunk)
         return content, sep
         
         
@@ -1208,11 +1223,19 @@ class Block(BlockSequence["Block | BlockSent"]):
     
     def __iadd__(self, other: ContentType | BlockSent | tuple[ContentType, ...]):
         if isinstance(other, tuple):
-            other =self._process_tuple_content(other)        
-        self.append(other)
+            for o in other:
+                self.root.append(o)
+        else:
+            self.root.append(other)
         return self
     
-    
+    def __iand__(self, other: ContentType | BlockSent | BlockChunk | tuple[ContentType, ...]):
+        if isinstance(other, tuple):
+            for o in other:
+                self.root.append(o, sep="")
+        else:
+            self.root.append(other, sep="")
+        return self
             
     
     
