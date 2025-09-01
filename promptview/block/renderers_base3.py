@@ -1,0 +1,152 @@
+from dataclasses import dataclass
+import json
+import textwrap
+import yaml
+from typing import TYPE_CHECKING, Any, List
+from abc import ABC, abstractmethod
+
+from promptview.block.block7 import BlockSequence, BlockChunk, Block, BlockSent
+from promptview.block.types import ContentType
+from promptview.block.style2 import StyleManager
+
+
+
+class RendererRegistry:
+    
+    
+    def __init__(self):
+        self._registry = {}
+        self._default_registry = {}
+    
+    def register(self, name: str, renderer: "BaseRenderer"):
+        self._registry[name] = renderer
+        
+    def register_default(self, name: str, renderer: "BaseRenderer"):
+        self._default_registry[name] = renderer
+
+    def get(self, name: str | None = None, default_name: str | None = None) -> "BaseRenderer":
+        if name:
+            renderer =  self._registry[name]
+        else:
+            renderer =  self._default_registry[default_name]
+        return renderer()
+
+    def list_renderers(self):
+        return list(self._registry.keys());
+
+
+
+
+style_manager = StyleManager()       
+renderer_registry = RendererRegistry()
+
+
+class MetaRenderer(type):
+    
+    def __new__(cls, name, bases, dct):
+        cls_obj = super().__new__(cls, name, bases, dct)
+        if name == "ChunkRenderer":
+            renderer_registry.register_default("chunk-format", cls_obj)
+        elif name == "SequenceRenderer":
+            renderer_registry.register_default("sequence-format", cls_obj)
+        elif name == "BlockRenderer":
+            renderer_registry.register_default("block-format", cls_obj)
+        elif bases:
+            if "styles" not in dct or not dct["styles"]:
+                raise ValueError(f"Renderer {name} must define styles")                
+            if bases[0] == ChunkRenderer:
+                renderer_registry.register(name, cls_obj)
+                style_manager.add_style(dct["styles"], {"chunk-format": name})
+            elif bases[0] == SequenceRenderer:
+                renderer_registry.register(name, cls_obj)
+                style_manager.add_style(dct["styles"], {"sequence-format": name})
+            elif bases[0] == BlockRenderer:
+                renderer_registry.register(name, cls_obj)
+                style_manager.add_style(dct["styles"], {"block-format": name})
+            else:
+                raise ValueError(f"Renderer {name} must inherit from ChunkRenderer, SequenceRenderer, or BlockRenderer")            
+        
+        return cls_obj
+    
+
+            
+            
+class BaseRenderer(metaclass=MetaRenderer):
+    styles = []
+    
+    
+    
+    
+    def render_chunk(self, block: BlockChunk) -> str:
+        # fmt = style_manager.resolve(block)
+        renderer = renderer_registry.get(None, "chunk-format")
+        return renderer.render(block)
+    
+    def render_sequence(self, block: BlockSequence) -> str:        
+        fmt = style_manager.resolve(block)
+        renderer = renderer_registry.get(fmt, "sequence-format")
+        return renderer.render(block)
+    
+    def render_block(self, block: Block) -> str:
+        fmt = style_manager.resolve(block)
+        renderer = renderer_registry.get(fmt, "block-format")
+        return renderer.render(block)
+    
+    
+    def render(self, block: Any) -> str:
+        """
+        Render the current block itself.
+        """
+        if isinstance(block, BlockChunk):
+            return self.render_chunk(block)
+        elif isinstance(block, Block):
+            return self.render_block(block)
+        elif isinstance(block, BlockSequence):
+            return self.render_sequence(block)
+        else:
+            raise ValueError(f"Invalid block type: {type(block)}")        
+
+     
+
+
+class ChunkRenderer(BaseRenderer):
+
+    def render(self, block: BlockChunk) -> str:
+        if isinstance(block.content, str):
+            return block.content
+        elif isinstance(block.content, int):
+            return str(block.content)
+        elif isinstance(block.content, float):
+            return str(block.content)
+        elif isinstance(block.content, bool):
+            return str(block.content)
+        else:
+            raise ValueError(f"Invalid content type: {type(block.content)}")
+        return block.content
+
+    
+    
+class SequenceRenderer(BaseRenderer):
+
+    def render(self, block: BlockSequence) -> str:
+        content_list= []
+        for sep, block in block.iter_chunks():
+            content = super().render(block)
+            content_list.append(sep)
+            content_list.append(content)  
+        return "".join(content_list)
+    
+    
+class BlockRenderer(BaseRenderer):    
+    
+    def render(self, block: Block) -> str:        
+      content = super().render_sequence(block.root)      
+      if children_content := super().render_sequence(block):
+        content += f"\n{children_content}"
+      return content
+      
+    
+
+
+def render(block: Block) -> str:
+    return BaseRenderer().render(block)

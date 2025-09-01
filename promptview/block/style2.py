@@ -28,13 +28,19 @@ class StyleManager:
         resolved = {}
 
         # inherit parent styles — but NOT format
+        
         if parent := block.parent:
             parent_style = self.resolve(parent)
             for k, v in parent_style.items():
                 # if k not in ("format",):  # don't inherit format
                 resolved[k] = v
-
-        for s in block.styles:
+        if hasattr(block, "styles"):
+            styles = block.styles
+        elif hasattr(block, "parent") and block.parent:
+            styles = self.resolve(block.parent)
+        else:
+            styles = []
+        for s in styles:
             if s in self.rules:
                 resolved.update(self.rules[s])
 
