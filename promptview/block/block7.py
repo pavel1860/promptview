@@ -626,7 +626,7 @@ class BlockSequence(Generic[SEQUENCE_ITEM], BaseBlock):
     def _connect(self, item: "SEQUENCE_ITEM", index: int | None = None):
         if hasattr(item, "parent"):
             item.parent = self
-        item.index = index if index is not None else len(self.children) - 1
+        item.index = index if index is not None else len(self.children)
         return item
     
     def append(self, content: ContentType | SEQUENCE_ITEM, sep: str | None = None):
@@ -730,7 +730,10 @@ class BlockSent(BlockSequence[BlockChunk]):
         
     @property
     def path(self) -> list[int]:
-        return self.parent.path + [self.index]
+        if self.parent is None:
+            return []
+        return self.parent.path
+        # return self.parent.path + [self.index]
         
     def process_content(self, content: "ContentType | BlockChunk", sep: str, index: int | None = None) -> tuple[BlockChunk, str]:
         chunk = process_basic_content(self, content)
