@@ -56,39 +56,61 @@ def get_real_parent(n: BaseBlock) -> tuple[Block, str]:
     
         
 
-def block_to_dict(block: Block) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    block_sent_dumps = []
-    blocks_dumps = []
-    used_nodes = set()
-    for n in block.traverse():
-        parent, _type = get_real_parent(n)
-        ppath = ".".join(str(p) for p in parent.path)
-        if ppath not in used_nodes:
-            blocks_dumps.append({
-                "path": ppath,
-                "styles": parent.styles,
-                "role": parent.role,
-                "tags": parent.tags,
-                "attrs": parent.attrs,
-                "index": parent.id,                
-            })
-        d = {
-            "path": ".".join(str(p) for p in n.path),
-            "type": _type,
-            "content": n.render(),
-            "json_content": n.model_dump(),            
-            # Block fields
-            "styles": parent.styles,
-            "role": parent.role,
-            "tags": parent.tags,
-            "attrs": parent.attrs,
-            "index": parent.id,
-        }
+# def block_to_dict(block: Block) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+#     block_sent_dumps = []
+#     blocks_dumps = []
+#     used_nodes = set()
+#     for n in block.traverse():
+#         # parent, _type = get_real_parent(n)
+#         parent = n.parent
+#         _type = "root"
+#         ppath = ".".join(str(p) for p in parent.path) if parent else "1"
+#         if ppath not in used_nodes:
+#             blocks_dumps.append({
+#                 "path": ppath,
+#                 "styles": parent.styles,
+#                 "role": parent.role,
+#                 "tags": parent.tags,
+#                 "attrs": parent.attrs,
+#                 "index": parent.id,                
+#             })
+#         d = {
+#             "path": ".".join(str(p) for p in n.path),
+#             "type": _type,
+#             "content": n.render(),
+#             "json_content": n.model_dump(),            
+#             # Block fields
+#             "styles": parent.styles,
+#             "role": parent.role,
+#             "tags": parent.tags,
+#             "attrs": parent.attrs,
+#             "index": parent.id,
+#         }
         
         
-        block_sent_dumps.append(d)
-    return block_sent_dumps, blocks_dumps
+#         block_sent_dumps.append(d)
+#     return block_sent_dumps, blocks_dumps
 
+
+def block_to_dict(block: Block) -> list[dict[str, Any]]:
+    dump_list = []
+    for blk in block.traverse():
+        dump = blk.root.model_dump()
+        dump["path"] = ".".join(str(p) for p in blk.path)
+        dump["content"] = blk.root.render()
+        dump["json_content"] = blk.root.model_dump()
+        dump["styles"] = blk.styles or None
+        dump["tags"] = blk.tags or None
+        dump["role"] = blk.role or None
+        dump["attrs"] = blk.attrs or None
+        if blk.parent is None:
+            dump["type"] = "root"
+        elif len(blk.children) == 0:
+            dump["type"] = "leaf"
+        else:
+            dump["type"] = "child"
+        dump_list.append(dump)
+    return dump_list
 
 
 async def insert_block(block: Block, index: int, branch_id: int, turn_id: int, span_id: uuid.UUID | None = None) -> str:
@@ -96,7 +118,7 @@ async def insert_block(block: Block, index: int, branch_id: int, turn_id: int, s
     Alternative implementation using executemany for bulk inserts.
     This approach is cleaner and more straightforward than UNNEST.
     """
-    nodes, blocks = block_to_dict(block)
+    nodes = block_to_dict(block)
     async with PGConnectionManager.transaction() as tx:
         tree_id = str(uuid.uuid4())
         created_at = dt.datetime.now()
@@ -144,6 +166,21 @@ async def insert_block(block: Block, index: int, branch_id: int, turn_id: int, s
             )
 
         return tree_id
+    
+    
+    
+    
+    
+    
+    
+    
+async def get_blocks(tree_ids: list[str]) -> list[Block]:
+    blocks = await BlockTree.query(alias="bt").select("*").include(
+            BlockNode.query(alias="bn").select("*").include(
+                BlockModel.query(alias="bm").select("*")
+            )
+        ).where(lambda b: b.id.isin(tree_ids)).json()
+    return blocks
 
 
 # Example usage and testing function

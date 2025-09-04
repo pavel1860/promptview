@@ -1068,7 +1068,7 @@ class Block(BlockSequence["Block"]):
     
     
     def traverse(self):
-        yield self.root
+        yield self
         for child in self.children:
             if isinstance(child, Block):
                 yield from child.traverse()
