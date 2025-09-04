@@ -188,8 +188,8 @@ class BaseBlock:
 
     
     def render(self, verbose: bool = False) -> str:
-        from promptview.block.block_renderer2 import render
-        result = render(self, verbose=verbose)
+        from promptview.block.renderers_base3 import render
+        result = render(self)
         return result if result is not None else ""
     
     def print(self, verbose: bool = False):
@@ -527,7 +527,6 @@ class BlockChunk(BaseBlock):
             raise ValueError(f"Invalid or missing _type for BlockChunk: {data.get('_type')}")
         data = dict(data)  # copy
         data.pop("_type")
-        data.pop("path")
         content = data.pop("content", None)
         block = cls(content, **data)
         return block
@@ -692,7 +691,7 @@ class BlockSequence(Generic[SEQUENCE_ITEM], BaseBlock):
         
     def iter_chunks(self, use_last_sep: bool = False):
         if len(self.children) != len(self.sep_list):
-            raise ValueError("Number of chunks and separators must match")
+            raise ValueError(f"Number of chunks and separators must match: {len(self.children)} != {len(self.sep_list)}")
         for i, (chunk, sep) in enumerate(zip(self.children, self.sep_list)):
             # if not use_last_sep and i == len(self.children) - 1:
             #     yield chunk, ""
@@ -987,9 +986,6 @@ class Block(BlockSequence["Block"]):
         
             
     #     else:
-            
-        
-
     
     
     def path_append(
@@ -1006,6 +1002,38 @@ class Block(BlockSequence["Block"]):
         else:
             super().append(content, sep)
         return self
+    
+    
+    def is_last_eol(self) -> bool:
+        if len(self.children) == 0:
+            return True
+        return self.children[-1].root.has_eol
+    
+    
+    
+    
+    def inline_append(self, content: "ContentType | Block | BlockSent", sep: str = " "):        
+        if isinstance(content, Block):
+            self.append(content, sep)
+            return self.children[-1]
+        elif isinstance(content, BlockSent):
+            block = Block(root=content)
+            self.append(block, sep)
+            return self.children[-1]
+        else:
+            if self.is_last_eol():
+                self.append(content, sep)
+                return self.children[-1]
+            else:
+                last = self.children[-1]
+                if last.root.has_eol:
+                    self.append(content, sep)
+                    return self.children[-1]
+                else:
+                    last.root.append(content, sep)
+                    return last.root.children[-1]
+        
+        
             
     
     def path_insert(self, path: list[int], content: "ContentType | Block | BlockSent", sep: str = " "):        
@@ -1025,7 +1053,11 @@ class Block(BlockSequence["Block"]):
         
         return self
     
-    
+    def path_exists(self, path: list[int]) -> bool:
+        if len(path) == 0:
+            return True
+        target = self.get_path(path)
+        return target is not None
 
     
     def response_schema(self, name: str | None = None):
@@ -1204,7 +1236,7 @@ class Block(BlockSequence["Block"]):
         style: str | None = None,
         attrs: "dict[str, FieldAttrBlock] | None" = None,
     ) -> "Block":        
-        ctx = Block(
+        block = Block(
             content,
             index=len(self.children),
             role=role,
@@ -1212,9 +1244,9 @@ class Block(BlockSequence["Block"]):
             parent=self,            
             style=style,
             attrs=attrs,
-        )
-        self.children.append(ctx)        
-        return ctx
+        )      
+        self.append(block)
+        return block
     
     def _process_tuple_content(self, other: tuple[ContentType, ...]):
         block = BlockSent(default_sep=" ")
@@ -1473,7 +1505,9 @@ class ResponseBlock(Block):
         
     
     def commit(self):
-        content = self.children.render()
+        from promptview.block.renderers_base3 import SequenceRenderer
+        # content = self.children.render()
+        content = SequenceRenderer().render(self)
         content = content.strip()
         content = textwrap.dedent(content)
         self._value = self._cast(content)
@@ -1499,6 +1533,8 @@ class ResponseBlock(Block):
     @property
     def value(self):
         return self._value
+    
+    
     
     
     def __repr__(self) -> str:
@@ -1576,24 +1612,6 @@ class BlockSchema(Block):
     def new(self, target: SchemaTarget, format: SchemaFormat = "xml"): 
         return 
     
-    # def partial_init(
-    #     self,
-    #     field_name: str, 
-    #     root: list[BlockChunk] | None = None, 
-    #     children: list[BlockChunk] | None = None, 
-    #     attrs: dict[str, str] | None = None, 
-    #     tags: list[str] | None = None
-    # ):
-    #     field_schema = self.get(field_name)
-    #     if field_schema is None:
-    #         raise ValueError(f"Field {field_name} not found in schema")
-    #     if not isinstance(field_schema, FieldSchemaBlock):
-    #         raise ValueError(f"Field {field_name} is not a field schema")
-    #     field = field_schema.partial_init(root=root, children=children, attrs=attrs, tags=tags)
-    #     if self.inst is None:
-    #         self.inst = field
-    #     else:
-    #         self._inset
     
     def _get_field(self, field_name: str) -> ResponseBlock:
         if self.inst is None:
@@ -1667,9 +1685,7 @@ class BlockSchema(Block):
         tags: list[str] | None = None,
     ):
         field = self._get_field(field_name)
-        value, sent = field.append_child_stream(content)
-        if sent is not None:
-            return sent
+        value = field.inline_append(content, sep="")        
         return value
     
     # def set_postfix(
@@ -1694,9 +1710,10 @@ class BlockSchema(Block):
     ):
         field = self._get_field(field_name)
         if postfix:
-            end_sent = BlockSent(tags=tags or [], sep="")
-            for block in postfix:
-                end_sent.append(block)                
+            end_sent = BlockSent(default_sep="")
+            # end_sent = Block(tags=tags or [])
+            for chunk in postfix:
+                end_sent.append(chunk)                
             field.set_postfix(end_sent)
         field.commit()
         return field

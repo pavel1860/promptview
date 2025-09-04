@@ -5,7 +5,7 @@ import yaml
 from typing import TYPE_CHECKING, Any, List
 from abc import ABC, abstractmethod
 
-from promptview.block.block7 import BlockSequence, BlockChunk, Block, BlockSent
+from promptview.block.block7 import BlockSequence, BlockChunk, Block, BlockSent, FieldAttrBlock
 from promptview.block.types import ContentType
 from promptview.block.style2 import StyleManager
 
@@ -174,10 +174,49 @@ class NumeratedListRenderer(SequenceRenderer):
     styles = ["numerated-list", "num-list"]
     
     def render(self, block: BlockSequence) -> str:
-        print("NumeratedListRenderer")
         content_list= []
         for i, (sep, block) in enumerate(block.iter_chunks()):
             content = BaseRenderer().render(block)  
             content = f"{i+1}. {content}"
             content_list += [sep, content]
         return "".join(content_list)
+    
+    
+    
+    
+class XMLRenderer(BlockRenderer):
+    styles = ["xml"]
+    
+    
+    def render_attrs(self, block: Block) -> str:
+        attrs = ""
+        for k, v in block.attrs.items():
+            if isinstance(v, FieldAttrBlock):
+                instructions = ""
+                if v.type in (int, float):
+                    instructions = " wrap in quotes"
+                attr_info = f"(\"{v.type.__name__}\"{instructions}) {v.description}"
+                if v.gt is not None:
+                    attr_info += f" gt={v.gt}"
+                if v.lt is not None:
+                    attr_info += f" lt={v.lt}"
+                if v.ge is not None:
+                    attr_info += f" ge={v.ge}"
+                if v.le is not None:
+                    attr_info += f" le={v.le}"
+                attrs += f"{k}=[{attr_info}] "
+            else:
+                attrs += f"{k}=\"{v}\""
+        return attrs
+    
+    def render(self, block: Block) -> str:
+        head_content = BaseRenderer().render_sequence(block.root)
+        attrs_content = " " + self.render_attrs(block) + "" if block.attrs else ""
+        
+        if children_content := BaseRenderer().render_sequence(block):
+            content = f"<{head_content}{attrs_content}>"
+            content += f"\n{children_content}"
+            content += f"\n</{head_content}>"
+        else: 
+            content = f"<{head_content}{attrs_content}/>"  
+        return content
