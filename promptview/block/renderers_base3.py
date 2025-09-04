@@ -84,12 +84,12 @@ class BaseRenderer(metaclass=MetaRenderer):
     
     def render_sequence(self, block: BlockSequence) -> str:        
         fmt = style_manager.resolve(block)
-        renderer = renderer_registry.get(fmt, "sequence-format")
+        renderer = renderer_registry.get(fmt.get("sequence-format"), "sequence-format")
         return renderer.render(block)
     
     def render_block(self, block: Block) -> str:
         fmt = style_manager.resolve(block)
-        renderer = renderer_registry.get(fmt, "block-format")
+        renderer = renderer_registry.get(fmt.get("block-format"), "block-format")
         return renderer.render(block)
     
     
@@ -131,22 +131,53 @@ class SequenceRenderer(BaseRenderer):
     def render(self, block: BlockSequence) -> str:
         content_list= []
         for sep, block in block.iter_chunks():
-            content = super().render(block)
-            content_list.append(sep)
-            content_list.append(content)  
+            content = BaseRenderer().render(block)  
+            content_list += [sep, content]        
         return "".join(content_list)
     
     
 class BlockRenderer(BaseRenderer):    
     
     def render(self, block: Block) -> str:        
-      content = super().render_sequence(block.root)      
-      if children_content := super().render_sequence(block):
+      content = BaseRenderer().render_sequence(block.root)      
+      if children_content := BaseRenderer().render_sequence(block):
         content += f"\n{children_content}"
       return content
       
+
+# class MarkdownRenderer(SequenceRenderer):
+#     styles = ["markdown", "md"]
     
+#     def render(self, block: BlockSequence) -> str:
+#         content = super().render(block)
+#         return f"# {content}"
+
+
+class MarkdownRenderer(BlockRenderer):
+    styles = ["markdown", "md"]
+    
+    def render(self, block: Block) -> str:        
+        content = BaseRenderer().render_sequence(block.root)   
+        content = f"# {content}"    
+        if children_content := BaseRenderer().render_sequence(block):
+            content += f"\n{children_content}"
+        return content
 
 
 def render(block: Block) -> str:
     return BaseRenderer().render(block)
+
+
+
+
+class NumeratedListRenderer(SequenceRenderer):
+    styles = ["numerated-list", "num-list"]
+    
+    def render(self, block: BlockSequence) -> str:
+        print("NumeratedListRenderer")
+        content_list= []
+        for i, (sep, block) in enumerate(block.iter_chunks()):
+            content = BaseRenderer().render(block)  
+            content = f"{i+1}. {content}"
+            content_list += [sep, content]
+        return "".join(content_list)

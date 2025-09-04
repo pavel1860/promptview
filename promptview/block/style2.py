@@ -22,18 +22,27 @@ class StyleManager:
             selector = [selector]
         elif isinstance(selector, list):        
             for s in selector:
-                self.rules[s.strip()] = props        
-
-    def resolve(self, block) -> dict:        
+                self.rules[s.strip()] = props 
+                
+    def resolve_parent(self, block) -> dict:       
         resolved = {}
-
-        # inherit parent styles — but NOT format
-        
         if parent := block.parent:
             parent_style = self.resolve(parent)
             for k, v in parent_style.items():
                 # if k not in ("format",):  # don't inherit format
                 resolved[k] = v
+        return resolved
+
+    def resolve(self, block, use_parent: bool = False) -> dict:        
+        resolved = {}
+
+        # inherit parent styles — but NOT format
+        if use_parent:
+            if parent := block.parent:
+                parent_style = self.resolve(parent)
+                for k, v in parent_style.items():
+                    # if k not in ("format",):  # don't inherit format
+                    resolved[k] = v
         if hasattr(block, "styles"):
             styles = block.styles
         elif hasattr(block, "parent") and block.parent:
