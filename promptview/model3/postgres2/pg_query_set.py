@@ -623,6 +623,10 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         self.ordering_set.infer_order_by(*fields)
         return self
     
+    def group_by(self, *fields: str) -> "PgSelectQuerySet[MODEL]":
+        self.ordering_set.group_by = [Column(f, self.table) for f in fields]
+        return self
+    
     def limit(self, n: int) -> "PgSelectQuerySet[MODEL]":
         self.ordering_set.limit = n
         return self
@@ -725,9 +729,15 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             json_pairs.append(Value(name))
             json_pairs.append(nested_query)
             
-        json_obj = Function("jsonb_build_object", *json_pairs)
+        order_by = None
+        if query.order_by:
+            order_by = query.order_by
+            query.order_by = []
+            
+        json_obj = Function("jsonb_build_object", *json_pairs, order_by=order_by)
         
         
+            
         
         if len(self.join_set):
             join, relation = self.join_set[0]
@@ -802,6 +812,8 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             if isinstance(value, str):
                 value = json.loads(value)
             data[name] = value
+        if self.parser:
+            data = self.parser(data)
         return data
             
     

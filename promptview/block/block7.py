@@ -527,7 +527,7 @@ class BlockChunk(BaseBlock):
             raise ValueError(f"Invalid or missing _type for BlockChunk: {data.get('_type')}")
         data = dict(data)  # copy
         data.pop("_type")
-        content = data.pop("content", None)
+        content = data.pop("content", None)        
         block = cls(content, **data)
         return block
     
@@ -731,6 +731,8 @@ class BlockSent(BlockSequence[BlockChunk]):
     def path(self) -> list[int]:
         if self.parent is None:
             return []
+        if self.index < 0:
+            return self.parent.path + [self.index]
         return self.parent.path
         # return self.parent.path + [self.index]
         
@@ -788,7 +790,12 @@ class BlockSent(BlockSequence[BlockChunk]):
     def model_dump(self):
         dump = super().model_dump()
         dump["_type"] = "BlockSent"
-        dump["children"] = [b.model_dump() for b in self]
+        # dump["children"] = [b.model_dump() for b in self]
+        dump["children"] = []
+        for child in self.children:
+            cdump = child.model_dump()
+            cdump["path"] = self.path + [self.index]
+            dump["children"].append(cdump)
         dump["path"] = self.path
         return dump
     
@@ -891,6 +898,7 @@ class Block(BlockSequence["Block"]):
         
         if isinstance(root, BlockSent):
             self.root = root
+            self.root.parent = self            
         else:
             root_block = process_basic_content(self, root) if root is not None else None
             if root_block is not None:
@@ -1472,7 +1480,7 @@ class ResponseBlock(Block):
     ):
         if schema.name not in tags:
             tags = [schema.name] + (tags or [])
-        super().__init__(children=children, tags=tags, style=style, id=id, index=index, parent=parent)
+        super().__init__(children=children, role="assistant", tags=tags, style=style, id=id, index=index, parent=parent)
         self.root.default_sep = ""
         self.default_sep = ""
         self.schema = schema

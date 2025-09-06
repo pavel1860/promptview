@@ -185,6 +185,8 @@ class Turn(Model):
     trace_id: str | None = ModelField(default=None)
     metadata: dict | None = ModelField(default=None)
     spans: List["ExecutionSpan"] = RelationField(foreign_key="turn_id")
+    block_trees: List["BlockTree"] = RelationField(foreign_key="turn_id")
+    
     _auto_commit: bool = True
 
     # forked_branches: List["Branch"] = RelationField("Branch", foreign_key="forked_from_turn_id")
@@ -287,12 +289,20 @@ class VersionedModel(Model):
         return turn.id if isinstance(turn, Turn) else turn
     
     @classmethod
-    def vquery(cls, fields: list[str] | None = None, alias: str | None = None, **kwargs):
+    def vquery(cls, fields: list[str] | None = None, alias: str | None = None, limit: int | None = None, offset: int | None = None, direction: Literal["asc", "desc"] = "desc", **kwargs):
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+        turn_cte = Turn.versioned_query().select(fields or "*").where(status=TurnStatus.COMMITTED)
+        if limit:
+            turn_cte = turn_cte.limit(limit)
+            turn_cte = turn_cte.order_by(f"-index" if direction == "desc" else "index")
+        if offset:
+            turn_cte = turn_cte.offset(offset)
+        
+        
         return (
             PgSelectQuerySet(cls, alias=alias) \
             .use_cte(
-                Turn.versioned_query().select(fields or "*").where(status=TurnStatus.COMMITTED),
+                turn_cte,
                 name="committed_turns",
                 alias="ct",
             )
@@ -312,7 +322,6 @@ class BlockNode(Model):
     id: int = KeyField(primary_key=True)
     tree_id: uuid.UUID = ModelField(foreign_key=True)
     path: str = ModelField(db_type="LTREE")
-    type: str = ModelField()
     block_id: str = ModelField(foreign_key=True)
     styles: list[str] | None = ModelField(default=None)
     role: str | None = ModelField(default=None)
@@ -407,7 +416,7 @@ class ExecutionSpan(VersionedModel):
     # Relations
     events: List["SpanEvent"] = RelationField(foreign_key="span_id")
     # events: List[Event] = RelationField(foreign_key="execution_span_id")
-    # block_trees: List[BlockTree] = RelationField(foreign_key="span_id")
+    block_trees: List[BlockTree] = RelationField(foreign_key="span_id")
     
     
     

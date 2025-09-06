@@ -3,7 +3,7 @@ import asyncpg
 import hashlib
 import json
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from promptview.block.block7 import BaseBlock, Block, BlockChunk, BlockList, BlockSent
 from promptview.model.versioning import Branch
 from promptview.model3.sql.expressions import RawValue
@@ -72,6 +72,7 @@ def dump_block(blk: Block):
         dump["path"] = ".".join(str(p) for p in blk.path)
         dump["tags"] = blk.tags
         dump["role"] = blk.role
+        dump["attrs"] = blk.attrs
         dumps.append(dump)
     return dumps
 
@@ -79,10 +80,13 @@ def dump_block(blk: Block):
 def load_block_dump(dumps: list[dict]):
     block_lookup = {}
     for dump in dumps:
+        root = dump['block']["json_content"]
         blk = Block(
-            load_sent_dump(dump["json_content"]),
+            load_sent_dump(root),
             role=dump["role"],
-            styles=dump["styles"],            
+            styles=dump["styles"], 
+            attrs=dump["attrs"],
+            tags=dump["tags"],
         )
         block_lookup[dump["path"]] = blk
     
@@ -136,7 +140,6 @@ async def insert_block(block: Block, index: int, branch_id: int, turn_id: int, s
                 tree_id, 
                 node["path"], 
                 blk_id, 
-                node["type"],
                 styles_array, 
                 node["role"], 
                 tags_array, 
@@ -146,7 +149,7 @@ async def insert_block(block: Block, index: int, branch_id: int, turn_id: int, s
         # --- bulk insert nodes using executemany ---
         if node_rows:
             await tx.executemany(
-                "INSERT INTO block_nodes (tree_id, path, block_id, type, styles, role, tags, attrs) VALUES ($1, $2::ltree, $3, $4, $5, $6, $7, $8)",
+                "INSERT INTO block_nodes (tree_id, path, block_id, styles, role, tags, attrs) VALUES ($1, $2::ltree, $3, $4, $5, $6, $7)",
                 node_rows
             )
 
@@ -157,12 +160,80 @@ async def insert_block(block: Block, index: int, branch_id: int, turn_id: int, s
     
     
     
-async def get_blocks(tree_ids: list[str]) -> list[Block]:
-    blocks = await BlockTree.query(alias="bt").select("*").include(
+async def get_blocks(tree_ids: list[str], dump_models: bool = True) -> dict[str, Block]:
+    block_trees = await BlockTree.query(alias="bt").select("*").include(
             BlockNode.query(alias="bn").select("*").include(
                 BlockModel.query(alias="bm").select("*")
             )
         ).where(lambda b: b.id.isin(tree_ids)).json()
+    blocks = {}
+    for tree in block_trees:
+        tree_id = str(tree["id"])
+        block = load_block_dump(tree["nodes"])
+        blocks[tree_id] = block.model_dump() if dump_models else block
     return blocks
 
 
+
+
+
+
+
+class BlockLogQuery:
+    
+    def __init__(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        direction: Literal["asc", "desc"] = "desc",
+        span_name: str | None = None,
+    ):
+        self.limit = limit or 5
+        self.offset = offset
+        self.direction = direction
+        self.span_name = span_name
+        self.query = self._build_block_query()
+        
+    def __await__(self):
+        def tree_to_block(tree):
+            # print(tree)
+            if not tree['nodes']:
+                return None
+            return load_block_dump(tree['nodes'])
+        self.query = self.query.parse(tree_to_block).json()
+        return self.query.__await__()
+        
+    def _build_block_query(self):
+        # if self.span_name:
+        #     return ExecutionSpan.vquery(
+        #         limit=self.limit, 
+        #         offset=self.offset, 
+        #         direction=self.direction
+        #     ).select("*").include(BlockTree.query(alias="bt").include(BlockNode.query(alias="bn").include(BlockModel))).where(name=self.span_name)
+        return BlockTree.vquery(
+            alias="bt", 
+            limit=self.limit, 
+            offset=self.offset, 
+            direction=self.direction
+        ).include(
+            BlockNode.query(alias="bn").order_by("id").include(BlockModel)
+        ).order_by("created_at")
+        
+    def where(self, span: str | None = None):
+        if span:
+            self.span_name = span
+        return self
+    
+    def print(self):
+        return self.query.print()
+        
+
+class BlockLog:
+    
+    def __init__(self):
+        self.query = None
+        
+        
+    @classmethod
+    def last(cls, limit: int) -> BlockLogQuery:
+        return BlockLogQuery(limit=limit)
