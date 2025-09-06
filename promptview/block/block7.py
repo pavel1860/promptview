@@ -1036,22 +1036,36 @@ class Block(BlockSequence["Block"]):
         
             
     
-    def path_insert(self, path: list[int], content: "ContentType | Block | BlockSent", sep: str = " "):        
-        if len(path) > 1:
-            target = self.get_path(path)
-        else:
-            target = self
+    # def path_insert(self, path: list[int], content: "ContentType | Block | BlockSent", sep: str = " "):        
+    #     if len(path) > 1:
+    #         target = self.get_path(path)
+    #     else:
+    #         target = self
         
-        if target is None:
-            raise ValueError(f"Path {path} not found")
-        if isinstance(target, BlockSent) and not type(content) in (BlockSent, ContentType):
-                raise ValueError(f"Cannot insert to a list that has an end of line")
-        if path[-1] >= len(target):            
-            target.append(content, sep)
-        else:            
-            target.insert(path[-1], content, sep)
+    #     if target is None:
+    #         raise ValueError(f"Path {path} not found")
+    #     if isinstance(target, BlockSent) and not type(content) in (BlockSent, ContentType):
+    #             raise ValueError(f"Cannot insert to a list that has an end of line")
+    #     if path[-1] >= len(target):            
+    #         target.append(content, sep)
+    #     else:            
+    #         target.insert(path[-1], content, sep)
+        
+    #     return self
+    def path_insert(self, path: list[int], content: "ContentType | Block | BlockSent", sep: str = " "):        
+        target = self        
+        while path:
+            index = path.pop(0)
+            if index >= len(target.children):
+                if not path:
+                    target.append(content, sep)
+                else:
+                    raise ValueError(f"Path {path} not found")
+            else:
+                target = target.children[index]        
         
         return self
+            
     
     def path_exists(self, path: list[int]) -> bool:
         if len(path) == 0:
