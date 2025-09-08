@@ -11,7 +11,7 @@ from promptview.model3.sql.queries import Column
 from promptview.utils.db_connections import PGConnectionManager
 import datetime as dt
 # from promptview.model3.block_models.block_models import BlockNode, BlockModel
-from promptview.model3.versioning.models import BlockTree, BlockNode, BlockModel
+from promptview.model3.versioning.models import BlockTree, BlockNode, BlockModel, ExecutionSpan
 
 
 
@@ -192,16 +192,20 @@ class BlockLogQuery:
         self.offset = offset
         self.direction = direction
         self.span_name = span_name
-        self.query = self._build_block_query()
+        # self.query = self._build_block_query() if not span_name else self._build_span_query()
         
     def __await__(self):
+        return self.execute().__await__()
+    
+    async def execute(self) -> List[Block]:
+        query = self._build_block_query() if not self.span_name else self._build_span_query()
         def tree_to_block(tree):
             # print(tree)
             if not tree['nodes']:
                 return None
             return load_block_dump(tree['nodes'])
-        self.query = self.query.parse(tree_to_block).json()
-        return self.query.__await__()
+        query = query.parse(tree_to_block)
+        return await query.json()
         
     def _build_block_query(self):
         # if self.span_name:
@@ -219,9 +223,27 @@ class BlockLogQuery:
             BlockNode.query(alias="bn").order_by("id").include(BlockModel)
         ).order_by("created_at")
         
+    def _build_span_query(self):
+        return ExecutionSpan.vquery(
+            alias="es", 
+            limit=self.limit, 
+            offset=self.offset, 
+            direction=self.direction
+        ).include(BlockTree.query(alias="bt").include(BlockNode.query(alias="bn").include(BlockModel))).where(name=self.span_name)
+        
     def where(self, span: str | None = None):
         if span:
             self.span_name = span
+        return self
+    
+    
+    def last(self, limit: int):
+        self.limit = limit
+        return self
+    
+    def span(self, span: str):
+        self.span_name = span
+        self.query = self._build_span_query()
         return self
     
     def print(self):
@@ -237,3 +259,9 @@ class BlockLog:
     @classmethod
     def last(cls, limit: int) -> BlockLogQuery:
         return BlockLogQuery(limit=limit)
+
+    @classmethod
+    def span(cls, span: str) -> BlockLogQuery:
+        return BlockLogQuery(span_name=span)
+    
+    

@@ -10,6 +10,7 @@ from ..context.model_context import ModelCtx, Context
 from .relation_model import RelationModel
 # from .block_models.block_models import BlockModel
 from .sql.expressions import RawValue
+from .block_models.block_log import BlockLog
 
 __all__ = [
     "Model", 
@@ -36,5 +37,6 @@ __all__ = [
     "ExecutionSpan",
     "Log",
     "SpanEvent",
-    "RawValue"
+    "RawValue",
+    "BlockLog"
 ]

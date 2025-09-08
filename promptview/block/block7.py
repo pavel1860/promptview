@@ -1105,9 +1105,8 @@ class Block(BlockSequence["Block"]):
         for child in self.children:
             if isinstance(child,Block):
                 if tag in child.tags:
-                    return child            
-                block = child.get(tag)
-                if block:
+                    return child                            
+                if (block:= child.get(tag)) is not None:
                     return block
         return None
     
@@ -1224,7 +1223,7 @@ class Block(BlockSequence["Block"]):
             if is_target(u):
                 created = clone_target_node(u)
                 if stack:
-                    stack[-1].children.append(created)
+                    stack[-1].append(created)
                 else:
                     dummy_children.append(created)
                 stack.append(created)
@@ -1617,8 +1616,12 @@ class BlockSchema(Block):
         #         schema=n, 
         #         tags=n.tags,                           
         #     )
-        def _clone_target_node(n: BlockSchemaField) -> BlockSchemaField:
+        def _clone_target_node(n: BlockSchemaField) -> BlockSchemaField:            
             r = n.shallow_copy()
+            # parent = n.parent
+            # while parent is not None:
+            #     if isinstance(parent, BlockSchemaField):
+                    
             return r
         
         def _is_target(node: BaseBlock) -> bool:
@@ -1656,21 +1659,68 @@ class BlockSchema(Block):
         return field
 
     
+    # def _inst_field(self, field_schema: BlockSchemaField) -> ResponseBlock:
+    #     res = ResponseBlock(
+    #         schema=field_schema,
+    #         tags=field_schema.tags,
+    #     )
+    #     if self.inst is None:
+    #         self.inst = res
+    #     else:
+    #         path = field_schema.path[1:-1]
+    #         if path:
+    #             self.inst.insert(path, res)
+    #         else:
+    #             self.inst.append(res)
+    #     return res
     def _inst_field(self, field_schema: BlockSchemaField) -> ResponseBlock:
-        res = ResponseBlock(
-            schema=field_schema,
-            tags=field_schema.tags,
-        )
-        if self.inst is None:
-            self.inst = res
-        else:
-            path = field_schema.path[1:-1]
-            if path:
-                self.inst.insert(path, res)
-            else:
-                self.inst.append(res)
+        # schema_path = [field_schema]
+        # while (parent := schema_path[0].parent) is not None:
+        #     schema_path.insert(0, parent)
+        
+        def build_response_block(schema: BlockSchemaField) -> ResponseBlock:
+            res = ResponseBlock(
+                schema=schema,
+                tags=schema.tags,
+            )
+            return res
+        
+        def instatiate_field(curr: ResponseBlock, schema: BlockSchemaField):
+            res = ResponseBlock(
+                schema=schema,
+                tags=schema.tags,
+            )
+            curr.append(res)
+            return res
+            
+            
+        if self.pure_schema is None:
+            raise ValueError("Schema is not initialized")
+        
+        path_fields = [field_schema]
+        while (parent := path_fields[0].parent) is not None:
+            path_fields.insert(0, parent)
+        
+        curr = self.inst
+        for fld in path_fields:
+            if curr is None:
+                curr = build_response_block(fld)
+                
+            
+                
+                
+        
+        # curr = self.inst
+        # if curr is None:
+        #     self.inst = build_response_block(self.pure_schema)
+        #     curr = self.inst
+        # else:
+            
+            
         return res
         
+        
+
             
             
             

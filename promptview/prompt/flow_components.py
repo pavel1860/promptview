@@ -757,9 +757,13 @@ class PipeController(BaseFbpComponent):
     #         await self.span.add_block(value, self.index)
     #         self.index += 1
     #     return value
-    async def get_response(self):
+    def get_response(self):
         if self._last_value and isinstance(self._last_value, BaseFbpComponent):
-            return await self._last_value.get_response()
+            return self._last_value.get_response()
+        return self._last_value
+    
+    @property
+    def response(self):
         return self._last_value
     
     async def build_span(self, parent_span_id: str | None = None):

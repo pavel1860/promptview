@@ -266,17 +266,25 @@ class VersionedModel(Model):
     
 
     async def save(self, *, branch: Branch | int | None = None, turn: Turn | int | None = None):
-        if self.branch_id is None:
-            self.branch_id = self._resolve_branch_id(branch)
-        if self.turn_id is None:
-            self.turn_id = self._resolve_turn_id(turn)
+        # if self.branch_id is None:
+        #     self.branch_id = self._resolve_branch_id(branch)
+        # if self.turn_id is None:
+        #     self.turn_id = self._resolve_turn_id(turn)
          
-        if self.branch_id is None or self.turn_id is None:
+        # if self.branch_id is None or self.turn_id is None:
+        if not self._should_save_to_db(branch, turn):
             ns = self.get_namespace()
             if not ns.has_primary_key(self):
                 ns.set_primary_key(self, ns.generate_fake_key())
             return self
         return await super().save()
+    
+    def _should_save_to_db(self, branch: Branch | int | None = None, turn: Turn | int | None = None) -> bool:
+        if self.branch_id is None:
+            self.branch_id = self._resolve_branch_id(branch)
+        if self.turn_id is None:
+            self.turn_id = self._resolve_turn_id(turn)
+        return self.branch_id is not None and self.turn_id is not None
 
     def _resolve_branch_id(self, branch):
         if branch is None:
@@ -418,12 +426,18 @@ class ExecutionSpan(VersionedModel):
     # events: List[Event] = RelationField(foreign_key="execution_span_id")
     block_trees: List[BlockTree] = RelationField(foreign_key="span_id")
     
+    # def _resolve_branch_id(self, branch: Branch | None = None) -> int:
+    #     branch_id = super()._resolve_branch_id(branch)
+    #     return branch_id or 1
     
+    # def _resolve_turn_id(self, turn: Turn | None = None) -> int:
+    #     turn_id = super()._resolve_turn_id(turn)
+    #     return turn_id or 1
     
     async def add_block_event(self, block: "Block", index: int):
         from promptview.model3.block_models.block_log import insert_block
         from promptview.model3.namespace_manager2 import NamespaceManager
-        if NamespaceManager.should_save_to_db():
+        if self._should_save_to_db():
             tree_id = await insert_block(block, index, self.branch_id, self.turn_id, self.id)
         else:
             tree_id = str(uuid.uuid4())
