@@ -1,6 +1,7 @@
+import textwrap
 from typing import Any
 from .base_blocks import BlockSequence
-from .block import BlockChunk, Block, FieldAttrBlock
+from .block import BlockChunk, Block, AttrBlock
 from .styles import StyleManager
 
 
@@ -138,7 +139,7 @@ class BlockRenderer(BaseRenderer):
     def render(self, block: Block) -> str:  
         content = BaseRenderer().render_sequence(block.root)      
         if children_content := BaseRenderer().render_sequence(block):
-            content += f"{children_content}"
+            content += f"\n{children_content}"
         return content
       
 
@@ -157,7 +158,7 @@ class MarkdownRenderer(BlockRenderer):
         content = BaseRenderer().render_sequence(block.root)   
         content = f"# {content}"    
         if children_content := BaseRenderer().render_sequence(block):
-            content += f"{children_content}\n"
+            content += f"\n{children_content}"
         return content
 
 
@@ -190,7 +191,7 @@ class XMLRenderer(BlockRenderer):
     def render_attrs(self, block: Block) -> str:
         attrs = ""
         for k, v in block.attrs.items():
-            if isinstance(v, FieldAttrBlock):
+            if isinstance(v, AttrBlock):
                 instructions = ""
                 if v.type in (int, float):
                     instructions = " wrap in quotes"
@@ -214,8 +215,8 @@ class XMLRenderer(BlockRenderer):
         
         if children_content := BaseRenderer().render_sequence(block):
             content = f"<{head_content}{attrs_content}>"
-            content += f"{children_content}\n"
-            content += f"</{head_content}>\n"
+            content += f"\n{textwrap.indent(children_content, '  ')}\n"
+            content += f"</{head_content}>"
         else: 
             content = f"<{head_content}{attrs_content}/>"  
         return content

@@ -1,5 +1,5 @@
 import textwrap
-from typing import Callable, List, Type
+from typing import Any, Callable, List, Type
 from .base_blocks import BaseBlock, BaseContent, BlockSequence
 import annotated_types
 
@@ -21,8 +21,16 @@ class BlockChunk(BaseBlock[str]):
         "type",
     ]
     
-    def __init__(self, content: str, logprob: float | None = None, prefix: str | None = None, postfix: str | None = None):
-        super().__init__(content, prefix=prefix, postfix=postfix)
+    def __init__(
+        self, 
+        content: str, 
+        logprob: float | None = None, 
+        prefix: str | None = None, 
+        postfix: str | None = None,
+        parent: "BlockSequence | None" = None,
+        id: str | None = None,
+    ):
+        super().__init__(content, prefix=prefix, postfix=postfix, id=id, parent=parent)
         self.logprob: float | None = logprob
         self.type: Type = type(content)
         
@@ -33,15 +41,35 @@ class BlockChunk(BaseBlock[str]):
             return self.content.endswith("\n")
         return False
     
+    
+    def repr_tree(self, verbose: bool = False):
+        logprob = f"logprob={self.logprob:.3f}" if self.logprob is not None else ""
+        return f"{self.path}  BlockChunk('{self.content}' {logprob}) "
+    
     def __repr__(self):
         return f"BlockChunk(content={self.content}, logprob={self.logprob})"
+    
+    def copy(
+        self,
+        overrides: dict[str, Any] | None = None,
+        copy_parent: bool = False,
+        copy_id: bool = False,
+    ):
+        return BlockChunk(
+            content=self.content if not overrides or "content" not in overrides else overrides["content"], 
+            logprob=self.logprob if not overrides or "logprob" not in overrides else overrides["logprob"], 
+            prefix=self.prefix if not overrides or "prefix" not in overrides else overrides["prefix"], 
+            postfix=self.postfix if not overrides or "postfix" not in overrides else overrides["postfix"], 
+            parent=self.parent if copy_parent else None,
+            id=self.id if copy_id else None
+        )
 
 
 
 class BlockSent(BlockSequence[BlockChunk]):
     
     
-    def promote_content(self, content: BaseContent, prefix: str | None = None, postfix: str | None = None) -> BlockChunk:
+    def promote_content(self, content: BaseContent | BaseBlock, prefix: str | None = None, postfix: str | None = None) -> BlockChunk:
         if isinstance(content, str):
             return BlockChunk(content, prefix=prefix, postfix=postfix)
         elif isinstance(content, int):
@@ -53,6 +81,8 @@ class BlockSent(BlockSequence[BlockChunk]):
         elif isinstance(content, BlockSent):
             raise ValueError("Cannot promote BlockSent to BlockChunk")
         elif isinstance(content, BlockChunk):
+            content.prefix = prefix
+            content.postfix = postfix
             return content
         else:
             raise ValueError(f"Invalid content type: {type(content)}")
@@ -76,6 +106,29 @@ class BlockSent(BlockSequence[BlockChunk]):
     
     def print(self, verbose: bool = False):
         print(self.render(verbose=verbose))
+        
+    def copy(
+        self,
+        overrides: dict[str, Any] | None = None,
+        copy_id: bool = False,
+        copy_parent: bool = False,
+    ):
+        return BlockSent(
+            default_sep=self.default_sep if not overrides or "default_sep" not in overrides else overrides["default_sep"],
+            children=[c.copy() for c in self.children] if not overrides or "children" not in overrides else overrides["children"],
+            prefix=self.prefix if not overrides or "prefix" not in overrides else overrides["prefix"],
+            postfix=self.postfix if not overrides or "postfix" not in overrides else overrides["postfix"],
+            id=self.id if copy_id else None,
+            parent=self.parent if copy_parent else None,
+        )
+        
+        
+    def repr_tree(self, verbose: bool = False): 
+        default_sep = self.default_sep.replace("\n", "\\n")
+        res = f"{self.path}  BlockSent({self.id}, default_sep={default_sep})"
+        for child in self.children:
+            res += f"\n{child.repr_tree(verbose=verbose)}"
+        return res
     
 BlockContent = BlockSent | BlockChunk | BaseContent 
  
@@ -104,11 +157,12 @@ class Block(BlockSequence["Block"]):
         styles: list[str] | None = None,
         attrs: dict[str, str] | None = None,
         default_sep: str = "\n",
+        id: str | None = None,
         prefix: BaseContent | None = None,
         postfix: BaseContent | None = None,
         parent: "Block | None" = None,
     ):
-        super().__init__(children=children, default_sep=default_sep, parent=parent)
+        super().__init__(children=children, default_sep=default_sep, parent=parent, prefix=prefix, postfix=postfix, id=id)
         self.role: str | None = role
         self.tags: list[str] = tags or []
         self.styles: list[str] = styles or parse_style(style)
@@ -135,6 +189,8 @@ class Block(BlockSequence["Block"]):
         elif isinstance(content, bool):
             return Block(str(content), prefix=prefix, postfix=postfix)
         elif isinstance(content, Block):
+            content.prefix = prefix
+            content.postfix = postfix
             return content
         elif isinstance(content, BlockSent):
             return Block(content, prefix=prefix, postfix=postfix)
@@ -157,7 +213,7 @@ class Block(BlockSequence["Block"]):
 
     
     
-    def view(self, name: str, type: Type, attrs: dict[str, str] | None = None, tags: list[str] | None = None) -> "BlockSchemaField":
+    def view(self, name: str, type: Type, attrs: dict[str, str] | None = None, tags: list[str] | None = None) -> "BlockSchema":
         # block = FieldBlock(name, type, attrs=attrs)
         block = BlockSchema(
             name,
@@ -167,6 +223,7 @@ class Block(BlockSequence["Block"]):
             parent=self.parent,
             tags=tags,
             styles=["xml"],
+            # prefix=self.default_sep,
         )
         self.append(block)
         return block
@@ -185,7 +242,7 @@ class Block(BlockSequence["Block"]):
         if lt is not None: annotated_types.Lt(lt)
         if ge is not None: annotated_types.Ge(ge)
         if le is not None: annotated_types.Le(le)
-        self.attrs[name] = FieldAttrBlock(
+        self.attrs[name] = AttrBlock(
             name=name,
             type=type,
             description=description,
@@ -220,29 +277,33 @@ class Block(BlockSequence["Block"]):
     def is_last_eol(self) -> bool:
         if len(self.children) == 0:
             return True
-        return self.children[-1].root.is_last_eol  
+        return self.children[-1].root.is_last_eol()
 
     
-    def inline_append(self, content: "Block | BlockSent | BaseContent", sep: str = " "):        
-        if isinstance(content, Block):
-            self.append(content, sep=sep)
-            return self.children[-1]
-        elif isinstance(content, BlockSent):
-            block = Block(root=content)
-            self.append(block, sep=sep)
-            return self.children[-1]
-        else:
-            if self.is_last_eol():
-                self.append(content, sep=sep)
-                return self.children[-1]
-            else:
-                last = self.children[-1]
-                if last.root.is_last_eol:
-                    self.append(content, sep=sep)
-                    return self.children[-1]
-                else:
-                    last.root.append(content, sep=sep)
-                    return last.root.children[-1]
+    def inline_append(self, content: "BlockChunk | BaseContent", sep: str = ""):
+        if self.last_child is None:
+            raise ValueError("Block has no children")
+        return self.last_child.root.append(content, sep=sep)
+    # def inline_append(self, content: "Block | BlockSent | BaseContent", sep: str = " "):        
+    #     if isinstance(content, Block):
+    #         self.append(content, sep=sep)
+    #         return self.children[-1]
+    #     elif isinstance(content, BlockSent):
+    #         block = Block(root=content)
+    #         self.append(block, sep=sep)
+    #         return self.children[-1]
+    #     else:
+    #         if self.is_last_eol():
+    #             self.append(content, sep=sep)
+    #             return self.children[-1]
+    #         else:
+    #             last = self.children[-1]
+    #             if last.root.is_last_eol:
+    #                 self.append(content, sep=sep)
+    #                 return self.children[-1]
+    #             else:
+    #                 last.root.append(content, sep=sep)
+    #                 return last.root.children[-1]
 
 
 
@@ -275,21 +336,31 @@ class Block(BlockSequence["Block"]):
         # res = Block(children=BlockList(dummy_children))
         return dummy_children
 
-    
     def model_dump(self):
-        dump = super().model_dump()
-        dump["_type"] = "Block"
-        dump["root"] = self.root.model_dump()
-        dump["children"] = [c.model_dump() for c in self.children]
-        dump["styles"] = self.styles
-        dump["tags"] = self.tags
-        dump["attrs"] = self.attrs
-        dump["role"] = self.role
-        dump["id"] = self.id
-        dump["path"] = self.path
-        dump["prefix"] = self.prefix
-        dump["postfix"] = self.postfix
+        dump = {
+            **super().model_dump(),
+            "root": self.root.model_dump(),
+            "styles": [s for s in self.styles],
+            "tags": [t for t in self.tags],
+            "attrs": [attr.model_dump() for attr in self.attrs.values()],
+            "role": self.role,            
+        }
         return dump
+    # def model_dump(self):
+    #     dump = super().model_dump()
+    #     dump["_type"] = "Block"
+    #     dump["root"] = self.root.model_dump()
+    #     dump["children"] = [c.model_dump() for c in self.children]
+    #     dump["styles"] = self.styles
+    #     dump["tags"] = self.tags
+    #     dump["attrs"] = self.attrs
+    #     dump["role"] = self.role
+    #     dump["id"] = self.id
+    #     dump["path"] = [p for p in self.path]
+    #     dump["prefix"] = self.prefix
+    #     dump["postfix"] = self.postfix
+    #     dump["parent_id"] = self.parent.id if self.parent else None
+    #     return dump
     
     
     
@@ -306,7 +377,7 @@ class Block(BlockSequence["Block"]):
         role: str | None = None,
         tags: list[str] | None = None,
         style: str | None = None,
-        attrs: "dict[str, FieldAttrBlock] | None" = None,
+        attrs: "dict[str, AttrBlock] | None" = None,
     ) -> "Block":        
         block = Block(
             content,
@@ -315,6 +386,7 @@ class Block(BlockSequence["Block"]):
             parent=self,            
             style=style,
             attrs=attrs,
+            # prefix=self.default_sep,
         )      
         self.append(block)
         return block
@@ -325,6 +397,25 @@ class Block(BlockSequence["Block"]):
         for o in other:
             block.append(o)
         return block
+    
+    def copy(
+        self,
+        overrides: dict[str, Any] | None = None,
+        copy_id: bool = False,
+        copy_parent: bool = False,
+    ):
+        return Block(
+            root=self.root.copy() if not overrides or "root" not in overrides else overrides["root"],
+            children=[c.copy() for c in self.children] if not overrides or "children" not in overrides else overrides["children"],
+            attrs=self.attrs if not overrides or "attrs" not in overrides else overrides["attrs"],
+            prefix=self.prefix if not overrides or "prefix" not in overrides else overrides["prefix"],
+            postfix=self.postfix if not overrides or "postfix" not in overrides else overrides["postfix"],
+            role=self.role if not overrides or "role" not in overrides else overrides["role"],
+            tags=self.tags if not overrides or "tags" not in overrides else overrides["tags"],
+            styles=self.styles if not overrides or "styles" not in overrides else overrides["styles"],
+            id=self.id if copy_id else None,
+            parent=self.parent if copy_parent else None,
+        )
         
     
     
@@ -359,7 +450,21 @@ class Block(BlockSequence["Block"]):
         tags = f"[{tags}] " if tags else ''
         return f"{self.__class__.__name__}({tags}root={root}, children={self.children})"
 
-
+    def repr_tree(self, verbose: bool = False):
+        default_sep = self.default_sep.replace("\n", "\\n")
+        tags = ','.join(self.tags) if self.tags else ''
+        tags = f"[{tags}] " if tags else ''
+        role = f"role={self.role} " if self.role else ''
+        res = f"{self.path}  Block({tags}{role}id={self.id}, default_sep={default_sep})"
+        if self.root and verbose:
+            # res += f"\nroot-{self.root.repr_tree()}"
+            res += f"\n{self.root.repr_tree()}"
+        for child in self.children:
+            res += f"\n{child.repr_tree(verbose=verbose)}"        
+        return res
+    
+    
+    
     def render(self, verbose: bool = False) -> str:
         from .renderers import render
         return render(self)
@@ -367,7 +472,7 @@ class Block(BlockSequence["Block"]):
     def print(self, verbose: bool = False):
         print(self.render(verbose=verbose))
 
-def FieldAttr(
+def Attr(
     type: Type,
     description: str,
     name: str | None = None,
@@ -376,7 +481,7 @@ def FieldAttr(
     ge: annotated_types.Ge | None = None,
     le: annotated_types.Le | None = None,
 ):
-    return FieldAttrBlock(
+    return AttrBlock(
         name=name,
         type=type,
         description=description,
@@ -387,7 +492,7 @@ def FieldAttr(
     )
 
 
-class FieldAttrBlock:
+class AttrBlock:
     name: str
     type: Type = str
     description: str
@@ -433,7 +538,16 @@ class FieldAttrBlock:
         else:
             raise ValueError(f"Invalid type: {self.type}")
 
-
+    def model_dump(self):
+        return {
+            "name": self.name,
+            "type": self.type,
+            "description": self.description,
+            "gt": self.gt,
+            "lt": self.lt,
+            "ge": self.ge,
+            "le": self.le,
+        }
 
 
 
@@ -449,16 +563,17 @@ class BlockSchema(Block):
         self, 
         name: str,
         type: Type,
-        attrs: dict[str, FieldAttrBlock] | None = None,        
+        attrs: dict[str, AttrBlock] | None = None,        
         role: str | None = None,
         tags: list[str] | None = None,
         style: str | None = None,
         id: str | None = None,
-        index: int | None = None,
         parent: "BaseBlock | None" = None,  
         styles: list[str] | None = None,
+        prefix: BaseContent | None = None,
+        postfix: BaseContent | None = None,
     ):
-        super().__init__(name, tags=tags or [] + [name], style=style, parent=parent, attrs=attrs, styles=styles)
+        super().__init__(name, tags=tags or [] + [name], role=role or"view", style=style, parent=parent, attrs=attrs, styles=styles, prefix=prefix, postfix=postfix)
         if not type:
             raise ValueError("type is required")
         self.type = type
@@ -467,27 +582,29 @@ class BlockSchema(Block):
         
     def copy(
         self,
-        children: list["Block"] | None = None,
-        name: str | None = None,
-        type: Type | None = None,
-        attrs: dict[str, FieldAttrBlock] | None = None,
-        role: str | None = None,
-        tags: list[str] | None = None,
-        style: str | None = None,
-        id: str | None = None,
-        index: int | None = None,
-        parent: "BaseBlock | None" = None,
-        styles: list[str] | None = None,
+        overrides: dict[str, Any] | None = None,
+        copy_id: bool = False,
+        copy_parent: bool = False,
     ):
         return BlockSchema(
-            name=self.name if name is None else name,
-            type=self.type if type is None else type,
-            attrs=self.attrs if attrs is None else attrs,
-            role=self.role if role is None else role,
-            tags=self.tags if tags is None else tags,
-            style=self.style if style is None else style,
-            id=self.id if id is None else id,
-            index=self.index if index is None else index,
-            parent=self.parent if parent is None else parent,
-            styles=self.styles if styles is None else styles,
+            name=self.name if not overrides or "name" not in overrides else overrides["name"],
+            type=self.type if not overrides or "type" not in overrides else overrides["type"],
+            attrs=self.attrs if not overrides or "attrs" not in overrides else overrides["attrs"],
+            role=self.role if not overrides or "role" not in overrides else overrides["role"],
+            tags=self.tags if not overrides or "tags" not in overrides else overrides["tags"],
+            styles=self.styles if not overrides or "styles" not in overrides else overrides["styles"],
+            prefix=self.prefix if not overrides or "prefix" not in overrides else overrides["prefix"],
+            postfix=self.postfix if not overrides or "postfix" not in overrides else overrides["postfix"],
+            id=self.id if copy_id else None,
+            parent=self.parent if copy_parent else None,
         )
+        
+        
+    def repr_tree(self, verbose: bool = False):
+        tags = ','.join(self.tags) if self.tags else ''
+        tags = f"[{tags}] " if tags else ''
+        role = f"role={self.role} " if self.role else ''
+        res = f"{self.path}  BlockSchema({tags}id={self.id}, type={self.type})"
+        for child in self.children:
+            res += f"\n{child.repr_tree(verbose=verbose)}"
+        return res

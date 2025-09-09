@@ -6,7 +6,11 @@ from uuid import uuid4
 
 BaseContent = str | int | float | bool | None
 
+class UnsetType:
+    __slots__ = ()
 
+    def __repr__(self):
+        return "<UNSET>"
 
 CONTENT = TypeVar("CONTENT")
 
@@ -25,7 +29,7 @@ class BaseBlock(Generic[CONTENT]):
         content: CONTENT | None = None,
         *,
         parent: "BlockSequence | None" = None,
-        index: int | None = None,
+        id: str | None = None,
         prefix: CONTENT | None = None,
         postfix: CONTENT | None = None,
     ):
@@ -33,7 +37,7 @@ class BaseBlock(Generic[CONTENT]):
         self.parent: "BlockSequence | None" = parent
         self.prefix: CONTENT | None = prefix
         self.postfix: CONTENT | None = postfix
-        self.id: str = uuid4().hex[:8]
+        self.id: str = id or uuid4().hex[:8]
     
     @property
     def path(self) -> list[int]:
@@ -52,12 +56,21 @@ class BaseBlock(Generic[CONTENT]):
     
     def model_dump(self):
         return {
+            "_type": self.__class__.__name__,
             "id": self.id,
             "content": self.content,
             "prefix": self.prefix,
             "postfix": self.postfix,
             "index": self.index,
+            "path": [p for p in self.path],
+            "parent_id": self.parent.id if self.parent else None,
         }
+        
+    def repr_tree(self, verbose: bool = False):
+        return f"{self.path}  BaseBlock({self.content})"
+    
+    def print_tree(self, verbose: bool = False):
+        print(self.repr_tree(verbose=verbose))
     
 
 
@@ -66,13 +79,11 @@ CHILD = TypeVar("CHILD", bound=BaseBlock)
 PathType = list[int] | int
 
 
-class BlockSequence(Generic[CHILD]):
+class BlockSequence(BaseBlock, Generic[CHILD]):
     
     __slots__ = [
         "children",
         "_id2index",
-        "parent",
-        "id",
         "default_sep",        
     ]
     
@@ -81,7 +92,11 @@ class BlockSequence(Generic[CHILD]):
         children: list[CHILD] | None = None,
         parent: "BlockSequence | None" = None,
         default_sep: str = " ",
+        id: str | None = None,
+        prefix: BaseContent | None = None,
+        postfix: BaseContent | None = None,
     ):
+        BaseBlock.__init__(self, parent=parent, prefix=prefix, postfix=postfix, id=id)
         self.children: list[CHILD] = []
         self._id2index: dict[str, int] = {}
         self.parent: "BlockSequence | None" = parent
@@ -99,7 +114,7 @@ class BlockSequence(Generic[CHILD]):
         if self.parent is None:
             return []
         if self.index is None:
-            raise ValueError("BlockSequence has no index")
+            return self.parent.path
         return self.parent.path + [self.index]
     
     @property
@@ -146,9 +161,23 @@ class BlockSequence(Generic[CHILD]):
             target = target.children[idx]
         return True
     
+    def _get_sep(self, sep: str | None = None) -> str | None:
+        if len(self.children) == 0:
+            return None
+        if sep is None:
+            return self.default_sep
+        return sep
+    
+    @property
+    def last_child(self) -> CHILD | None:
+        if len(self.children) == 0:
+            return None
+        return self.children[-1]
+    
     
     def append_child(self, child: CHILD):
         self.children.append(child)
+        child.parent = self
         if child.id in self._id2index:
             raise ValueError(f"Child with id {child.id} already exists")
         self._id2index[child.id] = len(self.children) - 1
@@ -156,6 +185,7 @@ class BlockSequence(Generic[CHILD]):
     
     def insert_child(self, index: int, child: CHILD):
         self.children.insert(index, child)
+        child.parent = self
         if child.id in self._id2index:
             raise ValueError(f"Child with id {child.id} already exists")
         self._id2index[child.id] = index
@@ -163,6 +193,7 @@ class BlockSequence(Generic[CHILD]):
     
     
     def replace_child(self, index: int, child: CHILD):
+        child.parent = self
         del self._id2index[self.children[index].id]
         self.children[index] = child
         if child.id in self._id2index:
@@ -179,7 +210,7 @@ class BlockSequence(Generic[CHILD]):
         prefix: BaseContent | None = None, 
         postfix: BaseContent | None = None
     ):
-        sep = sep or self.default_sep
+        sep = self._get_sep(sep)
         child = self.promote_content(child, prefix=sep, postfix=postfix)
         if not path:
             self.append_child(child)
@@ -249,12 +280,21 @@ class BlockSequence(Generic[CHILD]):
         
         
     def model_dump(self):
-        return {
-            "id": self.id,
+        dump = {
+            **super().model_dump(),
             "children": [child.model_dump() for child in self.children],
-            "index": self.index,
+            "default_sep": self.default_sep,
         }
+        
+        return dump
+
     
+    
+    def repr_tree(self, verbose: bool = False):           
+        res =  f"{self.path}  BlockSequence({self.id})"
+        for child in self.children:
+            res += f"\n{child.repr_tree()}"
+        return res
     
 
         
