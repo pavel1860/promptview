@@ -1,3 +1,4 @@
+import json
 import textwrap
 from typing import Any, Callable, List, Type
 from .base_blocks import BaseBlock, BaseContent, BlockSequence
@@ -43,11 +44,14 @@ class BlockChunk(BaseBlock[str]):
     
     
     def repr_tree(self, verbose: bool = False):
-        logprob = f"logprob={self.logprob:.3f}" if self.logprob is not None else ""
-        return f"{self.path}  BlockChunk('{self.content}' {logprob}) "
+        logprob = f" logprob={self.logprob:.3f}" if self.logprob is not None else ""
+        content = self.content.replace("\n", "\\n")
+        prefix = " prefix='" + self.prefix.replace("\n", "\\n") + "'" if self.prefix is not None else ""
+        postfix = " postfix='" + self.postfix.replace("\n", "\\n") + "'"if self.postfix is not None else ""
+        return f"{self.path}  BlockChunk('{content}'{logprob}{prefix}{postfix})"
     
     def __repr__(self):
-        return f"BlockChunk(content={self.content}, logprob={self.logprob})"
+        return f"BlockChunk(content={self.content} , logprob={self.logprob})"
     
     def copy(
         self,
@@ -63,13 +67,23 @@ class BlockChunk(BaseBlock[str]):
             parent=self.parent if copy_parent else None,
             id=self.id if copy_id else None
         )
+    
+    @classmethod
+    def model_validate(cls, data: Any) -> "BlockChunk":        
+        return BlockChunk(
+            content=data.get("content"),
+            logprob=data.get("logprob"),
+            prefix=data.get("prefix"),
+            postfix=data.get("postfix"),
+        )
 
 
+SentContent = list[BlockChunk] | BlockChunk | str | None
 
 class BlockSent(BlockSequence[BlockChunk]):
     
     
-    def promote_content(self, content: BaseContent | BaseBlock, prefix: str | None = None, postfix: str | None = None) -> BlockChunk:
+    def promote_content(self, content: SentContent, prefix: str | None = None, postfix: str | None = None) -> BlockChunk:
         if isinstance(content, str):
             return BlockChunk(content, prefix=prefix, postfix=postfix)
         elif isinstance(content, int):
@@ -125,7 +139,9 @@ class BlockSent(BlockSequence[BlockChunk]):
         
     def repr_tree(self, verbose: bool = False): 
         default_sep = self.default_sep.replace("\n", "\\n")
-        res = f"{self.path}  BlockSent({self.id}, default_sep={default_sep})"
+        prefix = " prefix='" + self.prefix.replace("\n", "\\n") + "'" if self.prefix is not None else ""
+        postfix = " postfix='" + self.postfix.replace("\n", "\\n") + "'"if self.postfix is not None else ""
+        res = f"{self.path}  BlockSent({self.id}, default_sep={default_sep}{prefix}{postfix})"
         for child in self.children:
             res += f"\n{child.repr_tree(verbose=verbose)}"
         return res
@@ -166,12 +182,15 @@ class Block(BlockSequence["Block"]):
         self.role: str | None = role
         self.tags: list[str] = tags or []
         self.styles: list[str] = styles or parse_style(style)
-        self.attrs: dict[str, str] = attrs or {}
+        self.attrs: dict[str, AttrBlock] = get_attrs(attrs)
         self.default_sep: str = default_sep
         if root is None:
             self.root = BlockSent(parent=self)
         elif isinstance(root, BlockSent):
             self.root = root
+        elif isinstance(root, list):
+            self.root = BlockSent(parent=self)
+            self.root.extend(root)
         else:
             self.root = BlockSent(parent=self)
             self.root.append(root)
@@ -417,6 +436,15 @@ class Block(BlockSequence["Block"]):
             parent=self.parent if copy_parent else None,
         )
         
+    def traverse(self):
+        yield self
+        for child in self.children:
+            if isinstance(child, Block):
+                yield from child.traverse()
+            else:
+                yield child
+
+        
     
     
     def __iadd__(self, other: BaseContent | BlockSent | tuple[BaseContent, ...]):
@@ -454,8 +482,10 @@ class Block(BlockSequence["Block"]):
         default_sep = self.default_sep.replace("\n", "\\n")
         tags = ','.join(self.tags) if self.tags else ''
         tags = f"[{tags}] " if tags else ''
-        role = f"role={self.role} " if self.role else ''
-        res = f"{self.path}  Block({tags}{role}id={self.id}, default_sep={default_sep})"
+        role = f" role={self.role} " if self.role else ''
+        prefix = " prefix='" + self.prefix.replace("\n", "\\n") + "'" if self.prefix is not None else ""
+        postfix = " postfix='" + self.postfix.replace("\n", "\\n") + "'"if self.postfix is not None else ""
+        res = f"{self.path}  Block({tags}{role}id={self.id}, default_sep={default_sep}{prefix}{postfix})"
         if self.root and verbose:
             # res += f"\nroot-{self.root.repr_tree()}"
             res += f"\n{self.root.repr_tree()}"
@@ -471,6 +501,13 @@ class Block(BlockSequence["Block"]):
 
     def print(self, verbose: bool = False):
         print(self.render(verbose=verbose))
+        
+        
+def get_attrs(attrs: dict[str, "str | AttrBlock"] | None) -> "dict[str, AttrBlock]":
+    if attrs is None:
+        return {}
+    return {k: v if isinstance(v, AttrBlock) else AttrBlock(name=k, description=v) for k, v in attrs.items()}
+
 
 def Attr(
     type: Type,
@@ -586,7 +623,7 @@ class BlockSchema(Block):
         copy_id: bool = False,
         copy_parent: bool = False,
     ):
-        return BlockSchema(
+        blk = BlockSchema(
             name=self.name if not overrides or "name" not in overrides else overrides["name"],
             type=self.type if not overrides or "type" not in overrides else overrides["type"],
             attrs=self.attrs if not overrides or "attrs" not in overrides else overrides["attrs"],
@@ -598,6 +635,11 @@ class BlockSchema(Block):
             id=self.id if copy_id else None,
             parent=self.parent if copy_parent else None,
         )
+        blk.root = self.root.copy() if not overrides or "root" not in overrides else overrides["root"]
+        blk.children = [c.copy() for c in self.children] if not overrides or "children" not in overrides else overrides["children"]
+        
+        
+        return blk
         
         
     def repr_tree(self, verbose: bool = False):

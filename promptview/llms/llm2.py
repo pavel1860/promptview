@@ -3,7 +3,7 @@ from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Dict, List, Literal, Type, TypedDict, Unpack
 from pydantic import BaseModel, Field
 
-from promptview.block.block7 import BlockChunk, Block, BlockList
+from promptview.block import BlockChunk, Block, BlockList
 from promptview.prompt.flow_components import StreamController
 
 

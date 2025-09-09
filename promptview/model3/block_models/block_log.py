@@ -4,7 +4,7 @@ import hashlib
 import json
 import uuid
 from typing import Any, Dict, List, Literal, Optional
-from promptview.block.block7 import BaseBlock, Block, BlockChunk, BlockList, BlockSent
+from promptview.block import BaseBlock, Block, BlockChunk, BlockList, BlockSent
 from promptview.model.versioning import Branch
 from promptview.model3.sql.expressions import RawValue
 from promptview.model3.sql.queries import Column
@@ -34,15 +34,30 @@ def flatten_tree(data: Dict[str, Any], base_path: str = "1") -> List[Dict[str, A
     return flat
 
 
+def dump_chunk(chunk: BlockChunk):
+    # dump = {
+    #     "content": chunk.content,
+    # }
+    # if chunk.logprob is not None:
+    #     dump["logprob"] = chunk.logprob
+    # if chunk.prefix is not None:
+    #     dump["prefix"] = chunk.prefix
+    # if chunk.postfix is not None:
+    #     dump["postfix"] = chunk.postfix
+    return {
+        "content": chunk.content,
+        "logprob": chunk.logprob,
+        "prefix": chunk.prefix,
+        "postfix": chunk.postfix,
+    }
 
 def dump_sent(sent: BlockSent):   
-    chunks = []
+    chunks = []    
     for chunk in sent.children:        
-        chunks.append([chunk.content, chunk.logprob] if chunk.logprob is not None else [chunk.content])
+        chunks.append(dump_chunk(chunk))
     return {
-        "has_eol": sent.has_eol,
+        # "has_eol": sent.has_eol,
         "children": chunks,
-        "sep_list": sent.sep_list,
         "default_sep": sent.default_sep,
     }
     

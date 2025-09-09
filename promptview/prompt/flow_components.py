@@ -7,7 +7,8 @@ import datetime as dt
 
 from typing import Any, AsyncGenerator, Callable, Iterable, Literal, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING, runtime_checkable
 import xml
-from promptview.block.block7 import BlockChunk, BlockList, BlockSent, ResponseBlock
+from promptview.block import BlockChunk, BlockSchema
+from promptview.block.block9.block_schema import BlockBuilderContext
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
 from promptview.prompt.parser import BlockBuffer, SaxStreamParser
 from promptview.prompt.events import StreamEvent
@@ -191,16 +192,14 @@ class Stream(BaseFbpComponent):
 
 class Parser(BaseFbpComponent):
       
-    def __init__(self, response_schema: "BlockSchema", gen=None) -> None:
+    def __init__(self, response_schema: "Block", gen=None) -> None:
         super().__init__(gen)
         self.start_tag = "tag_start"
         self.end_tag = "tag_end"
         self.text_tag = "chunk"                
-        self.response_schema = response_schema.copy()
         self._safety_tag = "stream_start"        
-        self.response = self.response_schema.build_response()        
+        self.res_ctx = BlockBuilderContext(response_schema.copy())
         self.parser = etree.XMLPullParser(events=("start", "end"))
-        self.queue = SimpleQueue()
         self.block_buffer = []
         self._stream_started = False
         self._detected_tag = False
@@ -247,9 +246,7 @@ class Parser(BaseFbpComponent):
     def _buffer_size(self):
         return len(self.block_buffer)
     
-    
-    def _push_to_output(self, value: Any):
-        self.queue.put(copy.deepcopy(value))
+
         
     def _try_set_tag_lock(self, value: Any):
         if "<" in value.content:
@@ -272,8 +269,8 @@ class Parser(BaseFbpComponent):
             if not self._stream_started:
                 self.parser.feed(f'<{self._safety_tag}>')
                 self._stream_started = True                
-            if not self.queue.empty():
-                v = self.queue.get()
+            if self.res_ctx.has_events():
+                v = self.res_ctx.get_event()
                 # print("1", type(v), v)
                 return v
             value = await self.gen.asend(value) 
@@ -286,11 +283,10 @@ class Parser(BaseFbpComponent):
             # in the middle of the stream, adding chunks to the current field
             if self._should_output_chunk():               
                 for c in self._read_buffer(flush=True):
-                    chunk = self.response_schema.partial_append_field(
+                    chunk = self.res_ctx.append(
                         self.current_tag,
                         c,
                     )
-                    self._push_to_output(chunk)
             
             # start or end of a field, adding the whole field to the queue
             for event, element in self.parser.read_events():
@@ -299,30 +295,34 @@ class Parser(BaseFbpComponent):
                 if event == 'start':
                     # start of a field
                     self._push_tag(element.tag)
-                    partial_field = self.response_schema.partial_init_field(
-                        field_name=element.tag,
-                        root=self._read_buffer(),
+                    self.res_ctx.instantiate(
+                        element.tag,
+                        self._read_buffer(),
                         attrs=dict(element.attrib),
-                        tags=[self.start_tag]
-                    ) 
-                    self._push_to_output(partial_field)
+                    )
+                    # partial_field = self.response_schema.partial_init_field(
+                    #     field_name=element.tag,
+                    #     root=self._read_buffer(),
+                    #     attrs=dict(element.attrib),
+                    #     tags=[self.start_tag]
+                    # ) 
+                    # self._push_to_output(partial_field)
                     self._release_tag_lock()
                 elif event == 'end':
                     # end of a field
                     self._pop_tag()
-                    field = self.response_schema.commit_field(
-                        element.tag, 
-                        postfix=self._read_buffer(start_from="</"), 
-                        tags=[self.end_tag]
-                    )
-                    if field.postfix is not None:
-                        self._push_to_output(field.postfix)
+                    # field = self.response_schema.commit_field(
+                    #     element.tag, 
+                    #     postfix=self._read_buffer(start_from="</"), 
+                    #     tags=[self.end_tag]
+                    # )
+                    # if field.postfix is not None:
+                        # self._push_to_output(field.postfix)
                     self._release_tag_lock()
                 
                     
-            if not self.queue.empty():
-                v = self.queue.get()
-                # print("2", type(v), v)
+            if self.res_ctx.has_events():
+                v = self.res_ctx.get_event()
                 return v
         else:
             raise StopAsyncIteration
@@ -445,12 +445,10 @@ class StreamController(BaseFbpComponent):
     
     def get_response(self):
         if self._parser:
-            return self._parser.response_schema.inst
+            return self._parser.res_ctx.instance
         # return self.acc
         
-    def parse(self, block_schema: BlockSchema) -> Self:
-        if not isinstance(block_schema, BlockSchema):
-            raise ValueError("block_schema must be a BlockSchema")
+    def parse(self, block_schema: Block) -> Self:
         if self._parser is not None:
             raise ValueError("Parser already initialized")
         if self._gen is None:

@@ -4,7 +4,7 @@ from typing import AsyncGenerator, Callable, Union, Optional, Any
 from promptview.prompt.stream2 import StreamController, stream  # Adjust the import
 from promptview.prompt import component, Depends
 from promptview.llms import LLM
-from promptview.block.block7 import Block, BlockList, ResponseBlock, BlockSent, BlockSchemaField, BlockChunk
+from promptview.block import Block, BlockList, BlockSent, BlockChunk
 from promptview.model3.versioning.models import Branch
 from promptview.model3 import NamespaceManager
 
@@ -149,7 +149,7 @@ async def test_basic_component():
     assert events[1].path == [0, 0]
     assert events[1].name == "openai_llm"
     assert events[2].type == "stream_delta"   
-    assert isinstance(events[2].payload,  ResponseBlock)
+    assert isinstance(events[2].payload,  Block)
     assert events[3].type == "stream_delta"    
     assert isinstance(events[3].payload, BlockSent)
     assert events[3].payload.path == [1, 1]

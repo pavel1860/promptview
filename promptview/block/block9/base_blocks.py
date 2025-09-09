@@ -224,6 +224,18 @@ class BlockSequence(BaseBlock, Generic[CHILD]):
         target.append_child(child)
         return child
     
+    def extend(
+        self, 
+        children: list[CHILD],
+        path: PathType | None = None,
+        sep: str | None = None,
+        prefix: BaseContent | None = None,
+        postfix: BaseContent | None = None,
+    ):
+        for child in children:
+            self.append(child, path=path, sep=sep, prefix=prefix, postfix=postfix)
+        return self
+    
     
     def insert(self, child: CHILD | BaseContent, path: PathType):
         child = self.promote_content(child)

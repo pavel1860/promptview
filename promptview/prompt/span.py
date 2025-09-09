@@ -5,7 +5,7 @@ import inspect
 from typing_extensions import TypeVar
 from pydantic import BaseModel
 
-from promptview.block.block7 import BlockChunk
+
 from promptview.prompt.depends import DependsContainer, resolve_dependency
 from promptview.prompt.events import StreamEvent
 from promptview.prompt.stream2 import GeneratorFrame, StreamController, SupportsExtend, CHUNK
