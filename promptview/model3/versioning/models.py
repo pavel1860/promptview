@@ -23,6 +23,9 @@ _curr_branch = contextvars.ContextVar("curr_branch", default=None)
 _curr_turn = contextvars.ContextVar("curr_turn", default=None)
 
 
+
+span_type_enum = Literal["component", "stream", "llm"]
+
 class TurnStatus(enum.StrEnum):
     """Status of a turn in the version history."""
     STAGED = "staged"
@@ -202,9 +205,9 @@ class Turn(Model):
         ).parse(parse_block_tree_turn)
         
         
-    async def add_block(self, block: "Block", index: int, span_id: uuid.UUID | None = None):
+    async def add_block(self, block: "Block", span_id: uuid.UUID | None = None):
         from promptview.model3.block_models.block_log import insert_block
-        return await insert_block(block, index, self.branch_id, self.id, span_id)
+        return await insert_block(block, self.branch_id, self.id, span_id)
         
         
     async def commit(self):
@@ -252,6 +255,26 @@ class Turn(Model):
     @classmethod    
     def query_extra(cls: Type[Self], query: "PgSelectQuerySet[Self]", **kwargs) -> "PgSelectQuerySet[Self]":
         return query
+    
+    
+    @asynccontextmanager
+    async def start_span(self, name: str, span_type: span_type_enum):
+        span = await ExecutionSpan(
+            name=name,
+            span_type=span_type,
+            index=0,
+            status="running",
+        ).save()
+        try:
+            with span as s:
+                yield span
+        except Exception as e:
+            raise e
+        finally:
+            span.end_time = dt.datetime.now()
+            span.status = "completed"
+            await span.save()
+        
     
         
 
@@ -363,7 +386,6 @@ class BlockTree(VersionedModel):
     created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
     nodes: List[BlockNode] = RelationField(foreign_key="tree_id")
     span_id: uuid.UUID | None = ModelField(foreign_key=True)
-    index: int = ModelField()
     
 
 
@@ -383,7 +405,7 @@ class ArtifactModel(VersionedModel):
 
 
 
-span_type_enum = Literal["component", "stream", "llm"]
+
 
 
 
@@ -438,7 +460,7 @@ class ExecutionSpan(VersionedModel):
         from promptview.model3.block_models.block_log import insert_block
         from promptview.model3.namespace_manager2 import NamespaceManager
         if self._should_save_to_db():
-            tree_id = await insert_block(block, index, self.branch_id, self.turn_id, self.id)
+            tree_id = await insert_block(block, self.branch_id, self.turn_id, self.id)
         else:
             tree_id = str(uuid.uuid4())
             

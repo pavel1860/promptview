@@ -31,6 +31,9 @@ class BlockChunk(BaseBlock[str]):
         parent: "BlockSequence | None" = None,
         id: str | None = None,
     ):
+        # if content.endswith("\n"):
+        #     content = content[:-1]
+        #     postfix = "\n"
         super().__init__(content, prefix=prefix, postfix=postfix, id=id, parent=parent)
         self.logprob: float | None = logprob
         self.type: Type = type(content)

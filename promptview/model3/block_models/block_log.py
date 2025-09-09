@@ -65,15 +65,12 @@ def load_sent_dump(dump: dict):
     sent = BlockSent(
         default_sep=dump["default_sep"],
     )
-    for chunk, sep in zip(dump["children"], dump["sep_list"]):
-        content = chunk[0]
-        logprob = chunk[1] if len(chunk) > 1 else None
+    for child in dump["children"]:
         sent.append(
             BlockChunk(
-                content=content,
-                logprob=logprob,
-            ),
-            sep=sep,            
+                content=child["content"],
+                logprob=child["logprob"],
+            )       
         )
     return sent
 
@@ -84,7 +81,7 @@ def dump_block(blk: Block):
         dump["content"] = blk.root.render()
         dump["json_content"] = dump_sent(blk.root)
         dump["styles"] = blk.styles
-        dump["path"] = ".".join(str(p) for p in blk.path)
+        dump["path"] = ".".join(str(p) for p in [0] +blk.path)
         dump["tags"] = blk.tags
         dump["role"] = blk.role
         dump["attrs"] = blk.attrs
@@ -108,7 +105,7 @@ def load_block_dump(dumps: list[dict]):
     root_blk = block_lookup.pop("0")
     for p, blk in block_lookup.items():
         path = [int(p_i) for p_i in p.split(".")]
-        root_blk.path_insert(path[1:], blk)
+        root_blk.insert(blk, path[1:])
         
     return root_blk
 
@@ -117,7 +114,7 @@ def load_block_dump(dumps: list[dict]):
     
     
 
-async def insert_block(block: Block, index: int, branch_id: int, turn_id: int, span_id: uuid.UUID | None = None) -> str:
+async def insert_block(block: Block, branch_id: int, turn_id: int, span_id: uuid.UUID | None = None) -> str:
     """
     Alternative implementation using executemany for bulk inserts.
     This approach is cleaner and more straightforward than UNNEST.
@@ -127,8 +124,8 @@ async def insert_block(block: Block, index: int, branch_id: int, turn_id: int, s
         tree_id = str(uuid.uuid4())
         created_at = dt.datetime.now()
         await tx.execute(
-            "INSERT INTO block_trees (id, created_at, branch_id, turn_id, span_id, index) VALUES ($1, $2, $3, $4, $5, $6)", 
-            tree_id, created_at, branch_id, turn_id, span_id, index
+            "INSERT INTO block_trees (id, created_at, branch_id, turn_id, span_id) VALUES ($1, $2, $3, $4, $5)", 
+            tree_id, created_at, branch_id, turn_id, span_id
         )
 
         # --- prepare rows for blocks ---
@@ -278,5 +275,20 @@ class BlockLog:
     @classmethod
     def span(cls, span: str) -> BlockLogQuery:
         return BlockLogQuery(span_name=span)
+    
+    
+
+    
+    @classmethod
+    async def add(cls, block: Block, branch_id: int | None = None, turn_id: int | None = None, span_id: uuid.UUID | None = None):
+        from promptview.model3.versioning.models import Turn, Branch
+        if branch_id is None:
+            branch_id = Branch.current().id
+        if turn_id is None:
+            turn_id = Turn.current().id
+        if span_id is None:
+            span_id = ExecutionSpan.current().id
+        
+        return await insert_block(block, branch_id, turn_id, span_id)
     
     
