@@ -235,6 +235,7 @@ class Block(BlockSequence[BlockSent, "Block"]):
         if content is None:
             return BlockSent(parent=self)
         elif isinstance(content, BlockSent):
+            content.parent = self
             return content
         elif isinstance(content, list):
             sent = BlockSent(parent=self)
