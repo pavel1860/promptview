@@ -26,14 +26,14 @@ class BaseBlock(Generic[CONTENT]):
     
     def __init__(
         self,
-        content: CONTENT | None = None,
+        content: CONTENT,
         *,
         prefix: CONTENT,
         postfix: CONTENT,
         parent: "BlockSequence | None" = None,
         id: str | None = None,        
     ):
-        self.content: CONTENT | None = content
+        self.content: CONTENT = content
         self.parent: "BlockSequence | None" = parent
         self.prefix: CONTENT = prefix
         self.postfix: CONTENT = postfix
@@ -93,6 +93,7 @@ class BlockSequence(Generic[CONTENT,CHILD], BaseBlock[CONTENT]):
     
     def __init__(
         self,
+        content: CONTENT,
         children: list[CHILD],
         prefix: CONTENT,
         postfix: CONTENT,
@@ -100,7 +101,7 @@ class BlockSequence(Generic[CONTENT,CHILD], BaseBlock[CONTENT]):
         id: str | None = None,
 
     ):
-        BaseBlock.__init__(self, parent=parent, prefix=prefix, postfix=postfix, id=id)
+        BaseBlock.__init__(self, content=content, parent=parent, prefix=prefix, postfix=postfix, id=id)
         self.children: list[CHILD] = []
         self.parent: "BlockSequence | None" = parent
         self.id: str = uuid4().hex[:8]

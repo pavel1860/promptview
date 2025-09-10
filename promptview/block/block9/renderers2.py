@@ -96,7 +96,8 @@ def render(target) -> str:
         return str(target)
     elif type(target) is list:
         return "".join(render(c) for c in target)
-    elif type(target) is Block:
+    # elif type(target) is Block:
+    elif isinstance(target, Block):
         target = apply_style(target)
         prefix = ""
         content = ""
@@ -133,7 +134,6 @@ class BlockStyle(metaclass=StyleMeta):
     effects = "all"
     
     def __call__(self, block: Block):
-        print("Style", type(block))
         for child in block.children:
             child.prefix.insert("\n", 0)
         return block
@@ -192,8 +192,16 @@ class XMLStyle(BlockStyle):
     styles = ["xml"]
     effects = "content"
     
-    def __call__(self, block: Block):
-        block.content.prefix = f"<"
-        block.postfix = f"</{block.prefix}>"
+    def __call__(self, block: Block):        
+        if not block.children:
+            block.content.prefix = f"<"
+            block.content.postfix = f"/>"
+        else:
+            block = super().__call__(block)
+            block.content.prefix = f"<"        
+            block.content.postfix = f">"
+            block.postfix = block.content.copy()
+            block.postfix.prefix = f"\n</"
+            block.postfix.postfix = f">"
         return block
     

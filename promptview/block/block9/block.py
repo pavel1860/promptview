@@ -90,14 +90,25 @@ class BlockSent(BlockSequence[str, BlockChunk]):
     
     def __init__(
         self,
+        content: str | list[BlockChunk] | None = None,
         children: list[BlockChunk] | None = None,
-        prefix: BaseContent | None = None,
-        postfix: BaseContent | None = None,
+        prefix: str | None = None,
+        postfix: str | None = None,
         parent: "BlockSequence | None" = None,
         id: str | None = None,
 
     ):
-        super().__init__(children=children or [], prefix=prefix or "", postfix=postfix or "", parent=parent, id=id)
+        children = children or []
+        if content is None:
+            content = ""
+        elif isinstance(content, str):
+            pass
+        elif isinstance(content, list):            
+            children = content
+            content = ""
+        else:
+            raise ValueError(f"Invalid content type: {type(content)}")
+        super().__init__(content=content,children=children, prefix=prefix or "", postfix=postfix or "", parent=parent, id=id)
     
     
     def promote_content(self, content: SentContent, prefix: str | None = None, postfix: str | None = None) -> BlockChunk:
@@ -150,6 +161,7 @@ class BlockSent(BlockSequence[str, BlockChunk]):
         copy_parent: bool = False,
     ):
         return BlockSent(            
+            content=self.content if not overrides or "content" not in overrides else overrides["content"],
             children=[c.copy() for c in self.children] if not overrides or "children" not in overrides else overrides["children"],
             prefix=self.prefix if not overrides or "prefix" not in overrides else overrides["prefix"],
             postfix=self.postfix if not overrides or "postfix" not in overrides else overrides["postfix"],
@@ -185,7 +197,6 @@ class Block(BlockSequence[BlockSent, "Block"]):
         self, 
         content: BlockContent | None = None,
         children: list["Block"] | None = None,
-        *,
         role: str | None = None,
         tags: list[str] | None = None,
         style: str | None = None,
