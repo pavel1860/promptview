@@ -310,6 +310,13 @@ class Parser(BaseFbpComponent):
                     self._release_tag_lock()
                 elif event == 'end':
                     # end of a field
+                    self.res_ctx.set_view_attr(
+                        element.tag,
+                        postfix=self._read_buffer(start_from="</"), 
+                    )
+                    # self.res_ctx.commit_view(
+                    #     element.tag,
+                    # )
                     self._pop_tag()
                     # field = self.response_schema.commit_field(
                     #     element.tag, 
@@ -318,6 +325,7 @@ class Parser(BaseFbpComponent):
                     # )
                     # if field.postfix is not None:
                         # self._push_to_output(field.postfix)
+                    
                     self._release_tag_lock()
                 
                     

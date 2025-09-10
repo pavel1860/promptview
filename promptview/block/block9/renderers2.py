@@ -121,7 +121,8 @@ def render(target) -> str:
         if target.postfix is not None:
             postfix = render_text(target.postfix)
         if target.children:
-            children_content = "".join(render(c) for c in target.children)
+            cl = [render(c) for c in target.children]
+            children_content = "".join(cl)
             # children_content = textwrap.indent(children_content, "  ")
         return f"{prefix}{content}{children_content}{postfix}"
     elif type(target) is BlockSent:

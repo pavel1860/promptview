@@ -200,13 +200,13 @@ class BlockBuilderContext:
     def set_view_attr(
         self,
         view_name: str,
-        postfix: BlockSent | None = None,
+        postfix: list[BlockChunk] | None = None,
     ):
         schema, view = self.get_view_info(view_name)
         if postfix is not None:            
             if view is None:
                 raise ValueError(f"View {view_name} not found")
-            view.postfix = postfix
+            view.postfix.extend(postfix)
         
         return view
     
