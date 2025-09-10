@@ -84,9 +84,11 @@ class Branch(Model):
         self, 
         message: str | None = None, 
         status: TurnStatus = TurnStatus.STAGED,
+        raise_on_error: bool = False,
         **kwargs
     ) -> AsyncGenerator["Turn", None]:
         turn = await self.create_turn(message, status, **kwargs)
+        turn._raise_on_error = raise_on_error
         async with turn as t:
             yield t
         # try:
@@ -193,6 +195,7 @@ class Turn(Model):
     block_trees: List["BlockTree"] = RelationField(foreign_key="turn_id")
     
     _auto_commit: bool = True
+    _raise_on_error: bool = False
 
     # forked_branches: List["Branch"] = RelationField("Branch", foreign_key="forked_from_turn_id")
     @classmethod
@@ -243,6 +246,8 @@ class Turn(Model):
             await self.revert(str(exc_value))
         else:
             await self.commit()
+        if self._raise_on_error:
+            return False
         return True
     
     
