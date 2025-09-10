@@ -1,3 +1,4 @@
+import copy
 import json
 import textwrap
 from typing import Any, Callable, List, Type
@@ -34,7 +35,7 @@ class BlockChunk(BaseBlock[str]):
         # if content.endswith("\n"):
         #     content = content[:-1]
         #     postfix = "\n"
-        super().__init__(content, prefix=prefix, postfix=postfix, id=id, parent=parent)
+        super().__init__(content, prefix=prefix or "", postfix=postfix or "", id=id, parent=parent)
         self.logprob: float | None = logprob
         self.type: Type = type(content)
         
@@ -83,7 +84,20 @@ class BlockChunk(BaseBlock[str]):
 
 SentContent = list[BlockChunk] | BlockChunk | str | None
 
-class BlockSent(BlockSequence[BlockChunk]):
+class BlockSent(BlockSequence[str, BlockChunk]):
+    
+    
+    
+    def __init__(
+        self,
+        children: list[BlockChunk] | None = None,
+        prefix: BaseContent | None = None,
+        postfix: BaseContent | None = None,
+        parent: "BlockSequence | None" = None,
+        id: str | None = None,
+
+    ):
+        super().__init__(children=children or [], prefix=prefix or "", postfix=postfix or "", parent=parent, id=id)
     
     
     def promote_content(self, content: SentContent, prefix: str | None = None, postfix: str | None = None) -> BlockChunk:
@@ -98,12 +112,17 @@ class BlockSent(BlockSequence[BlockChunk]):
         elif isinstance(content, BlockSent):
             raise ValueError("Cannot promote BlockSent to BlockChunk")
         elif isinstance(content, BlockChunk):
-            content.prefix = prefix
-            content.postfix = postfix
+            if prefix is not None:
+                content.prefix = prefix
+            if postfix is not None:
+                content.postfix = postfix
             return content
         else:
             raise ValueError(f"Invalid content type: {type(content)}")
-        
+    
+    # def index_of(self, child: Block) -> int | None:
+    #     if child
+    #     return super().index_of(child)
         
     @property
     def logprob(self) -> float | None:
@@ -118,8 +137,8 @@ class BlockSent(BlockSequence[BlockChunk]):
     
     
     def render(self, verbose: bool = False) -> str:
-        from .renderers import render
-        return render(self)
+        from .renderers2 import render
+        return render(copy.deepcopy(self))
     
     def print(self, verbose: bool = False):
         print(self.render(verbose=verbose))
@@ -130,8 +149,7 @@ class BlockSent(BlockSequence[BlockChunk]):
         copy_id: bool = False,
         copy_parent: bool = False,
     ):
-        return BlockSent(
-            default_sep=self.default_sep if not overrides or "default_sep" not in overrides else overrides["default_sep"],
+        return BlockSent(            
             children=[c.copy() for c in self.children] if not overrides or "children" not in overrides else overrides["children"],
             prefix=self.prefix if not overrides or "prefix" not in overrides else overrides["prefix"],
             postfix=self.postfix if not overrides or "postfix" not in overrides else overrides["postfix"],
@@ -141,10 +159,9 @@ class BlockSent(BlockSequence[BlockChunk]):
         
         
     def repr_tree(self, verbose: bool = False): 
-        default_sep = self.default_sep.replace("\n", "\\n")
         prefix = " prefix='" + self.prefix.replace("\n", "\\n") + "'" if self.prefix is not None else ""
         postfix = " postfix='" + self.postfix.replace("\n", "\\n") + "'"if self.postfix is not None else ""
-        res = f"{self.path}  BlockSent({self.id}, default_sep={default_sep}{prefix}{postfix})"
+        res = f"{self.path}  BlockSent({self.id}, {prefix}{postfix})"
         for child in self.children:
             res += f"\n{child.repr_tree(verbose=verbose)}"
         return res
@@ -152,10 +169,9 @@ class BlockSent(BlockSequence[BlockChunk]):
 BlockContent = BlockSent | BlockChunk | BaseContent 
  
 
-class Block(BlockSequence["Block"]):
+class Block(BlockSequence[BlockSent, "Block"]):
     
     __slots__ = [
-        "root",
         "role",
         "tags",
         "styles",
@@ -167,7 +183,7 @@ class Block(BlockSequence["Block"]):
     
     def __init__(
         self, 
-        root: BlockContent | None = None,
+        content: BlockContent | None = None,
         children: list["Block"] | None = None,
         *,
         role: str | None = None,
@@ -175,33 +191,52 @@ class Block(BlockSequence["Block"]):
         style: str | None = None,
         styles: list[str] | None = None,
         attrs: dict[str, str] | None = None,
-        default_sep: str = "\n",
         id: str | None = None,
-        prefix: BaseContent | None = None,
-        postfix: BaseContent | None = None,
+        prefix: BlockSent | None = None,
+        postfix: BlockSent | None = None,
         parent: "Block | None" = None,
     ):
-        super().__init__(children=children, default_sep=default_sep, parent=parent, prefix=prefix, postfix=postfix, id=id)
+        super().__init__(
+            content=self._init_content(content),
+            children=children or [], 
+            parent=parent, 
+            prefix=prefix or BlockSent(), 
+            postfix=postfix or BlockSent(), 
+            id=id
+        )
         self.role: str | None = role
         self.tags: list[str] = tags or []
         self.styles: list[str] = styles or parse_style(style)
         self.attrs: dict[str, AttrBlock] = get_attrs(attrs)
-        self.default_sep: str = default_sep
-        if root is None:
-            self.root = BlockSent(parent=self)
-        elif isinstance(root, BlockSent):
-            self.root = root
-        elif isinstance(root, list):
-            self.root = BlockSent(parent=self)
-            self.root.extend(root)
+        self.content = self._init_content(content)
+        # if content is None:
+        #     self.content = BlockSent(parent=self)
+        # elif isinstance(content, BlockSent):
+        #     self.content = content
+        # elif isinstance(content, list):
+        #     self.content = BlockSent(parent=self)
+        #     self.content.extend(content)
+        # else:
+        #     self.content = BlockSent(parent=self)
+        #     self.content.append(content)
+
+    def _init_content(self, content: BlockContent | None) -> BlockSent:
+        if content is None:
+            return BlockSent(parent=self)
+        elif isinstance(content, BlockSent):
+            return content
+        elif isinstance(content, list):
+            sent = BlockSent(parent=self)
+            sent.extend(content)
+            return sent
         else:
-            self.root = BlockSent(parent=self)
-            self.root.append(root)
-        self.postfix = postfix
-        self.prefix = prefix
+            sent = BlockSent(parent=self)
+            sent.append(content)
+            return sent
+    
         
         
-    def promote_content(self, content: "Block | BlockSent | BaseContent", prefix: BaseContent | None = None, postfix: BaseContent | None = None) -> "Block":
+    def promote_content(self, content: "Block | BlockSent | BaseContent", prefix: BlockSent | None = None, postfix: BlockSent | None = None) -> "Block":
         if isinstance(content, str):
             return Block(content, prefix=prefix, postfix=postfix)
         elif isinstance(content, int):
@@ -211,8 +246,10 @@ class Block(BlockSequence["Block"]):
         elif isinstance(content, bool):
             return Block(str(content), prefix=prefix, postfix=postfix)
         elif isinstance(content, Block):
-            content.prefix = prefix
-            content.postfix = postfix
+            if prefix is not None:
+                content.prefix = prefix
+            if postfix is not None:
+                content.postfix = postfix
             return content
         elif isinstance(content, BlockSent):
             return Block(content, prefix=prefix, postfix=postfix)
@@ -221,12 +258,19 @@ class Block(BlockSequence["Block"]):
         else:
             raise ValueError(f"Invalid content type: {type(content)}")
         
+    
+    def index_of(self, child: BaseBlock) -> int | None:
+        if isinstance(child, Block):
+            return super().index_of(child)
+        else:
+            return self.index
+        
         
     @property
     def logprob(self) -> float | None:
         logprob = sum(blk.logprob for blk in self.children if blk.logprob is not None) or 0
-        if self.root is not None:
-            logprob += self.root.logprob or 0
+        if self.content is not None:
+            logprob += self.content.logprob or 0
         if self.postfix is not None:
             logprob += self.postfix.logprob or 0
         if self.prefix is not None:
@@ -299,19 +343,19 @@ class Block(BlockSequence["Block"]):
     def is_last_eol(self) -> bool:
         if len(self.children) == 0:
             return True
-        return self.children[-1].root.is_last_eol()
+        return self.children[-1].content.is_last_eol()
 
     
-    def inline_append(self, content: "BlockChunk | BaseContent", sep: str = ""):
+    def inline_append(self, content: "BlockChunk | BaseContent"):
         if self.last_child is None:
             raise ValueError("Block has no children")
-        return self.last_child.root.append(content, sep=sep)
+        return self.last_child.content.append(content)
     # def inline_append(self, content: "Block | BlockSent | BaseContent", sep: str = " "):        
     #     if isinstance(content, Block):
     #         self.append(content, sep=sep)
     #         return self.children[-1]
     #     elif isinstance(content, BlockSent):
-    #         block = Block(root=content)
+    #         block = Block(content=content)
     #         self.append(block, sep=sep)
     #         return self.children[-1]
     #     else:
@@ -320,12 +364,12 @@ class Block(BlockSequence["Block"]):
     #             return self.children[-1]
     #         else:
     #             last = self.children[-1]
-    #             if last.root.is_last_eol:
+    #             if last.content.is_last_eol:
     #                 self.append(content, sep=sep)
     #                 return self.children[-1]
     #             else:
-    #                 last.root.append(content, sep=sep)
-    #                 return last.root.children[-1]
+    #                 last.content.append(content, sep=sep)
+    #                 return last.content.children[-1]
 
 
 
@@ -361,7 +405,7 @@ class Block(BlockSequence["Block"]):
     def model_dump(self):
         dump = {
             **super().model_dump(),
-            "root": self.root.model_dump(),
+            "content": self.content.model_dump(),
             "styles": [s for s in self.styles],
             "tags": [t for t in self.tags],
             "attrs": [attr.model_dump() for attr in self.attrs.values()],
@@ -371,7 +415,7 @@ class Block(BlockSequence["Block"]):
     # def model_dump(self):
     #     dump = super().model_dump()
     #     dump["_type"] = "Block"
-    #     dump["root"] = self.root.model_dump()
+    #     dump["content"] = self.content.model_dump()
     #     dump["children"] = [c.model_dump() for c in self.children]
     #     dump["styles"] = self.styles
     #     dump["tags"] = self.tags
@@ -427,7 +471,7 @@ class Block(BlockSequence["Block"]):
         copy_parent: bool = False,
     ):
         return Block(
-            root=self.root.copy() if not overrides or "root" not in overrides else overrides["root"],
+            content=self.content.copy() if not overrides or "content" not in overrides else overrides["content"],
             children=[c.copy() for c in self.children] if not overrides or "children" not in overrides else overrides["children"],
             attrs=self.attrs if not overrides or "attrs" not in overrides else overrides["attrs"],
             prefix=self.prefix if not overrides or "prefix" not in overrides else overrides["prefix"],
@@ -453,17 +497,17 @@ class Block(BlockSequence["Block"]):
     def __iadd__(self, other: BaseContent | BlockSent | tuple[BaseContent, ...]):
         if isinstance(other, tuple):
             for o in other:
-                self.root.append(o)
+                self.content.append(o)
         else:
-            self.root.append(other)
+            self.content.append(other)
         return self
     
     def __iand__(self, other: BaseContent | BlockSent | BlockChunk | tuple[BaseContent, ...]):
         if isinstance(other, tuple):
             for o in other:
-                self.root.append(o, sep="")
+                self.content.append(o, sep="")
         else:
-            self.root.append(other, sep="")
+            self.content.append(other, sep="")
         return self
             
     
@@ -476,10 +520,10 @@ class Block(BlockSequence["Block"]):
     
         
     def __repr__(self) -> str:
-        root = self.root.render() if self.root else ''
+        content = self.content.render() if self.content else ''
         tags = ','.join(self.tags) if self.tags else ''
         tags = f"[{tags}] " if tags else ''
-        return f"{self.__class__.__name__}({tags}root={root}, children={self.children})"
+        return f"{self.__class__.__name__}({tags}content={content}, children={self.children})"
 
     def repr_tree(self, verbose: bool = False):
         default_sep = self.default_sep.replace("\n", "\\n")
@@ -489,9 +533,9 @@ class Block(BlockSequence["Block"]):
         prefix = " prefix='" + self.prefix.replace("\n", "\\n") + "'" if self.prefix is not None else ""
         postfix = " postfix='" + self.postfix.replace("\n", "\\n") + "'"if self.postfix is not None else ""
         res = f"{self.path}  Block({tags}{role}id={self.id}, default_sep={default_sep}{prefix}{postfix})"
-        if self.root and verbose:
-            # res += f"\nroot-{self.root.repr_tree()}"
-            res += f"\n{self.root.repr_tree()}"
+        if self.content and verbose:
+            # res += f"\ncontent-{self.content.repr_tree()}"
+            res += f"\n{self.content.repr_tree()}"
         for child in self.children:
             res += f"\n{child.repr_tree(verbose=verbose)}"        
         return res
@@ -499,8 +543,8 @@ class Block(BlockSequence["Block"]):
     
     
     def render(self, verbose: bool = False) -> str:
-        from .renderers import render
-        return render(self)
+        from .renderers2 import render
+        return render(copy.deepcopy(self))
 
     def print(self, verbose: bool = False):
         print(self.render(verbose=verbose))
@@ -638,7 +682,7 @@ class BlockSchema(Block):
             id=self.id if copy_id else None,
             parent=self.parent if copy_parent else None,
         )
-        blk.root = self.root.copy() if not overrides or "root" not in overrides else overrides["root"]
+        blk.content = self.content.copy() if not overrides or "content" not in overrides else overrides["content"]
         blk.children = [c.copy() for c in self.children] if not overrides or "children" not in overrides else overrides["children"]
         
         

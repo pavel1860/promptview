@@ -14,12 +14,6 @@ class BlockBuilderContext:
         self.instance = None
         self.queue = SimpleQueue()
         
-    # @property
-    # def instance(self) -> Block:
-    #     if self._instance is None:
-    #         raise ValueError("Instance is not initialized")
-    #     return self._instance
-        
         
     def extract_schema(self, schema: Block) -> BlockSchema:
         def _clone_target_node(n: BlockSchema) -> BlockSchema:            
@@ -34,14 +28,7 @@ class BlockBuilderContext:
         else:
             raise ValueError("Multiple target nodes found")  
         
-    # def inst_root(self, content: BlockChunk | str | None = None) -> Block:
-    #     self.instance = Block(
-    #         self.schema.root,
-    #         parent=None,
-    #     )
-    #     if content is not None:
-    #         self.instance.append(content)
-    #     return self.instance
+
     
     def has_events(self) -> bool:
         return not self.queue.empty()
@@ -93,7 +80,7 @@ class BlockBuilderContext:
         def build_response_block(schema: BlockSchema) -> Block:
             if view_schema.name == schema.name:
                 view = Block(
-                    root=content,
+                    content=content,
                     tags=[t for t in schema.tags ] + (tags or []),
                 )
                 if attrs:
@@ -106,7 +93,7 @@ class BlockBuilderContext:
                     
             else:
                 view = Block(
-                    root=schema.root.copy(),
+                    content=schema.content.copy(),
                     tags=[t for t in schema.tags],
                 )
             return view
@@ -128,17 +115,7 @@ class BlockBuilderContext:
             if pth_view is None:
                 pth_view = build_response_block(vw_scm)                
                 insert(vw_scm.path, pth_view)
-            curr_view = pth_view
-            # if i == len(view_path) - 1:
-            #     if content is not None:
-            #         if isinstance(content, list):
-            #             curr_view.root.extend(content)
-            #         else:
-            #             curr_view.root.append(content)
-            #     if tags:
-            #         curr_view.tags += tags
-            #     if attrs:
-            #         self.set_attributes(vw_scm.name, curr_view, attrs)
+            curr_view = pth_view            
             self._push_event(curr_view)
         return curr_view
     

@@ -22,21 +22,21 @@ class BaseBlock(Generic[CONTENT]):
         "prefix",
         "postfix", 
         "id",      
-    ]    
+    ]   
     
     def __init__(
         self,
         content: CONTENT | None = None,
         *,
+        prefix: CONTENT,
+        postfix: CONTENT,
         parent: "BlockSequence | None" = None,
-        id: str | None = None,
-        prefix: CONTENT | None = None,
-        postfix: CONTENT | None = None,
+        id: str | None = None,        
     ):
         self.content: CONTENT | None = content
         self.parent: "BlockSequence | None" = parent
-        self.prefix: CONTENT | None = prefix
-        self.postfix: CONTENT | None = postfix
+        self.prefix: CONTENT = prefix
+        self.postfix: CONTENT = postfix
         self.id: str = id or uuid4().hex[:8]
     
     @property
@@ -71,42 +71,44 @@ class BaseBlock(Generic[CONTENT]):
     
     def print_tree(self, verbose: bool = False):
         print(self.repr_tree(verbose=verbose))
+        
+        
+    def __eq__(self, other: object):
+        if isinstance(other, BaseBlock):
+            return self.id == other.id
+        else:
+            return False
     
 
 
 CHILD = TypeVar("CHILD", bound=BaseBlock)
-
 PathType = list[int] | int
 
 
-class BlockSequence(BaseBlock, Generic[CHILD]):
+class BlockSequence(Generic[CONTENT,CHILD], BaseBlock[CONTENT]):
     
     __slots__ = [
-        "children",
-        "_id2index",
-        "default_sep",        
+        "children",  
     ]
     
     def __init__(
         self,
-        children: list[CHILD] | None = None,
+        children: list[CHILD],
+        prefix: CONTENT,
+        postfix: CONTENT,
         parent: "BlockSequence | None" = None,
-        default_sep: str = " ",
         id: str | None = None,
-        prefix: BaseContent | None = None,
-        postfix: BaseContent | None = None,
+
     ):
         BaseBlock.__init__(self, parent=parent, prefix=prefix, postfix=postfix, id=id)
         self.children: list[CHILD] = []
-        self._id2index: dict[str, int] = {}
         self.parent: "BlockSequence | None" = parent
         self.id: str = uuid4().hex[:8]
-        self.default_sep = default_sep
         if children is not None:
             for child in children:
                 self.append(child)
                 
-    def promote_content(self, content: Any, prefix: BaseContent | None = None, postfix: BaseContent | None = None) -> CHILD:
+    def promote_content(self, content: Any, prefix: CONTENT | None = None, postfix: CONTENT | None = None) -> CHILD:
         raise NotImplementedError("promote_content is not implemented")
         
     @property
@@ -123,8 +125,8 @@ class BlockSequence(BaseBlock, Generic[CHILD]):
             return None
         return self.parent.index_of(self)
         
-    def index_of(self, child: CHILD) -> int | None:
-        return self._id2index.get(child.id)
+    def index_of(self, child: CHILD) -> int | None:        
+        return self.children.index(child)
     
     def _parse_path(self, path: PathType):
         if isinstance(path, int):
@@ -161,12 +163,6 @@ class BlockSequence(BaseBlock, Generic[CHILD]):
             target = target.children[idx]
         return True
     
-    def _get_sep(self, sep: str | None = None) -> str | None:
-        if len(self.children) == 0:
-            return None
-        if sep is None:
-            return self.default_sep
-        return sep
     
     @property
     def last_child(self) -> CHILD | None:
@@ -177,41 +173,28 @@ class BlockSequence(BaseBlock, Generic[CHILD]):
     
     def append_child(self, child: CHILD):
         self.children.append(child)
-        child.parent = self
-        if child.id in self._id2index:
-            raise ValueError(f"Child with id {child.id} already exists")
-        self._id2index[child.id] = len(self.children) - 1
+        child.parent = self        
         return child
     
     def insert_child(self, index: int, child: CHILD):
         self.children.insert(index, child)
-        child.parent = self
-        if child.id in self._id2index:
-            raise ValueError(f"Child with id {child.id} already exists")
-        self._id2index[child.id] = index
+        child.parent = self        
         return child
     
     
     def replace_child(self, index: int, child: CHILD):
         child.parent = self
-        del self._id2index[self.children[index].id]
         self.children[index] = child
-        if child.id in self._id2index:
-            raise ValueError(f"Child with id {child.id} already exists")
-        del self._id2index[self.children[index].id]
-        self._id2index[child.id] = index
         return child
     
     def append(
         self, 
         child: CHILD | BaseContent, 
         path: PathType | None = None, 
-        sep: str | None = None,  
         prefix: BaseContent | None = None, 
         postfix: BaseContent | None = None
     ):
-        sep = self._get_sep(sep)
-        child = self.promote_content(child, prefix=sep, postfix=postfix)
+        child = self.promote_content(child, prefix=prefix, postfix=postfix)
         if not path:
             self.append_child(child)
             return child        
@@ -228,12 +211,11 @@ class BlockSequence(BaseBlock, Generic[CHILD]):
         self, 
         children: list[CHILD],
         path: PathType | None = None,
-        sep: str | None = None,
         prefix: BaseContent | None = None,
         postfix: BaseContent | None = None,
     ):
         for child in children:
-            self.append(child, path=path, sep=sep, prefix=prefix, postfix=postfix)
+            self.append(child, path=path, prefix=prefix, postfix=postfix)
         return self
     
     
@@ -283,11 +265,11 @@ class BlockSequence(BaseBlock, Generic[CHILD]):
             raise ValueError(f"Invalid path: {path}, target not found")
         return target
     
-    def __eq__(self, other: object):
-        if isinstance(other, BlockSequence):
-            return self.children == other.children
-        else:
-            return False
+    # def __eq__(self, other: object):
+    #     if isinstance(other, BlockSequence):
+    #         return self.children == other.children
+    #     else:
+    #         return False
         
         
         
@@ -295,7 +277,6 @@ class BlockSequence(BaseBlock, Generic[CHILD]):
         dump = {
             **super().model_dump(),
             "children": [child.model_dump() for child in self.children],
-            "default_sep": self.default_sep,
         }
         
         return dump
