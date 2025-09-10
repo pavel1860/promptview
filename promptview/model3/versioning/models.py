@@ -87,14 +87,16 @@ class Branch(Model):
         **kwargs
     ) -> AsyncGenerator["Turn", None]:
         turn = await self.create_turn(message, status, **kwargs)
-        try:
-            with turn as t:
-                yield t
-        except Exception as e:
-            await turn.revert(str(e))
-            raise e
-        finally:
-            await turn.commit()
+        async with turn as t:
+            yield t
+        # try:
+        #     with turn as t:
+        #         yield t
+        # except Exception as e:
+        #     await turn.revert(str(e))
+        #     raise e
+        # finally:
+        #     await turn.commit()
     
 
     async def create_turn(self, message: str | None = None, status: TurnStatus = TurnStatus.STAGED, auto_commit: bool = True, **kwargs):
@@ -223,6 +225,28 @@ class Turn(Model):
         if reason:
             self.message = reason
         return await self.save()
+    
+    
+    
+    async def __aenter__(self):
+        if self.status != TurnStatus.STAGED:
+            raise ValueError("Turn is not staged")
+        ns = self.get_namespace()
+        self._ctx_token = ns.set_ctx(self)
+        return self
+    
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        ns = self.get_namespace()
+        ns.set_ctx(None)
+        self._ctx_token = None
+        if exc_type is not None:
+            await self.revert(str(exc_value))
+        else:
+            await self.commit()
+        return True
+    
+    
+    
     
     @classmethod
     def _resolve_branch_id(cls, branch: Branch | None = None) -> int:

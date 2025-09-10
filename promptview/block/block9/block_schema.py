@@ -49,7 +49,11 @@ class BlockBuilderContext:
         if not isinstance(schema, BlockSchema):
             raise ValueError(f"View {view_name} is not a schema")
         view = None
-        if self.instance is not None:
+        is_list = False
+        if schema.parent is not None:
+            if schema.parent.is_list:
+                is_list = True
+        if not is_list and self.instance is not None:
             view = self.instance.get(view_name)
         return schema, view
     
@@ -117,8 +121,8 @@ class BlockBuilderContext:
             if pth_view is None:
                 pth_view = build_response_block(vw_scm)                
                 insert(vw_scm.path, pth_view)
+                self._push_event(pth_view)
             curr_view = pth_view            
-            self._push_event(curr_view)
         return curr_view
     
     
@@ -177,7 +181,7 @@ class BlockBuilderContext:
             self._push_event(blk)
             return blk  
         else:
-            raise ValueError(f"View {view_name} is not instantiated")              
+            raise ValueError(f"View {view_name} is not instantiated")
     
     def instantiate(self, view_name: str, content: list[BlockChunk] | BlockChunk | str | None = None, tags: list[str] | None = None, attrs: dict[str, str] | None = None) -> Block:
         schema, view = self.get_view_info(view_name)

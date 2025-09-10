@@ -2,6 +2,8 @@ import copy
 import json
 import textwrap
 from typing import Any, Callable, List, Type
+
+from promptview.utils.model_utils import is_list_type
 from .base_blocks import BaseBlock, BaseContent, BlockSequence
 import annotated_types
 
@@ -419,7 +421,7 @@ class Block(BlockSequence[BlockSent, "Block"]):
             "content": self.content.model_dump(),
             "styles": [s for s in self.styles],
             "tags": [t for t in self.tags],
-            "attrs": [attr.model_dump() for attr in self.attrs.values()],
+            "attrs": {k: attr.model_dump() for k, attr in self.attrs.items()},
             "role": self.role,            
         }
         return dump
@@ -651,6 +653,7 @@ class BlockSchema(Block):
     __slots__ = [
         "type",
         "name",
+        "is_list",
     ]
     
     def __init__(
@@ -672,6 +675,7 @@ class BlockSchema(Block):
             raise ValueError("type is required")
         self.type = type
         self.name = name
+        self.is_list = is_list_type(type)
         
         
     def copy(
