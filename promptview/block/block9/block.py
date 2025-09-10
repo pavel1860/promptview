@@ -50,9 +50,9 @@ class BlockChunk(BaseBlock[str]):
     def repr_tree(self, verbose: bool = False):
         logprob = f" logprob={self.logprob:.3f}" if self.logprob is not None else ""
         content = self.content.replace("\n", "\\n")
-        prefix = " prefix='" + self.prefix.replace("\n", "\\n") + "'" if self.prefix is not None else ""
-        postfix = " postfix='" + self.postfix.replace("\n", "\\n") + "'"if self.postfix is not None else ""
-        return f"{self.path}  BlockChunk('{content}'{logprob}{prefix}{postfix})"
+        # prefix = " prefix='" + self.prefix.replace("\n", "\\n") + "'" if self.prefix is not None else ""
+        # postfix = " postfix='" + self.postfix.replace("\n", "\\n") + "'"if self.postfix is not None else ""
+        return f"{self.path}  BlockChunk('{content}'{logprob})"
     
     def __repr__(self):
         return f"BlockChunk(content={self.content} , logprob={self.logprob})"
@@ -171,9 +171,10 @@ class BlockSent(BlockSequence[str, BlockChunk]):
         
         
     def repr_tree(self, verbose: bool = False): 
-        prefix = " prefix='" + self.prefix.replace("\n", "\\n") + "'" if self.prefix is not None else ""
-        postfix = " postfix='" + self.postfix.replace("\n", "\\n") + "'"if self.postfix is not None else ""
-        res = f"{self.path}  BlockSent({self.id}, {prefix}{postfix})"
+        # prefix = " prefix='" + self.prefix.replace("\n", "\\n") + "'" if self.prefix is not None else ""
+        # postfix = " postfix='" + self.postfix.replace("\n", "\\n") + "'"if self.postfix is not None else ""
+        content = "content=" + self.content if self.content else ''
+        res = f"{self.path}  BlockSent({content}id={self.id})"
         for child in self.children:
             res += f"\n{child.repr_tree(verbose=verbose)}"
         return res
@@ -188,7 +189,6 @@ class Block(BlockSequence[BlockSent, "Block"]):
         "tags",
         "styles",
         "attrs",
-        "default_sep",
         "postfix",
         "prefix",
     ]
@@ -300,7 +300,6 @@ class Block(BlockSequence[BlockSent, "Block"]):
             parent=self.parent,
             tags=tags,
             styles=["xml"],
-            # prefix=self.default_sep,
         )
         self.append(block)
         return block
@@ -463,14 +462,13 @@ class Block(BlockSequence[BlockSent, "Block"]):
             parent=self,            
             style=style,
             attrs=attrs,
-            # prefix=self.default_sep,
         )      
         self.append(block)
         return block
     
     
     def _process_tuple_content(self, other: tuple[BaseContent, ...]):
-        block = BlockSent(default_sep=" ")
+        block = BlockSent()
         for o in other:
             block.append(o)
         return block
@@ -537,13 +535,13 @@ class Block(BlockSequence[BlockSent, "Block"]):
         return f"{self.__class__.__name__}({tags}content={content}, children={self.children})"
 
     def repr_tree(self, verbose: bool = False):
-        default_sep = self.default_sep.replace("\n", "\\n")
         tags = ','.join(self.tags) if self.tags else ''
         tags = f"[{tags}] " if tags else ''
         role = f" role={self.role} " if self.role else ''
-        prefix = " prefix='" + self.prefix.replace("\n", "\\n") + "'" if self.prefix is not None else ""
-        postfix = " postfix='" + self.postfix.replace("\n", "\\n") + "'"if self.postfix is not None else ""
-        res = f"{self.path}  Block({tags}{role}id={self.id}, default_sep={default_sep}{prefix}{postfix})"
+        styles = "styles=[" + ','.join(self.styles) + "] " if self.styles else ''
+        # prefix = " prefix='" + self.prefix.replace("\n", "\\n") + "'" if self.prefix is not None else ""
+        # postfix = " postfix='" + self.postfix.replace("\n", "\\n") + "'"if self.postfix is not None else ""
+        res = f"{self.path}  Block({tags}{role}{styles}id={self.id})"
         if self.content and verbose:
             # res += f"\ncontent-{self.content.repr_tree()}"
             res += f"\n{self.content.repr_tree()}"

@@ -82,6 +82,7 @@ class BlockBuilderContext:
                 view = Block(
                     content=content,
                     tags=[t for t in schema.tags ] + (tags or []),
+                    styles=["stream"]
                 )
                 if attrs:
                     for k, v in attrs.items():
@@ -95,6 +96,7 @@ class BlockBuilderContext:
                 view = Block(
                     content=schema.content.copy(),
                     tags=[t for t in schema.tags],
+                    styles=["stream"]
                 )
             return view
         
@@ -166,10 +168,10 @@ class BlockBuilderContext:
         schema, view = self.get_view_info(view_name)
         if view is not None:
             if view.is_last_eol():
-                blk = view.append(content)
+                blk = view.append(content)                
+                blk.styles += ["stream"]
             else:
                 blk = view.inline_append(content)
-            
             if attrs:
                 self.set_attributes(view_name, blk, attrs)
             self._push_event(blk)

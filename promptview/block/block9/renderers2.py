@@ -1,3 +1,4 @@
+import textwrap
 from typing import Any, Generic, Text, Type, TypeVar
 from typing import get_type_hints, List
 from typing import get_args, get_origin, List
@@ -47,14 +48,15 @@ class StyleMeta(type):
 #     return target
 
 
-def resolve_style(target: Block, effects: str) -> dict:
+def resolve_style(target: Block, effects: str | None = None) -> dict:
     lookup = {}
     if target.styles:        
         for style in target.styles:
             if style in StyleMeta._styles:
                 block_style = StyleMeta.resolve(style)
-                if block_style.effects == effects:
-                    lookup[block_style.target] = block_style        
+                if effects and block_style.effects != effects:
+                    continue
+                lookup[block_style.target] = block_style        
     return lookup
 
 
@@ -70,6 +72,15 @@ def apply_style(target):
     if styler:=lookup.get("block", BlockStyle()):
         target = styler(target)
     
+    return target
+
+
+def apply_chunk_style(target):
+    lookup = {}
+    if target.parent is not None and target.parent.parent is not None:
+        lookup = resolve_style(target.parent.parent)
+    if styler:=lookup.get("chunk", ChunkStyle()):
+        target = styler(target)
     return target
 
 
@@ -111,8 +122,10 @@ def render(target) -> str:
             postfix = render_text(target.postfix)
         if target.children:
             children_content = "".join(render(c) for c in target.children)
+            # children_content = textwrap.indent(children_content, "  ")
         return f"{prefix}{content}{children_content}{postfix}"
-    # elif type(target) is BlockSent:
+    elif type(target) is BlockSent:
+        return render_text(target)
     #     if target.content is not None:
     #         return render(target.content)
     #     elif target.children:
@@ -121,7 +134,8 @@ def render(target) -> str:
     #         return ""
     elif type(target) is BlockChunk:
         if target.content is not None:
-            return render(target.content)
+            target = apply_chunk_style(target)
+            return f"{target.prefix}{render(target.content)}{target.postfix}"
         else:
             return ""
     else:
@@ -147,6 +161,24 @@ class TextStyle(metaclass=StyleMeta):
     def __call__(self, text: BlockSent):
         return text
     
+    
+class ChunkStyle(metaclass=StyleMeta):
+    styles = []
+    target = "chunk"
+    effects = "all"
+    
+    def __call__(self, chunk: BlockChunk):
+        if chunk.index > 0:
+            chunk.prefix += " "
+        return chunk
+    
+    
+class ChunkStreamStyle(ChunkStyle):
+    styles = ["stream"]
+    
+    def __call__(self, chunk: BlockChunk):        
+        chunk.content = chunk.content.replace("\n", "")
+        return chunk
     
 class Markdown(TextStyle):
     styles = ["md"]
@@ -185,8 +217,17 @@ class NumberedList(TextStyle):
     def __call__(self, text: BlockSent):
         text.prefix += f"{text.index + 1}. "
         return text
+
+
+
+# class XMLChildrenStyle(BlockStyle):
+#     styles = ["xml"]
+#     effects = "children"
     
-    
+#     def __call__(self, block: Block):
+#         for child in block.children:
+#             child.prefix.insert("\n", 0)
+#         return block
     
 class XMLStyle(BlockStyle):
     styles = ["xml"]

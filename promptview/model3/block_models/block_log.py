@@ -57,13 +57,13 @@ def dump_sent(sent: BlockSent):
         chunks.append(dump_chunk(chunk))
     return {
         # "has_eol": sent.has_eol,
+        "content": sent.content,
         "children": chunks,
-        "default_sep": sent.default_sep,
     }
     
 def load_sent_dump(dump: dict):
     sent = BlockSent(
-        default_sep=dump["default_sep"],
+        content=dump["content"],
     )
     for child in dump["children"]:
         sent.append(
@@ -78,8 +78,8 @@ def dump_block(blk: Block):
     dumps = []
     for blk in blk.traverse():
         dump = {}
-        dump["content"] = blk.root.render()
-        dump["json_content"] = dump_sent(blk.root)
+        dump["content"] = blk.content.render()
+        dump["json_content"] = dump_sent(blk.content)
         dump["styles"] = blk.styles
         dump["path"] = ".".join(str(p) for p in [0] +blk.path)
         dump["tags"] = blk.tags
