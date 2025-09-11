@@ -212,8 +212,11 @@ class Parser(BaseFbpComponent):
     def __aiter__(self):
         return self
     
-    def _push_tag(self, tag: str):
-        self._tag_stack.append(tag)
+    def _push_tag(self, tag: str, is_list: bool):
+        self._tag_stack.append({
+            "tag": tag,
+            "is_list": is_list
+        })
     
     def _pop_tag(self):
         return self._tag_stack.pop()
@@ -222,7 +225,14 @@ class Parser(BaseFbpComponent):
     def current_tag(self):
         if not self._tag_stack:
             return None
-        return self._tag_stack[-1]
+        return self._tag_stack[-1]["tag"]
+    
+    @property
+    def current_tag_is_list(self):
+        if not self._tag_stack:
+            return False
+        return self._tag_stack[-1]["is_list"]
+    
     
     
     def _read_buffer(self, start_from: str | None = None, flush=True):
@@ -294,12 +304,21 @@ class Parser(BaseFbpComponent):
                     continue                
                 if event == 'start':
                     # start of a field
-                    self._push_tag(element.tag)
-                    self.res_ctx.instantiate(
-                        element.tag,
-                        self._read_buffer(),
-                        attrs=dict(element.attrib),
-                    )
+                    if self.current_tag_is_list:
+                        view, schema = self.res_ctx.instantiate_list_item(
+                            self.current_tag,
+                            element.tag,
+                            self._read_buffer(),
+                            attrs=dict(element.attrib),
+                        )
+                    else:
+                        view, schema = self.res_ctx.instantiate(
+                            element.tag,
+                            self._read_buffer(),
+                            attrs=dict(element.attrib),
+                        )                    
+                    
+                    self._push_tag(element.tag, schema.is_list)
                     # partial_field = self.response_schema.partial_init_field(
                     #     field_name=element.tag,
                     #     root=self._read_buffer(),

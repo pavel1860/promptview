@@ -342,6 +342,21 @@ class Block(BlockSequence[BlockSent, "Block"]):
                 if (block:= child.get(tag)) is not None:
                     return block
         return None
+    
+    def get_last(self, tag: str):
+        tag = tag.lower()
+        if tag in self.tags:
+            return self
+        candidates = []
+        for child in self.children:
+            if isinstance(child, Block):
+                if tag in child.tags:
+                    candidates.append(child)                            
+                if (block:= child.get_last(tag)) is not None:
+                    return block
+        if not candidates:
+            return None
+        return candidates[-1]
 
         
     def _should_add_sentence(self):
@@ -676,7 +691,7 @@ class BlockSchema(Block):
         self.type = type
         self.name = name
         self.is_list = is_list_type(type)
-        
+    
         
     def copy(
         self,

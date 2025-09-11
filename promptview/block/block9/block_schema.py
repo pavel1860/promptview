@@ -42,19 +42,18 @@ class BlockBuilderContext:
         self.queue.put(event.model_dump())
         
         
-    def get_view_info(self, view_name: str) -> tuple[BlockSchema, Block | None]:
+    def get_view_info(self, view_name: str, is_last: bool = False) -> tuple[BlockSchema, Block | None]:
         schema = self.schema.get(view_name)
         if schema is None:
             raise ValueError(f"View {view_name} not found")
         if not isinstance(schema, BlockSchema):
             raise ValueError(f"View {view_name} is not a schema")
         view = None
-        is_list = False
-        if schema.parent is not None:
-            if schema.parent.is_list:
-                is_list = True
-        if not is_list and self.instance is not None:
-            view = self.instance.get(view_name)
+        if self.instance is not None:
+            if is_last:
+                view = self.instance.get_last(view_name)
+            else:
+                view = self.instance.get(view_name)
         return schema, view
     
     def get_block_path(self, target_schema: BlockSchema | str) -> list[BlockSchema]:        
@@ -169,25 +168,71 @@ class BlockBuilderContext:
         tags: list[str] | None = None,
         attrs: dict[str, str] | None = None,
     ) -> Block:
-        schema, view = self.get_view_info(view_name)
-        if view is not None:
-            if view.is_last_eol():
-                blk = view.append(content)                
-                blk.styles += ["stream"]
-            else:
-                blk = view.inline_append(content)
-            if attrs:
-                self.set_attributes(view_name, blk, attrs)
-            self._push_event(blk)
-            return blk  
-        else:
+        schema, view = self.get_view_info(view_name, is_last=True)
+        if view is None:
             raise ValueError(f"View {view_name} is not instantiated")
+        if view.is_last_eol():
+            blk = view.append(content)                
+            blk.styles += ["stream"]
+        else:
+            blk = view.inline_append(content)
+        if attrs:
+            self.set_attributes(view_name, blk, attrs)
+        self._push_event(blk)
+        return blk  
+        
+            
     
-    def instantiate(self, view_name: str, content: list[BlockChunk] | BlockChunk | str | None = None, tags: list[str] | None = None, attrs: dict[str, str] | None = None) -> Block:
+    def instantiate(self, view_name: str, content: list[BlockChunk] | BlockChunk | str | None = None, tags: list[str] | None = None, attrs: dict[str, str] | None = None) -> tuple[Block, BlockSchema]:
         schema, view = self.get_view_info(view_name)
         if view is not None:
             raise ValueError(f"View {view_name} is already instantiated")
+        return self.inst_view(schema, content, tags, attrs), schema
+    
+    # def append_list_item(
+    #     self, 
+    #     list_name: str, 
+    #     view_name: str, 
+    #     content: list[BlockChunk] | BlockChunk | str | None = None, 
+    #     tags: list[str] | None = None, 
+    #     attrs: dict[str, str] | None = None
+    # ) -> tuple[Block, BlockSchema]:
+    #     list_schema, list_view = self.get_view_info(list_name)
+    #     if list_view is None:
+    #         raise ValueError(f"List {list_name} is not instantiated")
+    #     last_view = list_view.last_child
+    #     if last_view is None:
+    #         raise ValueError(f"List {list_name} has no children")
+    #     if last_view.is_last_eol():
+    #         blk = last_view.append(content)
+    #         blk.styles += ["stream"]
+    #     else:
+    #         blk = last_view.inline_append(content)
+    #     if attrs:
+    #         self.set_attributes(view_name, blk, attrs)
+    #     self._push_event(blk)
+    #     return blk, schema
+            
+            
+            
+        
         return self.inst_view(schema, content, tags, attrs)
+    
+    def instantiate_list_item(
+        self, 
+        list_name: str, 
+        view_name: str, 
+        content: list[BlockChunk] | BlockChunk | str | None = None, 
+        tags: list[str] | None = None, 
+        attrs: dict[str, str] | None = None
+    ) -> tuple[Block, BlockSchema]:
+        list_schema, list_view = self.get_view_info(list_name)
+        if list_view is None:
+            raise ValueError(f"List {list_name} is not instantiated")
+        schema, _ = self.get_view_info(view_name, is_last=True)        
+        return self.inst_view(schema, content, tags, attrs), schema
+    
+    
     
     def print_schema_tree(self, verbose: bool = False):
         if self.schema is None:
