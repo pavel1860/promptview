@@ -1,3 +1,4 @@
+import contextvars
 import textwrap
 from typing import Any, Generic, Text, Type, TypeVar
 from typing import get_type_hints, List
@@ -12,75 +13,92 @@ BaseContent = str | int | float | bool | None
 CONTENT = TypeVar("CONTENT")
 
 
+style_registry_ctx = contextvars.ContextVar("style_registry_ctx", default={})
 
+def _style_key(style: str, target: str, effects: str="all") -> str:
+    return f"{style}_{target}_{effects}"   
+class StyleContext:
+        
+    def __init__(
+        self,
+        styles: dict
+    ):
+        self.styles = styles
+        self._token = None
+        
+        
+    def __enter__(self):
+        current = style_registry_ctx.get()
+        self._token = style_registry_ctx.set(self.styles)
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self._token:
+            style_registry_ctx.reset(self._token)
+        return False
+        
+        
 
 
 class StyleMeta(type):
-    _registry: dict[str, "StyleMeta"] = {}
-    _styles: dict[str, "BlockStyle"] = {}
+    # _registry: dict[str, "StyleMeta"] = {}
+    # _styles: dict[str, "BlockStyle"] = {}
+    
     
     def __new__(cls, name, bases, attrs):        
         new_cls = super().__new__(cls, name, bases, attrs)
-        cls._registry[name] = new_cls
+        # cls._registry[name] = new_cls
         if styles := attrs.get("styles"):
             for style in styles:
-                cls._styles[style] = new_cls()
+                # cls._styles[style] = new_cls()
+                # current = style_registry_ctx.get()
+                # if style not in current:
+                #     current[style] = {
+                #         "text": None,
+                #         "block": None,
+                #         "chunk": None,
+                #     }
+                # style_obj = new_cls()
+                # current[style_obj.target] = style_obj
+                style_obj = new_cls()
+                style_registry_ctx.get()[_style_key(style, style_obj.target, style_obj.effects)] = style_obj
         return new_cls
     
-    @classmethod
-    def resolve(cls, name: str) -> "BlockStyle":
-        return cls._styles[name]
     
-
-# def resolve_style(target: Block) -> "Block":
-#     if target.styles:
-#         lookup = {}
-#         for style in target.styles:
-#             if style in StyleMeta._styles:
-#                 block_style = StyleMeta.resolve(style)
-#                 lookup[block_style.target] = block_style
-#         # target = target.copy(overrides={"styles":[]})
-#         if styler:=lookup.get("text", TextStyle()):
-#             target.content = styler(target.content)
-#         if styler:=lookup.get("block", BlockStyle()):
-#             target = styler(target)
-#                 # return block_style(target.copy(overrides={"styles":[]}))
-#     return target
-
-
-def resolve_style(target: Block, effects: str | None = None) -> dict:
-    lookup = {}
-    if target.styles:        
-        for style in target.styles:
-            if style in StyleMeta._styles:
-                block_style = StyleMeta.resolve(style)
-                if effects and block_style.effects != effects:
-                    continue
-                lookup[block_style.target] = block_style        
-    return lookup
+    
+    @classmethod
+    def list_styles(cls) -> list[str]:
+        current = style_registry_ctx.get()
+        return list(current.keys())
+    
+    @classmethod
+    def resolve(cls, styles: list[str], target: str, effects: str="all", default: "BlockStyle | TextStyle | ChunkStyle | None"=None) -> "BlockStyle | TextStyle | ChunkStyle | None":
+        current = style_registry_ctx.get()
+        for style in styles:
+            if style_obj := current.get(_style_key(style, target, effects)):
+                return style_obj
+        return default
 
 
 
 def apply_style(target):
-    lookup = resolve_style(target, "content")
-    if styler:=lookup.get("text", TextStyle()):
+    if styler:= StyleMeta.resolve(target.styles, "text", "content", default=TextStyle()):
         target.content = styler(target.content)
     if target.parent:
-        parent_lookup = resolve_style(target.parent, "children")
-        if styler:=parent_lookup.get("text"):
+        if styler:= StyleMeta.resolve(target.parent.styles, "text", "children"):
             target.content = styler(target.content)
-    if styler:=lookup.get("block", BlockStyle()):
+    if styler:= StyleMeta.resolve(target.styles, "block", default=BlockStyle()):
         target = styler(target)
     
     return target
 
 
 def apply_chunk_style(target):
-    lookup = {}
+    # lookup = {}
     if target.parent is not None and target.parent.parent is not None:
-        lookup = resolve_style(target.parent.parent)
-    if styler:=lookup.get("chunk", ChunkStyle()):
-        target = styler(target)
+    # if styler:=lookup.get("chunk", ChunkStyle()):
+        if styler:=StyleMeta.resolve(target.parent.parent.styles, "chunk"):
+            target = styler(target)
     return target
 
 
@@ -89,11 +107,11 @@ def render_text(target) -> str:
     content = ""
     children_content = ""
     postfix = ""
-    if target.prefix is not None:
+    if target.prefix:
         prefix = render(target.prefix)
-    if target.content is not None:
+    if target.content:
         content = render(target.content)
-    if target.postfix is not None:
+    if target.postfix:
         postfix = render(target.postfix)
     if target.children:
         children_content = "".join(render(c) for c in target.children)
@@ -127,12 +145,7 @@ def render(target) -> str:
         return f"{prefix}{content}{children_content}{postfix}"
     elif type(target) is BlockSent:
         return render_text(target)
-    #     if target.content is not None:
-    #         return render(target.content)
-    #     elif target.children:
-    #         return "".join(render(c) for c in target.children)
-    #     else:
-    #         return ""
+
     elif type(target) is BlockChunk:
         if target.content is not None:
             target = apply_chunk_style(target)
@@ -180,6 +193,19 @@ class ChunkStreamStyle(ChunkStyle):
     def __call__(self, chunk: BlockChunk):        
         chunk.content = chunk.content.replace("\n", "")
         return chunk
+    
+
+    
+    
+class BlockStreamViewStyle(BlockStyle):
+    styles = ["stream-view"]
+    
+    def __call__(self, block: Block):
+        # block = super().__call__(block)
+        block.prefix.insert("\n", 0)
+        block.postfix.insert("\n", 0)
+        return block
+    
     
 class Markdown(TextStyle):
     styles = ["md"]
@@ -232,7 +258,7 @@ class NumberedList(TextStyle):
     
 class XMLStyle(BlockStyle):
     styles = ["xml"]
-    effects = "content"
+    # effects = "content"
     
     def __call__(self, block: Block):        
         if not block.children:

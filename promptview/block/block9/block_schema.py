@@ -85,7 +85,8 @@ class BlockBuilderContext:
                 view = Block(
                     content=content,
                     tags=[t for t in schema.tags ] + (tags or []),
-                    styles=["stream"]
+                    # styles=["stream"]
+                    styles=["stream-view"]
                 )
                 if attrs:
                     for k, v in attrs.items():
@@ -99,7 +100,7 @@ class BlockBuilderContext:
                 view = Block(
                     content=schema.content.copy(),
                     tags=[t for t in schema.tags],
-                    styles=["stream"]
+                    styles=["stream-view"]
                 )
             return view
         
