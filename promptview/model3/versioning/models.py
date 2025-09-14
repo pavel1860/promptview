@@ -467,6 +467,7 @@ class ExecutionSpan(VersionedModel):
     branch_id: int = ModelField(foreign_key=True)
     start_time: dt.datetime = ModelField(default_factory=dt.datetime.now)
     end_time: dt.datetime | None = ModelField(default=None)
+    tags: list[str] | None = ModelField(default=None)
     depth: int = ModelField(default=0)  # Nesting level
     metadata: dict[str, Any] = ModelField(default={})
     status: Literal["running", "completed", "failed"] = ModelField(default="running")

@@ -25,6 +25,7 @@ T = TypeVar("T")
 
 def stream(
     # accumulator: SupportsExtend[CHUNK] | Callable[[], SupportsExtend[CHUNK]]
+    tags: list[str] = []
 ) -> Callable[[Callable[P, AsyncGenerator[CHUNK, None]]], Callable[P, StreamController]]:
     def decorator(
         func: Callable[P, AsyncGenerator[CHUNK | StreamController, None]]
@@ -34,7 +35,8 @@ def stream(
             gen = func(*args, **kwargs)
             return StreamController(
                 gen=gen, 
-                name=func.__name__
+                name=func.__name__,
+                tags=tags
             )
         return wrapper
     return decorator
@@ -45,6 +47,7 @@ def stream(
 
 def component(
     # accumulator: SupportsExtend[CHUNK] | Callable[[], SupportsExtend[CHUNK]]
+    tags: list[str] = []
 ) -> Callable[[Callable[P, AsyncGenerator[CHUNK | StreamController, None]]], Callable[P, PipeController]]:
     def decorator(
         func: Callable[P, AsyncGenerator[CHUNK | StreamController, None]]
@@ -56,7 +59,8 @@ def component(
                 name=func.__name__, 
                 span_type="component", 
                 args=args, 
-                kwargs=kwargs
+                kwargs=kwargs,
+                tags=tags
             )
         return wrapper
     return decorator

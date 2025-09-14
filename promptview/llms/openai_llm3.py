@@ -80,34 +80,39 @@ class OpenAiLLM(BaseLLM):
             },
         ) as llm_run: 
             full_content = ""
-            res_stream = await self.client.chat.completions.create(
-                    messages=messages,
-                    tools=llm_tools,
-                    model=config.model,
-                    tool_choice=tool_choice,
-                    stream=True,
-                    logprobs=True,                
-                )
-                        
-            async for chunk in res_stream:                
-                if chunk.choices[0].delta:
-                    choice = chunk.choices[0]                   
-                    content = choice.delta.content
-                    if content is not None:
-                        full_content += content
-                    if content is None:
-                        continue
-                    try:
-                        if choice.logprobs and choice.logprobs.content:                
-                            logprob = choice.logprobs.content[0].logprob
-                        else:
-                            logprob = 0  
-                    except:
-                        raise ValueError("No logprobs")        
-                    blk_chunk = BlockChunk(content, logprob=logprob)
-                    yield blk_chunk
-            llm_run.end(outputs={"content": full_content})
-            return
+            try:
+                
+                res_stream = await self.client.chat.completions.create(
+                        messages=messages,
+                        tools=llm_tools,
+                        model=config.model,
+                        tool_choice=tool_choice,
+                        stream=True,
+                        logprobs=True,                
+                    )
+                            
+                async for chunk in res_stream:                
+                    if chunk.choices[0].delta:
+                        choice = chunk.choices[0]                   
+                        content = choice.delta.content
+                        if content is not None:
+                            full_content += content
+                        if content is None:
+                            continue
+                        try:
+                            if choice.logprobs and choice.logprobs.content:                
+                                logprob = choice.logprobs.content[0].logprob
+                            else:
+                                logprob = 0  
+                        except:
+                            raise ValueError("No logprobs")        
+                        blk_chunk = BlockChunk(content, logprob=logprob)
+                        yield blk_chunk
+                llm_run.end(outputs={"content": full_content})
+                return
+            except Exception as e:
+                llm_run.end(outputs={"content": full_content}, errors=str(e))
+                raise e
                     
                     
         # except Exception as e:

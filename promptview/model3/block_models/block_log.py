@@ -79,7 +79,11 @@ def dump_block(blk: Block):
     for blk in blk.traverse():
         dump = {}
         dump["content"] = blk.content.render()
-        dump["json_content"] = dump_sent(blk.content)
+        dump["json_content"] = {
+            "content": dump_sent(blk.content),
+            "prefix": dump_sent(blk.prefix) if blk.prefix is not None else None,
+            "postfix": dump_sent(blk.postfix) if blk.postfix is not None else None,
+        }
         dump["styles"] = blk.styles
         dump["path"] = ".".join(str(p) for p in [0] +blk.path)
         dump["tags"] = blk.tags
@@ -92,13 +96,14 @@ def dump_block(blk: Block):
 def load_block_dump(dumps: list[dict]):
     block_lookup = {}
     for dump in dumps:
-        root = dump['block']["json_content"]
         blk = Block(
-            load_sent_dump(root),
+            load_sent_dump(dump['block']["json_content"]['content']),
             role=dump["role"],
             styles=dump["styles"], 
             attrs=dump["attrs"],
             tags=dump["tags"],
+            prefix=load_sent_dump(dump['block']["json_content"]['prefix']) if dump['block']["json_content"]['prefix'] is not None else None,
+            postfix=load_sent_dump(dump['block']["json_content"]['postfix']) if dump['block']["json_content"]['postfix'] is not None else None,
         )
         block_lookup[dump["path"]] = blk
     

@@ -284,9 +284,12 @@ class Parser(BaseFbpComponent):
                 # print("1", type(v), v)
                 return v
             value = await self.gen.asend(value) 
-            # print(value)
+            print(value.content)
             self._write_to_buffer(value)
-            self.parser.feed(value.content)
+            try:
+                self.parser.feed(value.content)
+            except Exception as e:
+                raise e
             
             self._try_set_tag_lock(value)
             
@@ -407,12 +410,14 @@ class StreamController(BaseFbpComponent):
         self, 
         gen: AsyncGenerator, 
         name:str,
+        tags: list[str] | None = None,
         span_type: "span_type_enum" = "stream",
         response_schema=None, 
         acc_factory=None
     ):
         super().__init__(None)
         self._name = name
+        self._tags = tags
         self._stream = Stream(gen)
         self._gen = self._stream
         # self._acc = Accumulator(BlockList())
@@ -433,6 +438,7 @@ class StreamController(BaseFbpComponent):
             span_type=self._span_type,
             name=self._name,
             index=self.index,
+            tags=self._tags,
             start_time=dt.datetime.now(),
             parent_span_id=parent_span_id,
         ).save()
@@ -530,6 +536,7 @@ class StreamController(BaseFbpComponent):
                 span_type=self._span_type,
                 name=self._name,
                 index=self.index,
+                tags=self._tags,
                 start_time=dt.datetime.now(),
                 parent_span_id=self.parent.span_id if self.parent else None,
             ).save()
@@ -655,11 +662,13 @@ class PipeController(BaseFbpComponent):
         gen_func, 
         name: str, 
         span_type: "span_type_enum",
+        tags: list[str] | None = None,
         args = (),
         kwargs = {}
     ):
         super().__init__(None)
         self._gen_func = gen_func
+        self._tags = tags
         self._args = args
         self._kwargs = kwargs
         self._name = name
@@ -802,6 +811,7 @@ class PipeController(BaseFbpComponent):
             span_type=self._span_type,
             name=self._name,
             index=self.index,
+            tags=self._tags,
             start_time=dt.datetime.now(),
             parent_span_id=parent_span_id,
         ).save()
@@ -834,6 +844,7 @@ class PipeController(BaseFbpComponent):
             self._span = await ExecutionSpan(
                 span_type=self._span_type,
                 name=self._name,
+                tags=self._tags,
                 index=self.index,
                 parent_span_id=self.parent.span_id if self.parent else None,
             ).save()

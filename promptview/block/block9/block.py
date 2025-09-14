@@ -205,16 +205,16 @@ class Block(BlockSequence[BlockSent, "Block"]):
         styles: list[str] | None = None,
         attrs: dict[str, str] | None = None,
         id: str | None = None,
-        prefix: BlockSent | None = None,
-        postfix: BlockSent | None = None,
+        prefix: BlockSent | str | None = None,
+        postfix: BlockSent | str | None = None,
         parent: "Block | None" = None,
     ):
         super().__init__(
             content=self._init_content(content),
             children=children or [], 
             parent=parent, 
-            prefix=prefix or BlockSent(), 
-            postfix=postfix or BlockSent(), 
+            prefix=self._parse_sent(prefix), 
+            postfix=self._parse_sent(postfix), 
             id=id
         )
         self.role: str | None = role
@@ -232,6 +232,16 @@ class Block(BlockSequence[BlockSent, "Block"]):
         # else:
         #     self.content = BlockSent(parent=self)
         #     self.content.append(content)
+        
+    def _parse_sent(self, sent: BlockSent | str | None) -> BlockSent:
+        if sent is None:
+            return BlockSent()
+        elif isinstance(sent, str):
+            return BlockSent(sent)
+        elif isinstance(sent, BlockSent):
+            return sent
+        else:
+            raise ValueError(f"Invalid sent type: {type(sent)}")
 
     def _init_content(self, content: BlockContent | None) -> BlockSent:
         if content is None:
@@ -401,18 +411,26 @@ class Block(BlockSequence[BlockSent, "Block"]):
 
 
 
-    def gather_trees(self, is_target: Callable[[BaseBlock], bool] | None = None, clone_target_node = None) -> "list[BaseBlock]":
+    def gather_trees(self, is_target: Callable[[BaseBlock], bool] | None = None, clone_target_node = None, connect_target_node = None) -> "list[BaseBlock]":
         """Return a forest containing only target-type nodes, attached under their
         nearest target-type ancestor from the original tree."""
         dummy_children: List[BaseBlock] = []
         stack: List[Block] = []  # stack of cloned target nodes
+        
+        
+        def _connect_target_node(u: Block, parent: Block):
+            if connect_target_node:
+                connect_target_node(u, parent)
+            else:
+                parent.append(u)
 
         def dfs(u: Block):
             created = None
             if is_target(u):
                 created = clone_target_node(u)
                 if stack:
-                    stack[-1].append(created)
+                    # stack[-1].append(created)
+                    _connect_target_node(created, stack[-1])
                 else:
                     dummy_children.append(created)
                 stack.append(created)
@@ -671,6 +689,7 @@ class BlockSchema(Block):
         "type",
         "name",
         "is_list",
+        "is_list_item",
     ]
     
     def __init__(
@@ -687,13 +706,16 @@ class BlockSchema(Block):
         prefix: BaseContent | None = None,
         postfix: BaseContent | None = None,
     ):
-        super().__init__(name, tags=(tags or [])+ [name], role=role or"view", style=style, parent=parent, attrs=attrs, styles=styles, prefix=prefix, postfix=postfix)
+        tags = tags or []
+        if name not in tags:
+            tags.append(name)
+        super().__init__(name, tags=tags, role=role or"view", style=style, parent=parent, attrs=attrs, styles=styles, prefix=prefix, postfix=postfix)
         if not type:
             raise ValueError("type is required")
         self.type = type
         self.name = name
         self.is_list = is_list_type(type)
-    
+        self.is_list_item = False
         
     def copy(
         self,

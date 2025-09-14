@@ -1,4 +1,5 @@
 from queue import SimpleQueue
+
 from .block import Block, BlockChunk, BlockSchema, AttrBlock, BlockSent
 from .base_blocks import BaseBlock
 from typing import Type
@@ -26,7 +27,14 @@ class BlockBuilderContext:
         
         def _is_target(node: BaseBlock) -> bool:
             return isinstance(node, BlockSchema)
-        res = schema.gather_trees(_is_target, _clone_target_node)
+        
+        
+        def _connect_target_node(u: BlockSchema, parent: BlockSchema):
+            if parent.is_list:
+                u.is_list_item = True
+            parent.append(u)
+        
+        res = schema.gather_trees(_is_target, _clone_target_node, _connect_target_node)
         if len(res) == 1:
             return res[0]
         else:
@@ -217,7 +225,10 @@ class BlockBuilderContext:
     def instantiate(self, view_name: str, content: list[BlockChunk] | BlockChunk | str | None = None, tags: list[str] | None = None, attrs: dict[str, str] | None = None) -> tuple[Block, BlockSchema]:
         schema, view = self.get_view_info(view_name)
         if view is not None:
-            raise BlockBuilderError(f"View {view_name} is already instantiated")
+            if schema.is_list_item:
+                raise BlockBuilderError(f"previous view '{view_name}' is not closed")
+            else:
+                raise BlockBuilderError(f"View '{view_name}' is already instantiated")
         return self.inst_view(schema, content, tags, attrs), schema
     
     # def append_list_item(
