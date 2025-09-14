@@ -522,6 +522,18 @@ class StreamController(BaseFbpComponent):
     #     ).save()
     #     if self.parent:
     #         await self.parent.span.add_span(self.span, self.parent.index)
+    
+    async def on_start(self, value: Any = None):
+        if not self._span:
+            from promptview.model3.versioning.models import ExecutionSpan
+            self._span = await ExecutionSpan(
+                span_type=self._span_type,
+                name=self._name,
+                index=self.index,
+                start_time=dt.datetime.now(),
+                parent_span_id=self.parent.span_id if self.parent else None,
+            ).save()
+
             
     async def on_stop(self):
         self.span.end_time = dt.datetime.now()
@@ -598,7 +610,7 @@ class StreamController(BaseFbpComponent):
             parent_event_id=self.stream_event.id if self.stream_event else None,
         )
         
-    async def __aiter__(self):
+    def __aiter__(self):
         return FlowRunner(self)
     
     async def stream_events(self):
@@ -727,7 +739,7 @@ class PipeController(BaseFbpComponent):
                 parent_event_id=self.event.id if self.event else None,
             )
         else:
-            raise ValueError(f"Invalid payload type: {type(payload)}")
+            # raise ValueError(f"Invalid payload type: {type(payload)}")
             return StreamEvent(type="span_event", name=self._gen_func.__name__, payload=payload, span_id=str(self.span_id), path=self.get_execution_path())
     
     async def on_stop_event(self, payload: Any = None):

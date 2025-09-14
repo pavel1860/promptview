@@ -27,7 +27,7 @@ def stream(
     # accumulator: SupportsExtend[CHUNK] | Callable[[], SupportsExtend[CHUNK]]
 ) -> Callable[[Callable[P, AsyncGenerator[CHUNK, None]]], Callable[P, StreamController]]:
     def decorator(
-        func: Callable[P, AsyncGenerator[Any, Any]]
+        func: Callable[P, AsyncGenerator[CHUNK | StreamController, None]]
     ) -> Callable[P, StreamController]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> StreamController:            
