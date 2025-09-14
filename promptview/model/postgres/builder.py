@@ -165,10 +165,20 @@ class SQLBuilder:
                 
                 
     @classmethod
-    def drop_enum_types(cls) -> None:
+    def drop_enum_types(cls, exclude: list[str] | None = None) -> None:
         """Drop an enum for a namespace"""
+        if exclude is None:
+            exclude = []
+        
+        def should_drop(enum_name: str) -> bool:
+            for e in exclude:
+                if enum_name.startswith(e):
+                    return False
+            return True
+        
         for enum_name in cls.list_enum_types():
-            cls.execute(f"DROP TYPE IF EXISTS {enum_name};")
+            if should_drop(enum_name):
+                cls.execute(f"DROP TYPE IF EXISTS {enum_name};")
 
     @classmethod
     def drop_table(cls, namespace: "PostgresNamespace | str") -> str:
@@ -193,7 +203,7 @@ class SQLBuilder:
         if not tables:
             return
         cls.drop_many_tables(tables)
-        cls.drop_enum_types()
+        cls.drop_enum_types(exclude)
         # for table in tables:
         #     if table not in exclude:
         #         await cls.drop_table(table)

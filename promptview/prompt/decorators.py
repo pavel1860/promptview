@@ -25,13 +25,19 @@ T = TypeVar("T")
 
 def stream(
     # accumulator: SupportsExtend[CHUNK] | Callable[[], SupportsExtend[CHUNK]]
+    tags: list[str] = []
 ) -> Callable[[Callable[P, AsyncGenerator[CHUNK, None]]], Callable[P, StreamController]]:
     def decorator(
-        func: Callable[P, AsyncGenerator[Any, Any]]
+        func: Callable[P, AsyncGenerator[CHUNK | StreamController, None]]
     ) -> Callable[P, StreamController]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> StreamController:            
-            return StreamController(gen_func=func, args=args, kwargs=kwargs)
+            gen = func(*args, **kwargs)
+            return StreamController(
+                gen=gen, 
+                name=func.__name__,
+                tags=tags
+            )
         return wrapper
     return decorator
 
@@ -41,10 +47,20 @@ def stream(
 
 def component(
     # accumulator: SupportsExtend[CHUNK] | Callable[[], SupportsExtend[CHUNK]]
+    tags: list[str] = []
 ) -> Callable[[Callable[P, AsyncGenerator[CHUNK | StreamController, None]]], Callable[P, PipeController]]:
-    def decorator(func: Callable[P, AsyncGenerator[CHUNK | StreamController, None]]) -> Callable[P, PipeController]:
+    def decorator(
+        func: Callable[P, AsyncGenerator[CHUNK | StreamController, None]]
+    ) -> Callable[P, PipeController]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> PipeController:
-            return PipeController(gen_func=func, args=args, kwargs=kwargs)
+            return PipeController(
+                gen_func=func, 
+                name=func.__name__, 
+                span_type="component", 
+                args=args, 
+                kwargs=kwargs,
+                tags=tags
+            )
         return wrapper
     return decorator

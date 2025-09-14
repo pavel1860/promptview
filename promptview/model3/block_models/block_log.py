@@ -3,15 +3,17 @@ import asyncpg
 import hashlib
 import json
 import uuid
-from typing import Any, Dict, List, Optional
-from promptview.block.block7 import BaseBlock, Block, BlockChunk, BlockList, BlockSent
+from typing import Any, Dict, List, Literal, Optional
+from promptview.block import BaseBlock, Block, BlockChunk, BlockList, BlockSent
 from promptview.model.versioning import Branch
 from promptview.model3.sql.expressions import RawValue
 from promptview.model3.sql.queries import Column
 from promptview.utils.db_connections import PGConnectionManager
 import datetime as dt
 # from promptview.model3.block_models.block_models import BlockNode, BlockModel
-from promptview.model3.versioning.models import BlockTree, BlockNode, BlockModel
+from promptview.model3.versioning.models import BlockTree, BlockNode, BlockModel, ExecutionSpan
+
+
 
 def block_hash(content: Optional[str] = None, json_content: Optional[dict] = None) -> str:
     if content is not None:
@@ -32,77 +34,103 @@ def flatten_tree(data: Dict[str, Any], base_path: str = "1") -> List[Dict[str, A
     return flat
 
 
+def dump_chunk(chunk: BlockChunk):
+    # dump = {
+    #     "content": chunk.content,
+    # }
+    # if chunk.logprob is not None:
+    #     dump["logprob"] = chunk.logprob
+    # if chunk.prefix is not None:
+    #     dump["prefix"] = chunk.prefix
+    # if chunk.postfix is not None:
+    #     dump["postfix"] = chunk.postfix
+    return {
+        "content": chunk.content,
+        "logprob": chunk.logprob,
+        "prefix": chunk.prefix,
+        "postfix": chunk.postfix,
+    }
 
-
-
-def get_real_parent(n: BaseBlock) -> tuple[Block, str]:
-    parent = n.parent
-    if parent is None and n.path != [1]:
-        raise ValueError(f"Node {n} has no parent")
-    if isinstance(parent, Block):
-        return parent, "root"
-    elif isinstance(parent, BlockList):
-        parent, _ =  get_real_parent(parent)
-        return parent, "child"
-    elif isinstance(parent, BlockSent):
-        raise ValueError(f"BlockSent {parent} has no parent")
-        # parent = get_real_parent(parent)
-    else:
-        raise ValueError(f"Unknown parent type: {type(parent)}")
-        
-        
-        
-        
+def dump_sent(sent: BlockSent):   
+    chunks = []    
+    for chunk in sent.children:        
+        chunks.append(dump_chunk(chunk))
+    return {
+        # "has_eol": sent.has_eol,
+        "content": sent.content,
+        "children": chunks,
+    }
     
-        
+def load_sent_dump(dump: dict):
+    sent = BlockSent(
+        content=dump["content"],
+    )
+    for child in dump["children"]:
+        sent.append(
+            BlockChunk(
+                content=child["content"],
+                logprob=child["logprob"],
+            )       
+        )
+    return sent
 
-def block_to_dict(block: Block) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    block_sent_dumps = []
-    blocks_dumps = []
-    used_nodes = set()
-    for n in block.traverse():
-        parent, _type = get_real_parent(n)
-        ppath = ".".join(str(p) for p in parent.path)
-        if ppath not in used_nodes:
-            blocks_dumps.append({
-                "path": ppath,
-                "styles": parent.styles,
-                "role": parent.role,
-                "tags": parent.tags,
-                "attrs": parent.attrs,
-                "index": parent.id,                
-            })
-        d = {
-            "path": ".".join(str(p) for p in n.path),
-            "type": _type,
-            "content": n.render(),
-            "json_content": n.model_dump(),            
-            # Block fields
-            "styles": parent.styles,
-            "role": parent.role,
-            "tags": parent.tags,
-            "attrs": parent.attrs,
-            "index": parent.id,
+def dump_block(blk: Block):
+    dumps = []
+    for blk in blk.traverse():
+        dump = {}
+        dump["content"] = blk.content.render()
+        dump["json_content"] = {
+            "content": dump_sent(blk.content),
+            "prefix": dump_sent(blk.prefix) if blk.prefix is not None else None,
+            "postfix": dump_sent(blk.postfix) if blk.postfix is not None else None,
         }
+        dump["styles"] = blk.styles
+        dump["path"] = ".".join(str(p) for p in [0] +blk.path)
+        dump["tags"] = blk.tags
+        dump["role"] = blk.role
+        dump["attrs"] = blk.attrs
+        dumps.append(dump)
+    return dumps
+
+
+def load_block_dump(dumps: list[dict]):
+    block_lookup = {}
+    for dump in dumps:
+        blk = Block(
+            load_sent_dump(dump['block']["json_content"]['content']),
+            role=dump["role"],
+            styles=dump["styles"], 
+            attrs=dump["attrs"],
+            tags=dump["tags"],
+            prefix=load_sent_dump(dump['block']["json_content"]['prefix']) if dump['block']["json_content"]['prefix'] is not None else None,
+            postfix=load_sent_dump(dump['block']["json_content"]['postfix']) if dump['block']["json_content"]['postfix'] is not None else None,
+        )
+        block_lookup[dump["path"]] = blk
+    
+    root_blk = block_lookup.pop("0")
+    for p, blk in block_lookup.items():
+        path = [int(p_i) for p_i in p.split(".")]
+        root_blk.insert(blk, path[1:])
         
-        
-        block_sent_dumps.append(d)
-    return block_sent_dumps, blocks_dumps
+    return root_blk
 
 
+  
+    
+    
 
-async def insert_block(block: Block, branch_id: int, turn_id: int) -> str:
+async def insert_block(block: Block, branch_id: int, turn_id: int, span_id: uuid.UUID | None = None) -> str:
     """
     Alternative implementation using executemany for bulk inserts.
     This approach is cleaner and more straightforward than UNNEST.
     """
-    nodes, blocks = block_to_dict(block)
+    nodes = dump_block(block)
     async with PGConnectionManager.transaction() as tx:
         tree_id = str(uuid.uuid4())
         created_at = dt.datetime.now()
         await tx.execute(
-            "INSERT INTO block_trees (id, created_at, branch_id, turn_id) VALUES ($1, $2, $3, $4)", 
-            tree_id, created_at, branch_id, turn_id
+            "INSERT INTO block_trees (id, created_at, branch_id, turn_id, span_id) VALUES ($1, $2, $3, $4, $5)", 
+            tree_id, created_at, branch_id, turn_id, span_id
         )
 
         # --- prepare rows for blocks ---
@@ -129,7 +157,6 @@ async def insert_block(block: Block, branch_id: int, turn_id: int) -> str:
                 tree_id, 
                 node["path"], 
                 blk_id, 
-                node["type"],
                 styles_array, 
                 node["role"], 
                 tags_array, 
@@ -139,249 +166,134 @@ async def insert_block(block: Block, branch_id: int, turn_id: int) -> str:
         # --- bulk insert nodes using executemany ---
         if node_rows:
             await tx.executemany(
-                "INSERT INTO block_nodes (tree_id, path, block_id, type, styles, role, tags, attrs) VALUES ($1, $2::ltree, $3, $4, $5, $6, $7, $8)",
+                "INSERT INTO block_nodes (tree_id, path, block_id, styles, role, tags, attrs) VALUES ($1, $2::ltree, $3, $4, $5, $6, $7)",
                 node_rows
             )
 
         return tree_id
-
-
-# Example usage and testing function
-async def test_executemany_vs_unnest(block: Block, branch_id: int, turn_id: int):
-    """
-    Test function to compare executemany vs UNNEST approaches.
-    This can be used to benchmark and validate both implementations.
-    """
-    import time
     
-    # Test executemany approach
-    start_time = time.time()
-    tree_id_executemany = await insert_block(block, branch_id, turn_id)
-    executemany_time = time.time() - start_time
-    
-    # Test UNNEST approach  
-    start_time = time.time()
-    tree_id_unnest = await insert_block_tree(block, branch_id, turn_id + 1)  # Use different turn_id
-    unnest_time = time.time() - start_time
-    
-    print(f"ExecuteMany time: {executemany_time:.4f}s, Tree ID: {tree_id_executemany}")
-    print(f"UNNEST time: {unnest_time:.4f}s, Tree ID: {tree_id_unnest}")
-    
-    return {
-        "executemany": {"time": executemany_time, "tree_id": tree_id_executemany},
-        "unnest": {"time": unnest_time, "tree_id": tree_id_unnest}
-    }
 
-
-async def fetch_block_nodes(tree_id: str, conn):
-    rows = await conn.fetch("""
-        SELECT 
-            bn.path::text AS path,
-            b.content,
-            b.json_content,
-            bn.style,
-            bn.tags,
-            bn.role
-        FROM block_nodes bn
-        JOIN blocks b ON b.id = bn.block_id
-        WHERE bn.tree_id = $1
-        ORDER BY bn.path;
-    """, tree_id)
-    return [dict(r) for r in rows]
-
-
-
-async def load_cert_chain(branch: Branch, tree_id: str) -> list[dict]:
-    with branch:
-        res = await BlockNode.query([
-                Column("tree_id", "btc"),
-                Column("styles", "bn"),
-                Column("role", "bn"),
-                Column("tags", "bn"),
-                Column("path", "bn"),
-                Column("attrs", "bn"),
-                Column("type", "bn"),
-                Column("content", "bsm"),
-                Column("json_content", "bsm"),            
-            ], alias="bn") \
-            .use_cte(
-                BlockTree.query(alias="bt").select("*") \
-                .where(lambda b: (b.id == tree_id)) \
-            ,"tree_cte", alias="btc") \
-            .join(BlockModel.query(["content", "json_content"], alias="bsm"), on=("block_id", "id")) \
-            .where(lambda b: (b.tree_id == RawValue("btc.id"))).print().json()
-        return res
     
     
-def _build_block_tree_query(cte):
-    return BlockNode.query([
-        Column("tree_id", "btc"),
-        Column("styles", "bn"),
-        Column("role", "bn"),
-        Column("tags", "bn"),
-        Column("path", "bn"),
-        Column("attrs", "bn"),
-        Column("type", "bn"),
-        Column("content", "bsm"),
-        Column("json_content", "bsm"),            
-    ], alias="bn") \
-    .use_cte(cte,"tree_cte", alias="btc") \
-    .join(BlockModel.query(["content", "json_content"], alias="bsm"), on=("block_id", "id")) \
-    .where(lambda b: (b.tree_id == RawValue("btc.id")))
+    
+    
+async def get_blocks(tree_ids: list[str], dump_models: bool = True) -> dict[str, Block]:
+    block_trees = await BlockTree.query(alias="bt").select("*").include(
+            BlockNode.query(alias="bn").select("*").include(
+                BlockModel.query(alias="bm").select("*")
+            )
+        ).where(lambda b: b.id.isin(tree_ids)).json()
+    blocks = {}
+    for tree in block_trees:
+        tree_id = str(tree["id"])
+        block = load_block_dump(tree["nodes"])
+        blocks[tree_id] = block.model_dump() if dump_models else block
+    return blocks
 
 
-async def get_many_block_trees(cte):
-    query = _build_block_tree_query(cte)
-    records = await query.json()
-    curr_tree_id = None
-    target_records = []
-    for rec in records:
-        if rec["tree_id"] != curr_tree_id:
-            curr_tree_id = rec["tree_id"]
-            pack_block(target_records)
-            target_records = []
+
+
+
+
+
+class BlockLogQuery:
+    
+    def __init__(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        direction: Literal["asc", "desc"] = "desc",
+        span_name: str | None = None,
+    ):
+        self.limit = limit or 5
+        self.offset = offset
+        self.direction = direction
+        self.span_name = span_name
+        # self.query = self._build_block_query() if not span_name else self._build_span_query()
         
+    def __await__(self):
+        return self.execute().__await__()
     
-    
-
-    
-    
-
-def pack_block(records: list[dict]) -> Block:
-    block_lookup = {}
-
-    def build_sentence(rec: dict) -> BlockSent:
-        sent = BlockSent()   
-        json_content = rec["json_content"]
-        for c in json_content["blocks"]:
-            chunk = BlockChunk(
-                index=c["index"],
-                content=c["content"],
-                logprob=c.get("logprob", None),            
-            )
-            sent.append(chunk)
-        return sent
-
-    for rec in records:
-        path_str = rec["path"]
-        path = path_str.split(".")
-        if rec["type"] == "root":
-            block = Block(
-                styles=rec["styles"],
-                role=rec["role"],
-                tags=rec["tags"],
-                attrs=rec["attrs"],
-            )
-            sent = build_sentence(rec)
-            block.root = sent
-            block_lookup[path_str] = block
-            if len(path) > 1:
-                parent = block_lookup[path_str[:-2]]
-                parent.children.append(block)
-        else:
-            block = block_lookup[path_str[:-2]]
-            sent = build_sentence(rec)
-            block.children.append(sent)
-    block = block_lookup["1"]    
-    return block
+    async def execute(self) -> List[Block]:
+        query = self._build_block_query() if not self.span_name else self._build_span_query()
+        def tree_to_block(tree):
+            # print(tree)
+            if not tree['nodes']:
+                return None
+            return load_block_dump(tree['nodes'])
+        query = query.parse(tree_to_block)
+        return await query.json()
         
+    def _build_block_query(self):
+        # if self.span_name:
+        #     return ExecutionSpan.vquery(
+        #         limit=self.limit, 
+        #         offset=self.offset, 
+        #         direction=self.direction
+        #     ).select("*").include(BlockTree.query(alias="bt").include(BlockNode.query(alias="bn").include(BlockModel))).where(name=self.span_name)
+        return BlockTree.vquery(
+            alias="bt", 
+            limit=self.limit, 
+            offset=self.offset, 
+            direction=self.direction
+        ).include(
+            BlockNode.query(alias="bn").order_by("id").include(BlockModel)
+        ).order_by("created_at")
+        
+    def _build_span_query(self):
+        return ExecutionSpan.vquery(
+            alias="es", 
+            limit=self.limit, 
+            offset=self.offset, 
+            direction=self.direction
+        ).include(BlockTree.query(alias="bt").include(BlockNode.query(alias="bn").include(BlockModel))).where(name=self.span_name)
+        
+    def where(self, span: str | None = None):
+        if span:
+            self.span_name = span
+        return self
     
     
+    def last(self, limit: int):
+        self.limit = limit
+        return self
     
-async def load_block_tree(branch: Branch, tree_id: str) -> Block:
-    records = await load_cert_chain(branch, tree_id)
-    return pack_block(records)
+    def span(self, span: str):
+        self.span_name = span
+        self.query = self._build_span_query()
+        return self
     
+    def print(self):
+        return self.query.print()
+        
 
+class BlockLog:
+    
+    def __init__(self):
+        self.query = None
+        
+        
+    @classmethod
+    def last(cls, limit: int) -> BlockLogQuery:
+        return BlockLogQuery(limit=limit)
 
-
-def parse_block_tree_json(block_tree: dict) -> Block:
-    print(">", block_tree)
-    block_lookup: dict[str, Block] = {}
-    def build_sentence(node: dict) -> BlockSent:
-        sent = BlockSent()   
-        json_content = node["block"]["json_content"]
-        for c in json_content["blocks"]:
-            chunk = BlockChunk(
-                index=c["index"],
-                content=c["content"],
-                logprob=c.get("logprob", None),            
-            )
-            sent.append(chunk)
-        return sent
-
-
-    for node in block_tree["nodes"]:
-        path_str = node["path"]
-        path = path_str.split(".")
-        if node["type"] == "root":
-            block = Block(
-                styles=node["styles"],
-                role=node["role"],
-                tags=node["tags"],
-                attrs=node["attrs"],
-            )
-            sent = build_sentence(node)
-            block.root = sent
-            block_lookup[path_str] = block
-            if len(path) > 1:
-                parent = block_lookup[path_str[:-2]]
-                parent.children.append(block)
-        else:
-            block = block_lookup[path_str[:-2]]
-            sent = build_sentence(node)
-            block.children.append(sent)
-    block = block_lookup["1"]    
-    return block
-
-
-def parse_block_tree_turn_json(turn):
-    block_list = [parse_block_tree_json(block_tree) for block_tree in turn["block_tree"]]
-    return BlockList(block_list)
-   
+    @classmethod
+    def span(cls, span: str) -> BlockLogQuery:
+        return BlockLogQuery(span_name=span)
     
     
+
     
-def parse_block_tree(block_tree: BlockTree) -> Block:
-    print(">", block_tree)
-    block_lookup: dict[str, Block] = {}
-    def build_sentence(node: BlockNode) -> BlockSent:
-        sent = BlockSent()   
-        json_content = node.block.json_content
-        for c in json_content["blocks"]:
-            chunk = BlockChunk(
-                index=c["index"],
-                content=c["content"],
-                logprob=c.get("logprob", None),            
-            )
-            sent.append(chunk)
-        return sent
-
-
-    for node in block_tree.nodes:
-        path_str = node.path
-        path = path_str.split(".")
-        if node.type == "root":
-            block = Block(
-                styles=node.styles,
-                role=node.role,
-                tags=node.tags,
-                attrs=node.attrs,
-            )
-            sent = build_sentence(node)
-            block.root = sent
-            block_lookup[path_str] = block
-            if len(path) > 1:
-                parent = block_lookup[path_str[:-2]]
-                parent.children.append(block)
-        else:
-            block = block_lookup[path_str[:-2]]
-            sent = build_sentence(node)
-            block.children.append(sent)
-    block = block_lookup["1"]    
-    return block
-
-
-def parse_block_tree_turn(turn):
-    block_list = [parse_block_tree(block_tree) for block_tree in turn.block_tree]
-    return BlockList(block_list)
+    @classmethod
+    async def add(cls, block: Block, branch_id: int | None = None, turn_id: int | None = None, span_id: uuid.UUID | None = None):
+        from promptview.model3.versioning.models import Turn, Branch
+        if branch_id is None:
+            branch_id = Branch.current().id
+        if turn_id is None:
+            turn_id = Turn.current().id
+        if span_id is None:
+            span_id = ExecutionSpan.current().id
+        
+        return await insert_block(block, branch_id, turn_id, span_id)
+    
+    

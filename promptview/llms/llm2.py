@@ -1,8 +1,9 @@
+import copy
 from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Dict, List, Literal, Type, TypedDict, Unpack
 from pydantic import BaseModel, Field
 
-from promptview.block.block7 import BlockChunk, Block, BlockList
+from promptview.block import BlockChunk, Block, BlockList
 from promptview.prompt.flow_components import StreamController
 
 
@@ -39,7 +40,7 @@ class LLMStream(StreamController):
     
     
     def __init__(self, blocks: BlockList, config: LlmConfig, tools: List[Type[BaseModel]] | None = None, model: str | None = None):
-        super().__init__(self.stream, acc_factory=lambda : BlockList([], style="stream"))
+        super().__init__(self.stream, acc_factory=lambda : BlockList([], style="stream"), name="openai_llm", span_type="llm")
         self.blocks = blocks
         self.llm_config = config
         self.tools = tools
@@ -55,22 +56,60 @@ class LlmStreamParams(TypedDict, total=False):
 
 
 
-def llm_stream(
-    method: Callable[..., AsyncGenerator[Any, None]]
-) -> Callable[..., StreamController]:
-    """
-    Decorator that wraps an async generator method to return a StreamController.
-    Provides proper typing for IntelliSense support.
-    """
-    @wraps(method)
-    def wrapper(self, *args, **kwargs) -> StreamController:
-        # If "config" not passed, inject from self.config
-        if "config" not in kwargs:
-            kwargs["config"] = getattr(self, "config", None)
-        gen = method(self, *args, **kwargs)
-        return StreamController(gen=gen, name=method.__name__)
-    return wrapper
+# def llm_stream(
+#     method: Callable[..., AsyncGenerator[Any, None]],
+# ) -> Callable[..., StreamController]:
+#     """
+#     Decorator that wraps an async generator method to return a StreamController.
+#     Provides proper typing for IntelliSense support.
+#     """
+#     @wraps(method)
+#     def wrapper(self, *args, **kwargs) -> StreamController:
+#         # If "config" not passed, inject from self.config
+#         if "config" not in kwargs:
+#             kwargs["config"] = getattr(self, "config", None)
+#         gen = method(self, *args, **kwargs)
+#         return StreamController(gen=gen, name=name or method.__name__, span_type="llm")
+#     return wrapper
 
+
+def pack_blocks(args: tuple[Any, ...]) -> tuple[BlockList, tuple[Any, ...]]:
+    # block_list = BlockList()
+    block_list = []
+    extra_args = ()
+    for arg in args:
+        if isinstance(arg, str):
+            block_list.append(Block(arg))
+        elif isinstance(arg, Block):
+            block_list.append(copy.copy(arg))
+        elif isinstance(arg, BlockList):
+            block_list.extend(copy.copy(arg))
+        else:
+            extra_args += (arg,)
+    return block_list, extra_args
+    
+
+
+def llm_stream(
+    name: str,
+):
+    def llm_stream_decorator(
+        method: Callable[..., AsyncGenerator[Any, None]],
+    ) -> Callable[..., StreamController]:
+        """
+        Decorator that wraps an async generator method to return a StreamController.
+        Provides proper typing for IntelliSense support.
+        """
+        @wraps(method)
+        def wrapper(self, *args, **kwargs) -> StreamController:
+            # If "config" not passed, inject from self.config
+            if "config" not in kwargs or kwargs["config"] is None:
+                kwargs["config"] = getattr(self, "config", None)
+            blocks, extra_args = pack_blocks(args)
+            gen = method(self, blocks, *extra_args, **kwargs)
+            return StreamController(gen=gen, name=name or method.__name__, span_type="llm")
+        return wrapper
+    return llm_stream_decorator
     
  
 class BaseLLM: 
@@ -83,10 +122,10 @@ class BaseLLM:
         self.config = config or LlmConfig(model=self.default_model )
     
 
-    @llm_stream
+    @llm_stream(name="llm_call")
     async def stream(
         self,
-        blocks: BlockList,
+        *blocks: BlockChunk | Block | str,
         config: LlmConfig,
         tools: List[Type[BaseModel]] | None = None
     ) -> AsyncGenerator[Any, None]:
@@ -136,14 +175,15 @@ class LLM():
     
     def stream(
         self,
-        *blocks: BlockChunk | Block |BlockList | str,
+        *blocks: BlockChunk | Block | str,
         model: str | None = None,
         tools: List[Type[BaseModel]] | None = None,
         config: LlmConfig | None = None,
-    ) -> LLMStream:
+    ) -> StreamController:
         llm_cls = self._get_llm(model)
         llm = llm_cls(config=config)
-        return llm.stream(blocks=blocks, tools=tools)
+        
+        return llm.stream(*blocks, tools=tools, config=config)
 
     def __call__(
         self,        
@@ -151,25 +191,14 @@ class LLM():
         model: str | None = None,
         config: LlmConfig | None = None,
     ) -> LLMStream:                                
-        if isinstance(blocks, str):
-            llm_blocks = BlockList([BlockChunk(blocks)])
-        elif isinstance(blocks, tuple):
-            llm_blocks = BlockList()
-            for b in blocks:
-                if isinstance(b, str):
-                    llm_blocks.append(BlockChunk(b))
-                else:
-                    llm_blocks.append(b)
-        elif isinstance(blocks, BlockChunk):
-            llm_blocks = BlockList([blocks])
-        elif isinstance(blocks, BlockList):
-            llm_blocks = blocks        
-        else:
-            raise ValueError(f"Invalid blocks type: {type(blocks)}")
         
-        llm_ctx = self._get_llm(model)
-        # config = config or LlmConfig(model=llm_ctx.model)
-        return llm_ctx(llm_blocks)
+        
+        llm_blocks, extra_args = pack_blocks(blocks)
+
+        
+        llm_ctx = self._get_llm(model)        
+        return llm_ctx(llm_blocks, *extra_args, config=config)
+    
     # def __call__(
     #     self,        
     #     blocks: BlockContext |BlockList | Block | BlockPrompt | str,

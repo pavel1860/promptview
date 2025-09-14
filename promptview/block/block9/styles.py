@@ -1,13 +1,9 @@
 from typing import TYPE_CHECKING, Literal
 
-from promptview.block.types import StyleProps
 
 
-if TYPE_CHECKING:
-    from promptview.block.block7 import BlockChunk
-
-
-
+StyleFormatType = Literal["title-format", "row-format", "list-format", "block-format", "list-layout"]
+StyleProps = dict[StyleFormatType, str]
     
 class StyleManager:
     """

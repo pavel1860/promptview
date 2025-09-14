@@ -5,7 +5,7 @@
 
 
 import textwrap
-from .expressions import BinaryExpression, Coalesce, Expression, RawSQL, RawValue, Value, And, Or, Not, IsNull, In, Between, Like, Function, OrderBy, VectorDistance
+from .expressions import Any, BinaryExpression, Coalesce, Expression, RawSQL, RawValue, Value, And, Or, Not, IsNull, In, Between, Like, Function, OrderBy, VectorDistance
 from .helpers import NestedQuery
 from .queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UnionQuery, UpdateQuery, Column
 
@@ -110,7 +110,12 @@ class Compiler:
             val = self.compile_expr(expr.value)
             options = ', '.join(self.add_param(opt) for opt in expr.options)
             return f"({val} IN ({options}))"
-
+        elif isinstance(expr, Any):
+            val = self.compile_expr(expr.value)
+            options = ', '.join(self.add_param(opt) for opt in expr.options)
+            # return f"({val} ANY ({options}))"
+            return f"({val} && ARRAY[{options}])"
+        
         elif isinstance(expr, Between):
             val = self.compile_expr(expr.value)
             lower = self.compile_expr(expr.lower)

@@ -1,11 +1,14 @@
 import asyncio
+import copy
 from functools import wraps
 import json
 from queue import SimpleQueue
+import datetime as dt
 
-from typing import Any, AsyncGenerator, Callable, Iterable, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING
+from typing import Any, AsyncGenerator, Callable, Iterable, Literal, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING, runtime_checkable
 import xml
-from promptview.block.block7 import BlockChunk, BlockList, ResponseBlock
+from promptview.block import BlockChunk, BlockSchema
+from promptview.block.block9.block_schema import BlockBuilderContext, BlockBuilderError
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
 from promptview.prompt.parser import BlockBuffer, SaxStreamParser
 from promptview.prompt.events import StreamEvent
@@ -13,7 +16,8 @@ from promptview.utils.function_utils import call_function
 from lxml import etree
 
 from promptview.block import BlockSchema, Block
-# if TYPE_CHECKING:
+if TYPE_CHECKING:
+    from promptview.model3.versioning.models import ExecutionSpan, SpanEvent, Log, span_type_enum
     
 
 
@@ -27,6 +31,7 @@ class BaseFbpComponent:
         self._did_end = False
         self._did_error = False
         self._last_value = None
+        self._span = None
         
         
     @property
@@ -39,19 +44,24 @@ class BaseFbpComponent:
     def name(self):
         return self.gen.__name__
     
+
+    
+    
+
+    
     def get_response(self):
         return self._last_value
     
-    def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
+    async def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
         raise NotImplementedError(f"Flow generator ({self.__class__.__name__}) does not implement on_start_event")
     
-    def on_value_event(self, payload: Any = None):
+    async def on_value_event(self, payload: Any = None):
         raise NotImplementedError(f"Flow generator ({self.__class__.__name__}) does not implement on_value_event")
     
-    def on_stop_event(self, payload: Any = None):
+    async def on_stop_event(self, payload: Any = None):
         raise NotImplementedError(f"Flow generator ({self.__class__.__name__}) does not implement on_stop_event")
     
-    def on_error_event(self, error: Exception):
+    async def on_error_event(self, error: Exception):
         raise NotImplementedError(f"Flow generator ({self.__class__.__name__}) does not implement on_error_event")
     
     async def on_start(self, value: Any = None):
@@ -187,23 +197,26 @@ class Parser(BaseFbpComponent):
         self.start_tag = "tag_start"
         self.end_tag = "tag_end"
         self.text_tag = "chunk"                
-        self.response_schema = response_schema
         self._safety_tag = "stream_start"        
-        self.response = response_schema.build_response()        
-        self.parser2 = etree.XMLPullParser(events=("start", "end"))
-        self.queue = SimpleQueue()
-        self.block_list = []
+        self.res_ctx = BlockBuilderContext(response_schema.copy())
+        self.parser = etree.XMLPullParser(events=("start", "end"))
+        self.block_buffer = []
         self._stream_started = False
         self._detected_tag = False
-        
+        self._total_chunks = 0
+        self._chunks_from_last_tag = 0
         self._tag_stack = []
+        
         
 
     def __aiter__(self):
         return self
     
-    def _push_tag(self, tag: str):
-        self._tag_stack.append(tag)
+    def _push_tag(self, tag: str, is_list: bool):
+        self._tag_stack.append({
+            "tag": tag,
+            "is_list": is_list
+        })
     
     def _pop_tag(self):
         return self._tag_stack.pop()
@@ -212,92 +225,128 @@ class Parser(BaseFbpComponent):
     def current_tag(self):
         if not self._tag_stack:
             return None
-        return self._tag_stack[-1]
+        return self._tag_stack[-1]["tag"]
     
+    @property
+    def current_tag_is_list(self):
+        if not self._tag_stack:
+            return False
+        return self._tag_stack[-1]["is_list"]
+    
+    
+    
+    def _read_buffer(self, start_from: str | None = None, flush=True):
+        buffer = []
+        start_appending = start_from is None
+        for block in self.block_buffer:
+            if start_from and start_from in block.content:
+                start_appending = True
+            if start_appending:
+                buffer.append(block)
+        if flush:
+            self.block_buffer = []
+        return buffer
+    
+    def _write_to_buffer(self, value: Any):
+        self._total_chunks += 1
+        self._chunks_from_last_tag += 1
+        self.block_buffer.append(value)
+        
+        
+    def _buffer_size(self):
+        return len(self.block_buffer)
+    
+
+        
+    def _try_set_tag_lock(self, value: Any):
+        if "<" in value.content:
+            self._detected_tag = True
+            
+    def _release_tag_lock(self):
+        self._chunks_from_last_tag = 0
+        self._detected_tag = False
+        
+    def _should_output_chunk(self):
+        if self.current_tag and not self._detected_tag:
+            if self._chunks_from_last_tag < 2:
+                return False
+            return True
+        return False
+        
         
     async def asend(self, value: Any = None):
         for i in range(20):            
             if not self._stream_started:
-                self.parser2.feed(f'<{self._safety_tag}>')
+                self.parser.feed(f'<{self._safety_tag}>')
                 self._stream_started = True                
-            if not self.queue.empty():
-                return self.queue.get()
+            if self.res_ctx.has_events():
+                v = self.res_ctx.get_event()
+                # print("1", type(v), v)
+                return v
             value = await self.gen.asend(value) 
-            print(value)
-            self.block_list.append(value)
-            self.parser2.feed(value.content)
+            print(value.content)
+            self._write_to_buffer(value)
+            try:
+                self.parser.feed(value.content)
+            except Exception as e:
+                raise e
             
-            if "<" in value.content:
-                self._detected_tag = True
+            self._try_set_tag_lock(value)
             
+            # in the middle of the stream, adding chunks to the current field
+            if self._should_output_chunk():               
+                for c in self._read_buffer(flush=True):
+                    chunk = self.res_ctx.append(
+                        self.current_tag,
+                        c,
+                    )
             
-            if self.current_tag and not self._detected_tag:
-                # if not isinstance(value, Block):
-                #     value = Block(value)
-                # value.tags += [self.current_tag, self.text_tag]
-                if field := self.response.get(self.current_tag):
-                    field += value
-                    
-                self.queue.put(value)
-                # self.queue.put(
-                #     StreamEvent(
-                #         type=self.text_tag, 
-                #         name=self.current_tag, 
-                #         depth=0, 
-                #         # payload=self.block_list.pop()
-                #         payload=value
-                #     ))
-            
-            for event, element in self.parser2.read_events():
+            # start or end of a field, adding the whole field to the queue
+            for event, element in self.parser.read_events():
                 if element.tag == self._safety_tag:
-                    continue
+                    continue                
                 if event == 'start':
-                    self._push_tag(element.tag)
-                    if field := self.response.get(element.tag):
-                        for block in self.block_list:
-                            field.append_root(block)
-                        field.set_attributes(dict(element.attrib))
-                        field.tags += [self.start_tag]
-                        self.queue.put(field)
-                        # self.queue.put(
-                        #     StreamEvent(
-                        #         type=self.start_tag, 
-                        #         name=element.tag, 
-                        #         attrs=field.attrs, 
-                        #         depth=0, 
-                        #         payload=field
-                        #     ))
+                    # start of a field
+                    if self.current_tag_is_list:
+                        view, schema = self.res_ctx.instantiate_list_item(
+                            self.current_tag,
+                            element.tag,
+                            self._read_buffer(),
+                            attrs=dict(element.attrib),
+                        )
                     else:
-                        raise ValueError(f"Field '{element.tag}' not found in response schema")
-                    self.block_list=[]
-                    self._detected_tag = False                    
+                        view, schema = self.res_ctx.instantiate(
+                            element.tag,
+                            self._read_buffer(),
+                            attrs=dict(element.attrib),
+                        )                    
+                    
+                    self._push_tag(element.tag, schema.is_list)
+                    self._release_tag_lock()
                 elif event == 'end':
+                    # end of a field
+                    self.res_ctx.set_view_attr(
+                        element.tag,
+                        postfix=self._read_buffer(start_from="</"), 
+                    )
+                    # self.res_ctx.commit_view(
+                    #     element.tag,
+                    # )
                     self._pop_tag()
-                    is_end_event = False
-                    block_list = BlockList(tags=[self.end_tag], sep="")
-                    for block in self.block_list:
-                        if "</" in block.content:
-                            is_end_event = True                        
-                        if is_end_event:
-                            block_list.append(block)
-                        # self.queue.put(
-                        #     StreamEvent(
-                        #         type=self.end_tag, 
-                        #         name=element.tag, 
-                        #         depth=0, 
-                        #         payload=block_list
-                        #     ))
-                    else:
-                        self.queue.put(block_list)
-                        if field := self.response.get(element.tag):
-                            field.postfix = block_list
-                            field.commit()
-                    self.block_list=[]
-                    self._detected_tag = False
+                    # field = self.response_schema.commit_field(
+                    #     element.tag, 
+                    #     postfix=self._read_buffer(start_from="</"), 
+                    #     tags=[self.end_tag]
+                    # )
+                    # if field.postfix is not None:
+                        # self._push_to_output(field.postfix)
+                    
+                    self._release_tag_lock()
                 
                     
-            if not self.queue.empty():
-                return self.queue.get()
+            if self.res_ctx.has_events():
+                v = self.res_ctx.get_event()
+                return v
         else:
             raise StopAsyncIteration
         
@@ -328,6 +377,18 @@ class Accumulator(BaseFbpComponent):
     #         return res
     #     except StopAsyncIteration:
     #         raise StopAsyncIteration
+  
+@runtime_checkable
+class Spanable(Protocol):
+    index: int
+    async def span_start(self, index: int, parent_span: "ExecutionSpan | None" = None):
+        pass
+    async def span_end(self):
+        pass
+    async def span_error(self, error: Exception):
+        pass
+    
+
     
     
 CHUNK = TypeVar("CHUNK")
@@ -345,9 +406,18 @@ T = TypeVar("T")
 
 class StreamController(BaseFbpComponent):
     
-    def __init__(self, gen: AsyncGenerator, name:str = "stream",response_schema=None, acc_factory=None):
+    def __init__(
+        self, 
+        gen: AsyncGenerator, 
+        name:str,
+        tags: list[str] | None = None,
+        span_type: "span_type_enum" = "stream",
+        response_schema=None, 
+        acc_factory=None
+    ):
         super().__init__(None)
         self._name = name
+        self._tags = tags
         self._stream = Stream(gen)
         self._gen = self._stream
         # self._acc = Accumulator(BlockList())
@@ -355,21 +425,56 @@ class StreamController(BaseFbpComponent):
         self._response_schema = response_schema
         # self._acc_factory = acc_factory or (lambda: BlockList(style="stream"))
         self._parser = None
-
-
+        self.index = 0
+        self._span_type = span_type
+        self.parent: "PipeController | None" = None
+        self._span: "ExecutionSpan | None" = None
+        self.event: "SpanEvent | None" = None
         
+        
+    async def build_span(self, parent_span_id: str | None = None):
+        from promptview.model3.versioning.models import ExecutionSpan
+        self._span = await ExecutionSpan(
+            span_type=self._span_type,
+            name=self._name,
+            index=self.index,
+            tags=self._tags,
+            start_time=dt.datetime.now(),
+            parent_span_id=parent_span_id,
+        ).save()
+        return self._span
+    
     @property
     def acc(self):
         if self._acc is None:
             raise ValueError("StreamController is not initialized")
         return self._acc.result
     
+    @property
+    def span(self):
+        if self._span is None:
+            raise ValueError(f"Span is not started for {self.__class__.__name__}")
+        return self._span
+    
+    @property
+    def span_id(self):
+        return self.span.id
+
+    def get_execution_path(self) -> list[int]:
+        """Build execution path using existing index tracking"""
+        path = []
+        current = self
+        while current:
+            path.insert(0, current.index)  # Prepend to build path from root
+            current = current.parent
+        return path
+    
     def get_response(self):
         if self._parser:
-            return self._parser.response
+            return self._parser.res_ctx.instance
         # return self.acc
         
-    def parse(self, block_schema: "BlockSchema") -> Self:
+    def parse(self, block_schema: Block) -> Self:
         if self._parser is not None:
             raise ValueError("Parser already initialized")
         if self._gen is None:
@@ -388,12 +493,16 @@ class StreamController(BaseFbpComponent):
     
     def load(self, name: str, dir: str | None = None, delay: float = 0.07):
         import asyncio
+        import random
         path = f"{dir}/{name}.jsonl" if dir else f"{name}.jsonl"
         
         async def load_stream():
             with open(path, "r") as f:
                 for line in f:
-                    await asyncio.sleep(delay)
+                    # Add random delay between 0.5x and 1.5x of base delay
+                    random_delay = delay * (max(-0.5 + random.random(), 0))
+                    if random_delay > 0:
+                        await asyncio.sleep(random_delay)
                     j = json.loads(line)
                     block = BlockChunk.model_validate(j)
                     yield block
@@ -406,46 +515,112 @@ class StreamController(BaseFbpComponent):
     @property
     def name(self):
         return self._name
-    
-    # async def asend(self, value: Any = None):
-    #     return await self._stream.__anext__()
-    
-    @property
-    def index(self):
-        if self._stream is None:
-            raise ValueError("StreamController is not initialized")
-        return self._stream._index
-    
+
+
     # async def on_start(self, value: Any = None):
-        # self._stream = Stream(self._gen)
-        # self._acc = Accumulator(self._acc_factory())
-        # self._flow = self._stream | self._acc 
-        # if self._response_schema:
-            # self._parser =Parser(response_schema=self._response_schema)
-            # self._flow |= self._parser
-        # self._gen = self._flow
+    #     from promptview.model3.versioning.models import ExecutionSpan
+    #     self._span = await ExecutionSpan(
+    #         span_type=self._span_type,
+    #         name=self._name,
+    #         index=self.index,
+    #         start_time=dt.datetime.now(),
+    #         parent_span_id=self.parent.span_id if self.parent else None,
+    #     ).save()
+    #     if self.parent:
+    #         await self.parent.span.add_span(self.span, self.parent.index)
+    
+    async def on_start(self, value: Any = None):
+        if not self._span:
+            from promptview.model3.versioning.models import ExecutionSpan
+            self._span = await ExecutionSpan(
+                span_type=self._span_type,
+                name=self._name,
+                index=self.index,
+                tags=self._tags,
+                start_time=dt.datetime.now(),
+                parent_span_id=self.parent.span_id if self.parent else None,
+            ).save()
+
+            
+    async def on_stop(self):
+        self.span.end_time = dt.datetime.now()
+        self.span.status = "completed"
+        self._span = await self.span.save()
+        
+    async def on_error(self, error: Exception):
+        from promptview.model3.versioning.models import Log
+        log = await Log(
+            message=str(error),
+            level="error"
+        ).save()
+        self.span.end_time = dt.datetime.now()
+        self.span.status = "failed"
+        self.span.metadata = {"error": str(error)}
+        self._span = await self.span.save()
+        self.stream_event = None
+        
+        
+    
+        
+        
     
     
-    def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
-        return StreamEvent(type="stream_start", name=self._name)
+    async def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
+        event = await self.span.add_stream(self.index)
+        self.stream_event = event
+        return StreamEvent(
+            type="stream_start", 
+            name=self._name, 
+            payload=self.span, 
+            span_id=str(self.span_id), 
+            path=self.get_execution_path(), 
+            event=self.stream_event,
+            parent_event_id=self.event.id if self.event else None,
+        )
     
-    def on_value_event(self, payload: Any = None):
-        # if isinstance(payload, ResponseContext):
-        #     return StreamEvent(type="stream_delta_field_start", name=self._name, payload=payload)
-        # elif isinstance(payload, BlockList):
-        #     return StreamEvent(type="stream_delta_field_end", name=self._name, payload=payload)
-        return StreamEvent(type="stream_delta", name=self._name, payload=payload)
+    async def on_value_event(self, payload: Any = None):
+        return StreamEvent(
+            type="stream_delta", 
+            name=self._name, 
+            payload=payload, 
+            span_id=str(self.span_id), 
+            path=self.get_execution_path(), 
+            parent_event_id=self.stream_event.id if self.stream_event else None,
+        )
     
-    def on_stop_event(self, payload: Any = None):
-        return StreamEvent(type="stream_end", name=self._name)
+    async def on_stop_event(self, payload: Any = None):
+        response = self.get_response()
+        if response is not None:
+            await self.span.add_block_event(response, self.index)
+        return StreamEvent(
+            type="stream_end", 
+            name=self._name, 
+            span_id=str(self.span_id), 
+            path=self.get_execution_path(), 
+            parent_event_id=self.stream_event.id if self.stream_event else None,
+        )
     
-    def on_error_event(self, error: Exception):
-        return StreamEvent(type="stream_error", name=self._name, payload=error)
+    async def on_error_event(self, error: Exception):
+        from promptview.model3.versioning.models import Log
+        log = await Log(
+            message=str(error),
+            level="error"
+        ).save()
+        event = await self.span.add_log_event(log, self.index)
+        return StreamEvent(
+            type="stream_error", 
+            name=self._name, 
+            payload=error, 
+            span_id=str(self.span_id), 
+            path=self.get_execution_path(), 
+            event=event,
+            parent_event_id=self.stream_event.id if self.stream_event else None,
+        )
         
     def __aiter__(self):
         return FlowRunner(self)
     
-    def stream_events(self):
+    async def stream_events(self):
         return FlowRunner(self).stream_events()
     
 
@@ -482,65 +657,221 @@ class StreamController(BaseFbpComponent):
 class PipeController(BaseFbpComponent):
     
     
-    def __init__(self, gen_func, args = (), kwargs = {}):
+    def __init__(
+        self, 
+        gen_func, 
+        name: str, 
+        span_type: "span_type_enum",
+        tags: list[str] | None = None,
+        args = (),
+        kwargs = {}
+    ):
         super().__init__(None)
         self._gen_func = gen_func
+        self._tags = tags
         self._args = args
         self._kwargs = kwargs
-        
-        
-    def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
-        return StreamEvent(type="span_start", name=self._gen_func.__name__, attrs=attrs)
+        self._name = name
+        self._span_type = span_type
+        self.parent: "PipeController | None" = None
+        self._span: "ExecutionSpan | None" = None
+        self.index = 0
+        self.event: "SpanEvent | None" = None
     
-    def on_value_event(self, payload: Any = None):
-        return StreamEvent(type="span_value", name=self._gen_func.__name__, payload=payload)
-    
-    def on_stop_event(self, payload: Any = None):
-        return StreamEvent(type="span_end", name=self._gen_func.__name__, payload=payload)
-    
-    def on_error_event(self, error: Exception):
-        return StreamEvent(type="span_error", name=self._gen_func.__name__, payload=error)
+    @property
+    def span(self):
+        if self._span is None:
+            raise ValueError(f"Span is not started for {self.__class__.__name__}")
+        return self._span
+
+    @property
+    def span_id(self):
+        return self.span.id
+
+    def get_execution_path(self) -> list[int]:
+        """Build execution path using existing index tracking"""
+        path = []
+        current = self
+        while current:
+            path.insert(0, current.index)  # Prepend to build path from root
+            current = current.parent
+        return path
         
+    async def on_start_event(self, payload: Any = None, attrs: dict[str, Any] | None = None):
+        return StreamEvent(
+            type="span_start", 
+            name=self._gen_func.__name__, 
+            payload=self.span, 
+            attrs=attrs, 
+            span_id=str(self.span_id), 
+            path=self.get_execution_path(), 
+            parent_event_id=self.event.id if self.event else None,            
+        )
+    
+    async def on_value_event(self, payload: Any = None):
+        if isinstance(payload, StreamController):
+            span = await payload.build_span(str(self.span_id))
+            event = await self.span.add_span_event(span, self.index)
+            payload.event = event
+            return StreamEvent(
+                type="span_event", 
+                name=self._gen_func.__name__, 
+                payload=span, 
+                span_id=str(self.span_id), 
+                path=self.get_execution_path(), 
+                event=event,
+                parent_event_id=self.event.id if self.event else None,
+            )
+            
+        elif isinstance(payload, PipeController):
+            span = await payload.build_span(str(self.span_id))
+            event = await self.span.add_span_event(span, self.index)
+            payload.event = event
+            return StreamEvent(
+                type="span_event", 
+                name=self._gen_func.__name__, 
+                payload=span, 
+                span_id=str(self.span_id), 
+                path=self.get_execution_path(), 
+                event=event,
+                parent_event_id=self.event.id if self.event else None,
+            )
+        elif isinstance(payload, Block):
+            event = await self.span.add_block_event(payload, self.index)
+            return StreamEvent(
+                type="span_event", 
+                name=self._gen_func.__name__, 
+                payload=payload, 
+                span_id=str(self.span_id), 
+                path=self.get_execution_path(), 
+                event=event,
+                parent_event_id=self.event.id if self.event else None,
+            )
+        else:
+            # raise ValueError(f"Invalid payload type: {type(payload)}")
+            return StreamEvent(type="span_event", name=self._gen_func.__name__, payload=payload, span_id=str(self.span_id), path=self.get_execution_path())
+    
+    async def on_stop_event(self, payload: Any = None):
+        return StreamEvent(
+            type="span_end", 
+            name=self._gen_func.__name__, 
+            payload=payload, 
+            span_id=str(self.span_id), 
+            path=self.get_execution_path(), 
+            parent_event_id=self.event.id if self.event else None,
+        )
+    
+    async def on_error_event(self, error: Exception):
+        from promptview.model3.versioning.models import Log
+        log = await Log(
+            message=str(error),
+            level="error"
+        ).save()
+        event = await self.span.add_log_event(log, self.index)
+        return StreamEvent(
+            type="span_error", 
+            name=self._gen_func.__name__, 
+            payload=error, 
+            span_id=str(self.span_id), 
+            path=self.get_execution_path(), 
+            event=event
+        )
+    
+    async def post_next(self, value: Any = None):
+        self.index += 1
+        return value
+    
+    # async def post_next(self, value: Any = None):
+    #     from promptview.model3.versioning.models import Turn
+    #     if isinstance(value, Block):
+    #         turn = Turn.current()
+    #         if turn:
+    #             await turn.add_block(value, self.index, span_id=self.span_id)
+    #             self.index += 1
+    #     return value
+    
+    # async def post_next(self, value: Any = None):
+    #     from promptview.model3.versioning.models import ExecutionSpan
+    #     if isinstance(value, Block):
+    #         await self.span.add_block(value, self.index)
+    #         self.index += 1
+    #     return value
+    def get_response(self):
+        if self._last_value and isinstance(self._last_value, BaseFbpComponent):
+            return self._last_value.get_response()
+        return self._last_value
+    
+    @property
+    def response(self):
+        return self._last_value
+    
+    async def build_span(self, parent_span_id: str | None = None):
+        from promptview.model3.versioning.models import ExecutionSpan
+        self._span = await ExecutionSpan(
+            span_type=self._span_type,
+            name=self._name,
+            index=self.index,
+            tags=self._tags,
+            start_time=dt.datetime.now(),
+            parent_span_id=parent_span_id,
+        ).save()
+        return self._span
+    
+    async def add_span(self, span: "ExecutionSpan"):
+        event = await self.span.add_span_event(span, self.index)
+        return event
+    
+    
+    async def add_event(self, gen: "PipeController | StreamController"):
+        if isinstance(gen, StreamController):
+            span = await gen.build_span(str(self.span_id))
+            event = await self.span.add_span_event(span, self.index)
+            gen.event = event
+            return event
+        elif isinstance(gen, PipeController):
+            span = await gen.build_span(str(self.span_id))
+            event = await self.span.add_span_event(span, self.index)        
+            gen.event = event
+            return event
+        else:
+            raise ValueError(f"Invalid generator type: {type(gen)}")
 
     async def on_start(self, value: Any = None):
+        from promptview.model3.versioning.models import ExecutionSpan
         bound, kwargs = await resolve_dependencies_kwargs(self._gen_func, self._args, self._kwargs)
         self._gen = self._gen_func(*bound.args, **bound.kwargs)
+        if not self._span:
+            self._span = await ExecutionSpan(
+                span_type=self._span_type,
+                name=self._name,
+                tags=self._tags,
+                index=self.index,
+                parent_span_id=self.parent.span_id if self.parent else None,
+            ).save()
+        
+        
+    async def on_stop(self):
+        self.span.end_time = dt.datetime.now()
+        self.span.status = "completed"
+        self._span = await self.span.save()
+        
+    async def on_error(self, error: Exception):
+        from promptview.model3.versioning.models import Log
+        log = await Log(
+            message=str(error),
+            level="error"
+        ).save()
+        await self.span.add_log_event(log, self.index)
+        self.span.end_time = dt.datetime.now()
+        self.span.status = "failed"
+        self.span.metadata = {"error": str(error)}
+        self._span = await self.span.save()
     
     def __aiter__(self):
         return FlowRunner(self)
     
     def stream_events(self):
         return FlowRunner(self).stream_events()
-    
-    async def __aiter__2(self):
-        # bound = await resolve_dependencies(self._gen_func, self._args, self._kwargs)
-        # gen = self._gen_func(*bound.args, **bound.kwargs)
-        bound, kwargs = await resolve_dependencies_kwargs(self._gen_func, self._args, self._kwargs)
-        gen = self._gen_func(*bound.args, **bound.kwargs)
-        yield StreamEvent(type="span_start", name=gen.__name__, attrs=kwargs )        
-        value = await gen.asend(None)
-        try:      
-            while True:
-                if isinstance(value, StreamController):
-                    stream = value
-                    async for chunk in stream:
-                        yield chunk
-                        # print(chunk)
-                    value = await gen.asend(stream.acc)
-                    # yield StreamEvent(type="span_value", name=self._gen_func.__name__, payload=value)
-                    continue
-                elif isinstance(value, PipeController):
-                    pipe = value
-                    res = None
-                    async for res in pipe:
-                        yield res
-                    value = await gen.asend(res.payload if res else None)
-                    continue
-                else:
-                    yield StreamEvent(type="span_value", name=self._gen_func.__name__, payload=value)
-                    value = await gen.asend(value)                    
-        except StopAsyncIteration:
-            yield StreamEvent(type="span_end", name=self._gen_func.__name__, payload=value)
             
     @classmethod
     def decorator_factory(cls) -> Callable[[], Callable[[Callable[P, AsyncGenerator[CHUNK, None]]], Callable[P, Self]]]:
@@ -607,49 +938,57 @@ class FlowRunner:
         if isinstance(value, StreamEvent):
             return value
         return func(value)
+
     
 
-    async def __anext__(self):
-        
-        # yield StreamEvent(type="span_start", name=gen.name, attrs=kwargs )
-        if self._error_to_raise:
-            raise self._error_to_raise
+    async def __anext__(self):        
         
         value = None
         while self.stack:
             
-            try:
+            try:                
                 gen = self.current            
+                if self._error_to_raise:
+                    # raise self._error_to_raise
+                    await gen.athrow(self._error_to_raise)
                 if not gen._did_start:
-                    await gen.start_generator()
+                    await gen.start_generator()                    
+                    payload = gen.span if isinstance(gen, PipeController) and len(self.stack) == 1 else None
+                    event = await gen.on_start_event(payload)
                     if not self.should_output_events:
                         continue
-                    return gen.on_start_event()
+                    return event
+                    
 
                 response = self._get_response()
                 value = await gen.asend(response)
-                                
+                
                 if isinstance(value, StreamController):
                     self.push(value)
                 elif isinstance(value, PipeController):
                     self.push(value)
-                else:
-                    self.last_value = value
-                    if not self.should_output_events:
-                        return value
-                    # return self._try_to_gen_event(gen.on_value_event, value)
-                    return gen.on_value_event(value)
+                
+                self.last_value = value
+                event = await gen.on_value_event(value)
+                if not self.should_output_events:
+                    return value
+                return event
+                
             except StopAsyncIteration:
                 gen = self.pop()
+                await gen.on_stop()
+                event = await gen.on_stop_event(None)
                 if not self.should_output_events:
                     continue
-                return gen.on_stop_event(None)
+                return event                
             except Exception as e:
                 gen = self.pop()
-                if not self.should_output_events:
+                event = await gen.on_error_event(e)
+                await gen.on_error(e)                
+                if not self.should_output_events or not self.stack:
                     raise e
                 self._error_to_raise = e
-                return gen.on_error_event(e)
+                return event
         else:
             raise StopAsyncIteration
 

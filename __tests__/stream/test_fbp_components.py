@@ -3,7 +3,7 @@ import asyncio
 import json
 from pydantic import BaseModel
 
-from promptview.block.block7 import BlockChunk, BlockList
+from promptview.block import BlockChunk, BlockList
 from promptview.prompt.flow_components import StreamController, PipeController, Stream, Parser, Accumulator
 from promptview.prompt.parser import StreamEvent
 

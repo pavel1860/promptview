@@ -1,14 +1,7 @@
-from dataclasses import dataclass
-import json
 import textwrap
-import yaml
 from typing import TYPE_CHECKING, Any, List
-from abc import ABC, abstractmethod
-
-from promptview.block.block import Block
-from promptview.block.block7 import BlockList, BlockSent, FieldAttrBlock, BlockChunk, BaseBlock
-from promptview.block.types import ContentType
-from promptview.block.style2 import StyleManager
+from promptview.block8.block8 import Block
+from promptview.block8.style_manager import StyleManager
 
 
 
@@ -17,7 +10,7 @@ from promptview.block.style2 import StyleManager
 class RenderContext:
     def __init__(
         self, 
-        block: "BaseBlock | None",
+        block: "Block | None",
         style: dict | None, 
         parent_ctx: "RenderContext | None" = None,
         verbose: bool = False,
@@ -137,7 +130,7 @@ class MetaRenderer(type):
 class BaseRenderer(metaclass=MetaRenderer):
     styles = []
     
-    def render(self, ctx: RenderContext, block: "BaseBlock", inner_content: str | None = None) -> str:
+    def render(self, ctx: RenderContext, block: "Block", inner_content: str | None = None) -> str:
         """
         Render the current block itself.
         """
@@ -146,44 +139,42 @@ class BaseRenderer(metaclass=MetaRenderer):
      
 
 
-class SentenceRenderer(BaseRenderer):
-    
-    
-    def render(self, ctx: RenderContext, block: BlockSent, inner_content: str | None = None) -> str:
-        content_list= []
-        for sep, chunk in block.iter_chunks():
-            content = chunk.content
-            if isinstance(content, str):
-                rendered_content = content
-            elif isinstance(content, int):
-                rendered_content = str(content)
-            elif isinstance(content, float):
-                rendered_content = str(content)
-            elif isinstance(content, bool):
-                rendered_content = str(content)
-            else:
-                raise ValueError(f"Invalid content type: {type(content)}")
-            content_list.append(sep)
-            content_list.append(rendered_content)
-            
-        return "".join(content_list)
-    
-    
-class ListRenderer(BaseRenderer):
 
-    def render(self, ctx: RenderContext, block: BlockList, inner_content: list[str]) -> str:
+
+
+class SentenceRenderer(BaseRenderer):
+    styles = ["sentence"]
+
+    def render(self, ctx: RenderContext, block: Block, inner_content: str | None = None) -> str:
+        return inner_content or ""
+
+
+
+
+class ListRenderer(BaseRenderer):
+    styles = ["list"]
+
+    def render(self, ctx: RenderContext, block: Block, inner_content: list[str]) -> str:
         return "\n".join(inner_content)
-    
+
+
+
 class BlockRenderer(BaseRenderer):    
     
-    def render(self, ctx: RenderContext, block: Block, title_content: str, inner_content: str, postfix_content: str | None = None) -> str:        
-        content = title_content
-        if inner_content:
-            content =  f"{title_content}\n{textwrap.indent(inner_content, '  ')}"
+    def render(self, ctx: RenderContext, block: Block, title_content: str, inner_content: str, postfix_content: str | None = None) -> str:
+        content =  f"{title_content}\n{textwrap.indent(inner_content, '  ')}"
         if postfix_content:
             content += f"\n{postfix_content}"
         return content
-    
 
 
 
+class XmlRenderer(BlockRenderer):
+    styles = ["xml"]
+
+    def render(self, ctx: RenderContext, block: Block, inner_content: str) -> str:
+        attrs = " ".join(f'{k}="{v}"' for k, v in block.attrs.items()) if block.attrs else ""
+        name = block.name or "block"
+        if not inner_content:
+            return f"<{name}{(' ' + attrs) if attrs else ''} />"
+        return f"<{name}{(' ' + attrs) if attrs else ''}>{inner_content}</{name}>"

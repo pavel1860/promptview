@@ -24,10 +24,11 @@ def render(target, style=None, parent_ctx: RenderContext | None = None, verbose:
     ctx = RenderContext(target, style, parent_ctx, verbose=verbose)
     if isinstance(target, Block):
         return render_block(target, ctx)
-    elif isinstance(target, BlockList):
-        return render_list(target, ctx)
     elif isinstance(target, BlockSent):
         return render_sentence(target, ctx)
+    elif isinstance(target, BlockList):
+        return render_list(target, ctx)
+    
     else:
         raise ValueError(f"Invalid block type: {type(target)}")
 
@@ -49,7 +50,7 @@ def render_list(block_list: BlockList, ctx: RenderContext):
 def render_block(block: Block, ctx: RenderContext):
     fmt = ctx.get_style("sentence-format")
     title_renderer = renderer_registry.get(fmt, 'sentence-format')
-    title_content = title_renderer.render(ctx, block.root)        
+    title_content = title_renderer.render(ctx, block.root)
     
     children_content_list = [render(child, None, ctx) for child in block.children]
     children_fmt = ctx.get_style("list-format")
@@ -61,7 +62,6 @@ def render_block(block: Block, ctx: RenderContext):
         if block.postfix is not None:
             postfix_content = render(block.postfix, None, ctx)
             
-    
     block_fmt = ctx.get_style("block-format")
     block_renderer = renderer_registry.get(block_fmt, 'block-format')
     content = block_renderer.render(ctx, block, title_content, children_content, postfix_content)    

@@ -2,6 +2,11 @@ import pytest
 from typing import AsyncGenerator, Callable, Union, Optional, Any
 
 from promptview.prompt.stream2 import StreamController, stream  # Adjust the import
+from promptview.prompt import component, Depends
+from promptview.llms import LLM
+from promptview.block import Block, BlockList, BlockSent, BlockChunk
+from promptview.model3.versioning.models import Branch
+from promptview.model3 import NamespaceManager
 
 @pytest.mark.asyncio
 async def test_basic_stream():
@@ -101,3 +106,77 @@ async def test_stream_non_appendable_handling():
 
     assert chunks == [42, "B"]
     assert await StreamController(gen(), accumulator=str) == "B"
+
+
+
+
+
+
+
+
+
+@pytest.mark.asyncio
+async def test_basic_component():
+    await NamespaceManager.initialize_all()
+    @component()
+    async def test_city_prompt(message: Block, llm: LLM = Depends(LLM)):
+        with Block(role="system") as s:
+            s /= "answer as short as possible"
+            s /= "no unneccesary words"
+            with s.response_schema() as r:
+                r /= "you must use the following format"
+                with r.field("output", str) as o:
+                    o /= "your answer goes here"
+                    
+        res = yield llm.stream(s, message).load("test_city_prompt", "__tests__/data").parse(r)
+        yield res
+        
+
+    branch = await Branch.get_main()
+    message = Block("what is the capital of France, Italy and Germany?")
+    events = []
+    with branch:
+        async with branch.start_turn() as turn:
+            async for e in test_city_prompt(message=message).stream_events():
+                print(e)
+                events.append(e)
+                
+                
+    assert events[0].type == "span_start"
+    assert events[0].path == [0]
+    assert events[0].name == "test_city_prompt"
+    assert events[1].type == "stream_start"
+    assert events[1].path == [0, 0]
+    assert events[1].name == "openai_llm"
+    assert events[2].type == "stream_delta"   
+    assert isinstance(events[2].payload,  Block)
+    assert events[3].type == "stream_delta"    
+    assert isinstance(events[3].payload, BlockSent)
+    assert events[3].payload.path == [1, 1]
+    assert events[4].type == "stream_delta"    
+    assert isinstance(events[4].payload, BlockChunk)
+    assert events[5].type == "stream_delta"    
+    assert isinstance(events[5].payload, BlockChunk)
+    assert events[6].type == "stream_delta"    
+    assert isinstance(events[6].payload, BlockChunk)
+    assert events[7].type == "stream_delta"    
+    assert isinstance(events[7].payload, BlockChunk)
+    assert events[8].type == "stream_delta"
+    assert isinstance(events[8].payload, BlockChunk)
+    assert events[9].type == "stream_delta"
+    assert isinstance(events[9].payload, BlockSent)
+    assert events[9].path == [0, 0]    
+    assert events[10].type == "stream_end"    
+    assert events[10].path == [0, 0]
+    assert events[11].type == "span_value"    
+    assert events[11].path == [1]
+    assert events[12].type == "span_end" 
+    assert events[12].path == [1]   
+
+
+        
+    
+        
+        
+        
+            

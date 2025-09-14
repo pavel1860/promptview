@@ -7,7 +7,7 @@ import re
 from typing import Literal
 
 from .joins import InnerJoin, Join
-from .expressions import Function, Coalesce, Eq, Expression, Neq, Gt, Gte, Lt, Lte, OrderBy, RawSQL, Value, WhereClause, json_build_object, param, In
+from .expressions import Any, Function, Coalesce, Eq, Expression, Neq, Gt, Gte, Lt, Lte, OrderBy, RawSQL, Value, WhereClause, json_build_object, param, In
 
 class Table:
     def __init__(self, name, alias=None):
@@ -73,6 +73,8 @@ class Column:
     def isin(self, values: list):
         return In(self, values)
 
+    def any(self, options: list):
+        return Any(self, options)
 
 JoinType = Literal["LEFT", "RIGHT", "INNER"]
 

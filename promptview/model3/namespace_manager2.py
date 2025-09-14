@@ -1,8 +1,11 @@
 import sys
-from typing import Any, Dict, ForwardRef, Type, Optional, get_args, get_origin, List, Union
+from typing import TYPE_CHECKING, Any, Dict, ForwardRef, Type, Optional, get_args, get_origin, List, Union
 from promptview.model3.postgres2.pg_namespace import PgNamespace
 from promptview.model3.qdrant2.qdrant_namespace import QdrantNamespace
 from promptview.model3.util import resolve_annotation
+
+if TYPE_CHECKING:
+    from promptview.model3.model3 import Model
 
 _extensions_registry = set()
 
@@ -142,8 +145,29 @@ class NamespaceManager:
 
 
     @classmethod
-    def drop_all_tables(cls):
+    def drop_all_tables(cls, exclude_tables: list[str] | None = None):
         from promptview.model.postgres.builder import SQLBuilder        
-        SQLBuilder.drop_all_tables()
-        SQLBuilder.drop_enum_types()
-        
+        SQLBuilder.drop_all_tables(exclude_tables)
+        # SQLBuilder.drop_enum_types(exclude_tables)
+    
+    @classmethod
+    def get_turn_namespace(cls):
+        return cls._registry.get(("turns", "postgres"))
+    
+    @classmethod
+    def get_branch_namespace(cls):
+        return cls._registry.get(("branches", "postgres"))
+    
+    @classmethod
+    def should_save_to_db(cls):
+        turn = cls.get_turn_namespace() is not None and cls.get_branch_namespace() is not None
+        branch = cls.get_branch_namespace() is not None
+        if not turn or not branch:
+            return False
+        return True
+    
+    
+    
+    
+    
+    

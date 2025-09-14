@@ -12,7 +12,7 @@ import datetime as dt
 
 LlmStreamType = Literal["stream_start", "message_delta", "stream_end", "stream_error"]
 
-SpanEventType = Literal["span_start", "span_end"]
+SpanEventType = Literal["span_start", "span_event", "span_end"]
 
 MessageType = Literal["user_message", "assistant_message"]
 
@@ -35,11 +35,15 @@ class StreamEvent:
     name: str | None = None
     attrs: dict | None = None
     depth: int = 0
+    parent_event_id: int | None = None
+    event: Any | None = None
     payload: Any | None = None    
     created_at: dt.datetime | None = None
     error: str | None = None
     index: int | None = None
     request_id: str | None = None
+    span_id: str | None = None
+    path: list[int] | None = None
         
     def payload_to_dict(self):
         if self.payload is None:
@@ -58,6 +62,8 @@ class StreamEvent:
             return obj.isoformat()
         if isinstance(obj, dt.date):
             return obj.isoformat()
+        if isinstance(obj, type):
+            return str(obj.__name__)
         if isinstance(obj, uuid.UUID):
             return str(obj)
         if hasattr(obj, "model_dump"):
@@ -77,12 +83,16 @@ class StreamEvent:
         payload = self.payload_to_dict()        
         dump = {
             "type": self.type,
+            "path": self.path,
             "name": self.name,
+            "index": self.index,
             "attrs": self.attrs,
             "depth": self.depth,
-            "payload": payload,
-            "index": self.index,
+            "payload": payload,            
             "request_id": self.request_id,
+            "span_id": self.span_id,   
+            "parent_event_id": self.parent_event_id,
+            "event": self.event.model_dump(exclude={"branch_id", "turn_id", "branch", "turn"}) if self.event else None,
         }        
         if self.error:
             dump["error"] = self.error
@@ -96,7 +106,7 @@ class StreamEvent:
         return self.to_json() + "\n"
     
     def __repr__(self):
-        return f"Event(type={self.type}, name={self.name}, attrs={self.attrs}, depth={self.depth}, payload={self.payload}, index={self.index}, request_id={self.request_id})"
+        return f"Event(type={self.type}, name={self.name}, attrs={self.attrs}, depth={self.depth}, payload={self.payload}, index={self.index}, request_id={self.request_id}, span_id={self.span_id}, path={self.path})"
     
     
 

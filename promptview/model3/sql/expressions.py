@@ -135,6 +135,13 @@ class In(Expression):
         self.value = value
         self.options = options  # Can be a list or subquery
 
+
+
+class Any(Expression):
+    def __init__(self, value, options):
+        self.value = value
+        self.options = options
+
 class Between(Expression):
     def __init__(self, value, lower, upper):
         self.value = value
@@ -184,6 +191,9 @@ class WhereClause:
     
     def isin(self, values: list):
         return In(self.condition, values)
+    
+    def any(self, options: list):
+        return Any(self.condition, options)
         
     def __and__(self, other: Expression):
         return self.and_(other)

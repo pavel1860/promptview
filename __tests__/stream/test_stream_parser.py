@@ -2,7 +2,7 @@ import pytest
 import pytest_asyncio
 
 from promptview.block import BlockChunk
-from promptview.block.block7 import BlockList
+from promptview.block import BlockList
 from promptview.llms.openai_llm3 import OpenAiLLM
 
 

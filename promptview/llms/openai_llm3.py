@@ -4,13 +4,13 @@ import openai
 import os
 
 from pydantic import BaseModel
-from promptview.block.block7 import BlockChunk, BlockList
+from promptview.block import BlockChunk, BlockList
 from promptview.block.util import LLMEvent, ToolCall
 from promptview.context.execution_context import ExecutionContext
 from promptview.llms.llm2 import BaseLLM, LLMStream, LlmConfig, llm_stream
 from openai.types.chat import ChatCompletionMessageParam
 from promptview.utils.model_utils import schema_to_function
-
+from promptview.tracer.langsmith_tracer import Tracer
 
 
 class OpenAiLLM(BaseLLM):
@@ -50,7 +50,7 @@ class OpenAiLLM(BaseLLM):
         schema = schema_to_function(tool)
         return schema
     
-    @llm_stream
+    @llm_stream(name="openai_llm")
     async def stream(
         self, 
         blocks: BlockList,
@@ -70,31 +70,49 @@ class OpenAiLLM(BaseLLM):
             llm_tools = [self.to_tool(tool) for tool in tools]        
             tool_choice = config.tool_choice
 
-        # try:       
-        res_stream = await self.client.chat.completions.create(
-                messages=messages,
-                tools=llm_tools,
-                model=config.model,
-                tool_choice=tool_choice,
-                stream=True,
-                logprobs=True,                
-            )
-                    
-        async for chunk in res_stream:                
-            if chunk.choices[0].delta:
-                choice = chunk.choices[0]                   
-                content = choice.delta.content
-                if content is None:
-                    continue
-                try:
-                    if choice.logprobs and choice.logprobs.content:                
-                        logprob = choice.logprobs.content[0].logprob
-                    else:
-                        logprob = 0  
-                except:
-                    raise ValueError("No logprobs")        
-                blk_chunk = BlockChunk(content, logprob=logprob)
-                yield blk_chunk
+        with Tracer(
+            run_type="llm",
+            name=self.__class__.__name__,
+            inputs={"messages": messages},
+            metadata={
+                "ls_model_name": config.model,
+                "ls_model_version": "openai",
+            },
+        ) as llm_run: 
+            full_content = ""
+            try:
+                
+                res_stream = await self.client.chat.completions.create(
+                        messages=messages,
+                        tools=llm_tools,
+                        model=config.model,
+                        tool_choice=tool_choice,
+                        stream=True,
+                        logprobs=True,                
+                    )
+                            
+                async for chunk in res_stream:                
+                    if chunk.choices[0].delta:
+                        choice = chunk.choices[0]                   
+                        content = choice.delta.content
+                        if content is not None:
+                            full_content += content
+                        if content is None:
+                            continue
+                        try:
+                            if choice.logprobs and choice.logprobs.content:                
+                                logprob = choice.logprobs.content[0].logprob
+                            else:
+                                logprob = 0  
+                        except:
+                            raise ValueError("No logprobs")        
+                        blk_chunk = BlockChunk(content, logprob=logprob)
+                        yield blk_chunk
+                llm_run.end(outputs={"content": full_content})
+                return
+            except Exception as e:
+                llm_run.end(outputs={"content": full_content}, errors=str(e))
+                raise e
                     
                     
         # except Exception as e:
