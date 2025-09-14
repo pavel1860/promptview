@@ -84,7 +84,7 @@ class Branch(Model):
         self, 
         message: str | None = None, 
         status: TurnStatus = TurnStatus.STAGED,
-        raise_on_error: bool = False,
+        raise_on_error: bool = True,
         **kwargs
     ) -> AsyncGenerator["Turn", None]:
         turn = await self.create_turn(message, status, **kwargs)
@@ -195,7 +195,7 @@ class Turn(Model):
     block_trees: List["BlockTree"] = RelationField(foreign_key="turn_id")
     
     _auto_commit: bool = True
-    _raise_on_error: bool = False
+    _raise_on_error: bool = True
 
     # forked_branches: List["Branch"] = RelationField("Branch", foreign_key="forked_from_turn_id")
     @classmethod

@@ -330,7 +330,7 @@ class Block(BlockSequence[BlockSent, "Block"]):
             ge=ge,
             le=le,
         )
-        
+            
     def get(self, tag: str):
         tag = tag.lower()
         if tag in self.tags:
@@ -348,7 +348,7 @@ class Block(BlockSequence[BlockSent, "Block"]):
         if tag in self.tags:
             return self
         candidates = []
-        for child in self.children:
+        for child in reversed(self.children):
             if isinstance(child, Block):
                 if tag in child.tags:
                     candidates.append(child)                            
@@ -434,6 +434,8 @@ class Block(BlockSequence[BlockSent, "Block"]):
         dump = {
             **super().model_dump(),
             "content": self.content.model_dump(),
+            "prefix": self.prefix.model_dump(),
+            "postfix": self.postfix.model_dump(),
             "styles": [s for s in self.styles],
             "tags": [t for t in self.tags],
             "attrs": {k: attr.model_dump() for k, attr in self.attrs.items()},
@@ -685,7 +687,7 @@ class BlockSchema(Block):
         prefix: BaseContent | None = None,
         postfix: BaseContent | None = None,
     ):
-        super().__init__(name, tags=tags or [] + [name], role=role or"view", style=style, parent=parent, attrs=attrs, styles=styles, prefix=prefix, postfix=postfix)
+        super().__init__(name, tags=(tags or [])+ [name], role=role or"view", style=style, parent=parent, attrs=attrs, styles=styles, prefix=prefix, postfix=postfix)
         if not type:
             raise ValueError("type is required")
         self.type = type

@@ -5,6 +5,10 @@ from typing import Type
 
 
 
+class BlockBuilderError(Exception):
+    pass
+
+
 
 class BlockBuilderContext:
     
@@ -26,7 +30,7 @@ class BlockBuilderContext:
         if len(res) == 1:
             return res[0]
         else:
-            raise ValueError("Multiple target nodes found")  
+            raise BlockBuilderError("Multiple target nodes found")  
         
 
     
@@ -35,7 +39,7 @@ class BlockBuilderContext:
     
     def get_event(self) -> Block:
         if self.queue.empty():
-            raise ValueError("No events to get")
+            raise BlockBuilderError("No events to get")
         return self.queue.get()
     
     def _push_event(self, event: Block):
@@ -45,9 +49,9 @@ class BlockBuilderContext:
     def get_view_info(self, view_name: str, is_last: bool = False) -> tuple[BlockSchema, Block | None]:
         schema = self.schema.get(view_name)
         if schema is None:
-            raise ValueError(f"View {view_name} not found")
+            raise BlockBuilderError(f"View {view_name} not found")
         if not isinstance(schema, BlockSchema):
-            raise ValueError(f"View {view_name} is not a schema")
+            raise BlockBuilderError(f"View {view_name} is not a schema")
         view = None
         if self.instance is not None:
             if is_last:
@@ -60,28 +64,54 @@ class BlockBuilderContext:
         if isinstance(target_schema, str):
             view_schema = self.schema.get(target_schema)
             if view_schema is None:
-                raise ValueError(f"View {view_schema} not found")
+                raise BlockBuilderError(f"View {view_schema} not found")
             if not isinstance(view_schema, BlockSchema):
-                raise ValueError(f"View {view_schema} is not a schema")
+                raise BlockBuilderError(f"View {view_schema} is not a schema")
         else:
             view_schema = target_schema
         if view_schema is None:
-            raise ValueError(f"View {view_schema} not found")
+            raise BlockBuilderError(f"View {view_schema} not found")
         path_views = [view_schema]
         while (parent := path_views[0].parent) is not None:
             path_views.insert(0, parent)
         return path_views
     
+    
+    def _build_response_block(
+        self, 
+        schema: BlockSchema, 
+        content: list[BlockChunk] | BlockChunk | str | None = None, 
+        tags: list[str] | None = None, 
+        attrs: dict[str, str] | None = None
+    ) -> Block:
+        view = Block(
+            content=content,
+            tags=[t for t in schema.tags ] + (tags or []),
+            # styles=["stream"]
+            styles=["stream-view"]
+        )
+        if attrs:
+            for k, v in attrs.items():
+                if k in schema.attrs:
+                    value = schema.attrs[k].parse(v)
+                    view.attrs[k] = value
+                else:
+                    raise BlockBuilderError(f"Attribute {k} not found in schema")
+                
+        return view
+    
+
+    
     def inst_view(
         self, 
-        view_schema: BlockSchema, 
+        target_schema: BlockSchema, 
         content: list[BlockChunk] | BlockChunk | str | None = None, 
         tags: list[str] | None = None, 
         attrs: dict[str, str] | None = None
     ) -> Block:
         
         def build_response_block(schema: BlockSchema) -> Block:
-            if view_schema.name == schema.name:
+            if target_schema.name == schema.name:
                 view = Block(
                     content=content,
                     tags=[t for t in schema.tags ] + (tags or []),
@@ -94,7 +124,7 @@ class BlockBuilderContext:
                             value = schema.attrs[k].parse(v)
                             view.attrs[k] = value
                         else:
-                            raise ValueError(f"Attribute {k} not found in schema")
+                            raise BlockBuilderError(f"Attribute {k} not found in schema")
                     
             else:
                 view = Block(
@@ -110,12 +140,12 @@ class BlockBuilderContext:
                 return view
             else:
                 if self.instance is None:
-                    raise ValueError("Instance is not initialized")
+                    raise BlockBuilderError("Instance is not initialized")
                 return self.instance.insert(view, path)
 
         curr_view = self.instance
 
-        view_path = self.get_block_path(view_schema)
+        view_path = self.get_block_path(target_schema)
         for i, vw_scm in enumerate(view_path):
             pth_view = curr_view.get(vw_scm.name) if curr_view is not None else None
             if pth_view is None:
@@ -129,15 +159,15 @@ class BlockBuilderContext:
     def set_attributes(self, view_name: str, view: Block, attrs: dict[str, str]):
         schema = self.schema.get(view_name)
         if not schema:
-            raise ValueError(f"Field {view_name} not found")
+            raise BlockBuilderError(f"Field {view_name} not found")
         if not isinstance(schema, BlockSchema):
-            raise ValueError(f"Field {view_name} is not a schema")
+            raise BlockBuilderError(f"Field {view_name} is not a schema")
         for k, v in attrs.items():
             if k in schema.attrs:
                 value = schema.attrs[k].parse(v)
                 view.attrs[k] = value
             else:
-                raise ValueError(f"Attribute {k} not found in schema")
+                raise BlockBuilderError(f"Attribute {k} not found in schema")
         return view
     
     
@@ -171,7 +201,7 @@ class BlockBuilderContext:
     ) -> Block:
         schema, view = self.get_view_info(view_name, is_last=True)
         if view is None:
-            raise ValueError(f"View {view_name} is not instantiated")
+            raise BlockBuilderError(f"View {view_name} is not instantiated")
         if view.is_last_eol():
             blk = view.append(content)                
             blk.styles += ["stream"]
@@ -187,7 +217,7 @@ class BlockBuilderContext:
     def instantiate(self, view_name: str, content: list[BlockChunk] | BlockChunk | str | None = None, tags: list[str] | None = None, attrs: dict[str, str] | None = None) -> tuple[Block, BlockSchema]:
         schema, view = self.get_view_info(view_name)
         if view is not None:
-            raise ValueError(f"View {view_name} is already instantiated")
+            raise BlockBuilderError(f"View {view_name} is already instantiated")
         return self.inst_view(schema, content, tags, attrs), schema
     
     # def append_list_item(
@@ -217,7 +247,7 @@ class BlockBuilderContext:
             
             
         
-        return self.inst_view(schema, content, tags, attrs)
+        
     
     def instantiate_list_item(
         self, 
@@ -229,15 +259,18 @@ class BlockBuilderContext:
     ) -> tuple[Block, BlockSchema]:
         list_schema, list_view = self.get_view_info(list_name)
         if list_view is None:
-            raise ValueError(f"List {list_name} is not instantiated")
-        schema, _ = self.get_view_info(view_name, is_last=True)        
-        return self.inst_view(schema, content, tags, attrs), schema
+            raise BlockBuilderError(f"List {list_name} is not instantiated")
+        schema, _ = self.get_view_info(view_name, is_last=True)
+        item_view = self._build_response_block(schema, content, tags, attrs)
+        list_view.append(item_view)
+        self._push_event(item_view)
+        return item_view, schema
     
     
     
     def print_schema_tree(self, verbose: bool = False):
         if self.schema is None:
-            raise ValueError("Schema is not initialized")
+            raise BlockBuilderError("Schema is not initialized")
         return self.schema.print_tree(verbose=verbose)
     
     def print_tree(self, verbose: bool = False):
@@ -252,10 +285,10 @@ class BlockBuilderContext:
         view_name: str,
         postfix: list[BlockChunk] | None = None,
     ):
-        schema, view = self.get_view_info(view_name)
+        schema, view = self.get_view_info(view_name, is_last=True)
         if postfix is not None:            
             if view is None:
-                raise ValueError(f"View {view_name} not found")
+                raise BlockBuilderError(f"View {view_name} not found")
             view.postfix.extend(postfix)
         
         return view
@@ -266,8 +299,8 @@ class BlockBuilderContext:
         self,
         view_name: str,
     ):
-        schema, view = self.get_view_info(view_name)
+        schema, view = self.get_view_info(view_name, is_last=True)
         if view is None:
-            raise ValueError(f"View {view_name} not found")
+            raise BlockBuilderError(f"View {view_name} not found")
         # view.commit()
         return view

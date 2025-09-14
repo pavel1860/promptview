@@ -59,8 +59,6 @@ class BaseBlock(Generic[CONTENT]):
             "_type": self.__class__.__name__,
             "id": self.id,
             "content": self.content,
-            "prefix": self.prefix,
-            "postfix": self.postfix,
             "index": self.index,
             "path": [p for p in self.path],
             "parent_id": self.parent.id if self.parent else None,

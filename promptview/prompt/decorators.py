@@ -31,7 +31,11 @@ def stream(
     ) -> Callable[P, StreamController]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> StreamController:            
-            return StreamController(gen_func=func, args=args, kwargs=kwargs)
+            gen = func(*args, **kwargs)
+            return StreamController(
+                gen=gen, 
+                name=func.__name__
+            )
         return wrapper
     return decorator
 
@@ -42,7 +46,9 @@ def stream(
 def component(
     # accumulator: SupportsExtend[CHUNK] | Callable[[], SupportsExtend[CHUNK]]
 ) -> Callable[[Callable[P, AsyncGenerator[CHUNK | StreamController, None]]], Callable[P, PipeController]]:
-    def decorator(func: Callable[P, AsyncGenerator[CHUNK | StreamController, None]]) -> Callable[P, PipeController]:
+    def decorator(
+        func: Callable[P, AsyncGenerator[CHUNK | StreamController, None]]
+    ) -> Callable[P, PipeController]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> PipeController:
             return PipeController(

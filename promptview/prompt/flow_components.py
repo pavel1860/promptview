@@ -8,7 +8,7 @@ import datetime as dt
 from typing import Any, AsyncGenerator, Callable, Iterable, Literal, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING, runtime_checkable
 import xml
 from promptview.block import BlockChunk, BlockSchema
-from promptview.block.block9.block_schema import BlockBuilderContext
+from promptview.block.block9.block_schema import BlockBuilderContext, BlockBuilderError
 from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
 from promptview.prompt.parser import BlockBuffer, SaxStreamParser
 from promptview.prompt.events import StreamEvent
@@ -319,13 +319,6 @@ class Parser(BaseFbpComponent):
                         )                    
                     
                     self._push_tag(element.tag, schema.is_list)
-                    # partial_field = self.response_schema.partial_init_field(
-                    #     field_name=element.tag,
-                    #     root=self._read_buffer(),
-                    #     attrs=dict(element.attrib),
-                    #     tags=[self.start_tag]
-                    # ) 
-                    # self._push_to_output(partial_field)
                     self._release_tag_lock()
                 elif event == 'end':
                     # end of a field
@@ -965,7 +958,7 @@ class FlowRunner:
                 event = await gen.on_stop_event(None)
                 if not self.should_output_events:
                     continue
-                return event
+                return event                
             except Exception as e:
                 gen = self.pop()
                 event = await gen.on_error_event(e)

@@ -125,7 +125,7 @@ class BaseLLM:
     @llm_stream(name="llm_call")
     async def stream(
         self,
-        blocks: BlockList,
+        *blocks: BlockChunk | Block | str,
         config: LlmConfig,
         tools: List[Type[BaseModel]] | None = None
     ) -> AsyncGenerator[Any, None]:
@@ -175,7 +175,7 @@ class LLM():
     
     def stream(
         self,
-        *blocks: BlockChunk | Block |BlockList | str,
+        *blocks: BlockChunk | Block | str,
         model: str | None = None,
         tools: List[Type[BaseModel]] | None = None,
         config: LlmConfig | None = None,
@@ -198,6 +198,7 @@ class LLM():
         
         llm_ctx = self._get_llm(model)        
         return llm_ctx(llm_blocks, *extra_args, config=config)
+    
     # def __call__(
     #     self,        
     #     blocks: BlockContext |BlockList | Block | BlockPrompt | str,
