@@ -930,17 +930,16 @@ class FlowRunner:
 
     
 
-    async def __anext__(self):
-        
-        # yield StreamEvent(type="span_start", name=gen.name, attrs=kwargs )
-        if self._error_to_raise:
-            raise self._error_to_raise
+    async def __anext__(self):        
         
         value = None
         while self.stack:
             
-            try:
+            try:                
                 gen = self.current            
+                if self._error_to_raise:
+                    # raise self._error_to_raise
+                    await gen.athrow(self._error_to_raise)
                 if not gen._did_start:
                     await gen.start_generator()                    
                     payload = gen.span if isinstance(gen, PipeController) and len(self.stack) == 1 else None
@@ -975,7 +974,7 @@ class FlowRunner:
                 gen = self.pop()
                 event = await gen.on_error_event(e)
                 await gen.on_error(e)                
-                if not self.should_output_events:
+                if not self.should_output_events or not self.stack:
                     raise e
                 self._error_to_raise = e
                 return event
