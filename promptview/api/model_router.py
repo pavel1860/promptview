@@ -98,8 +98,10 @@ def create_model_router(model: Type[MODEL], get_context: AsyncContextManager[CTX
     
     if "delete" not in exclude_routes:
         @router.delete("/delete")
-        async def delete_model(ctx: CTX_MODEL = Depends(get_context)):
+        async def delete_model(request: Request, ctx: CTX_MODEL = Depends(get_context)):
             """Delete an model"""
+            payload = await request.json()
+            model_id = payload.get("id")
             existing = await model.query(status=TurnStatus.COMMITTED).filter(lambda x: x.id == model_id).first()
             if not existing:
                 raise HTTPException(status_code=404, detail="Artifact not found")

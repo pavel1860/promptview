@@ -220,7 +220,8 @@ class Block(BlockSequence[BlockSent, "Block"]):
         self.role: str | None = role
         self.tags: list[str] = tags or []
         self.styles: list[str] = styles or parse_style(style)
-        self.attrs: dict[str, AttrBlock] = get_attrs(attrs)
+        # self.attrs: dict[str, AttrBlock] = get_attrs(attrs)
+        self.attrs: dict[str, str] | None = attrs or {}
         self.content = self._init_content(content)
         # if content is None:
         #     self.content = BlockSent(parent=self)
@@ -313,11 +314,12 @@ class Block(BlockSequence[BlockSent, "Block"]):
             parent=self.parent,
             tags=tags,
             styles=["xml"],
+            # styles=["xsd"],
         )
         self.append(block)
         return block
     
-    def attr(
+    def field(
         self, 
         name: str,
         type: Type, 
@@ -449,16 +451,21 @@ class Block(BlockSequence[BlockSent, "Block"]):
         return dummy_children
 
     def model_dump(self):
-        dump = {
-            **super().model_dump(),
-            "content": self.content.model_dump(),
-            "prefix": self.prefix.model_dump(),
-            "postfix": self.postfix.model_dump(),
-            "styles": [s for s in self.styles],
-            "tags": [t for t in self.tags],
-            "attrs": {k: attr.model_dump() for k, attr in self.attrs.items()},
-            "role": self.role,            
-        }
+        try:
+            dump = {
+                **super().model_dump(),
+                "content": self.content.model_dump(),
+                "prefix": self.prefix.model_dump(),
+                "postfix": self.postfix.model_dump(),
+                "styles": [s for s in self.styles],
+                "tags": [t for t in self.tags],
+                # "attrs": {k: attr.model_dump() for k, attr in self.attrs.items()},
+                "attrs": self.attrs,
+                "role": self.role,            
+            }
+        except Exception as e:
+            print(e)
+            raise e
         return dump
     # def model_dump(self):
     #     dump = super().model_dump()
@@ -539,12 +546,20 @@ class Block(BlockSequence[BlockSent, "Block"]):
                 yield child
 
         
-    
+    def _add_sent_content(self, sent: BlockSent):
+        for c in sent.children:
+            self.content.append(c)
+            
     
     def __iadd__(self, other: BaseContent | BlockSent | tuple[BaseContent, ...]):
         if isinstance(other, tuple):
             for o in other:
-                self.content.append(o)
+                if isinstance(o, BlockSent):
+                    self._add_sent_content(o)
+                else:
+                    self.content.append(o)
+        elif isinstance(other, BlockSent):
+            self._add_sent_content(other)
         else:
             self.content.append(other)
         return self

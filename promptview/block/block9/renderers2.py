@@ -5,7 +5,7 @@ from typing import get_type_hints, List
 from typing import get_args, get_origin, List
 from uuid import uuid4
 import uuid
-from .block import Block, BlockSequence, BlockSent, BlockChunk, BlockSchema
+from .block import AttrBlock, Block, BlockSequence, BlockSent, BlockChunk, BlockSchema
 
 
 BaseContent = str | int | float | bool | None
@@ -247,29 +247,84 @@ class NumberedList(TextStyle):
 
 
 
-# class XMLChildrenStyle(BlockStyle):
-#     styles = ["xml"]
-#     effects = "children"
+class XMLChildrenStyle(BlockStyle):
+    styles = ["xml"]
+    effects = "children"
     
-#     def __call__(self, block: Block):
-#         for child in block.children:
-#             child.prefix.insert("\n", 0)
-#         return block
+    def __call__(self, block: Block):
+        for child in block.children:
+            child.prefix.insert("\n", 0)
+        return block
+    
+    
+# class XMLChunkStyle(ChunkStyle):
+#     styles = ["xml"]
+    
+#     def __call__(self, chunk: BlockChunk):
+#         if chunk.index > 0:
+#             chunk.prefix += " "
+#         return chunk
+    
     
 class XMLStyle(BlockStyle):
     styles = ["xml"]
     # effects = "content"
     
+    
+    def render_attr(self, attr: AttrBlock):
+        content = f"{attr.name}=\""
+        instructions = ""
+        if attr.type in (int, float):
+            instructions = " wrap in quotes"
+        content += f"(\"{attr.type.__name__}\"{instructions}) {attr.description}"
+        
+        if attr.description:
+            content += f" {attr.description}"
+        if attr.gt is not None:
+            content += f" gt={attr.gt}"
+        if attr.lt is not None:
+            content += f" lt={attr.lt}"
+        if attr.ge is not None:
+            content += f" ge={attr.ge}"
+        if attr.le is not None:
+            content += f" le={attr.le}"
+        return content + "\""
+    
+    def render_all_attrs(self, block: Block):
+        attrs = ""
+        for attr in block.attrs.values():
+            attrs += " " + self.render_attr(attr)
+        return attrs
+
+    
     def __call__(self, block: Block):        
         if not block.children:
             block.content.prefix = f"<"
-            block.content.postfix = f"/>"
+            block.content.postfix = self.render_all_attrs(block) + f"/>"
         else:
             block = super().__call__(block)
             block.content.prefix = f"<"        
-            block.content.postfix = f">"
+            block.content.postfix = self.render_all_attrs(block) + f">"
             block.postfix = block.content.copy()
             block.postfix.prefix = f"\n</"
             block.postfix.postfix = f">"
         return block
+    
+    
+    
+class XSDStyle(BlockStyle):
+    styles = ["xsd"]
+    
+    def __call__(self, block: Block):
+        with Block(prefix="\n") as s:            
+            with s("xs:element", style="xml") as e:
+                e += ' name=\"', block.content, '\"'
+                if block.attrs:
+                    with e("xs:complexType", style="xml") as ct:
+                        for attr in block.attrs.values():
+                            ct /= f"<xs:attribute name=\"{attr.name}\" type=\"{attr.type.__name__}\"/>"
+                s.extend(block.children)
+        return s
+    
+    
     

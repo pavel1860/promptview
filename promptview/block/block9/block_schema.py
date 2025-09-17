@@ -127,12 +127,13 @@ class BlockBuilderContext:
                     styles=["stream-view"]
                 )
                 if attrs:
-                    for k, v in attrs.items():
-                        if k in schema.attrs:
-                            value = schema.attrs[k].parse(v)
-                            view.attrs[k] = value
-                        else:
-                            raise BlockBuilderError(f"Attribute {k} not found in schema")
+                    view = self.set_attributes(schema, view, attrs)
+                    # for k, v in attrs.items():
+                    #     if k in schema.attrs:
+                    #         value = schema.attrs[k].parse(v)
+                    #         view.attrs[k] = value
+                    #     else:
+                    #         raise BlockBuilderError(f"Attribute {k} not found in schema")
                     
             else:
                 view = Block(
@@ -164,12 +165,7 @@ class BlockBuilderContext:
         return curr_view
     
     
-    def set_attributes(self, view_name: str, view: Block, attrs: dict[str, str]):
-        schema = self.schema.get(view_name)
-        if not schema:
-            raise BlockBuilderError(f"Field {view_name} not found")
-        if not isinstance(schema, BlockSchema):
-            raise BlockBuilderError(f"Field {view_name} is not a schema")
+    def set_attributes(self, schema: BlockSchema, view: Block, attrs: dict[str, str]):
         for k, v in attrs.items():
             if k in schema.attrs:
                 value = schema.attrs[k].parse(v)
@@ -177,6 +173,20 @@ class BlockBuilderContext:
             else:
                 raise BlockBuilderError(f"Attribute {k} not found in schema")
         return view
+    
+    # def set_attributes(self, view_name: str, view: Block, attrs: dict[str, str]):
+    #     schema = self.schema.get(view_name)
+    #     if not schema:
+    #         raise BlockBuilderError(f"Field {view_name} not found")
+    #     if not isinstance(schema, BlockSchema):
+    #         raise BlockBuilderError(f"Field {view_name} is not a schema")
+    #     for k, v in attrs.items():
+    #         if k in schema.attrs:
+    #             value = schema.attrs[k].parse(v)
+    #             view.attrs[k] = value
+    #         else:
+    #             raise BlockBuilderError(f"Attribute {k} not found in schema")
+    #     return view
     
     
     # def append(
@@ -274,6 +284,7 @@ class BlockBuilderContext:
         schema, _ = self.get_view_info(view_name, is_last=True)
         item_view = self._build_response_block(schema, content, tags, attrs)
         list_view.append(item_view)
+        item_view = self.set_attributes(schema, item_view, attrs)
         self._push_event(item_view)
         return item_view, schema
     

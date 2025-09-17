@@ -80,7 +80,7 @@ def include_chatboard_routers(app: FastAPI, user_manager: AuthManager[USER_MODEL
     app.include_router(artifact_log_router, prefix="/api")
     app.include_router(create_auth_router(user_manager), prefix="/api")
     app.include_router(tracing_router, prefix="/api")
-    app.add_middleware(AddCtxMiddleware)
+    # app.add_middleware(AddCtxMiddleware)
 
 
 class Chatboard(Generic[MSG_MODEL, USER_MODEL, CTX_MODEL]):
