@@ -233,6 +233,14 @@ class Block(BlockSequence[BlockSent, "Block"]):
         # else:
         #     self.content = BlockSent(parent=self)
         #     self.content.append(content)
+    @property
+    def tag(self):
+        """
+        returns the first tag
+        """
+        if self.tags:
+            return self.tags[0]
+        return None
         
     def _parse_sent(self, sent: BlockSent | str | None) -> BlockSent:
         if sent is None:
@@ -723,7 +731,7 @@ class BlockSchema(Block):
     ):
         tags = tags or []
         if name not in tags:
-            tags.append(name)
+            tags.insert(0, name)
         super().__init__(name, tags=tags, role=role or"view", style=style, parent=parent, attrs=attrs, styles=styles, prefix=prefix, postfix=postfix)
         if not type:
             raise ValueError("type is required")
