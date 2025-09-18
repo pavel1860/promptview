@@ -103,7 +103,7 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
                 continue
             if value is None:
                 if not field.is_optional and not field.is_primary_key:
-                    raise ValueError(f"Missing required field: {field.name}")
+                    raise ValueError(f"Missing required field: '{field.name}' on Model '{self._model_cls.__name__}'")
             serialized = field.serialize(value)
             fields.append(f'"{field.name}"')
             placeholders.append(field.get_placeholder(param_idx))

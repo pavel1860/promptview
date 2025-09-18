@@ -274,6 +274,9 @@ class BaseNamespace(Generic[MODEL, FIELD]):
     def has_primary_key(self, data:  MODEL) -> bool:
         return getattr(data, self.primary_key) is not None
     
+    def get_primary_key(self, data: MODEL) -> Any:
+        return getattr(data, self.primary_key)
+    
     def set_primary_key(self, data: MODEL, value) -> None:
         setattr(data, self.primary_key, value)
 

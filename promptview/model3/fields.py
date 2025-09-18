@@ -104,8 +104,8 @@ def RefField(
 def RelationField(
     default: Any = None,
     *,
-    primary_key: str | None = None,
-    foreign_key: str | None = None,
+    foreign_key: str,
+    primary_key: str | None = None,    
     junction_keys: list[str] | None = None,
     junction_model: "Type[Model] | None" = None,
     on_delete: str = "CASCADE",
