@@ -157,11 +157,14 @@ class BaseNamespace(Generic[MODEL, FIELD]):
                 return rel
         return None
     
-    def get_relation_for_namespace(self, namespace: "BaseNamespace") -> Optional[RelationInfo]:
+    def get_relation_for_namespace(self, namespace: "BaseNamespace", foreign_key: str | None = None) -> Optional[RelationInfo]:
         for rel in self._relations.values():
             if rel.foreign_cls == namespace._model_cls:
+                if foreign_key is not None and rel.primary_key != foreign_key:
+                    continue
                 return rel
         return None
+    
 
     # -------------------------
     # Context handling

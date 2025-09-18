@@ -35,6 +35,7 @@ class PgFieldInfo(BaseFieldInfo):
         order_by: bool = False,
         foreign_cls: Optional[Type] = None,
         self_ref: bool = False,
+        rel_name: str | None = None,
     ):
         super().__init__(
             name=name,
@@ -53,6 +54,7 @@ class PgFieldInfo(BaseFieldInfo):
             order_by=order_by,
             foreign_cls=foreign_cls,
             self_ref=self_ref,
+            rel_name=rel_name,
         )
 
         self.sql_type = sql_type or self._resolve_sql_type()
