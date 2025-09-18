@@ -1,0 +1,153 @@
+from typing import Iterator
+from promptview.model3.model3 import Model
+from promptview.model3.versioning.models import Branch, Turn, VersionedModel
+from dataclasses import dataclass
+
+
+
+
+@dataclass
+class LoadTurn:
+    turn_id: int
+    
+@dataclass
+class LoadBranch:
+    branch_id: int
+    
+    
+@dataclass
+class ForkTurn:
+    turn: Turn | None = None
+    turn_id: int | None = None
+
+@dataclass
+class ForkBranch:
+    branch_id: int
+    
+    
+@dataclass
+class StartTurn:
+    branch_id: int | None = None
+    
+
+class Context:
+    
+    
+    def __init__(
+        self,
+        *models: Model,
+        branch: Branch | None = None,
+        turn: Turn | None = None,
+        branch_id: int | None = None,
+        turn_id: int | None = None,
+    ):
+        self.ctx_models = {m.__class__.__name__:m for m in models}
+        self.tasks = []
+        if branch_id is not None:
+            self.tasks.append(LoadBranch(branch_id=branch_id))
+        if turn_id is not None:
+            self.tasks.append(LoadTurn(turn_id=turn_id))
+            
+        self._branch = branch
+        self._turn = turn
+        
+        
+    @property
+    def branch(self) -> Branch:
+        if self._branch is None:
+            raise ValueError("Branch not found")
+        return self._branch
+    
+    @property
+    def turn(self) -> Turn:
+        if self._turn is None:
+            raise ValueError("Turn not found")
+        return self._turn
+    
+    async def get_branch(self) -> Branch:
+        return await Branch.get_main()
+        
+    
+    async def _get_branch(self) -> Branch:
+        if self._branch is None:
+            self._branch = await Branch.get_main()
+        return self._branch
+    
+        # if self._branch is not None:
+        #     return self.branch
+        # elif self.branch_id is not None:
+        #     self._branch = await Branch.get(self.branch_id)
+        #     return self.branch
+        # else:
+        #     self._branch = await self.get_branch()
+        #     return self.branch
+        
+    
+    def start_turn(self) -> "Context":
+        self.tasks.append(StartTurn())
+        return self
+    
+    def fork(self, turn: Turn | None = None, turn_id: int | None = None) -> "Context":
+        self.tasks.append(ForkTurn(turn=turn, turn_id=turn_id))
+        return self
+    
+    # def fork(self, branch: Branch | None = None)
+    
+    async def _handle_tasks(self) -> Branch:
+        for task in self.tasks:
+            if isinstance(task, LoadBranch):
+                self._branch = await Branch.get(task.branch_id)
+            elif isinstance(task, LoadTurn):
+                self._turn = await Turn.get(task.turn_id)                
+            elif isinstance(task, ForkTurn):
+                if task.turn is not None:
+                    branch = await self._get_branch()
+                    self._branch = await branch.fork_branch(task.turn)
+                elif task.turn_id is not None:
+                    branch = await self._get_branch()
+                    turn = await Turn.get(task.turn_id)
+                    self._branch = await branch.fork_branch(turn)                    
+            elif isinstance(task, StartTurn):
+                branch = await self._get_branch()
+                self._turn = await branch.create_turn()
+            
+
+        if self._branch is None:
+            branch = await self._get_branch()
+        # if self.turn is None:
+            # raise ValueError("Turn not found")
+                
+        return self.branch
+    
+    def get_models(self):
+        v_models = []
+        models = []
+        for model in self.ctx_models.values():
+            if isinstance(model, VersionedModel):
+                v_models.append(model)
+            else:
+                models.append(model)
+        return v_models, models
+                
+        
+    async def __aenter__(self):
+        branch = await self._handle_tasks()
+        v_models, models = self.get_models()
+        for model in models:
+            model.__enter__()
+        branch.__enter__()
+        if self._turn is not None:
+            await self._turn.__aenter__()
+        for model in v_models:
+            model.__enter__()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        v_models, models = self.get_models()
+        for model in reversed(v_models):
+            model.__exit__(exc_type, exc_value, traceback)
+        if self._turn is not None:
+            await self._turn.__aexit__(exc_type, exc_value, traceback)
+        self.branch.__exit__(exc_type, exc_value, traceback)
+        for model in reversed(models):
+            model.__exit__(exc_type, exc_value, traceback)
