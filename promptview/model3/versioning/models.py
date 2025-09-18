@@ -188,7 +188,7 @@ class Turn(Model):
     index: int = ModelField(order_by=True)
     status: TurnStatus = ModelField(default=TurnStatus.STAGED)
     message: str | None = ModelField(default=None)
-    branch_id: int = ModelField(foreign_key=True)
+    branch_id: int = ModelField(foreign_key=True, foreign_cls=Branch)
     trace_id: str | None = ModelField(default=None)
     metadata: dict | None = ModelField(default=None)
     spans: List["ExecutionSpan"] = RelationField(foreign_key="turn_id")
@@ -197,7 +197,8 @@ class Turn(Model):
     _auto_commit: bool = True
     _raise_on_error: bool = True
 
-    # forked_branches: List["Branch"] = RelationField("Branch", foreign_key="forked_from_turn_id")
+    forked_branches: List["Branch"] = RelationField("Branch", foreign_key="forked_from_turn_id")
+    
     @classmethod
     def blocks(cls):
         from promptview.model3.block_models.block_log import parse_block_tree_turn
@@ -263,7 +264,7 @@ class Turn(Model):
         return curr_branch.id
     
     @classmethod
-    def versioned_query(
+    def vquery(
         cls: Type[Self], 
         fields: list[str] | None = None, 
         branch: Branch | None = None, 
@@ -349,9 +350,16 @@ class VersionedModel(Model):
         return turn.id if isinstance(turn, Turn) else turn
     
     @classmethod
-    def vquery(cls, fields: list[str] | None = None, alias: str | None = None, limit: int | None = None, offset: int | None = None, direction: Literal["asc", "desc"] = "desc", **kwargs):
+    def vquery(
+        cls, 
+        fields: list[str] | None = None, 
+        alias: str | None = None, 
+        limit: int | None = None, offset: int | None = None, 
+        direction: Literal["asc", "desc"] = "desc", 
+        **kwargs
+    ):
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
-        turn_cte = Turn.versioned_query().select(fields or "*").where(status=TurnStatus.COMMITTED)
+        turn_cte = Turn.vquery().select(*fields or "*").where(status=TurnStatus.COMMITTED)
         if limit:
             turn_cte = turn_cte.limit(limit)
             turn_cte = turn_cte.order_by(f"-index" if direction == "desc" else "index")
@@ -375,7 +383,8 @@ class BlockModel(Model):
     id: str = KeyField(primary_key=True)
     # created_at: dt.datetime = ModelField(default_factory=dt.datetime.now)
     content: str | None = ModelField(default=None)
-    json_content: dict | None = ModelField(default=None)    
+    json_content: dict | None = ModelField(default=None) 
+    block_nodes: list["BlockNode"] = RelationField(foreign_key="block_id")   
     
 
 class BlockNode(Model):
@@ -421,7 +430,11 @@ class BlockTree(VersionedModel):
 class ArtifactModel(VersionedModel):
     """VersionedModel with artifact tracking."""
     _is_base = True
-    artifact_id: uuid.UUID = KeyField(default_factory=uuid.uuid4, type="uuid")
+    id: int = KeyField(primary_key=True)
+    artifact_id: uuid.UUID = KeyField(
+            default_factory=uuid.uuid4, 
+            type="uuid"
+        )
     version: int = ModelField(default=1)
 
     @classmethod
@@ -431,7 +444,49 @@ class ArtifactModel(VersionedModel):
         return await cls.query().filter(artifact_id=artifact_id).order_by("-version").first()
 
 
-
+    async def save(self, *, branch: Branch | int | None = None, turn: Turn | int | None = None):        
+        ns = self.get_namespace()
+        if primary_key:= ns.get_primary_key(self):
+            obj = self.model_copy(update={"id": None})
+            obj.version += 1
+            return await obj.save()
+        else:
+            return await super().save()
+        
+        
+        
+    @classmethod
+    def vquery(
+        cls, 
+        fields: list[str] | None = None, 
+        alias: str | None = None, 
+        limit: int | None = None, 
+        offset: int | None = None, 
+        direction: Literal["asc", "desc"] = "desc", 
+        **kwargs
+    ):
+        from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+        turn_cte = Turn.vquery().select(*fields or "*").where(status=TurnStatus.COMMITTED)
+        if limit:
+            turn_cte = turn_cte.limit(limit)
+            turn_cte = turn_cte.order_by(f"-index" if direction == "desc" else "index")
+        if offset:
+            turn_cte = turn_cte.offset(offset)
+        
+        
+        query = (
+            PgSelectQuerySet(cls, alias=alias) \
+            .use_cte(
+                turn_cte,
+                name="committed_turns",
+                alias="ct",
+            ).distinct_on("artifact_id")
+            .order_by("-artifact_id", "-version")
+        )
+        where_keys = cls._get_context_fields()
+        if where_keys:
+            query.where(**where_keys)
+        return query
 
 
 
@@ -462,9 +517,9 @@ class ExecutionSpan(VersionedModel):
     id: uuid.UUID = KeyField(primary_key=True)
     name: str = ModelField()  # Function/component name
     span_type: span_type_enum = ModelField()
-    parent_span_id: uuid.UUID | None = ModelField(foreign_key=True)
-    turn_id: int = ModelField(foreign_key=True)
-    branch_id: int = ModelField(foreign_key=True)
+    parent_span_id: uuid.UUID | None = ModelField(foreign_key=True, self_ref=True)
+    turn_id: int = ModelField(foreign_key=True, foreign_cls=Turn)
+    branch_id: int = ModelField(foreign_key=True, foreign_cls=Branch)
     start_time: dt.datetime = ModelField(default_factory=dt.datetime.now)
     end_time: dt.datetime | None = ModelField(default=None)
     tags: list[str] | None = ModelField(default=None)

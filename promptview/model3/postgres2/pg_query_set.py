@@ -641,7 +641,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         Postgres-specific DISTINCT ON.
         Keeps only the first row of each set of rows where the given columns are equal.
         """
-        self.ordering_set.distinct_on = [Column(f, self.from_table) for f in fields]
+        self.ordering_set.distinct_on = [Column(f, self.table) for f in fields]
         return self
     
     def first(self) -> "QuerySetSingleAdapter[MODEL]":
@@ -702,6 +702,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         query.limit = self.ordering_set.limit
         query.offset = self.ordering_set.offset
         query.joins = self.join_set.joins
+        query.distinct_on = self.ordering_set.distinct_on
         if include_columns:
             query.columns = self.projection_set.resulve_columns()
         if include_ctes:
@@ -712,32 +713,85 @@ class PgSelectQuerySet(QuerySet[MODEL]):
     
     
     
+    def to_json_query2(self):
+        from promptview.model3 import ArtifactModel
+        query = self.build_query(
+            include_columns=True, 
+            self_group=False, 
+            include_ctes=False
+        )
+        if issubclass(self.model_class, ArtifactModel) and not isinstance(query, RawSQL):
+            query.distinct_on = [Column("artifact_id", query.from_table)]
+            query.order_by += [Column("artifact_id", query.from_table), Column("version", query.from_table)]       
+        table = Table(query.from_table.name, alias=query.from_table.alias + "_a")
+        sq = Subquery(query, table.alias)
+        q = SelectQuery().select(Function("jsonb_agg", Value(table.alias, no_quote=True))).from_(sq)
+        return Coalesce(
+            q, 
+            Null(),
+            # Value("[]", inline=True)
+        )
+        # return Subquery(q, "states")
+        
+        # return jsonb_obj
+        # return SelectQuery().select(jsonb_obj).from_(sq)
+        # return Coalesce(q, Value("[]", inline=True))
+    
     def to_json_query(self):
+        from promptview.model3 import ArtifactModel
         query = self.build_query(
             include_columns=False, 
             self_group=False, 
             include_ctes=False
         )
-        json_pairs = []
-        for col in self.projection_set.columns:
-            json_pairs.append(Value(col.alias or col.name))
-            json_pairs.append(col)
         
-        for qs, name in self.projection_set.nest_columns:
-            nested_query = qs.to_json_query()
-            # json_pairs.append(Value(qs.alias))
-            json_pairs.append(Value(name))
-            json_pairs.append(nested_query)
             
-        order_by = None
-        if query.order_by:
-            order_by = query.order_by
-            query.order_by = []
             
+        json_pairs = []
+        
+        
+        if issubclass(self.model_class, ArtifactModel) and not isinstance(query, RawSQL):
+            table = Table(query.from_table.name, alias=query.from_table.alias + "_a")
+            query.distinct_on = [Column("artifact_id", query.from_table)]
+            query.order_by += [Column("artifact_id", query.from_table), Column("version", query.from_table)]       
+            query = SelectQuery().from_(Subquery(query, table.alias))           
+            
+            for col in self.projection_set.columns:
+                json_pairs.append(Value(col.alias or col.name))
+                json_pairs.append(Column(col.alias or col.name, table))
+            
+            for qs, name in self.projection_set.nest_columns:
+                nested_query = qs.to_json_query()
+                # json_pairs.append(Value(qs.alias))
+                json_pairs.append(Value(name))
+                json_pairs.append(nested_query)
+                
+            order_by = None
+            if query.order_by:
+                order_by = query.order_by
+                query.order_by = []
+            
+            
+        else:
+            for col in self.projection_set.columns:
+                json_pairs.append(Value(col.alias or col.name))
+                json_pairs.append(col)
+            
+            for qs, name in self.projection_set.nest_columns:
+                nested_query = qs.to_json_query()
+                # json_pairs.append(Value(qs.alias))
+                json_pairs.append(Value(name))
+                json_pairs.append(nested_query)
+                
+            order_by = None
+            if query.order_by:
+                order_by = query.order_by
+                query.order_by = []
+            
+      
         json_obj = Function("jsonb_build_object", *json_pairs, order_by=order_by)
         
-        
-            
+    
         
         if len(self.join_set):
             join, relation = self.join_set[0]
@@ -746,6 +800,9 @@ class PgSelectQuerySet(QuerySet[MODEL]):
                 default_value = Value("[]", inline=True)
             else:
                 default_value = Null()
+            
+            
+                # query.from_table = Subquery(query, "artifact")
                 
             query.select(json_obj)
             return Coalesce(query, default_value)
@@ -754,25 +811,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             json_obj = Function("json_agg", json_obj)
             query.select(json_obj)
             return Coalesce(query, Value("[]", inline=True))
-            return json_obj
-            raise ValueError("No joins found")
-        
-        # if len(self.join_set):
-        #     join, relation = self.join_set[0]
-        #     if relation is not None and not relation.is_one_to_one:
-        #         json_obj = Function("json_agg", json_obj)
-        #         default_value = Value("[]", inline=True)
-        #     else:
-        #         default_value = Null()
-                
-        #     query.select(json_obj)
-        #     return Coalesce(query, default_value)
-        # else:
-        #     json_obj = Function("json_agg", json_obj)
-        #     query.select(json_obj)
-        #     default_value = Value("[]", inline=True)
-        #     return Coalesce(query, default_value)
-    
+
     
     def parse_row(self, row: dict[str, Any]) -> MODEL:
         # Convert scalar columns first

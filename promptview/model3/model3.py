@@ -64,11 +64,14 @@ class Model(BaseModel, metaclass=ModelMeta):
         
     @classmethod
     def current(cls) -> Self:
-        return cls.get_namespace().get_ctx()
+        obj = cls.get_namespace().get_ctx()
+        if obj is None:
+            raise ValueError(f"{cls.__name__} not found in context")
+        return obj
     
     @classmethod
     def current_or_none(cls) -> Self | None:
-        return cls.get_namespace().get_ctx_or_none()
+        return cls.get_namespace().get_ctx()
 
     @classmethod
     async def get(cls: Type[Self], id: Any) -> Self:
@@ -142,6 +145,16 @@ class Model(BaseModel, metaclass=ModelMeta):
 
     async def delete(self):
         return await self.get_namespace().delete(self.primary_id)
+    
+    @classmethod
+    def _get_context_fields(cls):
+        ns = cls.get_namespace()
+        where_keys = {}
+        for field in ns.iter_fields():
+            if field.is_foreign_key:
+                if curr:= field.foreign_cls.current_or_none():
+                    where_keys[field.name] = curr.primary_id
+        return where_keys
 
     @property
     def primary_id(self):
@@ -149,11 +162,23 @@ class Model(BaseModel, metaclass=ModelMeta):
         return getattr(self, ns.primary_key)
 
     @classmethod
-    def query(cls: Type[Self], fields: list[str] | None = None, alias: str | None = None, **kwargs) -> "PgSelectQuerySet[Self]":
+    def query(
+        cls: Type[Self], 
+        fields: list[str] | None = None, 
+        alias: str | None = None, 
+        use_ctx: bool = True,
+        **kwargs
+    ) -> "PgSelectQuerySet[Self]":
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
-        if not fields:
-            return PgSelectQuerySet(cls, alias=alias).select("*")
-        return PgSelectQuerySet(cls, alias=alias).select(*fields)
+        query = PgSelectQuerySet(cls, alias=alias).select(*fields if fields else "*")
+        if use_ctx:
+            where_keys = cls._get_context_fields()
+            if where_keys:
+                query.where(**where_keys)
+        return query
+        # if not fields:
+        #     return PgSelectQuerySet(cls, alias=alias).select("*")
+        # return PgSelectQuerySet(cls, alias=alias).select(*fields)
 
 
 

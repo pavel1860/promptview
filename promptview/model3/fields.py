@@ -20,13 +20,14 @@ if TYPE_CHECKING:
 def ModelField(
     default: Any = PydanticUndefined,
     *,
-    foreign_key: bool = False,
+    foreign_key: bool = False,    
     index: Optional[str] = None,
     default_factory: Callable[[], Any] | None = _Unset,
     order_by: bool = False,
     db_type: str | None = None,
     description: str | None = _Unset,
     foreign_cls: "Type[Model] | None" = None,
+    self_ref: bool = False,
 ) -> Any:
     """Define a model field with ORM-specific metadata"""
     # Create extra metadata for the field
@@ -34,6 +35,7 @@ def ModelField(
     extra["is_model_field"] = True
     extra["order_by"] = order_by
     extra["index"] = index    
+    extra["self_ref"] = self_ref
     if db_type:
         extra["db_type"] = db_type
     if foreign_key:
@@ -42,8 +44,11 @@ def ModelField(
     if foreign_cls:
         if not foreign_key:
             raise ValueError("foreign_key must be provided if foreign_cls is provided")
+        if self_ref:
+            raise ValueError("self_ref must be False if foreign_cls is provided")
         extra["foreign_cls"] = foreign_cls
         default = None
+    
     # Create the field with the extra metadata
     params = {
         "json_schema_extra": extra,

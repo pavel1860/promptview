@@ -112,12 +112,17 @@ class NamespaceManager:
         for ns in cls._registry.values():
             if hasattr(ns, "_pending_field_parser"):
                 ns._pending_field_parser.parse()
-                del ns._pending_field_parser
+                # del ns._pending_field_parser
                 
         for ns in cls._registry.values():       
             if hasattr(ns, "_pending_relation_parser"):
                 ns._pending_relation_parser.parse()
                 del ns._pending_relation_parser
+                
+        for ns in cls._registry.values():
+            if hasattr(ns, "_pending_field_parser"):
+                ns._pending_field_parser.validate_foreign_keys()
+                del ns._pending_field_parser
                 
         for ns in cls._registry.values():
             for name, rel in ns._relations.items():

@@ -198,14 +198,18 @@ class BaseNamespace(Generic[MODEL, FIELD]):
         self._pending_field_parser = field_parser
         self._pending_relation_parser = relation_parser
 
-    def run_pending_parsers(self):
-        """Run deferred field & relation parsing."""
-        if self._pending_field_parser:
-            self._pending_field_parser.parse()
-            self._pending_field_parser = None
-        if self._pending_relation_parser:
-            self._pending_relation_parser.parse()
-            self._pending_relation_parser = None
+    # def run_pending_parsers(self):
+    #     """Run deferred field & relation parsing."""
+    #     if self._pending_field_parser:
+    #         self._pending_field_parser.parse()
+    #         # self._pending_field_parser = None
+    #     if self._pending_relation_parser:
+    #         self._pending_relation_parser.parse()
+    #         self._pending_relation_parser = None
+            
+    #     if self._pending_field_parser:
+    #         self._pending_field_parser.validate_foreign_keys()
+    #         self._pending_field_parser = None
     
     def build_temp_relation(self, name: str, target_ns: "BaseNamespace", on: tuple[str, str]) -> RelationInfo:
         if not self._model_cls:

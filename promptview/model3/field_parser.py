@@ -63,6 +63,11 @@ class FieldParser:
                 continue
 
             self._register_scalar_field(field_name, field_type, field_info, extra)
+            
+    def validate_foreign_keys(self):
+        for field_info in self.model_cls.get_namespace().iter_fields():            
+            if field_info.is_foreign_key and field_info.foreign_cls is None and not field_info.self_ref:
+                raise ValueError(f"Foreign class is not set for field '{field_info.name}' on model '{self.model_cls.__name__}'. eather add realtion to foreign class or set foreign_cls.")
 
     def _register_scalar_field(self, field_name, field_type, field_info, extra):
         # Build backend-specific FieldInfo via namespace
@@ -82,5 +87,6 @@ class FieldParser:
             order_by=extra.get("order_by", False),
             foreign_cls=extra.get("foreign_cls", None),
             sql_type=extra.get("db_type", None),
+            self_ref=extra.get("self_ref", False),
         )
         self.namespace.add_field(field_obj)

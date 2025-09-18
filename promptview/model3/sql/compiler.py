@@ -69,7 +69,8 @@ class Compiler:
             table_prefix = ""
             if expr.table:
                 if isinstance(expr.table, Subquery):
-                    table_prefix = f"{expr.table.alias}."                    
+                    # table_prefix = f"{expr.table.alias}."                    
+                    return self.compile_table(expr.table)
                 elif isinstance(expr.table, Expression):
                     table_prefix = self.compile_expr(expr.table)
                 else:
@@ -191,8 +192,8 @@ class Compiler:
 
 
     def _compile_select(self, q: SelectQuery):
-        if not q.columns:
-            raise ValueError("Select query has no columns")
+        # if not q.columns:
+            # raise ValueError("Select query has no columns")
         sql = "SELECT \n"
         
         if q.distinct_on:
@@ -201,7 +202,7 @@ class Compiler:
         elif q.distinct:
             sql += "DISTINCT "
             
-        sql += tab(", \n".join(self.compile_expr(col) for col in q.columns or ['*']))
+        sql += tab(", \n".join(self.compile_expr(col) for col in q.columns or [Value('*')]))
 
         sql += f"\nFROM {self.compile_table(q.from_table)}"
 
