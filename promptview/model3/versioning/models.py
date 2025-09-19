@@ -447,7 +447,7 @@ class ArtifactModel(VersionedModel):
     async def save(self, *, branch: Branch | int | None = None, turn: Turn | int | None = None):        
         ns = self.get_namespace()
         if primary_key:= ns.get_primary_key(self):
-            obj = self.model_copy(update={"id": None})
+            obj = self.model_copy(update={"id": None, "turn_id": None, "branch_id": None})
             obj.version += 1
             return await obj.save()
         else:

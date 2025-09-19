@@ -1,6 +1,7 @@
-from typing import Iterator
+from typing import Iterator, Type
 from promptview.model3.model3 import Model
-from promptview.model3.versioning.models import Branch, Turn, VersionedModel
+from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+from promptview.model3.versioning.models import Branch, Turn, TurnStatus, VersionedModel
 from dataclasses import dataclass
 
 
@@ -151,3 +152,20 @@ class Context:
         self.branch.__exit__(exc_type, exc_value, traceback)
         for model in reversed(models):
             model.__exit__(exc_type, exc_value, traceback)
+              
+            
+            
+    def select(self, target: Type[Model] | PgSelectQuerySet[Model], fields: list[str] | None = None, alias: str | None = None) -> "PgSelectQuerySet[Model]":
+        turn_cte = Turn.vquery().select("*").where(status=TurnStatus.COMMITTED)
+        # query = model.query().use_cte(turn_cte, "committed_turns", alias="ct")
+        if isinstance(target, PgSelectQuerySet):
+            query = target 
+        else:
+            query = PgSelectQuerySet(target, alias=alias) \
+                .select(*fields if fields else "*")        
+        query.use_cte(
+            turn_cte,
+            name="committed_turns",
+            alias="ct",
+        )
+        return query
