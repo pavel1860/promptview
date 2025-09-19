@@ -184,7 +184,7 @@ class Compiler:
     def compile_table(self, table):
         if isinstance(table, Subquery):
             sub_sql, _ = self.compile(table.query)  # compile inner query
-            return f"({sub_sql}) AS {table.alias}"
+            return f"(\n{tab(sub_sql)}\n) AS {table.alias}"
         if isinstance(table, SelectQuery) and table._is_subquery:
             return f"({self._compile_select(table)}) AS {table.alias}"
         if hasattr(table, "name") and hasattr(table, "alias"):
@@ -196,13 +196,15 @@ class Compiler:
     def _compile_select(self, q: SelectQuery):
         # if not q.columns:
             # raise ValueError("Select query has no columns")
-        sql = "SELECT \n"
+        # sql = "SELECT \n"
+        sql = "SELECT "
         
         if q.distinct_on:
             distinct_on_exprs = ", ".join(self.compile_expr(col) for col in q.distinct_on)
             sql += f"DISTINCT ON ({distinct_on_exprs}) "
         elif q.distinct:
             sql += "DISTINCT "
+        sql += "\n"
             
         sql += tab(", \n".join(self.compile_expr(col) for col in q.columns or [Value('*')]))
 

@@ -107,7 +107,11 @@ class Context:
                 elif task.turn_id is not None:
                     branch = await self._get_branch()
                     turn = await Turn.get(task.turn_id)
-                    self._branch = await branch.fork_branch(turn)                    
+                    self._branch = await branch.fork_branch(turn)
+                else:
+                    branch = await self._get_branch()
+                    turn = await Turn.query().where(branch_id=branch.id).last()
+                    self._branch = await branch.fork_branch(turn)
             elif isinstance(task, StartTurn):
                 branch = await self._get_branch()
                 self._turn = await branch.create_turn()

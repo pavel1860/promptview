@@ -690,16 +690,34 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         self_group: bool = True,
         include_ctes: bool = True
     ):
+        from promptview.model3 import ArtifactModel
+        is_artifact = False
+        if issubclass(self.model_class, ArtifactModel):
+            is_artifact = True
         if self._raw_sql:
             return self._raw_sql
         if self.projection_set.is_empty:
             raise ValueError(f"No columns selected for query {self.model_class.__name__}. Use .select() to select columns.")
-        query = SelectQuery().from_(self.table)
+        query = SelectQuery()
+        if is_artifact:
+            table = Table(self.table.name)
+            table.alias = self.table.alias + "_a" if self.table.alias else self.table.name + "_a"
+            art_query = SelectQuery().from_(table)
+            art_query.distinct_on = [Column("artifact_id", table)]
+            art_query.order_by = [Column("artifact_id", table), Column("version", table)]
+            query.from_(Subquery(art_query, str(self.table)))
+        else:
+            query.from_(self.table)
         query.where = self.selection_set.reduce()
-        if self.projection_set.nest_columns and self_group:
-            self.ordering_set.self_group()
-        query.group_by = self.ordering_set.group_by
+        # if self.projection_set.nest_columns and self_group:
+            # self.ordering_set.self_group()
+        query.group_by = self.ordering_set.group_by        
+        
+        if is_artifact and not self.ordering_set.order_by:
+            self.ordering_set.infer_order_by("turn_id")
+            
         query.order_by = self.ordering_set.order_by
+        
         query.limit = self.ordering_set.limit
         query.offset = self.ordering_set.offset
         query.joins = self.join_set.joins
@@ -751,43 +769,43 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         json_pairs = []
         
         
-        if issubclass(self.model_class, ArtifactModel) and not isinstance(query, RawSQL):
-            table = Table(query.from_table.name, alias=query.from_table.alias + "_a")
-            query.distinct_on = [Column("artifact_id", query.from_table)]
-            query.order_by += [Column("artifact_id", query.from_table), Column("version", query.from_table)]       
-            query = SelectQuery().from_(Subquery(query, table.alias))           
+        # if issubclass(self.model_class, ArtifactModel) and not isinstance(query, RawSQL):
+        #     table = Table(query.from_table.name, alias=query.from_table.alias + "_a")
+        #     query.distinct_on = [Column("artifact_id", query.from_table)]
+        #     query.order_by += [Column("artifact_id", query.from_table), Column("version", query.from_table)]       
+        #     query = SelectQuery().from_(Subquery(query, table.alias))           
             
-            for col in self.projection_set.columns:
-                json_pairs.append(Value(col.alias or col.name))
-                json_pairs.append(Column(col.alias or col.name, table))
+        #     for col in self.projection_set.columns:
+        #         json_pairs.append(Value(col.alias or col.name))
+        #         json_pairs.append(Column(col.alias or col.name, table))
             
-            for qs, name in self.projection_set.nest_columns:
-                nested_query = qs.to_json_query()
-                # json_pairs.append(Value(qs.alias))
-                json_pairs.append(Value(name))
-                json_pairs.append(nested_query)
+        #     for qs, name in self.projection_set.nest_columns:
+        #         nested_query = qs.to_json_query()
+        #         # json_pairs.append(Value(qs.alias))
+        #         json_pairs.append(Value(name))
+        #         json_pairs.append(nested_query)
                 
-            order_by = None
-            if query.order_by:
-                order_by = query.order_by
-                query.order_by = []
+        #     order_by = None
+        #     if query.order_by:
+        #         order_by = query.order_by
+        #         query.order_by = []
             
             
-        else:
-            for col in self.projection_set.columns:
-                json_pairs.append(Value(col.alias or col.name))
-                json_pairs.append(col)
+        # else:
+        for col in self.projection_set.columns:
+            json_pairs.append(Value(col.alias or col.name))
+            json_pairs.append(col)
+        
+        for qs, name in self.projection_set.nest_columns:
+            nested_query = qs.to_json_query()
+            # json_pairs.append(Value(qs.alias))
+            json_pairs.append(Value(name))
+            json_pairs.append(nested_query)
             
-            for qs, name in self.projection_set.nest_columns:
-                nested_query = qs.to_json_query()
-                # json_pairs.append(Value(qs.alias))
-                json_pairs.append(Value(name))
-                json_pairs.append(nested_query)
-                
-            order_by = None
-            if query.order_by:
-                order_by = query.order_by
-                query.order_by = []
+        order_by = None
+        if query.order_by:
+            order_by = query.order_by
+            query.order_by = []
             
       
         json_obj = Function("jsonb_build_object", *json_pairs, order_by=order_by)

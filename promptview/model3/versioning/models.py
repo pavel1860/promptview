@@ -430,7 +430,7 @@ class BlockTree(VersionedModel):
 class ArtifactModel(VersionedModel):
     """VersionedModel with artifact tracking."""
     _is_base = True
-    id: int = KeyField(primary_key=True)
+    # id: int = KeyField(primary_key=True)
     artifact_id: uuid.UUID = KeyField(
             default_factory=uuid.uuid4, 
             type="uuid"
@@ -453,20 +453,20 @@ class ArtifactModel(VersionedModel):
         else:
             return await super().save()
     
-    @classmethod
-    def query(
-        cls: Type[Self], 
-        fields: list[str] | None = None, 
-        alias: str | None = None, 
-        use_ctx: bool = True,
-        **kwargs
-    ) -> "PgSelectQuerySet[Self]":  
-        query = (
-            PgSelectQuerySet(cls, alias=alias) \
-            .distinct_on("artifact_id")
-            .order_by("-artifact_id", "-version")
-        ) 
-        return query
+    # @classmethod
+    # def query(
+    #     cls: Type[Self], 
+    #     fields: list[str] | None = None, 
+    #     alias: str | None = None, 
+    #     use_ctx: bool = True,
+    #     **kwargs
+    # ) -> "PgSelectQuerySet[Self]":  
+    #     query = (
+    #         PgSelectQuerySet(cls, alias=alias) \
+    #         .distinct_on("artifact_id")
+    #         .order_by("-artifact_id", "-version")
+    #     ) 
+    #     return query
     
         
     @classmethod
