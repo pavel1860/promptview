@@ -161,8 +161,9 @@ class Context:
         if isinstance(target, PgSelectQuerySet):
             query = target 
         else:
-            query = PgSelectQuerySet(target, alias=alias) \
-                .select(*fields if fields else "*")        
+            query = target.query().select(*fields if fields else "*")
+            # query = PgSelectQuerySet(target, alias=alias) \
+            #     .select(*fields if fields else "*")        
         query.use_cte(
             turn_cte,
             name="committed_turns",

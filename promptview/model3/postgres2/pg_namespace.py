@@ -239,7 +239,7 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
         """Adds all foreign key constraints after all tables exist."""
         sql_statements = []
         for field in self.iter_fields():
-            if not field.is_foreign_key:
+            if not field.is_foreign_key or not field.enforce_foreign_key:
                 continue
             constraint_name = f"{self.name}_{field.name}_fkey"
             check_sql = """

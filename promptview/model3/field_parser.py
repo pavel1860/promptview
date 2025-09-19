@@ -89,5 +89,6 @@ class FieldParser:
             sql_type=extra.get("db_type", None),
             self_ref=extra.get("self_ref", False),
             rel_name=extra.get("rel_name", None),
+            enforce_foreign_key=extra.get("enforce_foreign_key", True),
         )
         self.namespace.add_field(field_obj)

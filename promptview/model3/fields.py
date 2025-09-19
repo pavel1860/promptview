@@ -29,6 +29,7 @@ def ModelField(
     foreign_cls: "Type[Model] | None" = None,
     self_ref: bool = False,
     rel_name: str | None = None,
+    enforce_foreign_key: bool = True,
 ) -> Any:
     """Define a model field with ORM-specific metadata"""
     # Create extra metadata for the field
@@ -38,6 +39,7 @@ def ModelField(
     extra["index"] = index    
     extra["self_ref"] = self_ref
     extra["rel_name"] = rel_name
+    extra["enforce_foreign_key"] = enforce_foreign_key
     if rel_name and not foreign_key:
         raise ValueError("rel_name can only be set on foreign_key fields")
     if db_type:

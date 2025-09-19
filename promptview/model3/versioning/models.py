@@ -452,8 +452,22 @@ class ArtifactModel(VersionedModel):
             return await obj.save()
         else:
             return await super().save()
-        
-        
+    
+    @classmethod
+    def query(
+        cls: Type[Self], 
+        fields: list[str] | None = None, 
+        alias: str | None = None, 
+        use_ctx: bool = True,
+        **kwargs
+    ) -> "PgSelectQuerySet[Self]":  
+        query = (
+            PgSelectQuerySet(cls, alias=alias) \
+            .distinct_on("artifact_id")
+            .order_by("-artifact_id", "-version")
+        ) 
+        return query
+    
         
     @classmethod
     def vquery(
