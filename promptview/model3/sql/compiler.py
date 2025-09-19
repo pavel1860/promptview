@@ -14,11 +14,13 @@ from .queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Ta
 
 
     
-def tab(text, indent_level=1):
+def tab(text, indent_level=4):
     return textwrap.indent(text, " " * indent_level)
 
 
 
+def ins_blk(sql: str, level=1):
+    return f"\n{tab(sql, level)}\n"
 
 
 class Compiler:
@@ -304,7 +306,8 @@ class Compiler:
                 self.params.extend(cte_query.params)
             else:
                 cte_sql, params = self.compile(cte_query)
-                parts.append(f"{alias} AS ({cte_sql})")
+                parts.append(f"{alias} AS ({ins_blk(cte_sql, 12)})")
+                # parts.append(f"{alias} AS ({cte_sql})")
                 # self.params.extend(params)
         prefix = "WITH "
         if recursive:

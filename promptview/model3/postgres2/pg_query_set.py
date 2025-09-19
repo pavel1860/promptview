@@ -564,15 +564,16 @@ class PgSelectQuerySet(QuerySet[MODEL]):
 
     
     def _get_qs_relation(self, query_set: "PgSelectQuerySet", on: tuple[str, str] | None = None) -> RelationInfo:        
-        rel = self.namespace.get_relation_by_type(query_set.model_class)
-        if rel is None:
-            if on:
-                if not query_set.namespace.has_field(on[1]):
-                    raise ValueError(f"Field {on[1]} not found in {query_set.model_class.__name__}")
-                if not self.namespace.has_field(on[0]):
-                    raise ValueError(f"Field {on[0]} not found in {self.model_class.__name__}")
-                rel = self.namespace.build_temp_relation(f"{self.namespace.name}_{query_set.namespace.name}", query_set.namespace, on)
-            else:            
+        
+        if on:
+            if not query_set.namespace.has_field(on[1]):
+                raise ValueError(f"Field {on[1]} not found in {query_set.model_class.__name__}")
+            if not self.namespace.has_field(on[0]):
+                raise ValueError(f"Field {on[0]} not found in {self.model_class.__name__}")
+            rel = self.namespace.build_temp_relation(f"{self.namespace.name}_{query_set.namespace.name}", query_set.namespace, on)
+        else:            
+            rel = self.namespace.get_relation_by_type(query_set.model_class)
+            if rel is None:
                 raise ValueError(f"No relation from {self.model_class.__name__} to {query_set.model_class.__name__}")
         return rel
     

@@ -171,10 +171,10 @@ class Model(BaseModel, metaclass=ModelMeta):
     ) -> "PgSelectQuerySet[Self]":
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
         query = PgSelectQuerySet(cls, alias=alias).select(*fields if fields else "*")
-        if use_ctx:
-            where_keys = cls._get_context_fields()
-            if where_keys:
-                query.where(**where_keys)
+        # if use_ctx:
+        #     where_keys = cls._get_context_fields()
+        #     if where_keys:
+        #         query.where(**where_keys)
         return query
         # if not fields:
         #     return PgSelectQuerySet(cls, alias=alias).select("*")
