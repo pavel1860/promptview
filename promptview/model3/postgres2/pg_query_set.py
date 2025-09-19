@@ -703,8 +703,9 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             table = Table(self.table.name)
             table.alias = self.table.alias + "_a" if self.table.alias else self.table.name + "_a"
             art_query = SelectQuery().from_(table)
-            art_query.distinct_on = [Column("artifact_id", table)]
-            art_query.order_by = [Column("artifact_id", table), Column("version", table)]
+            pk = self.namespace.primary_key
+            art_query.distinct_on = [Column(pk, table)]
+            art_query.order_by = [Column(pk, table), Column("version", table)]
             query.from_(Subquery(art_query, str(self.table)))
         else:
             query.from_(self.table)
@@ -731,30 +732,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         return query
     
     
-    
-    def to_json_query2(self):
-        from promptview.model3 import ArtifactModel
-        query = self.build_query(
-            include_columns=True, 
-            self_group=False, 
-            include_ctes=False
-        )
-        if issubclass(self.model_class, ArtifactModel) and not isinstance(query, RawSQL):
-            query.distinct_on = [Column("artifact_id", query.from_table)]
-            query.order_by += [Column("artifact_id", query.from_table), Column("version", query.from_table)]       
-        table = Table(query.from_table.name, alias=query.from_table.alias + "_a")
-        sq = Subquery(query, table.alias)
-        q = SelectQuery().select(Function("jsonb_agg", Value(table.alias, no_quote=True))).from_(sq)
-        return Coalesce(
-            q, 
-            Null(),
-            # Value("[]", inline=True)
-        )
-        # return Subquery(q, "states")
-        
-        # return jsonb_obj
-        # return SelectQuery().select(jsonb_obj).from_(sq)
-        # return Coalesce(q, Value("[]", inline=True))
+
     
     def to_json_query(self):
         from promptview.model3 import ArtifactModel

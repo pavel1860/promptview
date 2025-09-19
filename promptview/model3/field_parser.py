@@ -83,6 +83,7 @@ class FieldParser:
             index=extra.get("index", False),
             on_delete=extra.get("on_delete", "CASCADE"),
             on_update=extra.get("on_update", "CASCADE"),
+            is_key=extra.get("is_key", False),
             enum_values=enum_values if is_enum else None,
             order_by=extra.get("order_by", False),
             foreign_cls=extra.get("foreign_cls", None),

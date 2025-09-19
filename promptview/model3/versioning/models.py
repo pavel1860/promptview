@@ -431,11 +431,12 @@ class ArtifactModel(VersionedModel):
     """VersionedModel with artifact tracking."""
     _is_base = True
     # id: int = KeyField(primary_key=True)
-    artifact_id: uuid.UUID = KeyField(
-            default_factory=uuid.uuid4, 
-            type="uuid"
-        )
-    version: int = ModelField(default=1)
+    # artifact_id: uuid.UUID = KeyField(
+    #         default_factory=uuid.uuid4, 
+    #         type="uuid"
+    #     )
+    # version: int = ModelField(default=1)
+    version: int = KeyField(default=1)
 
     @classmethod
     async def latest(cls, artifact_id: uuid.UUID) -> Self | None:
@@ -443,13 +444,16 @@ class ArtifactModel(VersionedModel):
         # Placeholder — will be overridden in backend manager
         return await cls.query().filter(artifact_id=artifact_id).order_by("-version").first()
 
+    
+    async def _super_save(self):
+        return await super().save()
 
     async def save(self, *, branch: Branch | int | None = None, turn: Turn | int | None = None):        
         ns = self.get_namespace()
         if primary_key:= ns.get_primary_key(self):
-            obj = self.model_copy(update={"id": None, "turn_id": None, "branch_id": None})
+            obj = self.model_copy(update={"turn_id": None, "branch_id": None})
             obj.version += 1
-            return await obj.save()
+            return await obj._super_save()
         else:
             return await super().save()
     

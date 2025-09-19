@@ -21,6 +21,7 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
     
     def __init__(self, name: str, *fields: PgFieldInfo):
         super().__init__(name, db_type="postgres")
+        self._composite_primary_key = []
         for field in fields:
             self._register_field(field)
 
@@ -29,8 +30,12 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
             if self._primary_key:
                 raise ValueError(f"Primary key already defined: {self._primary_key.name}")
             self._primary_key = field
-
         self.add_field(field)
+        
+    def add_field(self, field: PgFieldInfo):
+        if field.is_key:
+            self._composite_primary_key.append(field)
+        super().add_field(field)
     
     @classmethod
     async def install_extensions(cls):
@@ -188,29 +193,46 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
         # raise ValueError(f"No foreign class for field {field.name} in {self.name}")
         return field.name.removesuffix("_id") + "s"
 
-
+    def foreign_namespace_for(self, field):
+        foreign_cls = getattr(field, "foreign_cls", None)
+        if foreign_cls:
+            return foreign_cls.get_namespace()
+        return None
     
     async def create_namespace(self, dry_run: bool = False) -> str | None:
         """Creates the table and indexes but no foreign keys."""
         # Create Postgres enums first
+        print(self.name)
         for field in self.iter_fields():
             if getattr(field, "enum_values", None):
                 await self.create_enum(field.sql_type, field.enum_values)
         cols = []
+        primary_keys = []
         for field in self.iter_fields():
+            if field.is_key:
+                primary_keys.append(f'"{field.name}"')
             if field.is_primary_key:
+                # primary_keys.append(f'"{field.name}"')
                 if field.field_type == int:
-                    col_def = f'"{field.name}" SERIAL PRIMARY KEY'
+                    # col_def = f'"{field.name}" SERIAL PRIMARY KEY'
+                    col_def = f'"{field.name}" SERIAL'
                 elif field.field_type == uuid.UUID:
-                    col_def = f'"{field.name}" UUID PRIMARY KEY DEFAULT uuid_generate_v4()'
+                    # col_def = f'"{field.name}" UUID PRIMARY KEY DEFAULT uuid_generate_v4()'
+                    col_def = f'"{field.name}" UUID DEFAULT uuid_generate_v4()'
                 else:
-                    col_def = f'"{field.name}" {field.sql_type} PRIMARY KEY'
+                    # col_def = f'"{field.name}" {field.sql_type} PRIMARY KEY'
+                    col_def = f'"{field.name}" {field.sql_type}'
             else:
+                # col_def = f'"{field.name}" {field.sql_type}'
                 col_def = f'"{field.name}" {field.sql_type}'
             cols.append(col_def)
+        primary_keys_clause = ""
+        if primary_keys:
+            primary_keys_clause = f'\n  PRIMARY KEY ({", ".join(primary_keys)})'
+            cols.append(primary_keys_clause)
         cols = ",\n  ".join(cols)
         sql = f'CREATE TABLE IF NOT EXISTS "{self.name}" (\n  {cols}\n);'
-
+        print(sql)
         if dry_run:
             return sql
         await PGConnectionManager.execute(sql)
@@ -248,14 +270,21 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
             exists = await PGConnectionManager.fetch_one(check_sql, constraint_name)
             if exists:
                 continue
-            ref_table = self.foreign_key_table_for(field)
-            if ref_table is None:
+            # ref_table = self.foreign_key_table_for(field)
+            # if ref_table is None:
+                # continue
+            ref_ns = self.foreign_namespace_for(field)
+            if ref_ns is None:
                 continue
+            ref_table = ref_ns.name
+            if len(ref_ns._composite_primary_key) > 1:
+                continue
+            ref_keys = ", ".join([f'"{key.name}"' for key in ref_ns._composite_primary_key])
             sql = f'''
                 ALTER TABLE "{self.name}"
                 ADD CONSTRAINT "{constraint_name}"
                 FOREIGN KEY ("{field.name}")
-                REFERENCES "{ref_table}" ("id")
+                REFERENCES "{ref_table}" ({ref_keys})
                 ON DELETE {field.on_delete}
                 ON UPDATE {field.on_update};
             '''
