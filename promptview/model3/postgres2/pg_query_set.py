@@ -656,6 +656,11 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         self.order_by("-" + self.namespace.default_order_field)
         self.limit(1)
         return QuerySetSingleAdapter(self)
+    
+    def one(self) -> "QuerySetSingleAdapter[MODEL]":
+        """Return only the first record."""
+        self.limit(1)
+        return QuerySetSingleAdapter(self)
 
     def head(self, n: int) -> "PgSelectQuerySet[MODEL]":
         """

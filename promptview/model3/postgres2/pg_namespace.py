@@ -202,7 +202,6 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
     async def create_namespace(self, dry_run: bool = False) -> str | None:
         """Creates the table and indexes but no foreign keys."""
         # Create Postgres enums first
-        print(self.name)
         for field in self.iter_fields():
             if getattr(field, "enum_values", None):
                 await self.create_enum(field.sql_type, field.enum_values)
@@ -232,7 +231,6 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
             cols.append(primary_keys_clause)
         cols = ",\n  ".join(cols)
         sql = f'CREATE TABLE IF NOT EXISTS "{self.name}" (\n  {cols}\n);'
-        print(sql)
         if dry_run:
             return sql
         await PGConnectionManager.execute(sql)
