@@ -85,9 +85,10 @@ class Branch(Model):
         message: str | None = None, 
         status: TurnStatus = TurnStatus.STAGED,
         raise_on_error: bool = True,
+        auto_commit: bool = True,
         **kwargs
     ) -> AsyncGenerator["Turn", None]:
-        turn = await self.create_turn(message, status, **kwargs)
+        turn = await self.create_turn(message, status, auto_commit, **kwargs)
         turn._raise_on_error = raise_on_error
         async with turn as t:
             yield t
@@ -245,6 +246,8 @@ class Turn(Model):
         self._ctx_token = None
         if exc_type is not None:
             await self.revert(str(exc_value))
+        elif not self._auto_commit:
+            await self.revert()
         else:
             await self.commit()
         if self._raise_on_error:
@@ -355,11 +358,15 @@ class VersionedModel(Model):
         fields: list[str] | None = None, 
         alias: str | None = None, 
         limit: int | None = None, offset: int | None = None, 
-        direction: Literal["asc", "desc"] = "desc", 
+        direction: Literal["asc", "desc"] = "desc",
+        statuses: list[TurnStatus] = [TurnStatus.COMMITTED, TurnStatus.STAGED],
         **kwargs
     ):
         from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
-        turn_cte = Turn.vquery().select(*fields or "*").where(status=TurnStatus.COMMITTED)
+        turn_cte = Turn.vquery().select(*fields or "*")
+        # .where(lambda t: t.status.isin([TurnStatus.COMMITTED, TurnStatus.STAGED]))
+        if statuses:
+            turn_cte = turn_cte.where(lambda t: t.status.isin(statuses))
         if limit:
             turn_cte = turn_cte.limit(limit)
             turn_cte = turn_cte.order_by(f"-index" if direction == "desc" else "index")

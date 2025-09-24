@@ -1,5 +1,6 @@
 import asyncio
 import copy
+from enum import Enum
 from functools import wraps
 import json
 from queue import SimpleQueue
@@ -18,8 +19,16 @@ from lxml import etree
 from promptview.block import BlockSchema, Block
 if TYPE_CHECKING:
     from promptview.model3.versioning.models import ExecutionSpan, SpanEvent, Log, span_type_enum
-    
 
+
+
+
+class EventLogLevel(Enum):
+    chunk = 0
+    span = 1
+    turn = 2
+    
+    
 
 
 class BaseFbpComponent:
@@ -289,7 +298,7 @@ class Parser(BaseFbpComponent):
         for i in range(20):            
             try:
                 if not self._stream_started:
-                    # self._feed_parser(f'<{self._safety_tag}>')
+                    self._feed_parser(f'<{self._safety_tag}>')
                     self._stream_started = True                
                 if self.res_ctx.has_events():
                     v = self.res_ctx.get_event()
@@ -638,8 +647,8 @@ class StreamController(BaseFbpComponent):
     def __aiter__(self):
         return FlowRunner(self)
     
-    async def stream_events(self):
-        return FlowRunner(self).stream_events()
+    async def stream_events(self, event_level: EventLogLevel = EventLogLevel.chunk):
+        return FlowRunner(self, event_level).stream_events()
     
 
 
@@ -888,8 +897,8 @@ class PipeController(BaseFbpComponent):
     def __aiter__(self):
         return FlowRunner(self)
     
-    def stream_events(self):
-        return FlowRunner(self).stream_events()
+    def stream_events(self, event_level: EventLogLevel = EventLogLevel.chunk):
+        return FlowRunner(self, event_level).stream_events()
             
     @classmethod
     def decorator_factory(cls) -> Callable[[], Callable[[Callable[P, AsyncGenerator[CHUNK, None]]], Callable[P, Self]]]:
@@ -905,21 +914,18 @@ class PipeController(BaseFbpComponent):
         return component_decorator
 
 
-class EventLogLevel:
-    CHUNK = 0
-    SPAN = 1
-    TURN = 2
+
     
 
 
 class FlowRunner:
-    def __init__(self, gen: BaseFbpComponent):
+    def __init__(self, gen: BaseFbpComponent, event_level: EventLogLevel = EventLogLevel.chunk):
         self.stack: list[BaseFbpComponent] = [gen]
         self.last_value: Any = None
         self._output_events = False
         self._error_to_raise = None
         self._last_gen = None
-        self._event_level = EventLogLevel.SPAN
+        self._event_level = event_level
         
         
     @property
@@ -969,11 +975,11 @@ class FlowRunner:
         event = await gen.on_start_event(value)
         if event is None:
             return None
-        if self._event_level == EventLogLevel.SPAN:
+        if self._event_level == EventLogLevel.span:
             return None
-        elif self._event_level == EventLogLevel.TURN:
+        elif self._event_level == EventLogLevel.turn:
             return None
-        elif self._event_level == EventLogLevel.CHUNK:
+        elif self._event_level == EventLogLevel.chunk:
             return event
         return None
     
@@ -982,11 +988,25 @@ class FlowRunner:
         event = await gen.on_value_event(value)
         if event is None:
             return None
-        if self._event_level == EventLogLevel.SPAN:
+        if self._event_level == EventLogLevel.span:
+            if isinstance(value, PipeController):
+                return event
             return None
-        elif self._event_level == EventLogLevel.TURN:
+        elif self._event_level == EventLogLevel.turn:
             return None
-        elif self._event_level == EventLogLevel.CHUNK:
+        elif self._event_level == EventLogLevel.chunk:
+            return event
+        return None
+    
+    async def try_build_stop_event(self, gen: BaseFbpComponent, value: Any):
+        event = await gen.on_stop_event(value)
+        if event is None:
+            return None
+        if self._event_level == EventLogLevel.span:
+            return gen.get_response()
+        elif self._event_level == EventLogLevel.turn:
+            return None
+        elif self._event_level == EventLogLevel.chunk:
             return event
         return None
     
@@ -994,26 +1014,16 @@ class FlowRunner:
         event = await gen.on_error_event(value)
         if event is None:
             return None
-        if self._event_level == EventLogLevel.SPAN:
+        if self._event_level == EventLogLevel.span:
+            return event
+        elif self._event_level == EventLogLevel.turn:
             return None
-        elif self._event_level == EventLogLevel.TURN:
-            return None
-        elif self._event_level == EventLogLevel.CHUNK:
+        elif self._event_level == EventLogLevel.chunk:
             return event
         return None
     
     
-    async def try_build_stop_event(self, gen: BaseFbpComponent, value: Any):
-        event = await gen.on_stop_event(value)
-        if event is None:
-            return None
-        if self._event_level == EventLogLevel.SPAN:
-            return gen.get_response()
-        elif self._event_level == EventLogLevel.TURN:
-            return None
-        elif self._event_level == EventLogLevel.CHUNK:
-            return event
-        return None
+
     
 
 
@@ -1077,7 +1087,8 @@ class FlowRunner:
             raise StopAsyncIteration
 
     
-    def stream_events(self):
+    def stream_events(self, event_level: EventLogLevel = EventLogLevel.chunk):
+        self._event_level = event_level
         self._output_events = True
         return self
     
