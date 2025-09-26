@@ -6,15 +6,20 @@ from typing_extensions import TypeVar
 
 
 from pydantic import BaseModel
-from promptview.model3 import Model, ModelField
+from promptview.auth.google_auth import GoogleAuth
+from promptview.model3 import Model, ModelField, RelationField, Branch
 from promptview.model3.fields import KeyField
 from promptview.utils.db_connections import PGConnectionManager
-
-
-
-
 from uuid import UUID
 
+
+
+class AuthBranch(Model):
+    id: int = KeyField(primary_key=True)
+    branch_id: int = ModelField(foreign_key=True)
+    user_id: UUID = ModelField(foreign_key=True)
+    
+    
 
 class AuthModel(Model):
     _is_base: bool = True
@@ -24,6 +29,15 @@ class AuthModel(Model):
     guest_token: UUID | None = ModelField(None)
     is_admin: bool = ModelField(default=False)
     created_at: datetime = ModelField(default_factory=datetime.now, order_by=True)
+    # branches: List[Branch] = RelationField("Branch", foreign_key="user_id")
+    branches: List[Branch] = RelationField(
+        primary_key="id",
+        junction_keys=["user_id", "branch_id"],        
+        foreign_key="id",
+        junction_model=AuthBranch,        
+    )
+
+
 
     
     
@@ -46,22 +60,33 @@ UserT = TypeVar("UserT", bound=AuthModel)
 class AuthManager(Generic[UserT]):
     user_model: Type[UserT]
 
-    def __init__(self, user_model: Type[UserT]):
+    def __init__(self, user_model: Type[UserT], providers: list[GoogleAuth]):            
         self.user_model = user_model
-
+        self.providers = {
+            "google": providers[0]
+        }
+        
     # --------- Hooks ----------
-    async def before_create_guest(self, data: Dict[str, Any]) -> None: pass
-    async def after_create_guest(self, user: UserT) -> None: pass
-    async def before_register_user(self, data: Dict[str, Any]) -> None: pass
-    async def after_register_user(self, user: UserT) -> None: pass
-    async def before_promote_guest(self, guest: UserT, data: Dict[str, Any]) -> None: pass
-    async def after_promote_guest(self, user: UserT) -> None: pass
-    async def before_fetch_user(self, identifier: Any) -> None: pass
-    async def after_fetch_user(self, user: Optional[UserT]) -> None: pass
+    async def before_create_guest(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return data
+    async def after_create_guest(self, user: UserT) -> UserT:
+        return user
+    async def before_register_user(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return data
+    async def after_register_user(self, user: UserT) -> UserT:
+        return user
+    async def before_promote_guest(self, guest: UserT, data: Dict[str, Any]) -> Dict[str, Any]:
+        return data
+    async def after_promote_guest(self, user: UserT) -> UserT:
+        return user
+    async def before_fetch_user(self, identifier: Any) -> Any:
+        return identifier
+    async def after_fetch_user(self, user: Optional[UserT]) -> Optional[UserT]:
+        return user
 
     # --------- Core Logic ----------
     async def create_guest(self, data: Dict[str, Any]) -> UserT:
-        await self.before_create_guest(data)
+        data = await self.before_create_guest(data)
         user = await self.user_model(
             is_guest=True,
             guest_token=str(uuid4()),  # fill in UUID creation
@@ -69,11 +94,11 @@ class AuthManager(Generic[UserT]):
             **data
         ).save()
         # Save to DB here
-        await self.after_create_guest(user)
+        user = await self.after_create_guest(user)
         return user
 
     async def register_user(self, auth_user_id: str, data: Dict[str, Any]) -> UserT:
-        await self.before_register_user(data)
+        data = await self.before_register_user(data)
         if await self.fetch_by_auth_user_id(auth_user_id):
             raise UserAlreadyExists(f"User {auth_user_id} already exists")
         user = await self.user_model(
@@ -82,11 +107,11 @@ class AuthManager(Generic[UserT]):
             **data
         ).save()
         # Save to DB here
-        await self.after_register_user(user)
+        user = await self.after_register_user(user)
         return user
 
     async def promote_guest(self, guest: UserT, auth_user_id: str, data: Dict[str, Any]) -> UserT:
-        await self.before_promote_guest(guest, data)
+        data = await self.before_promote_guest(guest, data)
         user = await self.fetch_by_auth_user_id(auth_user_id)
         if user:
             raise HTTPException(400, detail="User already exists")
@@ -97,21 +122,21 @@ class AuthManager(Generic[UserT]):
             auth_user_id=auth_user_id
         )
         # Update in DB
-        await self.after_promote_guest(guest)
+        guest = await self.after_promote_guest(guest)
         return guest
 
     # --------- Fetch Logic with Dependency Pattern ----------
     async def fetch_by_auth_user_id(self, identifier: Any) -> Optional[UserT]:
-        await self.before_fetch_user(identifier)
+        identifier = await self.before_fetch_user(identifier)
         user = await self.user_model.query().where(auth_user_id=identifier).last()
-        await self.after_fetch_user(user)
+        user = await self.after_fetch_user(user)
         return user
     
     
     async def fetch_by_guest_token(self, identifier: Any) -> Optional[UserT]:
-        await self.before_fetch_user(identifier)
+        identifier = await self.before_fetch_user(identifier)
         user = await self.user_model.query().where(guest_token=identifier).last()
-        await self.after_fetch_user(user)
+        user = await self.after_fetch_user(user)
         return user
     
     async def get_user_from_request(self, request: Request) -> Optional[UserT]:
@@ -128,6 +153,34 @@ class AuthManager(Generic[UserT]):
                 raise UserNotFound(f"Guest User {guest_token} not found")
         
         return user
+    
+    async def token_exchange(self, token: str) -> dict:
+        try:
+            # Verify the Google token
+            idinfo = self.providers["google"].verify_idinfo(token=token)
+            # idinfo has: email, name, picture...
+        except ValueError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        # Create or fetch user
+        # user, created = user_interface.get_or_create_user(user_info=idinfo, db=db)
+        user = await self.fetch_by_auth_user_id(idinfo['sub'])
+        
+        if not user:
+            # user = await self.register_user(idinfo['sub'], {"email": idinfo['email'], "name": idinfo['name'], "picture": idinfo['picture']})
+            user = await self.register_user(idinfo['sub'], idinfo)
+            # raise HTTPException(status_code=401, detail="User not found")
+
+        # Generate JWT
+        jwt_token = self.providers["google"].create_access_token(data={"sub": user.auth_user_id})
+
+        return {
+            "access_token": jwt_token,
+            "token_type": "bearer",
+            "created": user.created_at,
+            "user": user,
+        }
+
 
     def get_user(self):
         async def _get_user_dep(request: Request):

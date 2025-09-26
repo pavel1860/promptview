@@ -278,6 +278,8 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
             if len(ref_ns._composite_primary_key) > 1:
                 continue
             ref_keys = ", ".join([f'"{key.name}"' for key in ref_ns._composite_primary_key])
+            if not ref_keys:
+                raise ValueError(f"No primary key for '{ref_table}'")
             sql = f'''
                 ALTER TABLE "{self.name}"
                 ADD CONSTRAINT "{constraint_name}"

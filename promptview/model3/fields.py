@@ -137,10 +137,10 @@ def RelationField(
         on_update: The action to take when the referenced row is updated
     """
     # Create extra metadata for the field
-    from promptview.model.relation import Relation
+    # from promptview.model.relation import Relation
 
-    if not default:
-        default = Relation()
+    # if not default:
+        # default = Relation()
     
     extra = {}
     extra["is_model_field"] = True

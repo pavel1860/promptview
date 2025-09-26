@@ -6,7 +6,7 @@ import uuid
 
 from ..base.base_namespace import BaseNamespace
 from ..qdrant2.qdrant_field_info import QdrantFieldInfo
-from promptview.model.qdrant.connection import QdrantConnectionManager
+from .connection import QdrantConnectionManager
 
 from qdrant_client.http.models import PointStruct, PointVectors, VectorParams, Distance, Filter
 if TYPE_CHECKING:

@@ -26,7 +26,13 @@ setup(
         "aiohttp==3.10.0",
         "langsmith==0.1.95",
         "asyncpg==0.30.0",
-        "tabulate==0.9.0"
+        "tabulate==0.9.0",
+        "lxml==6.0.0",
+        "PyYAML==6.0.2",
+        "PyJWT==2.10.1",
+        "google-auth[requests]==2.40.1",
+        "google==3.0.0",
+        "authlib==1.5.2"
     ],    
     classifiers=[
         # Classifiers help users find your project by categorizing it.

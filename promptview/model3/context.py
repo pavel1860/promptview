@@ -1,9 +1,10 @@
-from typing import Iterator, Type
+from typing import TYPE_CHECKING, Iterator, Type
 from promptview.model3.model3 import Model
 from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
 from promptview.model3.versioning.models import Branch, Turn, TurnStatus, VersionedModel
 from dataclasses import dataclass
-
+if TYPE_CHECKING:
+    from fastapi import Request
 
 
 
@@ -29,9 +30,11 @@ class ForkBranch:
 @dataclass
 class StartTurn:
     branch_id: int | None = None
+    auto_commit: bool = True
     
 
 class Context:
+    
     
     
     def __init__(
@@ -41,6 +44,7 @@ class Context:
         turn: Turn | None = None,
         branch_id: int | None = None,
         turn_id: int | None = None,
+        request: "Request | None" = None,
     ):
         self.ctx_models = {m.__class__.__name__:m for m in models}
         self.tasks = []
@@ -51,7 +55,27 @@ class Context:
             
         self._branch = branch
         self._turn = turn
+        self.request = request
         
+    @property
+    def request_id(self):
+        if self.request is not None:
+            return self.request.state.request_id
+        return None
+        
+    @classmethod
+    async def from_request(cls, request: "Request"):
+        ctx_args = request.state.get("ctx")
+        if ctx_args is None:
+            raise ValueError("ctx is not set")
+        ctx = cls(**ctx_args)    
+        return ctx
+    
+    @classmethod
+    async def from_kwargs(cls, **kwargs):
+        ctx = cls(**kwargs)    
+        return ctx
+
         
     @property
     def branch(self) -> Branch:
@@ -84,8 +108,8 @@ class Context:
         #     return self.branch
         
     
-    def start_turn(self) -> "Context":
-        self.tasks.append(StartTurn())
+    def start_turn(self, auto_commit: bool = True) -> "Context":
+        self.tasks.append(StartTurn(auto_commit=auto_commit))
         return self
     
     def fork(self, turn: Turn | None = None, turn_id: int | None = None) -> "Context":
@@ -114,7 +138,7 @@ class Context:
                     self._branch = await branch.fork_branch(turn)
             elif isinstance(task, StartTurn):
                 branch = await self._get_branch()
-                self._turn = await branch.create_turn()
+                self._turn = await branch.create_turn(auto_commit=task.auto_commit)
             
 
         if self._branch is None:

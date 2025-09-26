@@ -6,7 +6,7 @@ from .namespace_manager2 import NamespaceManager
 from .versioning.models import Branch, Turn, TurnStatus, VersionedModel, ArtifactModel, BlockModel, BlockNode, BlockTree, ExecutionSpan, Log, SpanEvent
 # from .context import Context
 from .vectors import Vector, SparseVector, transformer
-from ..context.model_context import ModelCtx, Context
+# from ..context.model_context import ModelCtx, Context
 from .relation_model import RelationModel
 # from .block_models.block_models import BlockModel
 from .sql.expressions import RawValue
@@ -25,11 +25,9 @@ __all__ = [
     "Branch",
     "Turn",
     "TurnStatus",
-    "Context",
     "Vector",
     "SparseVector",
     "transformer",
-    "ModelCtx",
     "RelationModel",
     "BlockModel",
     "BlockNode",

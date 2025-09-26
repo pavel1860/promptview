@@ -1,10 +1,12 @@
 import os
 import asyncio
 import asyncpg
-from typing import List, Optional, Any, AsyncContextManager, Callable, TypeVar, cast, AsyncGenerator, Union, Awaitable
+from typing import TYPE_CHECKING, List, Optional, Any, AsyncContextManager, Callable, TypeVar, cast, AsyncGenerator, Union, Awaitable
 from contextlib import asynccontextmanager
-import psycopg2
-from psycopg2 import pool
+# import psycopg2
+# from psycopg2 import pool
+if TYPE_CHECKING:
+    from psycopg2.pool import SimpleConnectionPool
 
 T = TypeVar('T')
 R = TypeVar('R')
@@ -259,14 +261,16 @@ class PGConnectionManager:
         
 
 class SyncPGConnectionManager:
-    _pool: Optional[pool.SimpleConnectionPool] = None
+    _pool: "SimpleConnectionPool | None" = None
 
     @classmethod
     def initialize(cls, url: Optional[str] = None) -> None:
         """Initialize the connection pool if not already initialized."""
+        import psycopg2
+        from psycopg2 import pool
         if cls._pool is None:
             url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/promptview_test")
-            cls._pool = psycopg2.pool.SimpleConnectionPool(
+            cls._pool = pool.SimpleConnectionPool(
                 minconn=5,
                 maxconn=20,
                 dsn=url

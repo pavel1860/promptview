@@ -17,24 +17,35 @@ AUTH_MODEL = TypeVar('AUTH_MODEL', bound=AuthModel)
 
 
 
-def create_auth_router(user_manager: AuthManager[AUTH_MODEL]):
+# def create_auth_router(user_manager: AuthManager[AUTH_MODEL]):
+# def create_auth_router(auth_model: AuthModel):
+def create_auth_router(auth_model: AUTH_MODEL):
 
     router = APIRouter(
         prefix="/auth",
         tags=["manager"],
         # dependencies=[Depends(get_current_user), ]
     )
+    
+    def get_user_manager(request: Request) -> AuthManager[AUTH_MODEL]:
+        return request.app.state.user_manager
 
-    @router.post("/guest", response_model=user_manager.user_model)
-    async def create_guest_user(data: Dict[str, Any]):
+    @router.post("/guest", response_model=auth_model)
+    async def create_guest_user(
+        data: Dict[str, Any], 
+        user_manager: AuthManager[AUTH_MODEL] = Depends(get_user_manager)
+    ):
         """
         Create a guest user. Returns user with guest_token.
         """
         user = await user_manager.create_guest(data)
         return user
 
-    @router.post("/register", response_model=user_manager.user_model)
-    async def register_user(data: Dict[str, Any]):
+    @router.post("/register", response_model=auth_model)
+    async def register_user(
+        data: Dict[str, Any], 
+        user_manager: AuthManager[AUTH_MODEL] = Depends(get_user_manager)
+    ):
         """
         Register a new user (not via promotion).
         """
@@ -47,8 +58,11 @@ def create_auth_router(user_manager: AuthManager[AUTH_MODEL]):
         user = await user_manager.register_user(auth_user_id, data.get("data", {}))
         return user
 
-    @router.post("/promote", response_model=user_manager.user_model)
-    async def promote_guest_user(data: Dict[str, Any]):
+    @router.post("/promote", response_model=auth_model)
+    async def promote_guest_user(
+        data: Dict[str, Any], 
+        user_manager: AuthManager[AUTH_MODEL] = Depends(get_user_manager)
+    ):
         """
         Promote guest to registered user. Provide 'guest_token' and 'auth_user_id'.
         """
@@ -66,9 +80,12 @@ def create_auth_router(user_manager: AuthManager[AUTH_MODEL]):
         user = await user_manager.promote_guest(guest, auth_user_id, data.get("data", {}))
         return user
 
-    @router.get("/me", response_model=user_manager.user_model)
+    @router.get("/me", response_model=auth_model)
     # async def get_me(user: user_manager.user_model = Depends(user_manager.get_user_from_request)):
-    async def get_me(request: Request):
+    async def get_me(
+        request: Request, 
+        user_manager: AuthManager[AUTH_MODEL] = Depends(get_user_manager)
+    ):
         """
         Fetch the current user (guest or registered) using cookie or header.
         """
@@ -79,7 +96,10 @@ def create_auth_router(user_manager: AuthManager[AUTH_MODEL]):
         return user
     
     @router.get("/verify_guest_token")
-    async def verify_guest_token(token: str = Query(..., description="The guest token to verify")):
+    async def verify_guest_token(
+        token: str = Query(..., description="The guest token to verify"), 
+        user_manager: AuthManager[AUTH_MODEL] = Depends(get_user_manager)
+    ):
         """
         Verify a guest token.
         """
@@ -87,6 +107,30 @@ def create_auth_router(user_manager: AuthManager[AUTH_MODEL]):
         if not user:
             return {"valid": False}
         return {"valid": True}
+    
+    @router.post("/logout")
+    async def logout(
+        user_manager: AuthManager[AUTH_MODEL] = Depends(get_user_manager)
+    ):
+        # Since JWT is stateless, just tell client to delete token
+        return {"message": "Logout successful. Please delete your token client-side."}
+
+
+    @router.post("/exchange")
+    async def exchange_token(        
+        payload: dict, 
+        request: Request,
+        user_manager: AuthManager[AUTH_MODEL] = Depends(get_user_manager),
+        
+    ):
+        print(request.headers)
+        token = payload.get("id_token")
+        if not token:
+            raise HTTPException(status_code=400, detail="Missing id_token")
+
+        res = await user_manager.token_exchange(token)
+        return res
+
     
     
     # @router.get("/me", response_model=user_manager.user_model)
