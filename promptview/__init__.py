@@ -64,11 +64,27 @@
 import promptview.model3 as model
 import promptview.prompt as prompt
 import promptview.utils as utils
+from promptview.agent import Agent
+from promptview.api.model_router import create_model_router
+from promptview.app import include_chatboard_routers
+# from promptview.api.branch_router import create_branch_router
+# from promptview.api.turn_router import create_turn_router
+# from promptview.api.auth_router import create_auth_router
+from promptview.api import create_branch_router, create_turn_router, create_auth_router
+from promptview.auth.user_manager2 import AuthManager, AuthModel
 
 __all__ = [
     "model",
     "prompt",
-    "utils"
+    "utils",
+    "Agent",
+    "create_model_router",
+    "include_chatboard_routers",
+    "create_branch_router",
+    "create_turn_router",
+    "create_auth_router",
+    "AuthManager",
+    "AuthModel",
 ]
 
 

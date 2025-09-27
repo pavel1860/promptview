@@ -34,6 +34,9 @@ class PgFieldInfo(BaseFieldInfo):
         enum_values: Optional[List[str]] = None,
         order_by: bool = False,
         foreign_cls: Optional[Type] = None,
+        self_ref: bool = False,
+        rel_name: str | None = None,
+        enforce_foreign_key: bool = True,
     ):
         super().__init__(
             name=name,
@@ -51,6 +54,9 @@ class PgFieldInfo(BaseFieldInfo):
             enum_values=enum_values,
             order_by=order_by,
             foreign_cls=foreign_cls,
+            self_ref=self_ref,
+            rel_name=rel_name,
+            enforce_foreign_key=enforce_foreign_key,
         )
 
         self.sql_type = sql_type or self._resolve_sql_type()

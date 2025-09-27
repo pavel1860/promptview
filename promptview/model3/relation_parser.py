@@ -22,6 +22,7 @@ class RelationParser:
         self.relations: "Dict[str, RelationInfo]" = {}
 
     def parse(self):
+        """Parse the relations for the model and instantiate all the foreign classes"""
         from promptview.model3.model3 import Model
 
         for field_name, field_info in self.model_cls.model_fields.items():

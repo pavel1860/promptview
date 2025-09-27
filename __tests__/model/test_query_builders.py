@@ -1,11 +1,11 @@
 import pytest
 
-from promptview.model.fields import ModelField
-from promptview.model.model import Model
-from promptview.model.postgres.query_set3 import SelectQuerySet
-from promptview.model.postgres.sql.compiler import Compiler
-from promptview.model.postgres.sql.expressions import And, Like, In, Between, Eq, Gt, Value, Or, Not, Function, Coalesce, IsNull
-from promptview.model.postgres.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery
+from promptview.model3.fields import ModelField
+from promptview.model3.model3 import Model
+from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+from promptview.model3.sql.compiler import Compiler
+from promptview.model3.sql.expressions import And, Like, In, Between, Eq, Gt, Value, Or, Not, Function, Coalesce, IsNull
+from promptview.model3.sql.queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Table, UpdateQuery
 from __tests__.model.utils import assert_sql
 import datetime as dt
 
@@ -507,13 +507,13 @@ class Post(Model):
 
 
 def test_basic_eq():
-    qs = SelectQuerySet(Post).select("*").where(lambda x: x.topic == "animals")
+    qs = PgSelectQuerySet(Post).select("*").where(lambda x: x.topic == "animals")
     sql = qs.render()
     assert "WHERE (p.topic = $1)" in sql
     assert qs._params == ["animals"]
 
 def test_combined_and_or():
-    qs = SelectQuerySet(Post).select("*").where(
+    qs = PgSelectQuerySet(Post).select("*").where(
         lambda x: (x.topic == "a") & (x.views > 5) | (x.author == "admin")
     )
     sql = qs.render()
@@ -521,7 +521,7 @@ def test_combined_and_or():
     assert qs._params == ["a", 5, "admin"]
 
 def test_negation():
-    qs = SelectQuerySet(Post).select("*").where(lambda x: ~(x.topic == "a"))
+    qs = PgSelectQuerySet(Post).select("*").where(lambda x: ~(x.topic == "a"))
     sql = qs.render()
     assert "WHERE (NOT (p.topic = $1))" in sql
     assert qs._params == ["a"]

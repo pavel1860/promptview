@@ -17,6 +17,14 @@ class Expression:
 
     def __invert__(self):
         return Not(self)
+    
+    def to_str(self):
+        from .compiler import Compiler
+        exp_str = Compiler().compile_expr(self)
+        return exp_str
+    
+    def __repr__(self):
+        return f"<{self.__class__.__name__} {self.to_str()}>"
 
     
 class RawValue(Expression):

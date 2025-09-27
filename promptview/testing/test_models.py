@@ -30,7 +30,7 @@ class TestTurn(Model):
     created_at: datetime = ModelField(default_factory=datetime.now, order_by=True)
     updated_at: datetime = ModelField(default_factory=datetime.now)
     test_case_id: int = ModelField(default=None, foreign_key=True)
-    turn_id: int = ModelField(default=None, foreign_key=True)
+    turn_id: int = ModelField(default=None, foreign_key=True, foreign_cls=Turn)
     evaluators: List[EvaluatorConfig] = ModelField(default=[])
     turn: Turn = RelationField(
         primary_key="turn_id", 
@@ -152,7 +152,7 @@ class TestCase(Model):
     title: str = ModelField(default="")
     description: str = ModelField(default="")
     # evaluators: TestCaseEvaluators = ModelField(default_factory=TestCaseEvaluators)
-    branch_id: int = ModelField(default=1, foreign_key=True, description="the branch this test case belongs to")
+    branch_id: int = ModelField(default=1, foreign_key=True, foreign_cls=Branch, description="the branch this test case belongs to")
     # start_turn_id: int = ModelField(foreign_key=True, description="the turn this test case will start from")
     # end_turn_id: int = ModelField(foreign_key=True, description="the turn this test case will end at")
     # limit: int = ModelField(description="the number of turns to test")

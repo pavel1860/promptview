@@ -112,7 +112,7 @@ class NamespaceManager:
         for ns in cls._registry.values():
             if hasattr(ns, "_pending_field_parser"):
                 ns._pending_field_parser.parse()
-                del ns._pending_field_parser
+                # del ns._pending_field_parser
                 
         for ns in cls._registry.values():       
             if hasattr(ns, "_pending_relation_parser"):
@@ -120,13 +120,18 @@ class NamespaceManager:
                 del ns._pending_relation_parser
                 
         for ns in cls._registry.values():
+            if hasattr(ns, "_pending_field_parser"):
+                ns._pending_field_parser.validate_foreign_keys()
+                del ns._pending_field_parser
+                
+        for ns in cls._registry.values():
             for name, rel in ns._relations.items():
-                rev_rel = rel.foreign_namespace.get_relation_for_namespace(ns)
+                rev_rel = rel.foreign_namespace.get_relation_for_namespace(ns, foreign_key=rel.foreign_key)
                 if rev_rel is not None and ns != rel.foreign_namespace:
                     if rev_rel.primary_key != rel.foreign_key:
-                        raise ValueError(f"Primary key '{rev_rel.primary_key}' of '{rev_rel.name}' does not match foreign key '{rel.foreign_key}' of '{rel.name}'")
+                        raise ValueError(f"Primary key '{rev_rel.primary_key}' of '{rev_rel.name}' ({rev_rel.primary_cls.__name__}) does not match foreign key '{rel.foreign_key}' of '{rel.name}' ({rel.primary_cls.__name__})")
                     if rev_rel.foreign_key != rel.primary_key:
-                        raise ValueError(f"Foreign key '{rev_rel.foreign_key}' of '{rev_rel.name}' does not match primary key '{rel.primary_key}' of '{rel.name}'")
+                        raise ValueError(f"Foreign key '{rev_rel.foreign_key}' ({rev_rel.foreign_cls.__name__}) of '{rev_rel.name}' does not match primary key '{rel.primary_key}' of '{rel.name}' ({rel.foreign_cls.__name__})")
 
 
     @classmethod

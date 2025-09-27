@@ -12,7 +12,7 @@ class Join:
         self.alias = alias
 
     def __repr__(self):
-        return f"<{self.join_type} JOIN {self.table} ON {self.condition}>"
+        return f"<{self.join_type} JOIN {self.table} ON {self.condition.to_str()}>"
 
 
 

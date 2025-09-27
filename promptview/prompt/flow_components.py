@@ -1,5 +1,6 @@
 import asyncio
 import copy
+from enum import Enum
 from functools import wraps
 import json
 from queue import SimpleQueue
@@ -18,8 +19,16 @@ from lxml import etree
 from promptview.block import BlockSchema, Block
 if TYPE_CHECKING:
     from promptview.model3.versioning.models import ExecutionSpan, SpanEvent, Log, span_type_enum
-    
 
+
+
+
+class EventLogLevel(Enum):
+    chunk = 0
+    span = 1
+    turn = 2
+    
+    
 
 
 class BaseFbpComponent:
@@ -206,6 +215,7 @@ class Parser(BaseFbpComponent):
         self._total_chunks = 0
         self._chunks_from_last_tag = 0
         self._tag_stack = []
+        self._full_content = ""
         
         
 
@@ -272,81 +282,98 @@ class Parser(BaseFbpComponent):
                 return False
             return True
         return False
-        
+    
+    
+    def _feed_parser(self, content: str):
+        # try:
+        self._full_content += content
+        self.parser.feed(content)
+        # except Exception as e:
+        #     print(self._full_content)
+        #     print(f"Error happened on content: {content}")
+        #     raise e
+
         
     async def asend(self, value: Any = None):
         for i in range(20):            
-            if not self._stream_started:
-                self.parser.feed(f'<{self._safety_tag}>')
-                self._stream_started = True                
-            if self.res_ctx.has_events():
-                v = self.res_ctx.get_event()
-                # print("1", type(v), v)
-                return v
-            value = await self.gen.asend(value) 
-            print(value.content)
-            self._write_to_buffer(value)
             try:
-                self.parser.feed(value.content)
-            except Exception as e:
-                raise e
-            
-            self._try_set_tag_lock(value)
-            
-            # in the middle of the stream, adding chunks to the current field
-            if self._should_output_chunk():               
-                for c in self._read_buffer(flush=True):
-                    chunk = self.res_ctx.append(
-                        self.current_tag,
-                        c,
-                    )
-            
-            # start or end of a field, adding the whole field to the queue
-            for event, element in self.parser.read_events():
-                if element.tag == self._safety_tag:
-                    continue                
-                if event == 'start':
-                    # start of a field
-                    if self.current_tag_is_list:
-                        view, schema = self.res_ctx.instantiate_list_item(
-                            self.current_tag,
-                            element.tag,
-                            self._read_buffer(),
-                            attrs=dict(element.attrib),
-                        )
-                    else:
-                        view, schema = self.res_ctx.instantiate(
-                            element.tag,
-                            self._read_buffer(),
-                            attrs=dict(element.attrib),
-                        )                    
-                    
-                    self._push_tag(element.tag, schema.is_list)
-                    self._release_tag_lock()
-                elif event == 'end':
-                    # end of a field
-                    self.res_ctx.set_view_attr(
-                        element.tag,
-                        postfix=self._read_buffer(start_from="</"), 
-                    )
-                    # self.res_ctx.commit_view(
-                    #     element.tag,
-                    # )
-                    self._pop_tag()
-                    # field = self.response_schema.commit_field(
-                    #     element.tag, 
-                    #     postfix=self._read_buffer(start_from="</"), 
-                    #     tags=[self.end_tag]
-                    # )
-                    # if field.postfix is not None:
-                        # self._push_to_output(field.postfix)
-                    
-                    self._release_tag_lock()
+                if not self._stream_started:
+                    self._feed_parser(f'<{self._safety_tag}>')
+                    self._stream_started = True                
+                if self.res_ctx.has_events():
+                    v = self.res_ctx.get_event()
+                    # print("1", type(v), v)
+                    return v
+                value = await self.gen.asend(value) 
+                # print(value.content)
+                self._write_to_buffer(value)
+                try:
+                    self._feed_parser(value.content)
+                except Exception as e:
+                    raise e
                 
+                self._try_set_tag_lock(value)
+                
+                # in the middle of the stream, adding chunks to the current field
+                if self._should_output_chunk():               
+                    for c in self._read_buffer(flush=True):
+                        chunk = self.res_ctx.append(
+                            self.current_tag,
+                            c,
+                        )
+                
+                # start or end of a field, adding the whole field to the queue
+                for event, element in self.parser.read_events():
+                    if element.tag == self._safety_tag:
+                        continue                
+                    if event == 'start':
+                        # start of a field
+                        if self.current_tag_is_list:
+                            view, schema = self.res_ctx.instantiate_list_item(
+                                self.current_tag,
+                                element.tag,
+                                self._read_buffer(),
+                                attrs=dict(element.attrib),
+                            )
+                        else:
+                            view, schema = self.res_ctx.instantiate(
+                                element.tag,
+                                self._read_buffer(),
+                                attrs=dict(element.attrib),
+                            )                    
+                        
+                        self._push_tag(element.tag, schema.is_list)
+                        self._release_tag_lock()
+                    elif event == 'end':
+                        # end of a field
+                        self.res_ctx.set_view_attr(
+                            element.tag,
+                            postfix=self._read_buffer(start_from="</"), 
+                        )
+                        # self.res_ctx.commit_view(
+                        #     element.tag,
+                        # )
+                        self._pop_tag()
+                        # field = self.response_schema.commit_field(
+                        #     element.tag, 
+                        #     postfix=self._read_buffer(start_from="</"), 
+                        #     tags=[self.end_tag]
+                        # )
+                        # if field.postfix is not None:
+                            # self._push_to_output(field.postfix)
+                        
+                        self._release_tag_lock()
                     
-            if self.res_ctx.has_events():
-                v = self.res_ctx.get_event()
-                return v
+                        
+                if self.res_ctx.has_events():
+                    v = self.res_ctx.get_event()
+                    return v
+            except StopAsyncIteration:
+                raise 
+            except Exception as e:
+                print(self._full_content)
+                print(f"Parser Error happened on content: {value.content}")
+                raise e
         else:
             raise StopAsyncIteration
         
@@ -620,8 +647,8 @@ class StreamController(BaseFbpComponent):
     def __aiter__(self):
         return FlowRunner(self)
     
-    async def stream_events(self):
-        return FlowRunner(self).stream_events()
+    async def stream_events(self, event_level: EventLogLevel = EventLogLevel.chunk):
+        return FlowRunner(self, event_level).stream_events()
     
 
 
@@ -870,8 +897,8 @@ class PipeController(BaseFbpComponent):
     def __aiter__(self):
         return FlowRunner(self)
     
-    def stream_events(self):
-        return FlowRunner(self).stream_events()
+    def stream_events(self, event_level: EventLogLevel = EventLogLevel.chunk):
+        return FlowRunner(self, event_level).stream_events()
             
     @classmethod
     def decorator_factory(cls) -> Callable[[], Callable[[Callable[P, AsyncGenerator[CHUNK, None]]], Callable[P, Self]]]:
@@ -888,13 +915,17 @@ class PipeController(BaseFbpComponent):
 
 
 
+    
+
+
 class FlowRunner:
-    def __init__(self, gen: BaseFbpComponent):
+    def __init__(self, gen: BaseFbpComponent, event_level: EventLogLevel = EventLogLevel.chunk):
         self.stack: list[BaseFbpComponent] = [gen]
         self.last_value: Any = None
         self._output_events = False
         self._error_to_raise = None
         self._last_gen = None
+        self._event_level = event_level
         
         
     @property
@@ -938,8 +969,63 @@ class FlowRunner:
         if isinstance(value, StreamEvent):
             return value
         return func(value)
+    
+    
+    async def try_build_start_event(self, gen: BaseFbpComponent, value: Any):
+        event = await gen.on_start_event(value)
+        if event is None:
+            return None
+        if self._event_level == EventLogLevel.span:
+            return None
+        elif self._event_level == EventLogLevel.turn:
+            return None
+        elif self._event_level == EventLogLevel.chunk:
+            return event
+        return None
+    
+    
+    async def try_build_value_event(self, gen: BaseFbpComponent, value: Any):
+        event = await gen.on_value_event(value)
+        if event is None:
+            return None
+        if self._event_level == EventLogLevel.span:
+            if isinstance(value, PipeController):
+                return event
+            return None
+        elif self._event_level == EventLogLevel.turn:
+            return None
+        elif self._event_level == EventLogLevel.chunk:
+            return event
+        return None
+    
+    async def try_build_stop_event(self, gen: BaseFbpComponent, value: Any):
+        event = await gen.on_stop_event(value)
+        if event is None:
+            return None
+        if self._event_level == EventLogLevel.span:
+            return gen.get_response()
+        elif self._event_level == EventLogLevel.turn:
+            return None
+        elif self._event_level == EventLogLevel.chunk:
+            return event
+        return None
+    
+    async def try_build_error_event(self, gen: BaseFbpComponent, value: Any):
+        event = await gen.on_error_event(value)
+        if event is None:
+            return None
+        if self._event_level == EventLogLevel.span:
+            return event
+        elif self._event_level == EventLogLevel.turn:
+            return None
+        elif self._event_level == EventLogLevel.chunk:
+            return event
+        return None
+    
+    
 
     
+
 
     async def __anext__(self):        
         
@@ -954,10 +1040,14 @@ class FlowRunner:
                 if not gen._did_start:
                     await gen.start_generator()                    
                     payload = gen.span if isinstance(gen, PipeController) and len(self.stack) == 1 else None
-                    event = await gen.on_start_event(payload)
-                    if not self.should_output_events:
+                    # event = await gen.on_start_event(payload)
+                    # if not self.should_output_events:
+                    #     continue
+                    # return event
+                    if event:=await self.try_build_start_event(gen, payload):
+                        return event
+                    else:
                         continue
-                    return event
                     
 
                 response = self._get_response()
@@ -969,18 +1059,22 @@ class FlowRunner:
                     self.push(value)
                 
                 self.last_value = value
-                event = await gen.on_value_event(value)
-                if not self.should_output_events:
-                    return value
-                return event
+                # event = await gen.on_value_event(value)
+                if event:=await self.try_build_value_event(gen, value):
+                    return event
+                # if not self.should_output_events:
+                #     return value
+                # return event
                 
             except StopAsyncIteration:
                 gen = self.pop()
                 await gen.on_stop()
                 event = await gen.on_stop_event(None)
-                if not self.should_output_events:
-                    continue
-                return event                
+                if event:=await self.try_build_stop_event(gen, value):
+                    return event
+                # if not self.should_output_events:
+                #     continue
+                # return event                
             except Exception as e:
                 gen = self.pop()
                 event = await gen.on_error_event(e)
@@ -993,7 +1087,8 @@ class FlowRunner:
             raise StopAsyncIteration
 
     
-    def stream_events(self):
+    def stream_events(self, event_level: EventLogLevel = EventLogLevel.chunk):
+        self._event_level = event_level
         self._output_events = True
         return self
     

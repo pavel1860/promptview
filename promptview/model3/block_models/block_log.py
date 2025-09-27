@@ -11,7 +11,7 @@ from promptview.model3.sql.queries import Column
 from promptview.utils.db_connections import PGConnectionManager
 import datetime as dt
 # from promptview.model3.block_models.block_models import BlockNode, BlockModel
-from promptview.model3.versioning.models import BlockTree, BlockNode, BlockModel, ExecutionSpan
+from promptview.model3.versioning.models import BlockTree, BlockNode, BlockModel, ExecutionSpan, TurnStatus
 
 
 
@@ -204,11 +204,13 @@ class BlockLogQuery:
         offset: int | None = None,
         direction: Literal["asc", "desc"] = "desc",
         span_name: str | None = None,
+        statuses: list[TurnStatus] = [TurnStatus.COMMITTED, TurnStatus.STAGED],
     ):
         self.limit = limit or 5
         self.offset = offset
         self.direction = direction
         self.span_name = span_name
+        self.statuses = statuses
         # self.query = self._build_block_query() if not span_name else self._build_span_query()
         
     def __await__(self):
@@ -235,7 +237,8 @@ class BlockLogQuery:
             alias="bt", 
             limit=self.limit, 
             offset=self.offset, 
-            direction=self.direction
+            direction=self.direction,
+            statuses=self.statuses
         ).include(
             BlockNode.query(alias="bn").order_by("id").include(BlockModel)
         ).order_by("created_at")
@@ -245,7 +248,8 @@ class BlockLogQuery:
             alias="es", 
             limit=self.limit, 
             offset=self.offset, 
-            direction=self.direction
+            direction=self.direction,
+            statuses=self.statuses            
         ).include(BlockTree.query(alias="bt").include(BlockNode.query(alias="bn").include(BlockModel))).where(name=self.span_name)
         
     def where(self, span: str | None = None):
@@ -256,6 +260,10 @@ class BlockLogQuery:
     
     def last(self, limit: int):
         self.limit = limit
+        return self
+    
+    def all(self):
+        self.statuses = []
         return self
     
     def span(self, span: str):

@@ -22,6 +22,9 @@ class BaseFieldInfo:
         enum_values: Optional[List[str]] = None,
         order_by: bool = False,
         foreign_cls: Optional[Type] = None,
+        self_ref: bool = False,
+        rel_name: str | None = None,
+        enforce_foreign_key: bool = True,
     ):
         self.name = name
         self.field_type = field_type
@@ -39,7 +42,9 @@ class BaseFieldInfo:
         self.is_enum = enum_values is not None
         self.order_by = order_by
         self.foreign_cls = foreign_cls
-        
+        self.self_ref = self_ref
+        self.rel_name: str | None = rel_name
+        self.enforce_foreign_key = enforce_foreign_key
         # For key fields (uuid or int)
         if self.is_key:
             self.key_type = "uuid" if field_type is uuid.UUID else "int"

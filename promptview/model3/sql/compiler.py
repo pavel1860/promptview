@@ -14,11 +14,13 @@ from .queries import Column, DeleteQuery, InsertQuery, SelectQuery, Subquery, Ta
 
 
     
-def tab(text, indent_level=1):
+def tab(text, indent_level=4):
     return textwrap.indent(text, " " * indent_level)
 
 
 
+def ins_blk(sql: str, level=1):
+    return f"\n{tab(sql, level)}\n"
 
 
 class Compiler:
@@ -69,7 +71,8 @@ class Compiler:
             table_prefix = ""
             if expr.table:
                 if isinstance(expr.table, Subquery):
-                    table_prefix = f"{expr.table.alias}."                    
+                    # table_prefix = f"{expr.table.alias}."                    
+                    return self.compile_table(expr.table)
                 elif isinstance(expr.table, Expression):
                     table_prefix = self.compile_expr(expr.table)
                 else:
@@ -181,7 +184,7 @@ class Compiler:
     def compile_table(self, table):
         if isinstance(table, Subquery):
             sub_sql, _ = self.compile(table.query)  # compile inner query
-            return f"({sub_sql}) AS {table.alias}"
+            return f"(\n{tab(sub_sql)}\n) AS {table.alias}"
         if isinstance(table, SelectQuery) and table._is_subquery:
             return f"({self._compile_select(table)}) AS {table.alias}"
         if hasattr(table, "name") and hasattr(table, "alias"):
@@ -191,17 +194,19 @@ class Compiler:
 
 
     def _compile_select(self, q: SelectQuery):
-        if not q.columns:
-            raise ValueError("Select query has no columns")
-        sql = "SELECT \n"
+        # if not q.columns:
+            # raise ValueError("Select query has no columns")
+        # sql = "SELECT \n"
+        sql = "SELECT "
         
         if q.distinct_on:
             distinct_on_exprs = ", ".join(self.compile_expr(col) for col in q.distinct_on)
             sql += f"DISTINCT ON ({distinct_on_exprs}) "
         elif q.distinct:
             sql += "DISTINCT "
+        sql += "\n"
             
-        sql += tab(", \n".join(self.compile_expr(col) for col in q.columns or ['*']))
+        sql += tab(", \n".join(self.compile_expr(col) for col in q.columns or [Value('*')]))
 
         sql += f"\nFROM {self.compile_table(q.from_table)}"
 
@@ -303,7 +308,8 @@ class Compiler:
                 self.params.extend(cte_query.params)
             else:
                 cte_sql, params = self.compile(cte_query)
-                parts.append(f"{alias} AS ({cte_sql})")
+                parts.append(f"{alias} AS ({ins_blk(cte_sql, 12)})")
+                # parts.append(f"{alias} AS ({cte_sql})")
                 # self.params.extend(params)
         prefix = "WITH "
         if recursive:
