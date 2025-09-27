@@ -1,4 +1,7 @@
 from typing import TYPE_CHECKING, Iterator, Type
+
+from pydantic import BaseModel
+from promptview.auth.user_manager2 import AuthModel
 from promptview.model3.model3 import Model
 from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
 from promptview.model3.versioning.models import Branch, Turn, TurnStatus, VersionedModel
@@ -33,7 +36,10 @@ class StartTurn:
     auto_commit: bool = True
     
 
-class Context:
+class Context(BaseModel):
+    branch_id: int | None = None
+    turn_id: int | None = None
+    request: "Request | None" = None
     
     
     
@@ -48,6 +54,9 @@ class Context:
     ):
         self.ctx_models = {m.__class__.__name__:m for m in models}
         self.tasks = []
+        self.branch_id = branch_id
+        self.turn_id = turn_id
+        self.request = request
         if branch_id is not None:
             self.tasks.append(LoadBranch(branch_id=branch_id))
         if turn_id is not None:
@@ -55,7 +64,7 @@ class Context:
             
         self._branch = branch
         self._turn = turn
-        self.request = request
+        
         
     @property
     def request_id(self):

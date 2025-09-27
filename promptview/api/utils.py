@@ -11,7 +11,7 @@ from promptview.context.model_context import ModelCtx
 from promptview.model.postgres.query_url_params import parse_query_params
 from promptview.model.query_filters import QueryListType
 from promptview.model.versioning import ArtifactLog, Partition
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 # from promptview.model2.query_filters import QueryFilter, parse_query_params
 
 
@@ -117,3 +117,20 @@ def build_model_context_parser(model_context_cls: Type[MODEL_CONTEXT]):
 
 
 
+
+class ListParams(BaseModel):
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=10, ge=1, le=100)
+    
+    
+    
+def get_list_params(
+    list_str: str | None = Query(None, alias="list")
+):
+    if list_str is None:
+        return None
+    try:
+        list_params = ListParams.model_validate_json(list_str)
+    except json.JSONDecodeError:
+        return None
+    return list_params

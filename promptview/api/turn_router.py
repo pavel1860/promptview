@@ -15,24 +15,12 @@ from promptview.api.utils import build_model_context_parser, get_head, query_fil
 from promptview.model3.block_models.block_log import get_blocks
 from promptview.model3.versioning.models import Turn, ExecutionSpan, SpanEvent, Log
 from promptview.model3.versioning.models import Branch
+from promptview.api.utils import ListParams, get_list_params
 
 
 
-class ListParams(BaseModel):
-    offset: int = Field(default=0, ge=0)
-    limit: int = Field(default=10, ge=1, le=100)
 
 
-def get_list_params(
-    list_str: str | None = Query(None, alias="list")
-):
-    if list_str is None:
-        return None
-    try:
-        list_params = ListParams.model_validate_json(list_str)
-    except json.JSONDecodeError:
-        return None
-    return list_params
 
 
 def create_turn_router(context_cls: Type[Context] | None = None):
