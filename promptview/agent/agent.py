@@ -10,8 +10,9 @@ from promptview.prompt.flow_components import EventLogLevel
 from promptview.block.util import StreamEvent
 from promptview.model3 import Branch
 from promptview.block import Block
+from promptview.api.utils import get_auth, get_request_content, get_request_ctx
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Query, Request, Depends
 import datetime as dt
 
 
@@ -54,30 +55,46 @@ async def get_ctx_from_request(request: Request):
 
 class Agent():
     
-    def __init__(self, name: str, agent_component):
-        self.name = name
+    def __init__(self, agent_component, name: str | None = None):
+        self.name = name or "default"
         self.agent_component = agent_component
-        self.ingress_router = APIRouter(prefix=f"/{name}")
+        self.ingress_router = APIRouter(prefix=f"/{name}" if name else "")
         self._setup_ingress()
 
     def connect_ingress(self, app: FastAPI):          
         app.include_router(self.ingress_router, prefix="/api")
         print(f"{self.name} agent conntected")
+        
+        
+    def _block_from_content(self, content: dict | str, role: str):
+        if isinstance(content, str):
+            return Block(content, role=role)
+        else:
+            return Block(content.get("content"), role=role)
 
     def _setup_ingress(self):
+        from promptview.auth.user_manager2 import AuthModel
+        @self.ingress_router.post("/complete")
         async def complete(       
             request: Request,
+            payload: str = Depends(get_request_content),
+            ctx: dict = Depends(get_request_ctx),
+            auth: AuthModel = Depends(get_auth),
             # ctx: tuple[User, Branch, Partition, Message, ExecutionContext] = Depends(get_ctx),
-        ):        
-            ctx = await Context.from_request(request)
-            agent_gen = self.stream_agent_with_context(ctx)
+        ):  
+            print("ctx >>>", auth)      
+            # context = await Context.from_request(request)
+            content, options, state, files = payload
+            message = self._block_from_content(content, options['role'])
+            context = await Context.from_kwargs(**ctx, auth=auth)            
+            agent_gen = self.stream_agent_with_context(context, message)
             return StreamingResponse(agent_gen, media_type="text/plain")
         
-        self.ingress_router.add_api_route(
-            path="/complete", 
-            endpoint=complete,
-            methods=["POST"],        
-        )
+        # self.ingress_router.add_api_route(
+        #     path="/complete", 
+        #     endpoint=complete,
+        #     methods=["POST"],        
+        # )
     
     def update_metadata(self, ctx: Context, index, events: list[StreamEvent],  event: StreamEvent):
         event.request_id = ctx.request_id
