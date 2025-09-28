@@ -5,7 +5,7 @@ from .postgres2.pg_namespace import PgNamespace
 from .namespace_manager2 import NamespaceManager
 from .versioning.models import Branch, Turn, TurnStatus, VersionedModel, ArtifactModel, BlockModel, BlockNode, BlockTree, ExecutionSpan, Log, SpanEvent
 # from .context import Context
-from .vectors import Vector, SparseVector, transformer
+from .vectors import Vector, transformer
 # from ..context.model_context import ModelCtx, Context
 from .relation_model import RelationModel
 # from .block_models.block_models import BlockModel
@@ -27,7 +27,7 @@ __all__ = [
     "Turn",
     "TurnStatus",
     "Vector",
-    "SparseVector",
+    # "SparseVector",
     "transformer",
     "RelationModel",
     "BlockModel",

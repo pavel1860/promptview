@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.sparse import csr_matrix
+# from scipy.sparse import csr_matrix
 from pydantic import AfterValidator, BeforeValidator, BaseModel, PlainSerializer
 from pydantic_core import core_schema
 from pydantic import GetCoreSchemaHandler
@@ -51,7 +51,7 @@ class Vector(np.ndarray):
         return instance.tolist()        
         
         
-class SparseVector(csr_matrix): pass
+# class SparseVector(csr_matrix): pass
 
 
 

@@ -14,7 +14,7 @@ setup(
         "jsonref==1.1.0",
         "tiktoken==0.5.2",
         "pinecone-text==0.9.0",
-        "scipy==1.11.4",
+        # "scipy==1.11.4",
         # "boto3==1.24.47",
         "openai==1.56.2",
         "neo4j==5.28.1",
