@@ -1,6 +1,9 @@
 import os
 import asyncio
 import asyncpg
+import traceback
+import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional, Any, AsyncContextManager, Callable, TypeVar, cast, AsyncGenerator, Union, Awaitable
 from contextlib import asynccontextmanager
 # import psycopg2
@@ -8,16 +11,48 @@ from contextlib import asynccontextmanager
 if TYPE_CHECKING:
     from psycopg2.pool import SimpleConnectionPool
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 T = TypeVar('T')
 R = TypeVar('R')
 
 
-def print_error_sql(sql: str, values: Any | None = None, error: Exception | None = None):
-    print("---------- SQL ------------:\n", sql)
+def log_database_error(operation: str, sql: str = None, values: Any = None, error: Exception = None, attempt: int = None, max_attempts: int = None):
+    """Structured logging for database errors"""
+    timestamp = datetime.utcnow().isoformat()
+    error_context = {
+        'timestamp': timestamp,
+        'operation': operation,
+        'error_type': type(error).__name__ if error else 'Unknown',
+        'error_message': str(error) if error else 'No error message',
+    }
+    
+    if attempt is not None and max_attempts is not None:
+        error_context['retry_info'] = f'attempt {attempt}/{max_attempts}'
+    
+    if sql:
+        # Truncate long SQL for readability
+        sql_preview = sql[:200] + '...' if len(sql) > 200 else sql
+        error_context['sql'] = sql_preview
+    
     if values:
-        print("---------- VALUES ----------:\n", values)
+        error_context['parameters'] = str(values)[:100]  # Limit parameter logging
+    
+    # Log the structured error
+    logger.error(f"DATABASE_ERROR: {error_context}")
+    
+    # Also print the full stack trace for debugging
     if error:
-        print("---------- ERROR ----------:\n", error)
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+    
+    # For backward compatibility, also print to stdout in structured format
+    print(f"🔴 DB ERROR [{timestamp}] {operation}: {error}")
+    if sql:
+        print(f"📄 SQL: {sql_preview}")
+    if attempt:
+        print(f"🔄 Retry: {attempt}/{max_attempts}")
 
 
 class Transaction:
@@ -162,16 +197,18 @@ class PGConnectionManager:
                     asyncpg.InterfaceError, 
                     ConnectionError) as e:
                 if attempt == max_retries:
-                    print_error_sql(query, args, e)
+                    log_database_error('execute', query, args, e, attempt + 1, max_retries + 1)
                     raise e
-                print(f"Connection error on attempt {attempt + 1}, retrying in {retry_delay}s...")
+                log_database_error('execute_retry', query, args, e, attempt + 1, max_retries + 1)
+                print(f"🔄 Retrying in {retry_delay}s... (attempt {attempt + 1}/{max_retries + 1})")
                 await asyncio.sleep(retry_delay)
                 # Reset pool on connection errors to force reconnection
                 if cls._pool:
+                    logger.info("🔄 Resetting connection pool due to connection error")
                     await cls._pool.close()
                     cls._pool = None
             except Exception as e:
-                print_error_sql(query, args, e)
+                log_database_error('execute', query, args, e)
                 raise e
     
     @classmethod
@@ -184,7 +221,7 @@ class PGConnectionManager:
             async with cls._pool.acquire() as conn:
                 return await conn.executemany(query, args_list)
         except Exception as e:
-            print_error_sql(query, args_list, e)
+            log_database_error('executemany', query, args_list, e)
             raise e
 
     @classmethod
@@ -205,16 +242,18 @@ class PGConnectionManager:
                     asyncpg.InterfaceError, 
                     ConnectionError) as e:
                 if attempt == max_retries:
-                    print_error_sql(query, args, e)
+                    log_database_error('fetch', query, args, e, attempt + 1, max_retries + 1)
                     raise e
-                print(f"Connection error on attempt {attempt + 1}, retrying in {retry_delay}s...")
+                log_database_error('fetch_retry', query, args, e, attempt + 1, max_retries + 1)
+                print(f"🔄 Retrying in {retry_delay}s... (attempt {attempt + 1}/{max_retries + 1})")
                 await asyncio.sleep(retry_delay)
                 # Reset pool on connection errors to force reconnection
                 if cls._pool:
+                    logger.info("🔄 Resetting connection pool due to connection error")
                     await cls._pool.close()
                     cls._pool = None
             except Exception as e:
-                print_error_sql(query, args, e)
+                log_database_error('fetch', query, args, e)
                 raise e
     
     @classmethod
@@ -235,16 +274,18 @@ class PGConnectionManager:
                     asyncpg.InterfaceError, 
                     ConnectionError) as e:
                 if attempt == max_retries:
-                    print_error_sql(query, args, e)
+                    log_database_error('fetch_one', query, args, e, attempt + 1, max_retries + 1)
                     raise e
-                print(f"Connection error on attempt {attempt + 1}, retrying in {retry_delay}s...")
+                log_database_error('fetch_one_retry', query, args, e, attempt + 1, max_retries + 1)
+                print(f"🔄 Retrying in {retry_delay}s... (attempt {attempt + 1}/{max_retries + 1})")
                 await asyncio.sleep(retry_delay)
                 # Reset pool on connection errors to force reconnection
                 if cls._pool:
+                    logger.info("🔄 Resetting connection pool due to connection error")
                     await cls._pool.close()
                     cls._pool = None
             except Exception as e:
-                print_error_sql(query, args, e)
+                log_database_error('fetch_one', query, args, e)
                 raise e
     
     @classmethod
