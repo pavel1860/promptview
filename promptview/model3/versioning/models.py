@@ -45,8 +45,8 @@ class Branch(Model):
     forked_from_branch_id: int | None = ModelField(default=None, foreign_key=True)
     current_index: int = ModelField(default=0)
 
-    turns: List["Turn"] = RelationField("Turn", foreign_key="branch_id")
-    children: List["Branch"] = RelationField("Branch", foreign_key="forked_from_branch_id")
+    turns: List["Turn"] = RelationField(foreign_key="branch_id")
+    children: List["Branch"] = RelationField(foreign_key="forked_from_branch_id")
     
     async def fork_branch(self, turn: "Turn", name: str | None = None):
         branch = await Branch(

@@ -134,3 +134,84 @@ def get_list_params(
     except json.JSONDecodeError:
         return None
     return list_params
+
+
+
+
+
+def get_request_ctx(request: Request):
+    ctx = request.query_params.get("ctx")
+    if ctx:
+        return json.loads(ctx)
+    return None
+
+def is_form_request(request: Request) -> bool:
+    content_type = request.headers.get("content-type", "")
+    return content_type.startswith("application/x-www-form-urlencoded") or \
+        content_type.startswith("multipart/form-data")
+
+
+async def get_request_content(request: Request):
+    if is_form_request(request):
+        form = await request.form()
+        content = form.get("content")
+        content = content.decode("utf-8") if isinstance(content, bytes) else content
+        content = json.loads(content) if content else None
+        options = form.get("options") 
+        options = options.decode("utf-8") if isinstance(options, bytes) else options
+        options = json.loads(options) if options else None
+        state = form.get("state") 
+        state = state.decode("utf-8") if isinstance(state, bytes) else state
+        state = json.loads(state) if state else None
+        files = form.get("files") 
+        files = files.decode("utf-8") if isinstance(files, bytes) else files
+        files = json.loads(files) if files else None
+        return content, options, state, files
+    else:
+        return None, None, None, None
+
+
+
+
+
+def get_auth_manager(request: Request):
+    return request.app.state.user_manager
+
+
+
+async def get_auth(request: Request):
+    auth_manager = get_auth_manager(request)
+    return await auth_manager.get_user_from_request(request)
+    
+
+# def get_user_ref(request: Request):
+#     ctx = request.query_params.get("ctx")
+#     if not ctx:
+#         return None
+#     ctx = json.loads(ctx)
+#     if ctx.get("ref_user_id"):
+#         return ctx.get("ref_user_id")
+#     return None
+
+# async def get_user_from_request(request: Request):
+#     from promptview.auth.user_manager2 import UserNotFound
+#     user_ref_id = get_user_ref(request)
+#     user_manager = get_user_manager(request)
+#     try:
+#         user = await request.app.state.user_manager.get_user_from_request(request)
+#         # logger.info(f"user: {user.id}")
+#     except UserNotFound as e:
+#         # logger.error(f"User not found: {e}")
+#         raise HTTPException(status_code=401, detail="Unauthorized")
+#     if user_ref_id:
+#         if not user.is_admin:
+#             # logger.error(f"Unauthorized user: {user.id} tried to access user: {user_ref_id}")
+#             raise HTTPException(status_code=401, detail="Unauthorized")
+#         # ref_user = await User.query().where(user_id=user_ref_id).last()
+#         ref_user = await user_manager.fetch_by_auth_user_id(user_ref_id)
+#         if ref_user is None:
+#             # logger.error(f"admin user: {user.id} tried to fetch non existing user: {user_ref_id}")
+#             raise HTTPException(status_code=401, detail="Unauthorized")
+#         return ref_user
+#     return user
+

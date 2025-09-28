@@ -1,3 +1,4 @@
+import asyncio
 from typing import TYPE_CHECKING, Iterator, Type
 
 from pydantic import BaseModel
@@ -39,8 +40,10 @@ class StartTurn:
 class Context(BaseModel):
     branch_id: int | None = None
     turn_id: int | None = None
-    request: "Request | None" = None
-    
+    _request: "Request | None" = None
+    _auth: AuthModel | None = None
+    _ctx_models: dict[str, Model] = {}
+    _tasks: list[LoadBranch | LoadTurn | ForkTurn | StartTurn] = []
     
     
     def __init__(
@@ -51,33 +54,39 @@ class Context(BaseModel):
         branch_id: int | None = None,
         turn_id: int | None = None,
         request: "Request | None" = None,
+        auth: AuthModel | None = None,
     ):
-        self.ctx_models = {m.__class__.__name__:m for m in models}
-        self.tasks = []
+        super().__init__()
+        self._ctx_models = {m.__class__.__name__:m for m in models}
+        self._tasks = []
         self.branch_id = branch_id
         self.turn_id = turn_id
-        self.request = request
+        self._request = request
         if branch_id is not None:
-            self.tasks.append(LoadBranch(branch_id=branch_id))
+            self._tasks.append(LoadBranch(branch_id=branch_id))
         if turn_id is not None:
-            self.tasks.append(LoadTurn(turn_id=turn_id))
+            self._tasks.append(LoadTurn(turn_id=turn_id))
             
         self._branch = branch
         self._turn = turn
-        
+        self._auth = auth
         
     @property
     def request_id(self):
-        if self.request is not None:
-            return self.request.state.request_id
+        if self._request is not None:
+            return self._request.state.request_id
         return None
-        
+
     @classmethod
     async def from_request(cls, request: "Request"):
-        ctx_args = request.state.get("ctx")
-        if ctx_args is None:
-            raise ValueError("ctx is not set")
-        ctx = cls(**ctx_args)    
+        from promptview.api.utils import get_request_ctx, get_auth
+        # ctx_args = request.state.get("ctx")
+        # if ctx_args is None:
+        #     raise ValueError("ctx is not set")
+        # ctx = cls(**ctx_args)
+        ctx = get_request_ctx(request)
+        auth = await get_auth(request)
+        ctx = cls(**ctx, auth=auth)
         return ctx
     
     @classmethod
@@ -118,17 +127,17 @@ class Context(BaseModel):
         
     
     def start_turn(self, auto_commit: bool = True) -> "Context":
-        self.tasks.append(StartTurn(auto_commit=auto_commit))
+        self._tasks.append(StartTurn(auto_commit=auto_commit))
         return self
     
     def fork(self, turn: Turn | None = None, turn_id: int | None = None) -> "Context":
-        self.tasks.append(ForkTurn(turn=turn, turn_id=turn_id))
+        self._tasks.append(ForkTurn(turn=turn, turn_id=turn_id))
         return self
     
     # def fork(self, branch: Branch | None = None)
     
     async def _handle_tasks(self) -> Branch:
-        for task in self.tasks:
+        for task in self._tasks:
             if isinstance(task, LoadBranch):
                 self._branch = await Branch.get(task.branch_id)
             elif isinstance(task, LoadTurn):
@@ -160,7 +169,7 @@ class Context(BaseModel):
     def get_models(self):
         v_models = []
         models = []
-        for model in self.ctx_models.values():
+        for model in self._ctx_models.values():
             if isinstance(model, VersionedModel):
                 v_models.append(model)
             else:
@@ -169,6 +178,8 @@ class Context(BaseModel):
                 
         
     async def __aenter__(self):
+        if self._auth is not None:
+            auth = self._auth.__enter__()
         branch = await self._handle_tasks()
         v_models, models = self.get_models()
         for model in models:
@@ -189,6 +200,8 @@ class Context(BaseModel):
         self.branch.__exit__(exc_type, exc_value, traceback)
         for model in reversed(models):
             model.__exit__(exc_type, exc_value, traceback)
+        if self._auth is not None:
+            self._auth.__exit__(exc_type, exc_value, traceback)
               
             
             

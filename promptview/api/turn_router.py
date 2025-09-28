@@ -26,8 +26,8 @@ from promptview.api.utils import ListParams, get_list_params
 def create_turn_router(context_cls: Type[Context] | None = None):
     context_cls = context_cls or Context
     
-    def get_model_ctx(request: Request):
-        return context_cls.from_request(request)
+    async def get_model_ctx(request: Request):
+        return await context_cls.from_request(request)
     
     turn_router = create_model_router(Turn, get_model_ctx, exclude_routes={"update"})
 
