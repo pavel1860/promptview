@@ -4,15 +4,15 @@ import json
 from typing import TYPE_CHECKING, Any, Optional, Type
 import uuid
 
-from promptview.utils.db_connections import PGConnectionManager
+from ...utils.db_connections import PGConnectionManager
 from ..base.base_namespace import BaseNamespace
 from .pg_field_info import PgFieldInfo
 from .pg_relation import PgRelation
 
 
 if TYPE_CHECKING:
-    from promptview.model3.model3 import Model
-    from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+    from ..model3 import Model
+    from ..postgres2.pg_query_set import PgSelectQuerySet
 
 
 
@@ -308,7 +308,7 @@ class PgNamespace(BaseNamespace["Model", PgFieldInfo]):
 
     
     def query(self) -> "PgSelectQuerySet[Model]":
-        from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+        from .pg_query_set import PgSelectQuerySet
         return PgSelectQuerySet(self._model_cls)
     
     

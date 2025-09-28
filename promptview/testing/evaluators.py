@@ -1,8 +1,8 @@
-from promptview.prompt import prompt, Depends
-from promptview.block import BlockChunk
-from promptview.llms import OpenAiLLM, LLM
+from ..prompt import prompt, Depends
+from ..block import BlockChunk
+from ..llms import OpenAiLLM, LLM
 from pydantic import BaseModel, Field
-from promptview.llms.llm import OutputModel
+from ..llms.llm import OutputModel
 
 
 

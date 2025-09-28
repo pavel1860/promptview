@@ -2,7 +2,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import List, Optional, Tuple
 
-from promptview.model3.versioning.backends.postgres import PostgresBranchManager, PostgresTurnManager
+from .backends.postgres import PostgresBranchManager, PostgresTurnManager
 from .models import Branch, Turn, TurnStatus
 from .managers import BranchManager, TurnManager
 

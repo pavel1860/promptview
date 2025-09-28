@@ -4,12 +4,12 @@ import contextvars
 import uuid
 
 from .base_field_info import BaseFieldInfo
-from promptview.model3.relation_info import RelationInfo
+from ..relation_info import RelationInfo
 
 if TYPE_CHECKING:
-    from promptview.model3.model3 import Model
-    from promptview.model3.field_parser import FieldParser
-    from promptview.model3.relation_parser import RelationParser
+    from ..model3 import Model
+    from ..field_parser import FieldParser
+    from ..relation_parser import RelationParser
 
 MODEL = TypeVar("MODEL", bound="Model")
 FIELD = TypeVar("FIELD", bound=BaseFieldInfo)

@@ -5,11 +5,11 @@ from pydantic.fields import _Unset, AliasPath, AliasChoices, FieldInfo, JsonDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, ForwardRef, Generic, List, Literal, Optional, Protocol, Self, Type, TypeVar, get_args, get_origin
 from pydantic_core import PydanticUndefined
 
-from promptview.algebra.vectors.base_vectorizer import BaseVectorizer
-from promptview.algebra.vectors.empty_vectorizer import EmptyVectorizer
+from ..algebra.vectors.base_vectorizer import BaseVectorizer
+from ..algebra.vectors.empty_vectorizer import EmptyVectorizer
 
 if TYPE_CHECKING:
-    from promptview.model3.model3 import Model
+    from .model3 import Model
 
 
 
@@ -137,7 +137,7 @@ def RelationField(
         on_update: The action to take when the referenced row is updated
     """
     # Create extra metadata for the field
-    # from promptview.model.relation import Relation
+    
 
     # if not default:
         # default = Relation()

@@ -1,7 +1,7 @@
 from typing import Type
-from promptview.model3 import Branch
-from promptview.api.model_router import create_model_router
-from promptview.model3.context import Context
+from ..model import Branch
+from .model_router import create_model_router
+from ..model.context import Context
 from fastapi import Request
 
 

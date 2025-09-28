@@ -1,11 +1,11 @@
 import sys
 from typing import TYPE_CHECKING, Any, Dict, ForwardRef, Type, Optional, get_args, get_origin, List, Union
-from promptview.model3.postgres2.pg_namespace import PgNamespace
-from promptview.model3.qdrant2.qdrant_namespace import QdrantNamespace
-from promptview.model3.util import resolve_annotation
+from .postgres2.pg_namespace import PgNamespace
+from .qdrant2.qdrant_namespace import QdrantNamespace
+from .util import resolve_annotation
 
 if TYPE_CHECKING:
-    from promptview.model3.model3 import Model
+    from .model3 import Model
 
 _extensions_registry = set()
 
@@ -53,7 +53,7 @@ class NamespaceManager:
 
     @classmethod
     async def initialize_all(cls):
-        from promptview.model3.versioning.models import Branch
+        from .versioning.models import Branch
         await PgNamespace.install_extensions()
         # Branch.model_rebuild()
         # BlockNode.model_rebuild()
@@ -151,8 +151,8 @@ class NamespaceManager:
 
     @classmethod
     def drop_all_tables(cls, exclude_tables: list[str] | None = None):
-        from promptview.model.postgres.builder import SQLBuilder        
-        SQLBuilder.drop_all_tables(exclude_tables)
+        raise NotImplementedError("drop_all_tables is not implemented")
+        # SQLBuilder.drop_all_tables(exclude_tables)
         # SQLBuilder.drop_enum_types(exclude_tables)
     
     @classmethod

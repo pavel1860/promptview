@@ -8,17 +8,15 @@ import datetime as dt
 
 from typing import Any, AsyncGenerator, Callable, Iterable, Literal, ParamSpec, Protocol, Self, TypeVar, TYPE_CHECKING, runtime_checkable
 import xml
-from promptview.block import BlockChunk, BlockSchema
-from promptview.block.block9.block_schema import BlockBuilderContext, BlockBuilderError
-from promptview.prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
-from promptview.prompt.parser import BlockBuffer, SaxStreamParser
-from promptview.prompt.events import StreamEvent
-from promptview.utils.function_utils import call_function
+from ..block import BlockChunk, BlockSchema
+from ..block.block9.block_schema import BlockBuilderContext, BlockBuilderError
+from ..prompt.injector import resolve_dependencies, resolve_dependencies_kwargs
+from ..prompt.events import StreamEvent
 from lxml import etree
 
-from promptview.block import BlockSchema, Block
+from ..block import BlockSchema, Block
 if TYPE_CHECKING:
-    from promptview.model3.versioning.models import ExecutionSpan, SpanEvent, Log, span_type_enum
+    from ..model.versioning.models import ExecutionSpan, SpanEvent, Log, span_type_enum
 
 
 
@@ -460,7 +458,7 @@ class StreamController(BaseFbpComponent):
         
         
     async def build_span(self, parent_span_id: str | None = None):
-        from promptview.model3.versioning.models import ExecutionSpan
+        from ..model import ExecutionSpan
         self._span = await ExecutionSpan(
             span_type=self._span_type,
             name=self._name,
@@ -545,7 +543,7 @@ class StreamController(BaseFbpComponent):
 
 
     # async def on_start(self, value: Any = None):
-    #     from promptview.model3.versioning.models import ExecutionSpan
+    #     from ..model.versioning.models import ExecutionSpan
     #     self._span = await ExecutionSpan(
     #         span_type=self._span_type,
     #         name=self._name,
@@ -558,7 +556,7 @@ class StreamController(BaseFbpComponent):
     
     async def on_start(self, value: Any = None):
         if not self._span:
-            from promptview.model3.versioning.models import ExecutionSpan
+            from ..model.versioning.models import ExecutionSpan
             self._span = await ExecutionSpan(
                 span_type=self._span_type,
                 name=self._name,
@@ -575,7 +573,7 @@ class StreamController(BaseFbpComponent):
         self._span = await self.span.save()
         
     async def on_error(self, error: Exception):
-        from promptview.model3.versioning.models import Log
+        from ..model.versioning.models import Log
         log = await Log(
             message=str(error),
             level="error"
@@ -628,7 +626,7 @@ class StreamController(BaseFbpComponent):
         )
     
     async def on_error_event(self, error: Exception):
-        from promptview.model3.versioning.models import Log
+        from ..model.versioning.models import Log
         log = await Log(
             message=str(error),
             level="error"
@@ -789,7 +787,7 @@ class PipeController(BaseFbpComponent):
         )
     
     async def on_error_event(self, error: Exception):
-        from promptview.model3.versioning.models import Log
+        from ..model.versioning.models import Log
         log = await Log(
             message=str(error),
             level="error"
@@ -809,7 +807,7 @@ class PipeController(BaseFbpComponent):
         return value
     
     # async def post_next(self, value: Any = None):
-    #     from promptview.model3.versioning.models import Turn
+    #     ..model.versioning.models import Turn
     #     if isinstance(value, Block):
     #         turn = Turn.current()
     #         if turn:
@@ -818,7 +816,7 @@ class PipeController(BaseFbpComponent):
     #     return value
     
     # async def post_next(self, value: Any = None):
-    #     from promptview.model3.versioning.models import ExecutionSpan
+    #     from ..model.versioning.models import ExecutionSpan
     #     if isinstance(value, Block):
     #         await self.span.add_block(value, self.index)
     #         self.index += 1
@@ -833,7 +831,7 @@ class PipeController(BaseFbpComponent):
         return self._last_value
     
     async def build_span(self, parent_span_id: str | None = None):
-        from promptview.model3.versioning.models import ExecutionSpan
+        from ..model.versioning.models import ExecutionSpan
         self._span = await ExecutionSpan(
             span_type=self._span_type,
             name=self._name,
@@ -864,7 +862,7 @@ class PipeController(BaseFbpComponent):
             raise ValueError(f"Invalid generator type: {type(gen)}")
 
     async def on_start(self, value: Any = None):
-        from promptview.model3.versioning.models import ExecutionSpan
+        from ..model.versioning.models import ExecutionSpan
         bound, kwargs = await resolve_dependencies_kwargs(self._gen_func, self._args, self._kwargs)
         self._gen = self._gen_func(*bound.args, **bound.kwargs)
         if not self._span:
@@ -883,7 +881,7 @@ class PipeController(BaseFbpComponent):
         self._span = await self.span.save()
         
     async def on_error(self, error: Exception):
-        from promptview.model3.versioning.models import Log
+        from ..model.versioning.models import Log
         log = await Log(
             message=str(error),
             level="error"

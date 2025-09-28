@@ -4,8 +4,8 @@ import inspect
 
 from pydantic import BaseModel
 
-from promptview.model3.base.base_namespace import Serializable
-from promptview.utils.model_utils import make_json_serializable
+from ..base.base_namespace import Serializable
+from ...utils.model_utils import make_json_serializable
 from ..base.base_field_info import BaseFieldInfo
 from typing import Any, List, Optional, Type
 import uuid

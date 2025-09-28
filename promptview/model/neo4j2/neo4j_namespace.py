@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Optional
 
 
 if TYPE_CHECKING:
-    from promptview.model3.model3 import Model
+    from ..model3 import Model
 
 class Neo4jNamespace(BaseNamespace["Model", Neo4jFieldInfo]):
     def __init__(self, name: str, *fields: Neo4jFieldInfo):

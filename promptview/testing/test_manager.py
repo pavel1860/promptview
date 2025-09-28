@@ -1,13 +1,13 @@
 # import enum
 # from typing import List
-# # from promptview.model.head_model import HeadModel
-# # from promptview.model.model import Model, Relation
-# # from promptview.model.fields import ModelField, ModelRelation
-# from promptview.model2 import Model, Relation, ModelField, RelationField
+# # from ..model.head_model import HeadModel
+# # from ..model.model import Model, Relation
+# # from ..model.fields import ModelField, ModelRelation
+# from ..model2 import Model, Relation, ModelField, RelationField
 # from pydantic import BaseModel, PrivateAttr
 
-# from promptview.model2.fields import KeyField
-# from promptview.testing.evaluator import evaluate_prompt
+# from ..model2.fields import KeyField
+# from ..testing.evaluator import evaluate_prompt
 
 
 

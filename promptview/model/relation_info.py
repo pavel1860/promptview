@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Type, ForwardRef
 
 
 if TYPE_CHECKING:
-    from promptview.model3.model3 import Model
-    from promptview.model3.base.base_namespace import BaseNamespace
+    from .model3 import Model
+    from .base.base_namespace import BaseNamespace
 
 class RelationInfo:
     def __init__(

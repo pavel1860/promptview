@@ -1,21 +1,13 @@
 from typing import TYPE_CHECKING, List, Literal
 from uuid import UUID
 from pydantic import BaseModel, Field
-from promptview.model import NamespaceManager
-from promptview.model.relation import Relation
-# from promptview.testing import TestCase, TestRun, TestTurn, TestInputs
-# from promptview.model import Branch, Turn as TurnBase
+from ..model import NamespaceManager
 
 from datetime import datetime
-# from promptview.model.fields import KeyField, ModelField, RelationField
-# from promptview.model.version_control_models import Turn, TurnModel
-
-
-# from promptview.model import Model, ModelField
 
 # # if TYPE_CHECKING:
-from promptview.model3 import Model, ModelField
-from promptview.model3 import Branch, Turn, KeyField, RelationField
+from ..model import Model, ModelField
+from ..model import Branch, Turn, KeyField, RelationField
 
 
 
@@ -103,14 +95,14 @@ class TestCaseEvaluators(BaseModel):
     
     
     def add(self, turn: "Turn | int", evaluators: List[EvaluatorConfig]):
-        from promptview.model import Turn
+        from ..model import Turn
         if isinstance(turn, Turn):
             self.evaluators[turn.id] = TurnEvaluator(turn_id=turn.id, evaluators=evaluators)
         else:
             self.evaluators[turn] = TurnEvaluator(turn_id=turn, evaluators=evaluators)
             
     def get(self, turn: "Turn | int") -> TurnEvaluator:
-        from promptview.model import Turn
+        from ..model import Turn
         if isinstance(turn, Turn):
             return self.evaluators[turn.id]
         else:

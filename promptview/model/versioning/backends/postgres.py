@@ -1,5 +1,5 @@
 from typing import List, Optional
-from promptview.utils.db_connections import PGConnectionManager
+from ....utils.db_connections import PGConnectionManager
 from ..models import Branch, Turn, TurnStatus
 
 class PostgresBranchManager:

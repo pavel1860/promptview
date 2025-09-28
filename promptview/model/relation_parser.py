@@ -4,8 +4,8 @@ from .base.base_namespace import BaseNamespace
 from .base.base_field_info import BaseFieldInfo
 
 if TYPE_CHECKING:
-    from promptview.model3.relation_info import RelationInfo
-    from promptview.model3.model3 import Model
+    from .relation_info import RelationInfo
+    from .model3 import Model
 
 
 def get_relation_extras(field_info: FieldInfo) -> Dict[str, Any]:
@@ -23,7 +23,7 @@ class RelationParser:
 
     def parse(self):
         """Parse the relations for the model and instantiate all the foreign classes"""
-        from promptview.model3.model3 import Model
+        from .model3 import Model
 
         for field_name, field_info in self.model_cls.model_fields.items():
             if not isinstance(field_info, FieldInfo):

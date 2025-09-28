@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Type, Self, TypeVar, Generic, runtime_che
 from .model_meta import ModelMeta
 if TYPE_CHECKING:
     from .postgres2.pg_query_set import PgSelectQuerySet
-    from promptview.model3.base.base_namespace import BaseNamespace
+    from .base.base_namespace import BaseNamespace
 
 MODEL = TypeVar("MODEL", bound="Model")
 JUNCTION_MODEL = TypeVar("JUNCTION_MODEL", bound="Model")
@@ -42,7 +42,7 @@ class Model(BaseModel, metaclass=ModelMeta):
 
     @classmethod
     def get_namespace(cls) -> "BaseNamespace":
-        from promptview.model3.namespace_manager2 import NamespaceManager
+        from .namespace_manager2 import NamespaceManager
         return NamespaceManager.get_namespace(cls.get_namespace_name())
 
     @classmethod
@@ -169,7 +169,7 @@ class Model(BaseModel, metaclass=ModelMeta):
         use_ctx: bool = True,
         **kwargs
     ) -> "PgSelectQuerySet[Self]":
-        from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+        from .postgres2.pg_query_set import PgSelectQuerySet
         query = PgSelectQuerySet(cls, alias=alias).select(*fields if fields else "*")
         # if use_ctx:
         #     where_keys = cls._get_context_fields()

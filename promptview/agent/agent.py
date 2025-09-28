@@ -1,13 +1,11 @@
 from typing import Literal, Set
 from fastapi.responses import StreamingResponse
 
-
-from context.execution_context import ExecutionContext
-from model.context import Context
-from prompt.flow_components import EventLogLevel
-from block.util import StreamEvent
-from block import Block
-from api.utils import get_auth, get_request_content, get_request_ctx
+from ..model.context import Context
+from ..prompt.flow_components import EventLogLevel
+from ..block.util import StreamEvent
+from ..block import Block
+from ..api.utils import get_auth, get_request_content, get_request_ctx
 
 from fastapi import APIRouter, FastAPI, Query, Request, Depends
 import datetime as dt
@@ -70,7 +68,7 @@ class Agent():
             return Block(content.get("content"), role=role)
 
     def _setup_ingress(self):
-        from promptview.auth.user_manager2 import AuthModel
+        from ..auth.user_manager2 import AuthModel
         @self.ingress_router.post("/complete")
         async def complete(       
             request: Request,

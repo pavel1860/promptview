@@ -2,10 +2,10 @@ import asyncio
 from typing import TYPE_CHECKING, Iterator, Type
 
 from pydantic import BaseModel
-from promptview.auth.user_manager2 import AuthModel
-from promptview.model3.model3 import Model
-from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
-from promptview.model3.versioning.models import Branch, Turn, TurnStatus, VersionedModel
+from ..auth.user_manager2 import AuthModel
+from .model3 import Model
+from .postgres2.pg_query_set import PgSelectQuerySet
+from .versioning.models import Branch, Turn, TurnStatus, VersionedModel
 from dataclasses import dataclass
 if TYPE_CHECKING:
     from fastapi import Request
@@ -79,7 +79,7 @@ class Context(BaseModel):
 
     @classmethod
     async def from_request(cls, request: "Request"):
-        from promptview.api.utils import get_request_ctx, get_auth
+        from ..api.utils import get_request_ctx, get_auth
         # ctx_args = request.state.get("ctx")
         # if ctx_args is None:
         #     raise ValueError("ctx is not set")

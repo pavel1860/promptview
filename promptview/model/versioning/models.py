@@ -7,16 +7,16 @@ from typing import TYPE_CHECKING, AsyncGenerator, Callable, List, Literal, Type,
 
 
 
-from promptview.model3.model3 import Model
-from promptview.model3.fields import KeyField, ModelField, RelationField
-from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
-from promptview.model3.postgres2.rowset import RowsetNode
-from promptview.model3.sql.queries import CTENode, RawSQL
-from promptview.model3.sql.expressions import RawValue
-from promptview.utils.db_connections import PGConnectionManager
+from .. import Model
+from ..fields import KeyField, ModelField, RelationField
+from ..postgres2.pg_query_set import PgSelectQuerySet
+from ..postgres2.rowset import RowsetNode
+from ..sql.queries import CTENode, RawSQL
+from ..sql.expressions import RawValue
+from ...utils.db_connections import PGConnectionManager
 
 if TYPE_CHECKING:
-    from promptview.block import Block
+    from ...block import Block
 
 # ContextVars for current branch/turn
 _curr_branch = contextvars.ContextVar("curr_branch", default=None)
@@ -202,7 +202,7 @@ class Turn(Model):
     
     @classmethod
     def blocks(cls):
-        from promptview.model3.block_models.block_log import parse_block_tree_turn
+        from ..block_models.block_log import parse_block_tree_turn
         return cls.query().include(
             BlockTree.query(alias="bt").select("*").include(
                 BlockNode.query(alias="bn").select("*").include(
@@ -213,7 +213,7 @@ class Turn(Model):
         
         
     async def add_block(self, block: "Block", span_id: uuid.UUID | None = None):
-        from promptview.model3.block_models.block_log import insert_block
+        from ..block_models.block_log import insert_block
         return await insert_block(block, self.branch_id, self.id, span_id)
         
         
@@ -273,7 +273,7 @@ class Turn(Model):
         branch: Branch | None = None, 
         **kwargs
     ) -> "PgSelectQuerySet[Self]":
-        from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+        from ..postgres2.pg_query_set import PgSelectQuerySet
         branch_id = cls._resolve_branch_id(branch)
         branch_cte = Branch.recursive_query(branch_id)
         col = branch_cte.get_field("start_turn_index")
@@ -362,7 +362,7 @@ class VersionedModel(Model):
         statuses: list[TurnStatus] = [TurnStatus.COMMITTED, TurnStatus.STAGED],
         **kwargs
     ):
-        from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+        from ..postgres2.pg_query_set import PgSelectQuerySet
         turn_cte = Turn.vquery().select(*fields or "*")
         # .where(lambda t: t.status.isin([TurnStatus.COMMITTED, TurnStatus.STAGED]))
         if statuses:
@@ -408,8 +408,8 @@ class BlockNode(Model):
     
     @classmethod
     async def block_query(cls, cte):
-        from promptview.model3.block_models.block_log import pack_block
-        from promptview.model3.sql.queries import Column
+        from ..block_models.block_log import pack_block
+        from ..sql.queries import Column
         records = await cls.query([
             Column("styles", "bn"),
             Column("role", "bn"),
@@ -490,7 +490,7 @@ class ArtifactModel(VersionedModel):
         direction: Literal["asc", "desc"] = "desc", 
         **kwargs
     ):
-        from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+        from ..postgres2.pg_query_set import PgSelectQuerySet
         turn_cte = Turn.vquery().select(*fields or "*").where(status=TurnStatus.COMMITTED)
         if limit:
             turn_cte = turn_cte.limit(limit)
@@ -567,8 +567,8 @@ class ExecutionSpan(VersionedModel):
     #     return turn_id or 1
     
     async def add_block_event(self, block: "Block", index: int):
-        from promptview.model3.block_models.block_log import insert_block
-        from promptview.model3.namespace_manager2 import NamespaceManager
+        from ..block_models.block_log import insert_block
+        from ..namespace_manager2 import NamespaceManager
         if self._should_save_to_db():
             tree_id = await insert_block(block, self.branch_id, self.turn_id, self.id)
         else:

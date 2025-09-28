@@ -10,7 +10,7 @@ from .connection import QdrantConnectionManager
 
 from qdrant_client.http.models import PointStruct, PointVectors, VectorParams, Distance, Filter
 if TYPE_CHECKING:
-    from promptview.model3.model3 import Model
+    from ..model3 import Model
 
 class QdrantNamespace(BaseNamespace["Model", QdrantFieldInfo]):
     def __init__(self, name: str, *fields: QdrantFieldInfo):

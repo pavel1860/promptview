@@ -1,7 +1,7 @@
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from promptview.auth.user_manager import  AuthManager, AuthModel, UserAuthPayload
+from .user_manager import  AuthManager, AuthModel, UserAuthPayload
 import os
 
 

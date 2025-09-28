@@ -43,8 +43,8 @@ class ModelMeta(ModelMetaclass, type):
         )
 
         # Attach parsers for deferred execution
-        from promptview.model3.field_parser import FieldParser
-        from promptview.model3.relation_parser import RelationParser
+        from .field_parser import FieldParser
+        from .relation_parser import RelationParser
 
         field_parser = FieldParser(
             model_cls=cls_obj,
@@ -70,7 +70,7 @@ class ModelMeta(ModelMetaclass, type):
 
     @staticmethod
     def _default_namespace_name(model_cls_name: str, db_type: str) -> str:
-        from promptview.utils.string_utils import camel_to_snake
+        from ..utils.string_utils import camel_to_snake
         name = camel_to_snake(model_cls_name)
         if db_type == "postgres":
             name += "s"

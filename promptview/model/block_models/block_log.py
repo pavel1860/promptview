@@ -1,17 +1,15 @@
-import asyncio
-import asyncpg
+
 import hashlib
 import json
 import uuid
 from typing import Any, Dict, List, Literal, Optional
-from promptview.block import BaseBlock, Block, BlockChunk, BlockList, BlockSent
-from promptview.model.versioning import Branch
-from promptview.model3.sql.expressions import RawValue
-from promptview.model3.sql.queries import Column
-from promptview.utils.db_connections import PGConnectionManager
+from ...block import BaseBlock, Block, BlockChunk, BlockList, BlockSent
+from ..versioning.models import Branch
+from ..sql.expressions import RawValue
+from ..sql.queries import Column
+from ...utils.db_connections import PGConnectionManager
 import datetime as dt
-# from promptview.model3.block_models.block_models import BlockNode, BlockModel
-from promptview.model3.versioning.models import BlockTree, BlockNode, BlockModel, ExecutionSpan, TurnStatus
+from ..versioning.models import BlockTree, BlockNode, BlockModel, ExecutionSpan, TurnStatus
 
 
 
@@ -294,7 +292,7 @@ class BlockLog:
     
     @classmethod
     async def add(cls, block: Block, branch_id: int | None = None, turn_id: int | None = None, span_id: uuid.UUID | None = None):
-        from promptview.model3.versioning.models import Turn, Branch
+        from ..versioning.models import Turn, Branch
         if branch_id is None:
             branch_id = Branch.current().id
         if turn_id is None:

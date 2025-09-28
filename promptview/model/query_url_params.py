@@ -1,8 +1,8 @@
 import datetime as dt
 from typing import Any, List, Literal, Type, Union
 
-from promptview.model3.sql.queries import Column, Table
-from promptview.model3.sql.expressions import Eq, Gte, Lte, Gt, Lt, And, Neq, param
+from .sql.queries import Column, Table
+from .sql.expressions import Eq, Gte, Lte, Gt, Lt, And, Neq, param
 
 
 

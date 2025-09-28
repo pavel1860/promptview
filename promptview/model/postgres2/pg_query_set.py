@@ -4,16 +4,16 @@ import json
 from operator import and_
 from typing import Any, Callable, Generator, Generic, List, Optional, OrderedDict, Self, Type, Union
 from typing_extensions import TypeVar
-from promptview.model3.base.base_namespace import BaseNamespace, RelationPlan
-from promptview.model3.model3 import Model
-from promptview.model3.postgres2.rowset import RowsetNode
-from promptview.model3.relation_info import RelationInfo
-from promptview.model3.sql.joins import Join
+from ..base.base_namespace import BaseNamespace, RelationPlan
+from ..model3 import Model
+from ..postgres2.rowset import RowsetNode
+from ..relation_info import RelationInfo
+from ..sql.joins import Join
 from ..sql.queries import CTENode, SelectQuery, Table, Column, NestedSubquery, Subquery
 from ..sql.expressions import Coalesce, Eq, Expression, RawSQL, WhereClause, param, OrderBy, Function, Value, Null
 from ..sql.compiler import Compiler
 from ..sql.json_processor import Preprocessor
-from promptview.utils.db_connections import PGConnectionManager
+from ...utils.db_connections import PGConnectionManager
 
 MODEL = TypeVar("MODEL", bound=Model)
 
@@ -695,7 +695,7 @@ class PgSelectQuerySet(QuerySet[MODEL]):
         self_group: bool = True,
         include_ctes: bool = True
     ):
-        from promptview.model3 import ArtifactModel
+        from .. import ArtifactModel
         is_artifact = False
         if issubclass(self.model_class, ArtifactModel):
             is_artifact = True
@@ -740,7 +740,6 @@ class PgSelectQuerySet(QuerySet[MODEL]):
 
     
     def to_json_query(self):
-        from promptview.model3 import ArtifactModel
         query = self.build_query(
             include_columns=False, 
             self_group=False, 

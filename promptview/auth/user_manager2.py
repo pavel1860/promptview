@@ -6,10 +6,8 @@ from typing_extensions import TypeVar
 
 
 from pydantic import BaseModel
-from promptview.auth.google_auth import GoogleAuth
-from promptview.model3 import Model, ModelField, RelationField, Branch
-from promptview.model3.fields import KeyField
-from promptview.utils.db_connections import PGConnectionManager
+from .google_auth import GoogleAuth
+from ..model import Model, ModelField, RelationField, Branch, KeyField
 from uuid import UUID
 
 

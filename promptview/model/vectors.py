@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Callable, List, Type
 import ast
 
 if TYPE_CHECKING:
-    from promptview.algebra.vectors.base_vectorizer import BaseVectorizer
+    from ..algebra.vectors.base_vectorizer import BaseVectorizer
 
 
 class Vector(np.ndarray):

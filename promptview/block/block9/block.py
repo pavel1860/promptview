@@ -3,7 +3,7 @@ import json
 import textwrap
 from typing import Any, Callable, List, Type
 
-from promptview.utils.model_utils import is_list_type
+from ...utils.model_utils import is_list_type
 from .base_blocks import BaseBlock, BaseContent, BlockSequence
 import annotated_types
 

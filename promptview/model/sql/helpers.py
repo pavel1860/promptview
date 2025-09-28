@@ -1,11 +1,11 @@
 
 from typing import TYPE_CHECKING
 
-from promptview.model3.relation_info import RelationInfo
+from ..relation_info import RelationInfo
 from .expressions import Coalesce, json_build_object, Function, Not, IsNull, Value, Eq
 from .queries import Column, SelectQuery, Table
 if TYPE_CHECKING:
-    from promptview.model3.postgres2.pg_query_set import PgSelectQuerySet
+    from ..postgres2.pg_query_set import PgSelectQuerySet
 
 
 

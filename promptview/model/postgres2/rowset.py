@@ -1,6 +1,6 @@
 # promptview/model3/sql/rowset.py
 from typing import Generic, Optional, Type, TypeVar
-from promptview.model3.sql.queries import Table
+from ..sql.queries import Table
 
 T = TypeVar("T")  # Model subtype
 

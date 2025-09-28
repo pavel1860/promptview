@@ -4,14 +4,14 @@ from functools import reduce
 from operator import and_
 
 from typing import Any, Callable, Self
-from promptview.model3.base.base_namespace import BaseNamespace
-from promptview.model3.postgres2.pg_query_set import MODEL, QueryProxy
-from promptview.model3.relation_info import RelationInfo
-from promptview.model3.sql.compiler import Compiler
-from promptview.model3.sql.expressions import Coalesce, Null, Value, Function, Eq, WhereClause, param
-from promptview.model3.sql.joins import Join
-from promptview.model3.sql.queries import Column, SelectQuery, Table
-from promptview.model3.postgres2.pg_field_info import PgFieldInfo
+from ..base.base_namespace import BaseNamespace
+from ..postgres2.pg_query_set import MODEL, QueryProxy
+from ..relation_info import RelationInfo
+from ..sql.compiler import Compiler
+from ..sql.expressions import Coalesce, Null, Value, Function, Eq, WhereClause, param
+from ..sql.joins import Join
+from ..sql.queries import Column, SelectQuery, Table
+from ..postgres2.pg_field_info import PgFieldInfo
 
 
 

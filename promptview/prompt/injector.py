@@ -1,5 +1,5 @@
 import inspect
-from promptview.prompt.depends import DependsContainer, resolve_dependency
+from ..prompt.depends import DependsContainer, resolve_dependency
 
 
 

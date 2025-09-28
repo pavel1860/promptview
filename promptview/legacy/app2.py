@@ -2,14 +2,14 @@ import asyncio
 import os
 from typing import Any, List, Literal, Optional
 
-from promptview.app_manager import app_manager
-from promptview.llms.utils.completion_parsing import (is_list_model,
+from .app_manager import app_manager
+from .llms.utils.completion_parsing import (is_list_model,
                                                     unpack_list_model)
-from promptview.llms.prompt_tracer import PromptTracer
-from promptview.llms.tracer_api import get_run_messages
-from promptview.vectors.rag_documents import RagDocuments
-from promptview.vectors.stores.base import OrderBy
-from promptview.model.resource_manager import connection_manager
+from .llms.prompt_tracer import PromptTracer
+from .llms.tracer_api import get_run_messages
+from .vectors.rag_documents import RagDocuments
+from .vectors.stores.base import OrderBy
+from .model.resource_manager import connection_manager
 from fastapi import FastAPI
 from fastapi.concurrency import asynccontextmanager
 from pydantic import BaseModel

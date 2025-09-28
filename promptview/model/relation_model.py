@@ -1,4 +1,4 @@
-from promptview.model3.model3 import Model
+from .model3 import Model
 
 
 class RelationModel(Model):

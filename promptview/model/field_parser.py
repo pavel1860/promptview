@@ -4,11 +4,11 @@ from enum import Enum
 import inspect
 from typing import TYPE_CHECKING, Literal, Type, Any, Dict, Union, get_args, get_origin
 from pydantic.fields import FieldInfo
-from promptview.model3.util import unpack_extra
+from .util import unpack_extra
 
 
 if TYPE_CHECKING:
-    from promptview.model3.model3 import Model
+    from .model3 import Model
 
 def get_field_extras(field_info: FieldInfo) -> Dict[str, Any]:
     """Extract extra metadata from a Pydantic FieldInfo."""

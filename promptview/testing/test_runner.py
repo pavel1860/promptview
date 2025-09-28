@@ -1,10 +1,10 @@
 from typing import TYPE_CHECKING, Generic, TypeVar
-from promptview.testing import TestCase, TestRun
-from promptview.testing.evaluator_decorator import evaluator_store
-from promptview.testing.test_models import Evaluation, EvaluatorConfig, TurnEval, TurnEvaluator
+from ..testing import TestCase, TestRun
+from ..testing.evaluator_decorator import evaluator_store
+from ..testing.test_models import Evaluation, EvaluatorConfig, TurnEval, TurnEvaluator
 import asyncio
 if TYPE_CHECKING:
-    from promptview.model import Turn, Branch
+    from ..model import Turn, Branch
 
 
 
@@ -45,14 +45,14 @@ class TestRunner(Generic[TURN_MODEL]):
     
     
     async def iter_turns(self, test_case: TestCase, test_run: TestRun):
-        for turn in test_case.turns:
+        for turn in test_case.test_turns:
             turn_eval = test_case.evaluators.get(turn.id)
             yield turn, EvalRunner(test_case, test_run, turn_eval.evaluators)
     
     async def __call__(self):
-        from promptview.model import Branch
-        branch = await Branch.get(self.test_case.turns[0].branch_id)
-        test_branch = await branch.fork(self.test_case.turns[0])
+        from ..model import Branch
+        branch = await Branch.get(self.test_case.test_turns[0].branch_id)
+        test_branch = await branch.fork(self.test_case.test_turns[0])
 
         with test_branch:
             test_run = await self.test_case.add(TestRun())
