@@ -95,13 +95,23 @@ class PGConnectionManager:
             if cls._pool is None:
                 url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/promptview_test")
                 
-                # Create pool with proper configs
+                # Get pool configuration from environment variables with sensible defaults
+                min_size = int(os.environ.get("POSTGRES_POOL_MIN_SIZE", "1"))
+                max_size = int(os.environ.get("POSTGRES_POOL_MAX_SIZE", "5"))
+                max_inactive_lifetime = float(os.environ.get("POSTGRES_MAX_INACTIVE_LIFETIME", "30.0"))
+                command_timeout = float(os.environ.get("POSTGRES_COMMAND_TIMEOUT", "20.0"))
+                
+                # Create pool with configurable settings
                 cls._pool = await asyncpg.create_pool(
                     dsn=url,
-                    min_size=5,          # Minimum connections in pool
-                    max_size=20,         # Maximum connections in pool
-                    max_inactive_connection_lifetime=300.0,  # Recycle connections after 5 minutes
-                    command_timeout=60.0  # Command timeout
+                    min_size=min_size,
+                    max_size=max_size,
+                    max_inactive_connection_lifetime=max_inactive_lifetime,
+                    command_timeout=command_timeout,
+                    server_settings={
+                        'application_name': 'promptview',
+                        'jit': 'off'  # Disable JIT for faster connection setup
+                    }
                 )
                 
     @classmethod
@@ -137,16 +147,32 @@ class PGConnectionManager:
 
     @classmethod
     async def execute(cls, query: str, *args) -> str:
-        """Execute a query with proper connection management."""
-        try:
-            if cls._pool is None:
-                await cls.initialize()
-            assert cls._pool is not None, "Pool must be initialized"
-            async with cls._pool.acquire() as conn:
-                return await conn.execute(query, *args)
-        except Exception as e:
-            print_error_sql(query, args, e)
-            raise e
+        """Execute a query with proper connection management and retry logic."""
+        max_retries = int(os.environ.get("POSTGRES_MAX_RETRIES", "3"))
+        retry_delay = float(os.environ.get("POSTGRES_RETRY_DELAY", "0.5"))
+        
+        for attempt in range(max_retries + 1):
+            try:
+                if cls._pool is None:
+                    await cls.initialize()
+                assert cls._pool is not None, "Pool must be initialized"
+                async with cls._pool.acquire() as conn:
+                    return await conn.execute(query, *args)
+            except (asyncpg.ConnectionDoesNotExistError, 
+                    asyncpg.InterfaceError, 
+                    ConnectionError) as e:
+                if attempt == max_retries:
+                    print_error_sql(query, args, e)
+                    raise e
+                print(f"Connection error on attempt {attempt + 1}, retrying in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+                # Reset pool on connection errors to force reconnection
+                if cls._pool:
+                    await cls._pool.close()
+                    cls._pool = None
+            except Exception as e:
+                print_error_sql(query, args, e)
+                raise e
     
     @classmethod
     async def executemany(cls, query: str, args_list: List[tuple]) -> None:
@@ -164,30 +190,62 @@ class PGConnectionManager:
     @classmethod
     async def fetch(cls, query: str, *args) -> List[dict]:
         """Fetch multiple rows from the database as list of dicts."""
-        try:
-            if cls._pool is None:
-                await cls.initialize()
-            assert cls._pool is not None, "Pool must be initialized"
-            async with cls._pool.acquire() as conn:
-                rows = await conn.fetch(query, *args)
-                return [dict(row) for row in rows]
-        except Exception as e:
-            print_error_sql(query, args, e)
-            raise e
+        max_retries = int(os.environ.get("POSTGRES_MAX_RETRIES", "3"))
+        retry_delay = float(os.environ.get("POSTGRES_RETRY_DELAY", "0.5"))
+        
+        for attempt in range(max_retries + 1):
+            try:
+                if cls._pool is None:
+                    await cls.initialize()
+                assert cls._pool is not None, "Pool must be initialized"
+                async with cls._pool.acquire() as conn:
+                    rows = await conn.fetch(query, *args)
+                    return [dict(row) for row in rows]
+            except (asyncpg.ConnectionDoesNotExistError, 
+                    asyncpg.InterfaceError, 
+                    ConnectionError) as e:
+                if attempt == max_retries:
+                    print_error_sql(query, args, e)
+                    raise e
+                print(f"Connection error on attempt {attempt + 1}, retrying in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+                # Reset pool on connection errors to force reconnection
+                if cls._pool:
+                    await cls._pool.close()
+                    cls._pool = None
+            except Exception as e:
+                print_error_sql(query, args, e)
+                raise e
     
     @classmethod
     async def fetch_one(cls, query: str, *args) -> Optional[dict]:
-        try:
-            """Fetch a single row from the database as dict."""
-            if cls._pool is None:
-                await cls.initialize()
-            assert cls._pool is not None, "Pool must be initialized"
-            async with cls._pool.acquire() as conn:
-                row = await conn.fetchrow(query, *args)
-                return dict(row) if row else None
-        except Exception as e:
-            print_error_sql(query, args, e)
-            raise e
+        """Fetch a single row from the database as dict."""
+        max_retries = int(os.environ.get("POSTGRES_MAX_RETRIES", "3"))
+        retry_delay = float(os.environ.get("POSTGRES_RETRY_DELAY", "0.5"))
+        
+        for attempt in range(max_retries + 1):
+            try:
+                if cls._pool is None:
+                    await cls.initialize()
+                assert cls._pool is not None, "Pool must be initialized"
+                async with cls._pool.acquire() as conn:
+                    row = await conn.fetchrow(query, *args)
+                    return dict(row) if row else None
+            except (asyncpg.ConnectionDoesNotExistError, 
+                    asyncpg.InterfaceError, 
+                    ConnectionError) as e:
+                if attempt == max_retries:
+                    print_error_sql(query, args, e)
+                    raise e
+                print(f"Connection error on attempt {attempt + 1}, retrying in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+                # Reset pool on connection errors to force reconnection
+                if cls._pool:
+                    await cls._pool.close()
+                    cls._pool = None
+            except Exception as e:
+                print_error_sql(query, args, e)
+                raise e
     
     @classmethod
     async def drop_tables(cls, table_names: list[str]) -> None:
