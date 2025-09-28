@@ -640,19 +640,3 @@ def parse_value(field: str, value: str) -> Any:
     else:
         return int(value)
 
-
-
-
-
-
-# def parse_query_params(model_cls: Any, curr_filter: QueryFilter | None = None, **kwargs):
-            
-#     for k, v in kwargs.items():
-#         if isinstance(v, QueryFilter):
-#             curr_filter = curr_filter & v if curr_filter else v
-#         else:
-#             if curr_filter is None:
-#                 curr_filter = QueryFilter(FieldComparable(k, model_cls.model_fields[k]), FieldOp.EQ, v)
-#             else:
-#                 curr_filter = curr_filter & QueryFilter(FieldComparable(k, model_cls.model_fields[k]), FieldOp.EQ, v)
-#     return curr_filter
