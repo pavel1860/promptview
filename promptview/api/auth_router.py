@@ -15,7 +15,7 @@ AUTH_MODEL = TypeVar('AUTH_MODEL', bound=AuthModel)
 def create_auth_router(auth_model: AUTH_MODEL):
 
     router = APIRouter(
-        prefix="/auth",
+        prefix="/auth_manager",
         tags=["manager"],
         # dependencies=[Depends(get_current_user), ]
     )
