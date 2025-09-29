@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, Dict, ForwardRef, Type, Optional, get_arg
 from .postgres2.pg_namespace import PgNamespace
 from .qdrant2.qdrant_namespace import QdrantNamespace
 from .util import resolve_annotation
+import time
 
 if TYPE_CHECKING:
     from .model3 import Model
@@ -53,6 +54,7 @@ class NamespaceManager:
 
     @classmethod
     async def initialize_all(cls):
+        start_time = time.time()
         from .versioning.models import Branch
         await PgNamespace.install_extensions()
         # Branch.model_rebuild()
@@ -67,6 +69,8 @@ class NamespaceManager:
         for ns in cls._registry.values():
             if hasattr(ns, "add_foreign_keys"):
                 await ns.add_foreign_keys()
+        end_time = time.time()
+        print(f"initialize_all took {end_time - start_time} seconds")
                 
                 
         

@@ -808,7 +808,6 @@ class PgSelectQuerySet(QuerySet[MODEL]):
             query.select(json_obj)
             return Coalesce(query, default_value)
         else:
-            print("##", query.from_table)
             json_obj = Function("json_agg", json_obj)
             query.select(json_obj)
             return Coalesce(query, Value("[]", inline=True))

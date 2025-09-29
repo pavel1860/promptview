@@ -120,13 +120,17 @@ class Transaction:
 
 class PGConnectionManager:
     _pool: Optional[asyncpg.Pool] = None
-    _initialization_lock = asyncio.Lock()
+    # Remove the class-level lock - this was causing the issue
+    # _initialization_lock = asyncio.Lock()
 
     @classmethod
     async def initialize(cls, url: Optional[str] = None) -> None:
         """Initialize the connection pool if not already initialized."""
+        # Create a new lock for this event loop
+        initialization_lock = asyncio.Lock()
+        
         # Use a lock to prevent multiple concurrent initializations
-        async with cls._initialization_lock:
+        async with initialization_lock:
             if cls._pool is None:
                 url = url or os.environ.get("POSTGRES_URL", "postgresql://snack:Aa123456@localhost:5432/promptview_test")
                 
@@ -135,6 +139,8 @@ class PGConnectionManager:
                 max_size = int(os.environ.get("POSTGRES_POOL_MAX_SIZE", "5"))
                 max_inactive_lifetime = float(os.environ.get("POSTGRES_MAX_INACTIVE_LIFETIME", "30.0"))
                 command_timeout = float(os.environ.get("POSTGRES_COMMAND_TIMEOUT", "20.0"))
+                
+                logger.info(f"Initializing database connection pool for url: {url}")
                 
                 # Create pool with configurable settings
                 cls._pool = await asyncpg.create_pool(
@@ -148,6 +154,26 @@ class PGConnectionManager:
                         'jit': 'off'  # Disable JIT for faster connection setup
                     }
                 )
+                
+                # Verify the connection is working by testing it
+                try:
+                    async with cls._pool.acquire() as conn:
+                        # Test basic connectivity
+                        result = await conn.fetchval("SELECT 1")
+                        if result != 1:
+                            raise RuntimeError("Database connection test failed: unexpected result")
+                        
+                        # Test if we can execute a simple query
+                        await conn.execute("SELECT NOW()")
+                        
+                        logger.info("✅ Database connection pool initialized and verified successfully")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Database connection verification failed: {e}")
+                    # Close the pool if verification fails
+                    await cls._pool.close()
+                    cls._pool = None
+                    raise RuntimeError(f"Failed to verify database connection: {e}")
                 
     @classmethod
     def transaction(cls):
