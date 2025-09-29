@@ -12,10 +12,10 @@ from uuid import UUID
 
 
 
-class AuthBranch(Model):
-    id: int = KeyField(primary_key=True)
-    branch_id: int = ModelField(foreign_key=True)
-    user_id: UUID = ModelField(foreign_key=True)
+# class AuthBranch(Model):
+#     id: int = KeyField(primary_key=True)
+#     branch_id: int = ModelField(foreign_key=True, foreign_cls=Branch)
+#     user_id: UUID = ModelField(foreign_key=True, enforce_foreign_key=False)
     
     
 
@@ -28,12 +28,12 @@ class AuthModel(Model):
     is_admin: bool = ModelField(default=False)
     created_at: datetime = ModelField(default_factory=datetime.now, order_by=True)
     # branches: List[Branch] = RelationField("Branch", foreign_key="user_id")
-    branches: List[Branch] = RelationField(
-        primary_key="id",
-        junction_keys=["user_id", "branch_id"],        
-        foreign_key="id",
-        junction_model=AuthBranch,        
-    )
+    # branches: List[Branch] = RelationField(
+    #     primary_key="id",
+    #     junction_keys=["user_id", "branch_id"],        
+    #     foreign_key="id",
+    #     junction_model=AuthBranch,        
+    # )
 
 
 

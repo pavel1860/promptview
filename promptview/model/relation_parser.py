@@ -76,13 +76,15 @@ class RelationParser:
             if junction_model and junction_keys:
                 # Many-to-Many
                 junction_ns = junction_model.get_namespace()
-                if len(junction_keys) >= 2:
+                if len(junction_keys) == 2:
                     # First key → current model
                     if junction_keys[0] in junction_ns._fields:
                         setattr(junction_ns._fields[junction_keys[0]], "foreign_cls", self.model_cls)
                     # Second key → related model
                     if junction_keys[1] in junction_ns._fields:
                         setattr(junction_ns._fields[junction_keys[1]], "foreign_cls", related_cls)
+                else:
+                    raise ValueError(f"junction_keys must be a list of length 2 for many-to-many relation: {junction_keys}")
             else:
                 # One-to-One or One-to-Many
                 fk_name = extra.get("foreign_key", "id")

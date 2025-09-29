@@ -155,9 +155,9 @@ class NamespaceManager:
 
     @classmethod
     def drop_all_tables(cls, exclude_tables: list[str] | None = None):
-        raise NotImplementedError("drop_all_tables is not implemented")
-        # SQLBuilder.drop_all_tables(exclude_tables)
-        # SQLBuilder.drop_enum_types(exclude_tables)
+        from .postgres2.pg_manager import PgManager
+        PgManager.drop_all_tables(exclude_tables)
+        PgManager.drop_enum_types(exclude_tables)
     
     @classmethod
     def get_turn_namespace(cls):

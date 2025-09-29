@@ -39,11 +39,11 @@ def resolve_annotation(ann, globalns):
 
     # Handle plain ForwardRef
     if isinstance(ann, ForwardRef):
-        return ann._evaluate(globalns, None, set())
+        return ann._evaluate(globalns, None, recursive_guard=frozenset())
 
     # Handle string forward ref
     if isinstance(ann, str):
-        return ForwardRef(ann)._evaluate(globalns, None, set())
+        return ForwardRef(ann)._evaluate(globalns, None, recursive_guard=frozenset())
     
         # If it's NoneType outside a Union — treat as Any or raise
     if ann is type(None):
