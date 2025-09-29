@@ -11,8 +11,12 @@ from contextlib import asynccontextmanager
 if TYPE_CHECKING:
     from psycopg2.pool import SimpleConnectionPool
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging for Vercel compatibility
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s:%(name)s: %(message)s',
+    force=True
+)
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
